@@ -14,6 +14,13 @@ const toolboxCategories = <ToolboxCategory>[
     sheets: _guitarSheets,
   ),
   ToolboxCategory(
+    id: 'bass',
+    name: 'Bass',
+    icon: Icons.graphic_eq_rounded,
+    tagline: 'Tuning, scale formulas, and root-note patterns',
+    sheets: _bassSheets,
+  ),
+  ToolboxCategory(
     id: 'piano',
     name: 'Piano / Keys',
     icon: Icons.piano_rounded,
@@ -119,6 +126,72 @@ const _guitarSheets = <CheatSheet>[
         rows: <CheatSheetRow>[
           CheatSheetRow('G major', 'G A B C D E F# G'),
           CheatSheetRow('E natural minor', 'E F# G A B C D E'),
+        ],
+      ),
+    ],
+  ),
+];
+
+const _bassSheets = <CheatSheet>[
+  CheatSheet(
+    id: 'standard_tuning',
+    title: 'Standard Tuning',
+    icon: Icons.straighten_rounded,
+    kind: CheatSheetKind.text,
+    sections: <CheatSheetSection>[
+      CheatSheetSection(
+        heading: 'Open strings (4-string bass, low to high)',
+        rows: <CheatSheetRow>[
+          CheatSheetRow('4th string', 'E — lowest, thickest string'),
+          CheatSheetRow('3rd string', 'A'),
+          CheatSheetRow('2nd string', 'D'),
+          CheatSheetRow('1st string', 'G — highest, thinnest string'),
+        ],
+      ),
+      CheatSheetSection(
+        heading: '5-string basses add',
+        rows: <CheatSheetRow>[
+          CheatSheetRow('5th string', 'B — below the E string'),
+        ],
+      ),
+    ],
+  ),
+  CheatSheet(
+    id: 'scale_formulas',
+    title: 'Scale Formulas',
+    icon: Icons.stacked_line_chart_rounded,
+    kind: CheatSheetKind.text,
+    sections: <CheatSheetSection>[
+      CheatSheetSection(
+        heading: 'Formulas (W = whole step, H = half step)',
+        rows: <CheatSheetRow>[
+          CheatSheetRow('Major', 'W W H W W W H'),
+          CheatSheetRow('Natural minor', 'W H W W H W W'),
+          CheatSheetRow('Major pentatonic', 'W W W+H W W+H'),
+          CheatSheetRow('Minor pentatonic', 'W+H W W W+H W'),
+        ],
+      ),
+      CheatSheetSection(
+        heading: 'E minor pentatonic (open-string friendly — great starting scale)',
+        rows: <CheatSheetRow>[
+          CheatSheetRow('Notes', 'E G A B D E'),
+        ],
+      ),
+    ],
+  ),
+  CheatSheet(
+    id: 'root_patterns',
+    title: 'Root-Note Patterns',
+    icon: Icons.timeline_rounded,
+    kind: CheatSheetKind.text,
+    sections: <CheatSheetSection>[
+      CheatSheetSection(
+        heading: 'Common groove patterns, relative to the chord\'s root note',
+        rows: <CheatSheetRow>[
+          CheatSheetRow('Root-fifth', 'Root, then the 5th (7 half-steps up) — the most common bass move'),
+          CheatSheetRow('Root-octave', 'Root, then the same note an octave up, for a driving feel'),
+          CheatSheetRow('Walking (major)', 'Root, 3rd, 5th, 6th — walks smoothly into the next chord\'s root'),
+          CheatSheetRow('Walking (minor)', 'Root, b3rd, 4th, 5th'),
         ],
       ),
     ],

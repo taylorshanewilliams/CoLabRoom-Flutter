@@ -48,7 +48,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   double _fontScale = 1;
   Duration _songDuration = const Duration(minutes: 3, seconds: 30);
   Duration _elapsed = Duration.zero;
-  String? _activeContributionId;
+  String? _activeLineKey;
   String? _lastLayoutKey;
   late final List<MusicianSheetLine> _workspaceLines;
   late final List<MusicianSheetLine> _sheetLines;
@@ -61,18 +61,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   List<MusicianSheetLine> get _lines =>
       _source == LiveLyricSource.workspace ? _workspaceLines : _sheetLines;
 
-  bool get _hasSync =>
-      _source == LiveLyricSource.songSheet && (widget.analysis?.hasSyncedLyrics ?? false);
-
-  List<LyricSyncCue> get _sortedCues {
-    final cues = List<LyricSyncCue>.from(
-      _source == LiveLyricSource.songSheet
-          ? widget.analysis?.lyricCues ?? const <LyricSyncCue>[]
-          : const <LyricSyncCue>[],
-    );
-    cues.sort((a, b) => a.startMs.compareTo(b.startMs));
-    return cues;
-  }
+  // The Song Sheet always carries real per-line timing (transcript word
+  // timestamps, or evenly-spaced chord groupings for instrumental-only
+  // recordings) — "synced" scroll is available whenever there's a sheet to
+  // read from, keyed by MusicianSheetLine.startMs/endMs rather than
+  // LyricSyncCue (which analysis no longer writes, since lyrics are never
+  // aligned to a Contribution anymore).
+  bool get _hasSync => _source == LiveLyricSource.songSheet && _sheetLines.isNotEmpty;
 
   @override
   void initState() {
@@ -86,7 +81,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     // itself be a generated transcript when the project had no lyrics of
     // its own at analysis time.
     _workspaceLines = buildMusicianSheetLines(widget.project, _emptyBundle);
-    _sheetLines = buildMusicianSheetLines(widget.project, widget.analysis ?? _emptyBundle);
+    _sheetLines = buildMusicianSheetLines(
+      widget.project,
+      widget.analysis ?? _emptyBundle,
+      ignoreWorkspaceLyrics: true,
+    );
     _colorByContributionId = <String, Color>{
       for (final contribution in widget.project.contributions)
         contribution.id: Color(contribution.colorValue),
@@ -96,8 +95,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _mode = _hasSync ? LiveScrollMode.synced : LiveScrollMode.off;
     if (_hasSync) {
       final track = widget.analysis?.reference;
-      final lastCueEnd = _sortedCues.isEmpty ? 0 : _sortedCues.last.endMs;
-      final durationMs = track?.durationMs ?? lastCueEnd;
+      final lastLineEnd = _sheetLines.isEmpty ? 0 : _sheetLines.last.endMs;
+      final durationMs = track?.durationMs ?? lastLineEnd;
       if (durationMs > 0) _songDuration = Duration(milliseconds: durationMs);
     }
     _ticker = Timer.periodic(const Duration(milliseconds: 50), (_) => _tick());
@@ -111,7 +110,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _playing = false;
       _mode = _hasSync ? LiveScrollMode.synced : LiveScrollMode.off;
       _elapsed = Duration.zero;
-      _activeContributionId = null;
+      _activeLineKey = null;
     });
     _lastTick = null;
     if (_scroll.hasClients) _scroll.jumpTo(0);
@@ -204,43 +203,48 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     }
   }
 
+  /// Keys a line the same way _lineKeys/_lineOffsets do, so both the
+  /// timing math below and the widget build loop always agree on identity
+  /// even for generated lines with no backing Contribution.
+  String _lineKey(int index) => _lines[index].contributionId ?? 'line_$index';
+
   void _tickSynced(ScrollPosition position, double maxExtent) {
     final elapsedMs = _elapsed.inMilliseconds;
-    final cues = _sortedCues;
-    if (cues.isEmpty) {
+    final lines = _lines;
+    if (lines.isEmpty) {
       setState(() => _playing = false);
       _lastTick = null;
       return;
     }
 
-    final target = _syncedScrollTarget(cues, elapsedMs, maxExtent);
+    final target = _syncedScrollTarget(lines, elapsedMs, maxExtent);
     if (target != null && (target - position.pixels).abs() > 0.01) {
       position.jumpTo(target.clamp(0.0, maxExtent));
     }
 
-    final activeCue = _cueAt(cues, elapsedMs);
-    final nextActiveId = activeCue?.contributionId;
+    final nextActiveKey = _lineKeyAt(lines, elapsedMs);
     final songEndMs = _songDuration.inMilliseconds;
-    final finished = songEndMs > 0 ? elapsedMs >= songEndMs : elapsedMs >= cues.last.endMs;
+    final finished = songEndMs > 0 ? elapsedMs >= songEndMs : elapsedMs >= lines.last.endMs;
 
     if (finished) {
       position.jumpTo(maxExtent);
       setState(() {
         _playing = false;
-        _activeContributionId = nextActiveId;
+        _activeLineKey = nextActiveKey;
       });
       _lastTick = null;
     } else if (mounted) {
-      setState(() => _activeContributionId = nextActiveId);
+      setState(() => _activeLineKey = nextActiveKey);
     }
   }
 
-  /// Finds the cue that should be highlighted as "currently sung" at [elapsedMs].
-  LyricSyncCue? _cueAt(List<LyricSyncCue> cues, int elapsedMs) {
-    LyricSyncCue? current;
-    for (final cue in cues) {
-      if (cue.startMs <= elapsedMs) {
-        current = cue;
+  /// Finds the key of the line that should be highlighted as "currently
+  /// sung" at [elapsedMs].
+  String? _lineKeyAt(List<MusicianSheetLine> lines, int elapsedMs) {
+    String? current;
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].startMs <= elapsedMs) {
+        current = _lineKey(i);
       } else {
         break;
       }
@@ -249,31 +253,30 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   }
 
   /// Maps [elapsedMs] to a scroll pixel offset by interpolating between the
-  /// measured positions of the surrounding cued lines. This keeps the
+  /// measured positions of the surrounding timed lines. This keeps the
   /// current line in view and naturally slows through instrumental gaps
   /// instead of assuming lyrics are spread evenly through the song.
-  double? _syncedScrollTarget(List<LyricSyncCue> cues, int elapsedMs, double maxExtent) {
+  double? _syncedScrollTarget(List<MusicianSheetLine> lines, int elapsedMs, double maxExtent) {
     if (_lineOffsets.isEmpty) return null;
 
-    double? offsetFor(LyricSyncCue cue) => _lineOffsets[cue.contributionId];
+    double? offsetFor(int index) => _lineOffsets[_lineKey(index)];
 
-    // Before the first cue: hold at the top of the first cued line.
-    final first = cues.first;
-    if (elapsedMs <= first.startMs) {
-      return offsetFor(first) ?? 0;
+    // Before the first line: hold at the top of it.
+    if (elapsedMs <= lines.first.startMs) {
+      return offsetFor(0) ?? 0;
     }
-    // After the last cue: settle at the very bottom.
-    final last = cues.last;
+    // After the last line: settle at the very bottom.
+    final last = lines.last;
     if (elapsedMs >= last.endMs) {
       return maxExtent;
     }
 
-    for (var i = 0; i < cues.length - 1; i++) {
-      final current = cues[i];
-      final next = cues[i + 1];
+    for (var i = 0; i < lines.length - 1; i++) {
+      final current = lines[i];
+      final next = lines[i + 1];
       if (elapsedMs >= current.startMs && elapsedMs < next.startMs) {
-        final currentOffset = offsetFor(current);
-        final nextOffset = offsetFor(next);
+        final currentOffset = offsetFor(i);
+        final nextOffset = offsetFor(i + 1);
         if (currentOffset == null || nextOffset == null) return currentOffset ?? nextOffset;
         final span = next.startMs - current.startMs;
         if (span <= 0) return currentOffset;
@@ -281,7 +284,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         return currentOffset + (nextOffset - currentOffset) * progress.clamp(0.0, 1.0);
       }
     }
-    return offsetFor(last) ?? maxExtent;
+    return offsetFor(lines.length - 1) ?? maxExtent;
   }
 
   double _timedPixelsPerSecond(double maxExtent) {
@@ -323,7 +326,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _elapsed = Duration.zero;
       _playing = false;
       _controlsVisible = true;
-      _activeContributionId = null;
+      _activeLineKey = null;
     });
     _lastTick = null;
   }
@@ -355,7 +358,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _mode = mode;
       if (mode == LiveScrollMode.off) _playing = false;
       _elapsed = Duration.zero;
-      _activeContributionId = null;
+      _activeLineKey = null;
     });
     _lastTick = null;
     if (mode == LiveScrollMode.synced) _markOffsetsDirty();
@@ -432,7 +435,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                             fontSize: lyricSize,
                             compact: landscape,
                             active: _mode == LiveScrollMode.synced &&
-                                lines[i].contributionId == _activeContributionId,
+                                _lineKey(i) == _activeLineKey,
                           ),
                         SizedBox(height: media.size.height * 0.52),
                       ],

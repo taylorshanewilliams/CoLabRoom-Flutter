@@ -28,7 +28,7 @@ class MusicianSongSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final lines = buildMusicianSheetLines(project, bundle);
+    final lines = buildMusicianSheetLines(project, bundle, ignoreWorkspaceLyrics: true);
     final key = bundle.reference?.musicalKey;
     final approximate = lines.any((line) => line.approximateTiming);
     return Container(

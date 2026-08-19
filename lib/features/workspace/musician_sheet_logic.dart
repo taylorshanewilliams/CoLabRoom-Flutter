@@ -226,18 +226,27 @@ List<LyricSyncCue> nudgeLyricCues(
   }).toList(growable: false);
 }
 
+/// Builds the lines for either the live collaborative workspace (default —
+/// project.contributions with proportional-guess timing, no chords) or, when
+/// [ignoreWorkspaceLyrics] is true, the Song Sheet: analysis output only
+/// (transcript/chords from [bundle]), regardless of what's in the project's
+/// own lyrics. Analysis output must never be influenced by or mixed with
+/// manually-typed lyrics — the two stay fully independent.
 List<MusicianSheetLine> buildMusicianSheetLines(
   SongProject project,
-  SongAnalysisBundle bundle,
-) {
+  SongAnalysisBundle bundle, {
+  bool ignoreWorkspaceLyrics = false,
+}) {
+  final duration = bundle.reference?.durationMs ??
+      (bundle.chordCues.isEmpty ? 0 : bundle.chordCues.last.endMs);
+  if (ignoreWorkspaceLyrics) return _transcriptLines(bundle, duration);
+
   final contributions = project.contributions
       .where((line) =>
           line.kind != ContributionKind.note &&
           displayContributionBody(line.body).trim().isNotEmpty)
       .toList(growable: false);
   final lyrics = visibleMusicianLyrics(project);
-  final duration = bundle.reference?.durationMs ??
-      (bundle.chordCues.isEmpty ? 0 : bundle.chordCues.last.endMs);
   if (lyrics.isEmpty) return _transcriptLines(bundle, duration);
 
   final performanceById = <String, LyricSyncCue>{
