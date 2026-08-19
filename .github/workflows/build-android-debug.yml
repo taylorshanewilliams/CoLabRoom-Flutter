@@ -46,12 +46,16 @@ jobs:
             # than the one flutter.ndkVersion resolves to on this Flutter
             # version; pin the higher version the plugin needs (NDK is
             # backward compatible, so this doesn't affect other plugins).
-            sed -i 's/ndkVersion = flutter.ndkVersion/ndkVersion = "29.0.13113456"/' android/app/build.gradle.kts
+            sed -i -E 's/^(\s*)ndkVersion = .*/\1ndkVersion = "29.0.13113456"/' android/app/build.gradle.kts
             # ffmpeg_kit_flutter_new_min (pulled in transitively by
             # whisper_ggml's bundled FFmpeg conversion) requires compiling
             # against API 35+; flutter.compileSdkVersion resolves lower on
             # this Flutter version.
-            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/' android/app/build.gradle.kts
+            sed -i -E 's/^(\s*)compileSdk = .*/\1compileSdk = 36/' android/app/build.gradle.kts
+            echo "--- android/app/build.gradle.kts android {} block after patching ---"
+            grep -A5 '^android {' android/app/build.gradle.kts
+            grep -q 'ndkVersion = "29.0.13113456"' android/app/build.gradle.kts || { echo "::error::ndkVersion patch did not apply"; exit 1; }
+            grep -q 'compileSdk = 36' android/app/build.gradle.kts || { echo "::error::compileSdk patch did not apply"; exit 1; }
           else
             echo "android/ folder already present, using it as-is."
           fi
