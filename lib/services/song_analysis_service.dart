@@ -305,8 +305,29 @@ class SongAnalysisService {
         },
       );
       await whisper.releaseModel();
+      if (result == null) {
+        // Distinct from "transcribed but heard nothing": the on-device
+        // engine itself didn't return a result at all — most likely the
+        // speech model failed to download/initialize, or couldn't process
+        // this audio file, rather than the recording genuinely being silent.
+        throw StateError(
+          'The on-device speech model could not process this recording. '
+          'Check your connection (the model downloads on first use) and try again.',
+        );
+      }
       final words = _transcribedWords(result);
       if (words.isEmpty) {
+        // If Whisper actually produced text but our segment-based extraction
+        // found nothing, that's a parsing bug on our side, not a "couldn't
+        // hear you" situation — surface that distinction instead of masking
+        // it with the generic message.
+        final dynamic wholeText = result.transcription?.text;
+        if (wholeText is String && wholeText.trim().isNotEmpty) {
+          throw StateError(
+            'Heard "${wholeText.trim()}" but could not extract word timings from it '
+            '(a bug in ColabRoom, not your recording).',
+          );
+        }
         throw StateError('I could not hear enough sung words to sync these lyrics.');
       }
 
