@@ -220,6 +220,11 @@ class MusicBetaController extends ChangeNotifier {
     await load();
   }
 
+  Future<void> setMemberColor(MusicRoom room, int colorValue) async {
+    await repository.setMemberColor(roomId: room.id, colorValue: colorValue);
+    await load();
+  }
+
   Future<void> submitFeedback(FeedbackDraft feedback) {
     return repository.submitFeedback(feedback);
   }

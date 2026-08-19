@@ -550,6 +550,14 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> setMemberColor({required String roomId, required int colorValue}) async {
+    await client.rpc<void>(
+      'set_my_room_color',
+      params: <String, dynamic>{'target_room': roomId, 'target_color': colorValue},
+    );
+  }
+
+  @override
   Future<void> submitFeedback(FeedbackDraft feedback) async {
     await client.from('feedback').insert(<String, dynamic>{
       'user_id': _userId,

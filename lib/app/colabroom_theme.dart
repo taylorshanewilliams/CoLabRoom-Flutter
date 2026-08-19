@@ -12,6 +12,24 @@ abstract final class AppColors {
   static const line = Color(0xFF152D4E);
   static const orange = Color(0xFFFF914D);
   static const green = Color(0xFF45D6A5);
+
+  /// The 10 collaborator colors the backend assigns members from (see
+  /// accept_room_invitation_by_id / set_my_room_color in
+  /// supabase/migrations/0006_shared_document_editor.sql) — kept in the
+  /// same order so index-based reasoning stays consistent between the
+  /// client and the database.
+  static const memberPalette = <Color>[
+    orange,
+    cyan,
+    green,
+    Color(0xFFB993FF),
+    Color(0xFFFFC857),
+    Color(0xFFFF6FAE),
+    Color(0xFF7C8CFF),
+    Color(0xFF2ED3B7),
+    Color(0xFFA8E063),
+    Color(0xFFFF7A7A),
+  ];
 }
 
 abstract final class CoLabRoomTheme {

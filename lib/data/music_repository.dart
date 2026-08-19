@@ -82,6 +82,12 @@ abstract interface class MusicRepository {
 
   Future<void> acceptInvite({String? code, BetaInvite? invite});
 
+  /// Sets the caller's own display color within [roomId] to [colorValue].
+  /// [colorValue] must be one of [AppColors.memberPalette] and must not
+  /// already be in use by another member of that room — implementations
+  /// should throw if either is violated.
+  Future<void> setMemberColor({required String roomId, required int colorValue});
+
   Future<void> declineInvite(BetaInvite invite);
 
   Future<void> submitFeedback(FeedbackDraft feedback);

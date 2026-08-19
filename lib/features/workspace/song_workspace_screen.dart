@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
@@ -45,7 +46,6 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   bool _listening = false;
   bool _autoScroll = true;
   bool _importingLyrics = false;
-  Color _authorColor = AppColors.orange;
   String? _recordingContributionId;
   String? _savingContributionId;
   String? _loadingVoiceContributionId;
@@ -159,6 +159,20 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     }
   }
 
+  /// The signed-in member's own display color for [room], as assigned by
+  /// the backend (accept_room_invitation_by_id / set_my_room_color) —
+  /// falls back to AppColors.orange only if the member row can't be found
+  /// yet (e.g. room still loading).
+  Color _authorColorFor(MusicRoom? room) {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (room != null && userId != null) {
+      for (final member in room.members) {
+        if (member.userId == userId) return Color(member.colorValue);
+      }
+    }
+    return AppColors.orange;
+  }
+
   Future<void> _addContribution(SongProject project) async {
     final requestedIndex = _draftIndex ?? project.contributions.length;
     final index = requestedIndex < 0
@@ -173,11 +187,12 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     final position = previous == null
         ? (next == null ? 1024.0 : next - 1024)
         : (next == null ? previous + 1024 : (previous + next) / 2);
+    final room = BetaScope.of(context).roomForProject(project.id);
     try {
       await BetaScope.of(context).addContribution(
         project,
         _composer.text,
-        colorValue: _authorColor.toARGB32(),
+        colorValue: _authorColorFor(room).toARGB32(),
         position: position,
       );
       _composer.clear();
@@ -275,10 +290,11 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     try {
       final drafts = await showLyricImportFlow(context);
       if (drafts == null || !mounted) return;
+      final room = BetaScope.of(context).roomForProject(project.id);
       final count = await BetaScope.of(context).importContributions(
         project,
         drafts,
-        colorValue: _authorColor.toARGB32(),
+        colorValue: _authorColorFor(room).toARGB32(),
       );
       if (!mounted) return;
       _showMessage('Imported $count lyric ${count == 1 ? 'line' : 'lines'}.');
@@ -314,6 +330,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   }
 
   Future<void> _showColorPicker() async {
+    final room = BetaScope.of(context).roomForProject(widget.projectId);
+    if (room == null) return;
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final currentColorValue = _authorColorFor(room).toARGB32();
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -327,26 +347,38 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
             children: <Widget>[
               Text('Writing color', style: Theme.of(context).textTheme.headlineMedium),
               const SizedBox(height: 8),
-              const Text('New lines use this color so collaborators are easy to follow.'),
+              const Text(
+                'Each member has one color in this Room, so collaborators are easy to follow.',
+              ),
               const SizedBox(height: 18),
               Wrap(
                 spacing: 14,
-                children: <Color>[
-                  AppColors.orange,
-                  AppColors.cyan,
-                  AppColors.green,
-                  const Color(0xFFB993FF),
-                ].map((color) {
-                  final selected = color == _authorColor;
+                runSpacing: 14,
+                children: AppColors.memberPalette.map((color) {
+                  final colorValue = color.toARGB32();
+                  final selected = colorValue == currentColorValue;
+                  final takenByOther = room.members.any(
+                    (member) => member.userId != currentUserId && member.colorValue == colorValue,
+                  );
                   return Semantics(
                     button: true,
+                    enabled: !takenByOther,
                     selected: selected,
-                    label: 'Choose writing color',
+                    label: takenByOther ? 'Color already used by another member' : 'Choose writing color',
                     child: InkWell(
-                      onTap: () {
-                        setState(() => _authorColor = color);
-                        Navigator.pop(sheetContext);
-                      },
+                      onTap: takenByOther
+                          ? null
+                          : () async {
+                              if (!selected) {
+                                try {
+                                  await BetaScope.of(context).setMemberColor(room, colorValue);
+                                } catch (error) {
+                                  if (mounted) _showMessage(error.toString());
+                                  return;
+                                }
+                              }
+                              if (mounted) Navigator.pop(sheetContext);
+                            },
                       customBorder: const CircleBorder(),
                       child: Container(
                         width: 44,
@@ -359,12 +391,20 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                             width: 3,
                           ),
                           boxShadow: <BoxShadow>[
-                            BoxShadow(color: color.withValues(alpha: 0.22), blurRadius: 20),
+                            BoxShadow(
+                              color: color.withValues(alpha: takenByOther ? 0.08 : 0.22),
+                              blurRadius: 20,
+                            ),
                           ],
                         ),
-                        child: selected
-                            ? const Icon(Icons.check_rounded, color: Colors.white, size: 20)
-                            : null,
+                        child: Opacity(
+                          opacity: takenByOther ? 0.35 : 1,
+                          child: selected
+                              ? const Icon(Icons.check_rounded, color: Colors.white, size: 20)
+                              : takenByOther
+                                  ? const Icon(Icons.lock_outline_rounded, color: Colors.white, size: 16)
+                                  : null,
+                        ),
                       ),
                     ),
                   );
@@ -619,6 +659,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     final media = MediaQuery.of(context);
     final landscape = media.orientation == Orientation.landscape && media.size.width >= 540;
     final keyboardOpen = media.viewInsets.bottom > 0;
+    final authorColor = _authorColorFor(room);
     final editor = _ContributionWorkspace(
       project: project,
       bookMode: landscape,
@@ -627,7 +668,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       scrollController: _contributionScroll,
       draftIndex: _draftIndex,
       listening: _listening,
-      authorColor: _authorColor,
+      authorColor: authorColor,
       recordingContributionId: _recordingContributionId,
       savingContributionId: _savingContributionId,
       loadingVoiceContributionId: _loadingVoiceContributionId,
@@ -655,7 +696,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 project: project,
                 room: room,
                 autoScroll: _autoScroll,
-                authorColor: _authorColor,
+                authorColor: authorColor,
                 importingLyrics: _importingLyrics,
                 onBack: () {
                   Navigator.maybePop(context);
@@ -681,7 +722,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                   ),
                   _WorkspaceToolbar(
                     autoScroll: _autoScroll,
-                    authorColor: _authorColor,
+                    authorColor: authorColor,
                     importingLyrics: _importingLyrics,
                     onToggleAutoScroll: _toggleAutoScroll,
                     onColor: _showColorPicker,

@@ -505,6 +505,30 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> setMemberColor({required String roomId, required int colorValue}) async {
+    const currentUserId = 'preview-user';
+    final room = _rooms.firstWhere((candidate) => candidate.id == roomId);
+    if (room.members.any(
+      (member) => member.userId != currentUserId && member.colorValue == colorValue,
+    )) {
+      throw const NameConflict('That color is already being used in this Room.');
+    }
+    final updatedMembers = room.members
+        .map(
+          (member) => member.userId == currentUserId
+              ? RoomMember(
+                  userId: member.userId,
+                  displayName: member.displayName,
+                  role: member.role,
+                  colorValue: colorValue,
+                )
+              : member,
+        )
+        .toList(growable: false);
+    _replaceRoom(room.copyWith(members: updatedMembers));
+  }
+
+  @override
   void dispose() {}
 
   Iterable<SongProject> get _allProjects => _rooms.expand((room) => room.projects);
