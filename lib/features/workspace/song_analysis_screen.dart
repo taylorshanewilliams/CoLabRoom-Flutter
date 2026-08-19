@@ -342,10 +342,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                   const SizedBox(height: 6),
                   Text(
                     reference == null
-                        ? 'Use a rehearsal, demo, or finished mix. If this project already has lyrics, CoLabRoom times them to the recording; if not, it writes them down from what you sing.'
+                        ? 'Use a rehearsal, demo, or finished mix. If this project already has lyrics, CoLabRoom times them to the recording; if not, it builds a separate song sheet from what you sing — your project\'s own lyrics stay untouched either way.'
                         : ready
                             ? 'This song now has a timed lyric map and chord map for Live mode.'
-                            : 'Ready to analyze the recording. If the project has lyrics, they\'ll be timed to this take — otherwise CoLabRoom writes new lyric lines from what it hears.',
+                            : 'Ready to analyze the recording. If the project has lyrics, they\'ll be timed to this take — otherwise this builds a separate song sheet from what it hears, without touching the project\'s own lyrics.',
                     style: const TextStyle(color: AppColors.muted, height: 1.45, fontSize: 12),
                   ),
                   const SizedBox(height: 18),

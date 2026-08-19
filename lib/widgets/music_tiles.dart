@@ -88,6 +88,7 @@ class SongTile extends StatelessWidget {
     required this.project,
     required this.onTap,
     this.onLongPress,
+    this.onMore,
     this.selected = false,
     super.key,
   });
@@ -95,6 +96,11 @@ class SongTile extends StatelessWidget {
   final SongProject project;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
+
+  /// When set (and [selected] is false), shows a small overflow button
+  /// (rename/delete/select) instead of the plain arrow — mirrors
+  /// [RoomTile.onMore].
+  final VoidCallback? onMore;
   final bool selected;
 
   @override
@@ -125,11 +131,17 @@ class SongTile extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                Icon(
-                  selected ? Icons.check_circle_rounded : Icons.arrow_outward_rounded,
-                  color: selected ? AppColors.cyan : AppColors.muted,
-                  size: 19,
-                ),
+                if (selected)
+                  const Icon(Icons.check_circle_rounded, color: AppColors.cyan, size: 19)
+                else if (onMore != null)
+                  InkResponse(
+                    key: const Key('song_more_button'),
+                    onTap: onMore,
+                    radius: 18,
+                    child: const Icon(Icons.more_vert_rounded, size: 20, color: AppColors.muted),
+                  )
+                else
+                  const Icon(Icons.arrow_outward_rounded, color: AppColors.muted, size: 19),
               ],
             ),
             const Spacer(),

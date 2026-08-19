@@ -163,7 +163,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
                     crossAxisCount: count,
                     mainAxisSpacing: 8,
                     crossAxisSpacing: 10,
-                    mainAxisExtent: 164,
+                    mainAxisExtent: 172,
                   ),
                   delegate: SliverChildBuilderDelegate(
                     (context, index) => _DraggableRoomTile(
@@ -195,7 +195,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
                     crossAxisCount: count,
                     mainAxisSpacing: 8,
                     crossAxisSpacing: 10,
-                    mainAxisExtent: 164,
+                    mainAxisExtent: 172,
                   ),
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
@@ -405,7 +405,7 @@ class _DraggableRoomTileState extends State<_DraggableRoomTile> {
             color: Colors.transparent,
             child: SizedBox(
               width: 168,
-              height: 164,
+              height: 172,
               child: Transform.scale(
                 scale: 1.05,
                 child: Opacity(

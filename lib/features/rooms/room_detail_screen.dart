@@ -44,7 +44,10 @@ class RoomDetailScreen extends StatefulWidget {
 
 class _RoomDetailScreenState extends State<RoomDetailScreen> {
   final Set<String> _selectedProjectIds = <String>{};
-  _ProjectSort _sort = _ProjectSort.updatedRecent;
+  // Manual (drag-to-reorder) by default so song tiles behave like Room
+  // tiles out of the box — dragging shouldn't require hunting through a
+  // sort menu first.
+  _ProjectSort _sort = _ProjectSort.manual;
   String _query = '';
 
   List<SongProject> _sortedProjects(MusicRoom room) {
@@ -235,6 +238,87 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     final dragged = reordered.removeAt(draggedIndex);
     reordered.insert(dropIndex, dragged);
     unawaited(BetaScope.of(context).reorderRoomProjects(room, reordered));
+  }
+
+  Future<void> _showSongMenu(MusicRoom room, SongProject project) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.edit_rounded),
+                title: const Text('Rename Song'),
+                onTap: () => Navigator.pop(context, 'rename'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.check_box_outlined),
+                title: const Text('Select Multiple'),
+                onTap: () => Navigator.pop(context, 'select'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFF9AA9)),
+                title: const Text('Delete Song'),
+                onTap: () => Navigator.pop(context, 'delete'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    switch (action) {
+      case 'rename':
+        await _renameSong(project);
+      case 'select':
+        setState(() => _selectedProjectIds.add(project.id));
+      case 'delete':
+        await _deleteSingleSong(room, project);
+    }
+  }
+
+  Future<void> _renameSong(SongProject project) async {
+    final value = await showDialog<String>(
+      context: context,
+      builder: (_) => _RenameProjectDialog(initialTitle: project.title),
+    );
+    if (value == null || !mounted) return;
+    try {
+      await BetaScope.of(context).renameSong(project, value);
+    } catch (error) {
+      if (mounted) _showMessage(error.toString());
+    }
+  }
+
+  Future<void> _deleteSingleSong(MusicRoom room, SongProject project) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete this song?'),
+        content: Text(
+          '“${project.title}” and all of its lyrics and recordings will be deleted permanently.',
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF718B)),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await BetaScope.of(context).deleteSong(project);
+      if (mounted) _showMessage('Deleted “${project.title}”.');
+    } catch (error) {
+      if (mounted) _showMessage('Could not delete this song: $error');
+    }
   }
 
   @override
@@ -516,7 +600,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                       crossAxisCount: count,
                       mainAxisSpacing: 8,
                       crossAxisSpacing: 10,
-                      mainAxisExtent: 164,
+                      mainAxisExtent: 172,
                     ),
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
@@ -533,14 +617,14 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                           );
                         }
 
-                        if (_sort == _ProjectSort.manual &&
-                            _query.isEmpty &&
-                            _selectedProjectIds.isEmpty) {
+                        if (_selectedProjectIds.isEmpty &&
+                            _sort == _ProjectSort.manual &&
+                            _query.isEmpty) {
                           return _DraggableSongTile(
                             key: ValueKey<String>(project.id),
                             project: project,
                             onTap: onTap,
-                            onLongPress: () => _toggleSelection(project.id),
+                            onMore: () => _showSongMenu(room, project),
                             onReorder: (draggedId) =>
                                 _reorderProjects(room, sortedProjects, draggedId, index),
                           );
@@ -548,7 +632,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                         return SongTile(
                           project: project,
                           selected: _selectedProjectIds.contains(project.id),
-                          onLongPress: () => _toggleSelection(project.id),
+                          onMore: _selectedProjectIds.isEmpty ? () => _showSongMenu(room, project) : null,
                           onTap: onTap,
                         );
                       },
@@ -569,19 +653,19 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
 
 /// Wraps [SongTile] with long-press drag-to-reorder support, mirroring
 /// _DraggableRoomTile on the Rooms screen. Only used while sorted by
-/// "Custom order" with no active search/selection.
+/// "Custom order" (the default) with no active search/selection.
 class _DraggableSongTile extends StatefulWidget {
   const _DraggableSongTile({
     required this.project,
     required this.onTap,
-    required this.onLongPress,
+    required this.onMore,
     required this.onReorder,
     super.key,
   });
 
   final SongProject project;
   final VoidCallback onTap;
-  final VoidCallback onLongPress;
+  final VoidCallback onMore;
   final ValueChanged<String> onReorder;
 
   @override
@@ -609,7 +693,7 @@ class _DraggableSongTileState extends State<_DraggableSongTile> {
             color: Colors.transparent,
             child: SizedBox(
               width: 164,
-              height: 164,
+              height: 172,
               child: Transform.scale(
                 scale: 1.05,
                 child: Opacity(
@@ -634,7 +718,7 @@ class _DraggableSongTileState extends State<_DraggableSongTile> {
             child: SongTile(
               project: widget.project,
               onTap: widget.onTap,
-              onLongPress: widget.onLongPress,
+              onMore: widget.onMore,
             ),
           ),
         );
@@ -783,6 +867,51 @@ class _RenameRoomDialogState extends State<_RenameRoomDialog> {
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(
           onPressed: () => Navigator.pop(context, _name.text),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _RenameProjectDialog extends StatefulWidget {
+  const _RenameProjectDialog({required this.initialTitle});
+
+  final String initialTitle;
+
+  @override
+  State<_RenameProjectDialog> createState() => _RenameProjectDialogState();
+}
+
+class _RenameProjectDialogState extends State<_RenameProjectDialog> {
+  late final TextEditingController _title;
+
+  @override
+  void initState() {
+    super.initState();
+    _title = TextEditingController(text: widget.initialTitle);
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Rename Song'),
+      content: TextField(
+        controller: _title,
+        autofocus: true,
+        textCapitalization: TextCapitalization.words,
+        onSubmitted: (value) => Navigator.pop(context, value),
+      ),
+      actions: <Widget>[
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _title.text),
           child: const Text('Save'),
         ),
       ],
