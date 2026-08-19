@@ -274,9 +274,7 @@ class SongAnalysisService {
     required String localPath,
     ValueChanged<SongAnalysisProgress>? onProgress,
   }) async {
-    if (project.contributions.where((line) => _visibleLine(line)).isEmpty) {
-      throw StateError('Add some lyrics before syncing a reference recording.');
-    }
+    final hasLyrics = project.contributions.where((line) => _visibleLine(line)).isNotEmpty;
     await _setState(project.id, SongAnalysisState.processing);
     try {
       onProgress?.call(const SongAnalysisProgress('Preparing audio', 0.05));
@@ -368,8 +366,13 @@ class SongAnalysisService {
         throw StateError('I could not hear enough sung words to sync these lyrics.');
       }
 
-      onProgress?.call(const SongAnalysisProgress('Matching lyrics to the performance', 0.54));
-      final lyricResult = _alignLyrics(project, words, durationMs);
+      onProgress?.call(SongAnalysisProgress(
+        hasLyrics ? 'Matching lyrics to the performance' : 'Writing down the lyrics',
+        0.54,
+      ));
+      final lyricResult = hasLyrics
+          ? _alignLyrics(project, words, durationMs)
+          : await _generateLyricsFromTranscript(project, words, durationMs);
 
       onProgress?.call(const SongAnalysisProgress('Finding chord changes', 0.62));
       final rawPcm = await AudioDecoder.convertToWavBytes(
@@ -468,6 +471,57 @@ class SongAnalysisService {
         .eq('project_id', projectId);
   }
 
+  /// Used when a project has no lyrics typed in yet: instead of aligning
+  /// existing lyric lines to the recording (which needs lyrics to already
+  /// exist), groups the transcript into line-sized chunks by pause gaps and
+  /// writes them as new, real, editable Contributions — this is what
+  /// actually gives the project a lyrics tab from what was sung, rather
+  /// than requiring lyrics up front.
+  Future<_LyricAlignmentResult> _generateLyricsFromTranscript(
+    SongProject project,
+    List<_TimedWord> words,
+    int durationMs,
+  ) async {
+    final lines = _groupWordsIntoLines(words);
+    if (lines.isEmpty) return const _LyricAlignmentResult(<LyricSyncCue>[], 0);
+    final user = client.auth.currentUser;
+    final rows = await client
+        .from('contributions')
+        .insert(
+          <Map<String, dynamic>>[
+            for (var i = 0; i < lines.length; i++)
+              <String, dynamic>{
+                'project_id': project.id,
+                'author_id': client.auth.currentUser!.id,
+                'author_name': user?.userMetadata?['display_name'] ?? 'Member',
+                'body': _lineText(lines[i]),
+                'color_value': 0xFFFF8A4C,
+                'position': (i + 1) * 1024.0,
+              },
+          ],
+        )
+        .select('id');
+    final cues = <LyricSyncCue>[];
+    for (var i = 0; i < lines.length; i++) {
+      final contributionId = (rows[i] as Map)['id'] as String;
+      final line = lines[i];
+      cues.add(LyricSyncCue(
+        contributionId: contributionId,
+        startMs: line.first.startMs,
+        endMs: math.min(durationMs, line.last.endMs + 180),
+        // Generated straight from the transcript's own word timing rather
+        // than guessed via alignment against separate text, so it starts
+        // from a higher baseline than a typical alignment match — but
+        // Whisper's word-level timestamps are still imperfect, so not 1.0.
+        confidence: 0.75,
+      ));
+    }
+    return _LyricAlignmentResult(
+      cues,
+      cues.isEmpty ? 0 : cues.map((cue) => cue.confidence).reduce((a, b) => a + b) / cues.length,
+    );
+  }
+
   static bool _visibleLine(Contribution line) {
     final body = line.body.replaceAll('\u200B', '').trim();
     if (body.isEmpty) return false;
@@ -490,9 +544,14 @@ bool _looksLikeSpeech(String text) {
 }
 
 class _TimedWord {
-  const _TimedWord(this.word, this.startMs, this.endMs);
+  const _TimedWord(this.word, this.raw, this.startMs, this.endMs);
 
+  /// Lowercased, punctuation-stripped — used for alignment matching.
   final String word;
+
+  /// Whisper's original casing/punctuation for this word — used when
+  /// generating readable lyric lines from the transcript.
+  final String raw;
   final int startMs;
   final int endMs;
 }
@@ -503,16 +562,44 @@ List<_TimedWord> _transcribedWords(dynamic result) {
   if (rawSegments == null) return const <_TimedWord>[];
   final words = <_TimedWord>[];
   for (final dynamic segment in rawSegments as Iterable<dynamic>) {
-    final token = _normalizeToken(segment.text?.toString() ?? '');
+    final rawText = (segment.text?.toString() ?? '').trim();
+    final token = _normalizeToken(rawText);
     if (token.isEmpty) continue;
     final dynamic from = segment.fromTs;
     final dynamic to = segment.toTs;
     final int start = from is Duration ? from.inMilliseconds : 0;
     final int end = to is Duration ? to.inMilliseconds : start + 300;
-    words.add(_TimedWord(token, start, math.max(start + 40, end)));
+    words.add(_TimedWord(token, rawText, start, math.max(start + 40, end)));
   }
   return words;
 }
+
+/// Groups transcribed words into line-sized chunks by pause gaps between
+/// words (a real pause usually means a new sung line/phrase), falling back
+/// to a max word count or duration so a line without pauses doesn't run on
+/// indefinitely.
+List<List<_TimedWord>> _groupWordsIntoLines(List<_TimedWord> words) {
+  const pauseGapMs = 650;
+  const maxWordsPerLine = 12;
+  const maxLineDurationMs = 9000;
+  final lines = <List<_TimedWord>>[];
+  var current = <_TimedWord>[];
+  for (final word in words) {
+    if (current.isNotEmpty) {
+      final gap = word.startMs - current.last.endMs;
+      final duration = word.endMs - current.first.startMs;
+      if (gap >= pauseGapMs || current.length >= maxWordsPerLine || duration >= maxLineDurationMs) {
+        lines.add(current);
+        current = <_TimedWord>[];
+      }
+    }
+    current.add(word);
+  }
+  if (current.isNotEmpty) lines.add(current);
+  return lines;
+}
+
+String _lineText(List<_TimedWord> line) => line.map((word) => word.raw).join(' ').trim();
 
 class _LyricAlignmentResult {
   const _LyricAlignmentResult(this.cues, this.confidence);
