@@ -1,0 +1,51 @@
+name: Bootstrap android/ folder
+
+# One-time (re-runnable) manual job: scaffolds android/, applies the Gradle
+# fixes whisper_ggml/ffmpeg_kit_flutter_new_min need, writes the real
+# launcher icon, adds the RECORD_AUDIO/INTERNET permissions and the auth
+# deep-link intent-filter, then commits android/ back to the repo so it
+# stops being regenerated from scratch on every build. No-ops if android/
+# already exists.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Scaffold, patch, and generate icons
+        run: |
+          if [ -d android ]; then
+            echo "android/ already exists — nothing to bootstrap."
+            echo "SHOULD_COMMIT=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "SHOULD_COMMIT=true" >> "$GITHUB_ENV"
+
+          flutter create --platforms=android --org com.colabroom --project-name colabroom .
+
+          bash scripts/patch_android_gradle.sh
+          bash scripts/patch_android_manifest.sh
+
+          sudo apt-get update -y
+          sudo apt-get install -y librsvg2-bin
+          bash scripts/generate_launcher_icons.sh
+
+      - name: Commit and push android/
+        if: env.SHOULD_COMMIT == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add android/
+          git commit -m "Bootstrap android/ with real launcher icon, permissions, and Gradle fixes"
+          git push

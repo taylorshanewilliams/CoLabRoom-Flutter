@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <!--
+    Rasterized launcher-icon counterpart of lib/widgets/brand_mark.dart's
+    _CoLabRoomMarkPainter, reproduced at native 192x192 (xxxhdpi) so
+    stroke widths and radii scale down faithfully at every other density.
+    Colors and proportions are copied directly from that painter:
+    AppColors.deepNavy background, AppColors.line border, the blue->cyan
+    gradient arc ("C") with its play-triangle in the gap.
+  -->
+  <defs>
+    <linearGradient id="grad" gradientUnits="userSpaceOnUse" x1="0" y1="96" x2="192" y2="96">
+      <stop offset="0" stop-color="#159DFF"/>
+      <stop offset="1" stop-color="#35D8F7"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="188" height="188" rx="62.6" ry="62.6" fill="#06101F" stroke="#152D4E" stroke-width="4.17"/>
+  <path d="M 140.81 140.81 A 63.36 63.36 0 1 1 140.81 51.19" fill="none" stroke="url(#grad)" stroke-width="26.88" stroke-linecap="square"/>
+  <path d="M 78.72 63.36 L 138.24 96 L 78.72 128.64 Z" fill="url(#grad)"/>
+</svg>
