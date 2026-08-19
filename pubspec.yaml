@@ -4,15 +4,17 @@ publish_to: none
 version: 0.3.1+7
 
 environment:
-  sdk: '>=3.6.0 <4.0.0'
+  sdk: '>=3.7.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
   audioplayers: ^6.8.1
   archive: ^4.0.9
+  audio_decoder: ^0.8.1
   cross_file: 0.3.5+4
   csv: 6.0.0
+  fftea: ^1.5.0+1
   file_picker: 12.0.0
   http: 1.6.0
   path_provider: 2.1.5
@@ -24,6 +26,7 @@ dependencies:
   share_plus: ^13.3.0
   speech_to_text: ^7.0.0
   supabase_flutter: ^2.0.0
+  whisper_ggml: ^2.6.0
   xml: ^7.0.1
 
 dev_dependencies:
