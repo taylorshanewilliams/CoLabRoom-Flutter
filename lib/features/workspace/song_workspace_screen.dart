@@ -22,7 +22,7 @@ import 'song_analysis_screen.dart';
 
 enum _VoiceNoteAction { play, rerecord, delete }
 
-enum _SongMenuAction { analyze, live, print, share }
+enum _SongMenuAction { analyze, record, live, print, share }
 
 class SongWorkspaceScreen extends StatefulWidget {
   const SongWorkspaceScreen({required this.projectId, super.key});
@@ -258,6 +258,14 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       );
       return;
     }
+    if (action == _SongMenuAction.record) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SongAnalysisScreen(project: project, autoRecord: true),
+        ),
+      );
+      return;
+    }
     if (action == _SongMenuAction.live) {
       await _openLivePerformance(project);
       return;
@@ -271,6 +279,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           await ProjectExportService.shareSong(project);
           break;
         case _SongMenuAction.analyze:
+        case _SongMenuAction.record:
         case _SongMenuAction.live:
           break; // handled above
       }
@@ -486,12 +495,19 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       } else {
         final confirmed = await showDialog<bool>(
           context: context,
-          builder: (_) => AlertDialog(
+          // showDialog defaults to the root navigator, but this app also
+          // has a nested workspace Navigator (see workspace_shell.dart).
+          // Popping with the outer `context` (instead of this builder's own
+          // dialogContext) pops the wrong navigator's top route — it closes
+          // this screen instead of the dialog, leaving the dialog itself
+          // orphaned on top and blocking input. Looks like "goes back a
+          // screen and freezes."
+          builder: (dialogContext) => AlertDialog(
             title: const Text('Delete voice note?'),
             content: const Text('The lyric line will stay in the project.'),
             actions: <Widget>[
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Keep')),
-              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Delete')),
             ],
           ),
         );
@@ -514,15 +530,23 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   }) async {
     final ready = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      // showDialog defaults to the root navigator, but this app also has a
+      // nested workspace Navigator (see workspace_shell.dart). Popping with
+      // the outer `context` (instead of this builder's own dialogContext)
+      // pops the wrong navigator's top route — it closes this screen
+      // instead of the dialog, leaving the dialog itself orphaned on top
+      // and blocking input. This was the actual cause of "tap the bullet's
+      // record button, it goes back a screen and freezes" — not a
+      // re-entrancy issue.
+      builder: (dialogContext) => AlertDialog(
         title: Text(replacing ? 'Ready to re-record?' : 'Ready to record?'),
         content: Text(replacing
             ? 'Your current voice note stays available until the replacement is saved.'
             : 'Recording begins only after you press Start.'),
         actions: <Widget>[
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Not Yet')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Not Yet')),
           FilledButton.icon(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             icon: const Icon(Icons.mic_rounded),
             label: const Text('Start'),
           ),
@@ -823,6 +847,14 @@ class _PortraitProjectHeader extends StatelessWidget {
                 ),
               ),
               PopupMenuItem<_SongMenuAction>(
+                value: _SongMenuAction.record,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.mic_rounded),
+                  title: Text('Record Audio'),
+                ),
+              ),
+              PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.live,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -958,6 +990,14 @@ class _LandscapeWorkspace extends StatelessWidget {
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.graphic_eq_rounded),
                       title: Text('Analyze Song'),
+                    ),
+                  ),
+                  PopupMenuItem<_SongMenuAction>(
+                    value: _SongMenuAction.record,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.mic_rounded),
+                      title: Text('Record Audio'),
                     ),
                   ),
                   PopupMenuItem<_SongMenuAction>(

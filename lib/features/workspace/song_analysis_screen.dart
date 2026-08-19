@@ -14,9 +14,14 @@ import 'song_sheet_panel.dart';
 enum _ReferenceSource { record, file }
 
 class SongAnalysisScreen extends StatefulWidget {
-  const SongAnalysisScreen({required this.project, super.key});
+  const SongAnalysisScreen({required this.project, this.autoRecord = false, super.key});
 
   final SongProject project;
+
+  /// When true (the "Record Audio" song-menu entry), jump straight into the
+  /// recorder instead of landing on this screen's "Add/Replace recording"
+  /// button first.
+  final bool autoRecord;
 
   @override
   State<SongAnalysisScreen> createState() => _SongAnalysisScreenState();
@@ -34,7 +39,12 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
   @override
   void initState() {
     super.initState();
-    unawaited(_refresh());
+    unawaited(_refresh().then((_) {
+      if (widget.autoRecord && mounted && !_working) {
+        setState(() => _working = true);
+        unawaited(_recordReference());
+      }
+    }));
   }
 
   Future<void> _refresh() async {
@@ -224,16 +234,23 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     setState(() => _working = true);
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      // showDialog defaults to the root navigator, but this app also has a
+      // nested workspace Navigator (see workspace_shell.dart). Popping with
+      // the outer `context` here (instead of this builder's own
+      // dialogContext) pops the wrong navigator's top route — it closes
+      // this screen instead of the dialog, while the dialog itself is left
+      // open and orphaned on top, blocking input. That's the actual "goes
+      // back a screen and freezes" bug, not dialog stacking.
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Remove this recording?'),
         content: const Text(
           'This deletes the reference recording along with its synced lyric and chord timing. You can add a new recording afterward.',
         ),
         actions: <Widget>[
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Keep')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF718B)),
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Remove'),
           ),
         ],

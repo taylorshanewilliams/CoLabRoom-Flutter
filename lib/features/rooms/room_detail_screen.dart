@@ -82,12 +82,19 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     if (controller.setlists.isNotEmpty) {
       final choice = await showDialog<Object>(
         context: context,
-        builder: (_) => SimpleDialog(
+        // showDialog defaults to the root navigator, but this app also has
+        // a nested workspace Navigator (see workspace_shell.dart) — using
+        // the outer `context` to pop (instead of this builder's own
+        // dialogContext) pops the wrong navigator's top route, closing this
+        // screen instead of the dialog while the dialog itself is left
+        // orphaned on top, blocking input. Looks like "goes back a screen
+        // and freezes."
+        builder: (dialogContext) => SimpleDialog(
           title: const Text('Add to Setlist'),
           children: <Widget>[
             for (final value in controller.setlists)
               SimpleDialogOption(
-                onPressed: () => Navigator.pop(context, value),
+                onPressed: () => Navigator.pop(dialogContext, value),
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.queue_music_rounded, color: AppColors.cyan),
@@ -96,7 +103,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                 ),
               ),
             SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, 'create'),
+              onPressed: () => Navigator.pop(dialogContext, 'create'),
               child: const ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: Icon(Icons.add_rounded, color: AppColors.cyan),
@@ -142,12 +149,12 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     }
     final target = await showDialog<MusicRoom>(
       context: context,
-      builder: (_) => SimpleDialog(
+      builder: (dialogContext) => SimpleDialog(
         title: const Text('Move to Room'),
         children: <Widget>[
           for (final room in targets)
             SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, room),
+              onPressed: () => Navigator.pop(dialogContext, room),
               child: ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: Text(room.icon, style: const TextStyle(fontSize: 24)),
@@ -178,7 +185,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     if (selected.isEmpty) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: Text(selected.length == 1 ? 'Delete this song?' : 'Delete ${selected.length} songs?'),
         content: Text(
           selected.length == 1
@@ -186,10 +193,10 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
               : 'These songs and all of their lyrics and recordings will be deleted permanently.',
         ),
         actions: <Widget>[
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF718B)),
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Delete'),
           ),
         ],

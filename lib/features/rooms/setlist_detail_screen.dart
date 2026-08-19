@@ -94,7 +94,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(setlist.name),
+        title: Text(setlist.name, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: <Widget>[
           IconButton(
             onPressed: addSongs,
@@ -187,7 +187,12 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                             ),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Text(project.title, style: Theme.of(context).textTheme.titleMedium),
+                              child: Text(
+                                project.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
                             ),
                           ),
                         ),
