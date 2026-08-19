@@ -29,21 +29,22 @@ void main() {
     expect(find.text('Midnight Signal'), findsOneWidget);
     expect(find.byKey(const Key('workspace_auto_scroll')), findsOneWidget);
     expect(find.byKey(const Key('workspace_import_lyrics')), findsOneWidget);
-    expect(find.byKey(const Key('talk_to_text_button')), findsOneWidget);
-    expect(find.byKey(const Key('voice_bullet_line-1')), findsOneWidget);
-    expect(find.byKey(const Key('edit_line_line-1')), findsOneWidget);
+    expect(find.byKey(const Key('continuous_song_document')), findsOneWidget);
     expect(find.text('Taylor'), findsNothing);
 
-    await tester.tap(find.byKey(const Key('insert_line_1')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('song_line_composer')), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.close_rounded));
-    await tester.pumpAndSettle();
+    // The continuous editor hydrates from the seeded contributions, joined
+    // by newlines.
+    final documentField = tester.widget<TextField>(
+      find.byKey(const Key('continuous_song_document')),
+    );
+    expect(
+      documentField.controller?.text,
+      'Streetlights blur like a warning in the rain\nYour frequency keeps calling out my name',
+    );
 
     await tester.enterText(
-      find.byKey(const Key('edit_line_line-1')),
-      'Streetlights blur softly in the rain',
+      find.byKey(const Key('continuous_song_document')),
+      'Streetlights blur softly in the rain\nYour frequency keeps calling out my name',
     );
     await tester.pump(const Duration(milliseconds: 750));
     await tester.pumpAndSettle();
@@ -75,11 +76,8 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.byKey(const Key('workspace_landscape_panel')), findsOneWidget);
-    expect(find.byKey(const Key('workspace_lyric_book')), findsOneWidget);
-    expect(find.byKey(const Key('workspace_book_left')), findsOneWidget);
-    expect(find.byKey(const Key('workspace_book_right')), findsOneWidget);
     expect(find.byKey(const Key('workspace_auto_scroll')), findsOneWidget);
     expect(find.byKey(const Key('workspace_import_lyrics')), findsOneWidget);
-    expect(find.byKey(const Key('talk_to_text_button')), findsOneWidget);
+    expect(find.byKey(const Key('continuous_song_document')), findsOneWidget);
   });
 }

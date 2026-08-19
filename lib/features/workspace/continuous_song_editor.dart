@@ -6,9 +6,13 @@ import 'package:flutter/material.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 
-const String _blankStoredLine = '\u200B';
+/// What an intentionally-blank line is actually stored as: contributions'
+/// body has a non-empty check constraint, so a genuinely empty line (e.g. a
+/// paragraph break the user typed) is persisted as a zero-width space
+/// rather than ''.
+const String blankStoredLine = '\u200B';
 
-String displayContributionBody(String body) => body == _blankStoredLine ? '' : body;
+String displayContributionBody(String body) => body == blankStoredLine ? '' : body;
 
 class ContinuousSongEditorController {
   ContinuousSongEditorController()
@@ -106,6 +110,7 @@ class ContinuousSongEditor extends StatefulWidget {
     required this.savingContributionId,
     required this.loadingVoiceContributionId,
     required this.playingContributionId,
+    this.scrollController,
     super.key,
   });
 
@@ -119,12 +124,16 @@ class ContinuousSongEditor extends StatefulWidget {
   final String? loadingVoiceContributionId;
   final String? playingContributionId;
 
+  /// Optional externally-owned controller (e.g. so a parent can drive
+  /// scroll-to-bottom). When omitted, the editor manages its own.
+  final ScrollController? scrollController;
+
   @override
   State<ContinuousSongEditor> createState() => _ContinuousSongEditorState();
 }
 
 class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
-  final ScrollController _scroll = ScrollController();
+  late final ScrollController _scroll = widget.scrollController ?? ScrollController();
   Timer? _saveDebounce;
   bool _dirty = false;
   bool _saving = false;
@@ -158,7 +167,7 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
     _saveDebounce?.cancel();
     widget.controller.text.removeListener(_changed);
     if (_dirty) unawaited(_flush());
-    _scroll.dispose();
+    if (widget.scrollController == null) _scroll.dispose();
     super.dispose();
   }
 
