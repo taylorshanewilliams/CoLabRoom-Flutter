@@ -340,14 +340,28 @@ class SongAnalysisService {
       }
       final words = _transcribedWords(result);
       if (words.isEmpty) {
+        final dynamic wholeText = result.transcription?.text;
+        final heard = wholeText is String ? wholeText.trim() : '';
+        if (heard.isNotEmpty && !_looksLikeSpeech(heard)) {
+          // Whisper's own way of saying "this is instrumental, not singing"
+          // is to emit only non-speech markers like "♪♪♪" — that's a correct
+          // read of a guitar/instrumental-only recording, not a ColabRoom
+          // bug, so say so plainly instead of the "bug in ColabRoom"
+          // message below (which is for when real words got lost, not for
+          // when there were never any words to hear).
+          throw StateError(
+            'This recording sounds instrumental — no singing was detected, so '
+            'there are no words to sync lyrics to. Record with vocals (even '
+            'humming the melody) for lyric sync to work.',
+          );
+        }
         // If Whisper actually produced text but our segment-based extraction
         // found nothing, that's a parsing bug on our side, not a "couldn't
         // hear you" situation — surface that distinction instead of masking
         // it with the generic message.
-        final dynamic wholeText = result.transcription?.text;
-        if (wholeText is String && wholeText.trim().isNotEmpty) {
+        if (heard.isNotEmpty) {
           throw StateError(
-            'Heard "${wholeText.trim()}" but could not extract word timings from it '
+            'Heard "$heard" but could not extract word timings from it '
             '(a bug in ColabRoom, not your recording).',
           );
         }
@@ -460,6 +474,19 @@ class SongAnalysisService {
     if (line.kind == ContributionKind.section) return false;
     return !RegExp(r'^\s*\[[^\]]+\]\s*$').hasMatch(body);
   }
+}
+
+/// True if [text] contains a letter/digit outside of Whisper's non-speech
+/// placeholder markers (bracketed annotations like "[Music]"/"(applause)",
+/// and musical note glyphs like "♪♪♪") — those show up instead of real
+/// words when a recording is purely instrumental, and shouldn't be
+/// mistaken for lost/garbled speech.
+bool _looksLikeSpeech(String text) {
+  final cleaned = text
+      .replaceAll(RegExp(r'[\[(][^\])]*[\])]'), '')
+      .replaceAll(RegExp(r'[♩-♯]'), '')
+      .trim();
+  return RegExp(r'[\p{L}\p{N}]', unicode: true).hasMatch(cleaned);
 }
 
 class _TimedWord {
