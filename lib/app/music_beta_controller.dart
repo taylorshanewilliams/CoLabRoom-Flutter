@@ -86,6 +86,11 @@ class MusicBetaController extends ChangeNotifier {
     await load();
   }
 
+  Future<void> deleteRoom(MusicRoom room) async {
+    await repository.deleteRoom(room);
+    await load();
+  }
+
   Future<void> reorderRooms(List<MusicRoom> orderedRooms) async {
     // Update local state immediately so the drag feels instant; `load()`
     // afterward reconciles with whatever the backend actually persisted.

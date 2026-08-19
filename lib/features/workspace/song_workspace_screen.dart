@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/beta_scope.dart';
@@ -35,12 +36,15 @@ class SongWorkspaceScreen extends StatefulWidget {
 class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsBindingObserver {
   final ScrollController _contributionScroll = ScrollController();
   final ContinuousSongEditorController _continuousController = ContinuousSongEditorController();
+  final SpeechToText _speech = SpeechToText();
 
   AudioRecorder? _voiceRecorder;
   AudioPlayer? _voicePlayer;
   StreamSubscription<void>? _playerCompleteSubscription;
   Timer? _recordingTimer;
+  int? _dictationStart;
 
+  bool _listening = false;
   bool _autoScroll = true;
   bool _importingLyrics = false;
   String? _recordingContributionId;
@@ -62,6 +66,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     WidgetsBinding.instance.removeObserver(this);
     _recordingTimer?.cancel();
     _playerCompleteSubscription?.cancel();
+    _speech.stop();
     final recorder = _voiceRecorder;
     if (recorder != null) {
       unawaited(recorder.cancel());
@@ -88,6 +93,66 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     if (_continuousController.focusNode.hasFocus) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
     }
+  }
+
+  Future<void> _toggleSpeech() async {
+    if (_listening) {
+      await _speech.stop();
+      if (mounted) setState(() => _listening = false);
+      _dictationStart = null;
+      return;
+    }
+
+    final available = await _speech.initialize(
+      onStatus: (status) {
+        if (!mounted) return;
+        setState(() => _listening = status == 'listening');
+      },
+      onError: (error) {
+        if (!mounted) return;
+        setState(() => _listening = false);
+        _showMessage('Speech recognition: ${error.errorMsg}');
+      },
+    );
+    if (!available || !mounted) {
+      if (mounted) _showMessage('Speech recognition is unavailable on this device.');
+      return;
+    }
+
+    // Dictate as a fresh line at the end of the document rather than trying
+    // to track an arbitrary mid-document cursor position: simpler, and
+    // matches how dictation always used to start a brand-new draft line.
+    final textController = _continuousController.text;
+    final existing = textController.text;
+    if (existing.isNotEmpty && !existing.endsWith('\n')) {
+      final withNewline = '$existing\n';
+      textController.value = TextEditingValue(
+        text: withNewline,
+        selection: TextSelection.collapsed(offset: withNewline.length),
+      );
+    }
+    _dictationStart = textController.text.length;
+
+    setState(() => _listening = true);
+    await _speech.listen(
+      listenOptions: SpeechListenOptions(
+        listenFor: const Duration(minutes: 1),
+        pauseFor: const Duration(seconds: 5),
+        listenMode: ListenMode.dictation,
+        partialResults: true,
+        cancelOnError: false,
+      ),
+      onResult: (result) {
+        final start = _dictationStart;
+        if (start == null || !mounted) return;
+        final base = textController.text.substring(0, start.clamp(0, textController.text.length));
+        final newText = base + result.recognizedWords;
+        textController.value = TextEditingValue(
+          text: newText,
+          selection: TextSelection.collapsed(offset: newText.length),
+        );
+      },
+    );
   }
 
   Future<void> _rename(SongProject project) async {
@@ -644,6 +709,13 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                   Expanded(child: editor),
                 ],
               ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        key: const Key('talk_to_text_button'),
+        onPressed: _toggleSpeech,
+        tooltip: _listening ? 'Stop dictation' : 'Dictate lyrics',
+        backgroundColor: _listening ? const Color(0xFFFF6178) : AppColors.cyan,
+        child: Icon(_listening ? Icons.stop_rounded : Icons.mic_rounded),
       ),
     );
   }

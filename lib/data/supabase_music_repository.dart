@@ -231,6 +231,13 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> deleteRoom(MusicRoom room) async {
+    // Members/projects/contributions/files all cascade off `rooms` via
+    // `on delete cascade` foreign keys, so one delete is enough.
+    await client.from('rooms').delete().eq('id', room.id);
+  }
+
+  @override
   Future<SongProject> createSong({required MusicRoom room, required String title}) async {
     final cleaned = NamePolicy.clean(title);
     NamePolicy.requireUsable(cleaned, label: 'Project name');

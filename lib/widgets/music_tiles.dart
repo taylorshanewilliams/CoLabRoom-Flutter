@@ -6,10 +6,15 @@ import 'app_surface.dart';
 import 'bloom_tap.dart';
 
 class RoomTile extends StatelessWidget {
-  const RoomTile({required this.room, required this.onTap, super.key});
+  const RoomTile({required this.room, required this.onTap, this.onMore, super.key});
 
   final MusicRoom room;
   final VoidCallback onTap;
+
+  /// When set, shows a small overflow button (rename/delete) instead of the
+  /// plain chevron. Left null on read-only previews (e.g. the Home screen's
+  /// "My Rooms" strip) where those actions don't apply.
+  final VoidCallback? onMore;
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +43,15 @@ class RoomTile extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                const Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.muted),
+                if (onMore != null)
+                  InkResponse(
+                    key: const Key('room_more_button'),
+                    onTap: onMore,
+                    radius: 18,
+                    child: const Icon(Icons.more_vert_rounded, size: 20, color: AppColors.muted),
+                  )
+                else
+                  const Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.muted),
               ],
             ),
             const Spacer(),

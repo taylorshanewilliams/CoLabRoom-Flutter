@@ -160,6 +160,11 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> deleteRoom(MusicRoom room) async {
+    _rooms.removeWhere((candidate) => candidate.id == room.id);
+  }
+
+  @override
   Future<SongProject> createSong({
     required MusicRoom room,
     required String title,

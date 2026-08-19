@@ -15,6 +15,10 @@ abstract interface class MusicRepository {
 
   Future<MusicRoom> renameRoom({required MusicRoom room, required String name});
 
+  /// Permanently deletes [room] and everything in it (members, projects,
+  /// contributions, files) via cascading foreign keys.
+  Future<void> deleteRoom(MusicRoom room);
+
   /// Persists a new manual display order for the given rooms (the order of
   /// [orderedRooms] becomes the new order).
   Future<void> reorderRooms(List<MusicRoom> orderedRooms);

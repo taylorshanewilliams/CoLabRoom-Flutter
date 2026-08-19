@@ -30,6 +30,7 @@ void main() {
     expect(find.byKey(const Key('workspace_auto_scroll')), findsOneWidget);
     expect(find.byKey(const Key('workspace_import_lyrics')), findsOneWidget);
     expect(find.byKey(const Key('continuous_song_document')), findsOneWidget);
+    expect(find.byKey(const Key('talk_to_text_button')), findsOneWidget);
     expect(find.text('Taylor'), findsNothing);
 
     // The continuous editor hydrates from the seeded contributions, joined

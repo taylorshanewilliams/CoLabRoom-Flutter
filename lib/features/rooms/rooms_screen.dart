@@ -175,6 +175,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
                         ),
                       ),
                       onReorder: (draggedId) => _reorderRooms(controller, rooms, draggedId, index),
+                      onMore: () => _showRoomMenu(controller, rooms[index]),
                     ),
                     childCount: itemCount,
                   ),
@@ -207,6 +208,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
                               builder: (_) => RoomDetailScreen(roomId: room.id),
                             ),
                           ),
+                          onMore: () => _showRoomMenu(controller, room),
                         );
                       }
                       final setlist = setlists[index];
@@ -243,6 +245,123 @@ class _RoomsScreenState extends State<RoomsScreen> {
     reordered.insert(dropIndex, dragged);
     unawaited(controller.reorderRooms(reordered));
   }
+
+  Future<void> _showRoomMenu(MusicBetaController controller, MusicRoom room) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: AppColors.deepNavy,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading: const Icon(Icons.edit_rounded, color: AppColors.cyan),
+                title: const Text('Rename Room'),
+                onTap: () => Navigator.pop(context, 'rename'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFF9AA9)),
+                title: const Text('Delete Room'),
+                onTap: () => Navigator.pop(context, 'delete'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+
+    if (action == 'rename') {
+      final value = await showDialog<String>(
+        context: context,
+        builder: (_) => _RenameRoomDialog(initialName: room.name),
+      );
+      if (value == null || !mounted) return;
+      try {
+        await controller.renameRoom(room, value);
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+        }
+      }
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('Delete "${room.name}"?'),
+        content: const Text(
+          'This permanently deletes the Room and everything in it — every song, lyric, and recording. This cannot be undone.',
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF718B)),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await controller.deleteRoom(room);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+}
+
+class _RenameRoomDialog extends StatefulWidget {
+  const _RenameRoomDialog({required this.initialName});
+
+  final String initialName;
+
+  @override
+  State<_RenameRoomDialog> createState() => _RenameRoomDialogState();
+}
+
+class _RenameRoomDialogState extends State<_RenameRoomDialog> {
+  late final TextEditingController _name;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Rename Room'),
+      content: TextField(
+        controller: _name,
+        autofocus: true,
+        textCapitalization: TextCapitalization.words,
+        onSubmitted: (value) => Navigator.pop(context, value),
+      ),
+      actions: <Widget>[
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _name.text),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
 }
 
 /// Wraps [RoomTile] with long-press drag-to-reorder support. Dragging a
@@ -252,12 +371,14 @@ class _DraggableRoomTile extends StatefulWidget {
     required this.room,
     required this.onTap,
     required this.onReorder,
+    required this.onMore,
     super.key,
   });
 
   final MusicRoom room;
   final VoidCallback onTap;
   final ValueChanged<String> onReorder;
+  final VoidCallback onMore;
 
   @override
   State<_DraggableRoomTile> createState() => _DraggableRoomTileState();
@@ -306,7 +427,7 @@ class _DraggableRoomTileState extends State<_DraggableRoomTile> {
                   ? Border.all(color: AppColors.cyan, width: 2)
                   : Border.all(color: Colors.transparent, width: 2),
             ),
-            child: RoomTile(room: widget.room, onTap: widget.onTap),
+            child: RoomTile(room: widget.room, onTap: widget.onTap, onMore: widget.onMore),
           ),
         );
       },

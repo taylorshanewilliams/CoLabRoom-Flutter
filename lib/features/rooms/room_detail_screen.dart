@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
+import '../../domain/name_policy.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/bloom_tap.dart';
 import '../../widgets/music_tiles.dart';
@@ -40,9 +41,15 @@ class RoomDetailScreen extends StatefulWidget {
 class _RoomDetailScreenState extends State<RoomDetailScreen> {
   final Set<String> _selectedProjectIds = <String>{};
   _ProjectSort _sort = _ProjectSort.updatedRecent;
+  String _query = '';
 
   List<SongProject> _sortedProjects(MusicRoom room) {
-    final projects = List<SongProject>.from(room.projects);
+    final query = NamePolicy.normalized(_query);
+    final projects = List<SongProject>.from(
+      query.isEmpty
+          ? room.projects
+          : room.projects.where((project) => NamePolicy.normalized(project.title).contains(query)),
+    );
     switch (_sort) {
       case _ProjectSort.updatedRecent:
         projects.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -433,6 +440,20 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
               ),
             ),
           ),
+          if (room.projects.length > 1)
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+              sliver: SliverToBoxAdapter(
+                child: TextField(
+                  key: const Key('room_project_search'),
+                  onChanged: (value) => setState(() => _query = value),
+                  decoration: const InputDecoration(
+                    hintText: 'Search songs in this Room',
+                    prefixIcon: Icon(Icons.search_rounded),
+                  ),
+                ),
+              ),
+            ),
           if (room.projects.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
@@ -441,6 +462,16 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                   onPressed: newSong,
                   icon: const Icon(Icons.music_note_rounded),
                   label: const Text('Create the first song'),
+                ),
+              ),
+            )
+          else if (_sortedProjects(room).isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(30),
+                  child: Text('No songs match “$_query”.'),
                 ),
               ),
             )
