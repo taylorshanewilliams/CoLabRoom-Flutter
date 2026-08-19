@@ -111,13 +111,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
 
   Future<void> _chooseRecording() async {
     if (_working) return;
-    final picked = await FilePicker.platform.pickFiles(
+    final file = await FilePicker.pickFile(
       type: FileType.custom,
       allowedExtensions: const <String>['mp3', 'm4a', 'wav', 'flac', 'ogg', 'opus', 'aac'],
-      allowMultiple: false,
-      withData: false,
     );
-    final file = picked?.files.single;
     if (file == null || file.path == null || !mounted) return;
     await _attachLocalFile(path: file.path!, displayName: file.name);
   }

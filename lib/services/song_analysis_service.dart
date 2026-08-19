@@ -82,14 +82,75 @@ class SongAnalysisService {
           .map((value) {
             final row = Map<String, dynamic>.from(value as Map);
             return ChordCue(
+              id: row['id'] as int?,
               startMs: row['start_ms'] as int,
               endMs: row['end_ms'] as int,
               chord: row['chord'] as String,
               confidence: (row['confidence'] as num).toDouble(),
+              source: row['source'] as String? ?? 'automatic',
             );
           })
           .toList(growable: false),
     );
+  }
+
+  Future<void> _deleteChordRow({
+    required String projectId,
+    int? cueId,
+    int? startMs,
+    String? chord,
+  }) async {
+    if (cueId == null && (startMs == null || chord == null)) return;
+    var query = client.from('chord_cues').delete().eq('project_id', projectId);
+    if (cueId != null) {
+      query = query.eq('id', cueId);
+    } else {
+      query = query.eq('start_ms', startMs!).eq('chord', chord!);
+    }
+    await query;
+  }
+
+  Future<SongAnalysisBundle> deleteChordCue({
+    required String projectId,
+    int? cueId,
+    required int originalStartMs,
+    required String originalChord,
+  }) async {
+    await _deleteChordRow(
+      projectId: projectId,
+      cueId: cueId,
+      startMs: originalStartMs,
+      chord: originalChord,
+    );
+    return load(projectId);
+  }
+
+  Future<SongAnalysisBundle> saveManualChordCue({
+    required String projectId,
+    int? cueId,
+    int? originalStartMs,
+    String? originalChord,
+    required String chord,
+    required int startMs,
+    required int endMs,
+  }) async {
+    if (cueId != null || (originalStartMs != null && originalChord != null)) {
+      await _deleteChordRow(
+        projectId: projectId,
+        cueId: cueId,
+        startMs: originalStartMs,
+        chord: originalChord,
+      );
+    }
+    await client.from('chord_cues').insert(<String, dynamic>{
+      'project_id': projectId,
+      'start_ms': startMs,
+      'end_ms': endMs,
+      'chord': chord,
+      'confidence': 1.0,
+      'source': 'manual',
+    });
+    return load(projectId);
   }
 
   Future<ReferenceTrack> attachReference({
