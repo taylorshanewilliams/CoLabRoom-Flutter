@@ -11,13 +11,16 @@ import 'package:speech_to_text/speech_to_text.dart';
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
+import '../../domain/song_analysis_models.dart';
 import '../../services/project_export_service.dart';
+import '../../services/song_analysis_service.dart';
+import 'live_performance_screen.dart';
 import 'lyric_import_flow.dart';
 import 'song_analysis_screen.dart';
 
 enum _VoiceNoteAction { play, rerecord, delete }
 
-enum _SongMenuAction { analyze, print, share }
+enum _SongMenuAction { analyze, live, print, share }
 
 class SongWorkspaceScreen extends StatefulWidget {
   const SongWorkspaceScreen({required this.projectId, super.key});
@@ -228,6 +231,27 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       );
       return;
     }
+    if (action == _SongMenuAction.live) {
+      // Live Performance is reachable straight from the project regardless
+      // of whether the song has been analyzed yet — it falls back to
+      // manual scroll speeds when there's no synced timing. Best-effort
+      // load the analysis bundle so Synced mode is available when it has
+      // already been run; a failed/missing load shouldn't block entry.
+      SongAnalysisBundle? bundle;
+      try {
+        bundle = await SongAnalysisService().load(project.id);
+      } catch (_) {
+        bundle = null;
+      }
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => LivePerformanceScreen(project: project, analysis: bundle),
+          fullscreenDialog: true,
+        ),
+      );
+      return;
+    }
     try {
       switch (action) {
         case _SongMenuAction.print:
@@ -237,6 +261,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           await ProjectExportService.shareSong(project);
           break;
         case _SongMenuAction.analyze:
+        case _SongMenuAction.live:
           break; // handled above
       }
     } catch (error) {
@@ -751,7 +776,15 @@ class _PortraitProjectHeader extends StatelessWidget {
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.graphic_eq_rounded),
-                  title: Text('Analyze & Live Performance'),
+                  title: Text('Analyze Song'),
+                ),
+              ),
+              PopupMenuItem<_SongMenuAction>(
+                value: _SongMenuAction.live,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.play_circle_outline_rounded),
+                  title: Text('Live Performance'),
                 ),
               ),
               PopupMenuDivider(),
@@ -887,7 +920,15 @@ class _LandscapeWorkspace extends StatelessWidget {
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.graphic_eq_rounded),
-                      title: Text('Analyze & Live Performance'),
+                      title: Text('Analyze Song'),
+                    ),
+                  ),
+                  PopupMenuItem<_SongMenuAction>(
+                    value: _SongMenuAction.live,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.play_circle_outline_rounded),
+                      title: Text('Live Performance'),
                     ),
                   ),
                   PopupMenuDivider(),
