@@ -31,6 +31,7 @@ class _AppShellState extends State<AppShell> {
         displayName: widget.displayName,
         onSeeRooms: () => setState(() => _index = 1),
         onJoinProject: () => setState(() => _index = 2),
+        onOpenAccount: () => setState(() => _index = 3),
       ),
       const RoomsScreen(),
       const InvitesScreen(),

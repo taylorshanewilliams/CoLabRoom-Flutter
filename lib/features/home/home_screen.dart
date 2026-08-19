@@ -14,12 +14,14 @@ class HomeScreen extends StatelessWidget {
     required this.displayName,
     required this.onSeeRooms,
     required this.onJoinProject,
+    required this.onOpenAccount,
     super.key,
   });
 
   final String displayName;
   final VoidCallback onSeeRooms;
   final VoidCallback onJoinProject;
+  final VoidCallback onOpenAccount;
 
   @override
   Widget build(BuildContext context) {
@@ -51,18 +53,28 @@ class HomeScreen extends StatelessWidget {
               children: <Widget>[
                 const BrandMark(),
                 const Spacer(),
-                Container(
-                  width: 44,
-                  height: 44,
-                  alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(colors: <Color>[AppColors.blue, Color(0xFF124A80)]),
-                    boxShadow: <BoxShadow>[
-                      BoxShadow(color: Color(0x242B6FFF), blurRadius: 24),
-                    ],
+                Semantics(
+                  button: true,
+                  label: 'Account',
+                  child: InkResponse(
+                    onTap: onOpenAccount,
+                    radius: 28,
+                    containedInkWell: true,
+                    customBorder: const CircleBorder(),
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(colors: <Color>[AppColors.blue, Color(0xFF124A80)]),
+                        boxShadow: <BoxShadow>[
+                          BoxShadow(color: Color(0x242B6FFF), blurRadius: 24),
+                        ],
+                      ),
+                      child: Text(initials, style: const TextStyle(fontWeight: FontWeight.w800)),
+                    ),
                   ),
-                  child: Text(initials, style: const TextStyle(fontWeight: FontWeight.w800)),
                 ),
               ],
             ),
