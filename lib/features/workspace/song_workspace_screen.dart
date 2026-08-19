@@ -28,7 +28,7 @@ class SongWorkspaceScreen extends StatefulWidget {
   State<SongWorkspaceScreen> createState() => _SongWorkspaceScreenState();
 }
 
-class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> {
+class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsBindingObserver {
   final TextEditingController _composer = TextEditingController();
   final FocusNode _composerFocus = FocusNode();
   final ScrollController _contributionScroll = ScrollController();
@@ -53,7 +53,14 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> {
   int? _draftIndex;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _recordingTimer?.cancel();
     _playerCompleteSubscription?.cancel();
     _speech.stop();
@@ -68,6 +75,22 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> {
     _composerFocus.dispose();
     _contributionScroll.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    // The on-screen keyboard opening/closing resizes the viewport, which
+    // forces an instant, unanimated ScrollPosition correction to stay in
+    // bounds. That correction lands *after* the keyboard finishes its own
+    // resize animation — after our animated _scrollToBottom() (fired when
+    // the new line was added) has already finished — so its abrupt landing
+    // is what actually gets seen, overriding the smooth scroll. Re-issue an
+    // animated scroll once metrics settle so the final motion stays smooth.
+    // Gated on composer focus so an unrelated rotation/resize while reading
+    // older lines doesn't yank the view down.
+    if (_composerFocus.hasFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    }
   }
 
   Future<void> _toggleSpeech() async {
