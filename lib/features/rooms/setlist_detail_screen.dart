@@ -152,19 +152,18 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
               onReorder: reorder,
               itemBuilder: (context, index) {
                 final project = projects[index];
-                return Padding(
+                return ReorderableDragStartListener(
                   key: ValueKey<String>(project.id),
+                  index: index,
+                  child: Padding(
                   padding: const EdgeInsets.only(bottom: 9),
                   child: AppSurface(
                     padding: const EdgeInsets.fromLTRB(6, 10, 6, 10),
                     child: Row(
                       children: <Widget>[
-                        ReorderableDragStartListener(
-                          index: index,
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 4),
-                            child: Icon(Icons.drag_indicator_rounded, color: AppColors.muted),
-                          ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 4),
+                          child: Icon(Icons.drag_indicator_rounded, color: AppColors.muted),
                         ),
                         SizedBox(
                           width: 26,
@@ -199,6 +198,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                         ),
                       ],
                     ),
+                  ),
                   ),
                 );
               },
