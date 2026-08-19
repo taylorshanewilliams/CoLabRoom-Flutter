@@ -60,16 +60,16 @@ jobs:
             # dependency. Force every plugin subproject's compileSdk from the
             # root build script instead — the standard fix for AAR metadata
             # errors caused by a plugin's own compileSdk being stuck too low.
-            cat >> android/build.gradle.kts << 'EOF'
-
-subprojects {
-    afterEvaluate {
-        extensions.findByType(com.android.build.gradle.BaseExtension::class.java)?.let { android ->
-            android.compileSdkVersion(36)
-        }
-    }
-}
-EOF
+            {
+              echo ''
+              echo 'subprojects {'
+              echo '    afterEvaluate {'
+              echo '        extensions.findByType(com.android.build.gradle.BaseExtension::class.java)?.let { android ->'
+              echo '            android.compileSdkVersion(36)'
+              echo '        }'
+              echo '    }'
+              echo '}'
+            } >> android/build.gradle.kts
           else
             echo "android/ folder already present, using it as-is."
           fi
