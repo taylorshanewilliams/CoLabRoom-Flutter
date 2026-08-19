@@ -488,7 +488,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                       crossAxisCount: count,
                       mainAxisSpacing: 8,
                       crossAxisSpacing: 10,
-                      mainAxisExtent: 144,
+                      mainAxisExtent: 164,
                     ),
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {

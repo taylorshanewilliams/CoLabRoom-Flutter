@@ -229,6 +229,27 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     }
   }
 
+  Future<void> _openLivePerformance(SongProject project) async {
+    // Live Performance is reachable straight from the project regardless
+    // of whether the song has been analyzed yet — it falls back to manual
+    // scroll speeds when there's no synced timing. Best-effort load the
+    // analysis bundle so Synced mode is available when it has already been
+    // run; a failed/missing load shouldn't block entry.
+    SongAnalysisBundle? bundle;
+    try {
+      bundle = await SongAnalysisService().load(project.id);
+    } catch (_) {
+      bundle = null;
+    }
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => LivePerformanceScreen(project: project, analysis: bundle),
+        fullscreenDialog: true,
+      ),
+    );
+  }
+
   Future<void> _exportSong(SongProject project, _SongMenuAction action) async {
     if (action == _SongMenuAction.analyze) {
       await Navigator.of(context).push(
@@ -237,24 +258,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       return;
     }
     if (action == _SongMenuAction.live) {
-      // Live Performance is reachable straight from the project regardless
-      // of whether the song has been analyzed yet — it falls back to
-      // manual scroll speeds when there's no synced timing. Best-effort
-      // load the analysis bundle so Synced mode is available when it has
-      // already been run; a failed/missing load shouldn't block entry.
-      SongAnalysisBundle? bundle;
-      try {
-        bundle = await SongAnalysisService().load(project.id);
-      } catch (_) {
-        bundle = null;
-      }
-      if (!mounted) return;
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute<void>(
-          builder: (_) => LivePerformanceScreen(project: project, analysis: bundle),
-          fullscreenDialog: true,
-        ),
-      );
+      await _openLivePerformance(project);
       return;
     }
     try {
@@ -312,11 +316,6 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         curve: Curves.easeOutCubic,
       );
     });
-  }
-
-  void _toggleAutoScroll() {
-    setState(() => _autoScroll = !_autoScroll);
-    if (_autoScroll) _scrollToBottom(force: true);
   }
 
   Future<void> _showColorPicker() async {
@@ -672,14 +671,13 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 key: const Key('workspace_landscape_panel'),
                 project: project,
                 room: room,
-                autoScroll: _autoScroll,
                 authorColor: authorColor,
                 importingLyrics: _importingLyrics,
                 onBack: () {
                   Navigator.maybePop(context);
                 },
                 onRename: () => _rename(project),
-                onToggleAutoScroll: _toggleAutoScroll,
+                onOpenLive: () => _openLivePerformance(project),
                 onColor: _showColorPicker,
                 onImport: () => _importLyrics(project),
                 onExport: (action) => _exportSong(project, action),
@@ -698,10 +696,9 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     onExport: (action) => _exportSong(project, action),
                   ),
                   _WorkspaceToolbar(
-                    autoScroll: _autoScroll,
                     authorColor: authorColor,
                     importingLyrics: _importingLyrics,
-                    onToggleAutoScroll: _toggleAutoScroll,
+                    onOpenLive: () => _openLivePerformance(project),
                     onColor: _showColorPicker,
                     onImport: () => _importLyrics(project),
                   ),
@@ -842,12 +839,11 @@ class _LandscapeWorkspace extends StatelessWidget {
   const _LandscapeWorkspace({
     required this.project,
     required this.room,
-    required this.autoScroll,
     required this.authorColor,
     required this.importingLyrics,
     required this.onBack,
     required this.onRename,
-    required this.onToggleAutoScroll,
+    required this.onOpenLive,
     required this.onColor,
     required this.onImport,
     required this.onExport,
@@ -857,12 +853,11 @@ class _LandscapeWorkspace extends StatelessWidget {
 
   final SongProject project;
   final MusicRoom room;
-  final bool autoScroll;
   final Color authorColor;
   final bool importingLyrics;
   final VoidCallback onBack;
   final VoidCallback onRename;
-  final VoidCallback onToggleAutoScroll;
+  final VoidCallback onOpenLive;
   final VoidCallback onColor;
   final VoidCallback onImport;
   final ValueChanged<_SongMenuAction> onExport;
@@ -909,14 +904,10 @@ class _LandscapeWorkspace extends StatelessWidget {
                 ),
               ),
               IconButton(
-                key: const Key('workspace_auto_scroll'),
-                onPressed: onToggleAutoScroll,
-                tooltip: autoScroll ? 'Turn auto-scroll off' : 'Turn auto-scroll on',
-                icon: Icon(
-                  Icons.swap_vert_rounded,
-                  size: 19,
-                  color: autoScroll ? AppColors.cyan : AppColors.muted,
-                ),
+                key: const Key('workspace_live_button'),
+                onPressed: onOpenLive,
+                tooltip: 'Live Performance',
+                icon: const Icon(Icons.play_circle_outline_rounded, size: 19, color: AppColors.cyan),
               ),
               IconButton(
                 onPressed: onColor,
@@ -1008,18 +999,16 @@ class _MusicMark extends StatelessWidget {
 
 class _WorkspaceToolbar extends StatelessWidget {
   const _WorkspaceToolbar({
-    required this.autoScroll,
     required this.authorColor,
     required this.importingLyrics,
-    required this.onToggleAutoScroll,
+    required this.onOpenLive,
     required this.onColor,
     required this.onImport,
   });
 
-  final bool autoScroll;
   final Color authorColor;
   final bool importingLyrics;
-  final VoidCallback onToggleAutoScroll;
+  final VoidCallback onOpenLive;
   final VoidCallback onColor;
   final VoidCallback onImport;
 
@@ -1027,11 +1016,11 @@ class _WorkspaceToolbar extends StatelessWidget {
   Widget build(BuildContext context) {
     final actions = <Widget>[
       _ToolPill(
-        key: const Key('workspace_auto_scroll'),
-        icon: Icons.swap_vert_rounded,
-        label: autoScroll ? 'Auto-scroll on' : 'Auto-scroll off',
-        active: autoScroll,
-        onTap: onToggleAutoScroll,
+        key: const Key('workspace_live_button'),
+        icon: Icons.play_circle_outline_rounded,
+        label: 'Live Performance',
+        active: false,
+        onTap: onOpenLive,
       ),
       _ToolPill(
         icon: Icons.circle,

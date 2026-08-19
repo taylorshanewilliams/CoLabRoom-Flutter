@@ -174,8 +174,22 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         _progress = null;
       });
     } catch (error) {
+      // Reset _working here, immediately, rather than only in `finally` —
+      // the refresh below is a network call, and while it's in flight
+      // `_working` staying true kept every action button disabled and the
+      // stale progress bar on screen for its whole duration (which reads as
+      // "the app is stuck" if that call is slow). Reload the bundle
+      // silently afterward without disturbing the error message: _refresh()
+      // clears _error on success, which would otherwise wipe the message
+      // out from under the user moments after showing it.
       if (mounted) setState(() => _error = error.toString());
-      await _refresh();
+      if (mounted) setState(() => _working = false);
+      try {
+        final bundle = await _service.load(widget.project.id);
+        if (mounted) setState(() => _bundle = bundle);
+      } catch (_) {
+        // Non-fatal: we already have a bundle and an error message to show.
+      }
     } finally {
       if (mounted) setState(() => _working = false);
     }

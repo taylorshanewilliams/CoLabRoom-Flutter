@@ -283,36 +283,59 @@ class SongAnalysisService {
       final info = await AudioDecoder.getAudioInfo(localPath);
       final durationMs = info.duration.inMilliseconds;
 
-      onProgress?.call(const SongAnalysisProgress('Listening for the words', 0.12));
       final whisper = WhisperController();
+
+      onProgress?.call(const SongAnalysisProgress('Downloading speech model', 0.13));
+      try {
+        await whisper.downloadModel(WhisperModel.tinyEn);
+      } catch (error) {
+        throw StateError(
+          'Could not download the on-device speech model. Check your internet '
+          'connection and try again. Details: $error',
+        );
+      }
+
+      onProgress?.call(const SongAnalysisProgress('Loading speech model', 0.16));
+      try {
+        await whisper.initModel(WhisperModel.tinyEn);
+      } catch (error) {
+        throw StateError(
+          'The on-device speech model downloaded but failed to load on this '
+          'device. Details: $error',
+        );
+      }
+
+      onProgress?.call(const SongAnalysisProgress('Listening for the words', 0.2));
       final prompt = project.contributions
           .where(_visibleLine)
           .map((line) => line.body.replaceAll('\u200B', ''))
           .join(' ');
-      final dynamic result = await whisper.transcribe(
-        model: WhisperModel.tinyEn,
-        audioPath: localPath,
-        lang: 'en',
-        withSegments: true,
-        splitOnWord: true,
-        suppressNonSpeechTokens: true,
-        initialPrompt: prompt.length > 1800 ? prompt.substring(0, 1800) : prompt,
-        onProgress: (percent) {
-          onProgress?.call(SongAnalysisProgress(
-            'Listening for the words',
-            0.12 + (percent.clamp(0, 100) / 100) * 0.38,
-          ));
-        },
-      );
+      dynamic result;
+      try {
+        result = await whisper.transcribe(
+          model: WhisperModel.tinyEn,
+          audioPath: localPath,
+          lang: 'en',
+          withSegments: true,
+          splitOnWord: true,
+          suppressNonSpeechTokens: true,
+          initialPrompt: prompt.length > 1800 ? prompt.substring(0, 1800) : prompt,
+          onProgress: (percent) {
+            onProgress?.call(SongAnalysisProgress(
+              'Listening for the words',
+              0.2 + (percent.clamp(0, 100) / 100) * 0.3,
+            ));
+          },
+        );
+      } catch (error) {
+        throw StateError('Transcription failed while listening to the recording. Details: $error');
+      }
       await whisper.releaseModel();
       if (result == null) {
-        // Distinct from "transcribed but heard nothing": the on-device
-        // engine itself didn't return a result at all — most likely the
-        // speech model failed to download/initialize, or couldn't process
-        // this audio file, rather than the recording genuinely being silent.
+        // The engine completed without throwing but still returned nothing
+        // — distinct from "transcribed but heard no words" (handled below).
         throw StateError(
-          'The on-device speech model could not process this recording. '
-          'Check your connection (the model downloads on first use) and try again.',
+          'The speech model finished processing but returned no result for this recording.',
         );
       }
       final words = _transcribedWords(result);
