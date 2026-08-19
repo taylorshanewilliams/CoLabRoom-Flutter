@@ -119,6 +119,21 @@ class MusicBetaController extends ChangeNotifier {
     await load();
   }
 
+  Future<void> reorderRoomProjects(MusicRoom room, List<SongProject> orderedProjects) async {
+    // Update local state immediately so the drag feels instant; `load()`
+    // afterward reconciles with whatever the backend actually persisted.
+    final index = _rooms.indexWhere((candidate) => candidate.id == room.id);
+    if (index != -1) {
+      _rooms[index] = _rooms[index].copyWith(projects: orderedProjects);
+      notifyListeners();
+    }
+    try {
+      await repository.reorderRoomProjects(room, orderedProjects.map((p) => p.id).toList(growable: false));
+    } finally {
+      await load();
+    }
+  }
+
   Future<void> addContribution(
     SongProject project,
     String body, {

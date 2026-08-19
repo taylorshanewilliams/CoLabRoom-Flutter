@@ -28,6 +28,16 @@ class CoLabRoomApp extends StatelessWidget {
       title: BetaConfig.appName,
       debugShowCheckedModeBanner: false,
       theme: CoLabRoomTheme.dark(),
+      // Clamp system font scaling so a user's accessibility text-size
+      // setting can't blow past what our fixed-width dialogs/tiles were
+      // laid out for and trigger a RenderFlex overflow.
+      builder: (context, child) {
+        final clamped = MediaQuery.textScalerOf(context).clamp(minScaleFactor: 0.8, maxScaleFactor: 1.3);
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: clamped),
+          child: child!,
+        );
+      },
       home: home,
     );
   }

@@ -175,6 +175,9 @@ class InMemoryMusicRepository implements MusicRepository {
       throw const NameConflict('A project with that name already exists in your account.');
     }
     final now = DateTime.now();
+    final maxSort = room.projects.isEmpty
+        ? 0.0
+        : room.projects.map((project) => project.sortOrder).reduce((a, b) => a > b ? a : b);
     final project = SongProject(
       id: _id('song'),
       roomId: room.id,
@@ -182,6 +185,7 @@ class InMemoryMusicRepository implements MusicRepository {
       title: cleaned,
       createdAt: now,
       updatedAt: now,
+      sortOrder: maxSort + 1024,
     );
     _replaceRoom(
       room.copyWith(
@@ -190,6 +194,17 @@ class InMemoryMusicRepository implements MusicRepository {
       ),
     );
     return project;
+  }
+
+  @override
+  Future<void> reorderRoomProjects(MusicRoom room, List<String> orderedProjectIds) async {
+    final current = _rooms.firstWhere((candidate) => candidate.id == room.id);
+    for (var index = 0; index < orderedProjectIds.length; index += 1) {
+      final projectId = orderedProjectIds[index];
+      final projectIndex = current.projects.indexWhere((candidate) => candidate.id == projectId);
+      if (projectIndex == -1) continue;
+      _replaceProject(current.projects[projectIndex].copyWith(sortOrder: (index + 1) * 1024.0));
+    }
   }
 
   @override

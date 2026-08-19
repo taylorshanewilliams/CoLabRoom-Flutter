@@ -35,6 +35,10 @@ abstract interface class MusicRepository {
 
   Future<void> deleteSong(SongProject project);
 
+  /// Persists a new manual song order within [room] ([orderedProjectIds]
+  /// must contain the same set of project ids currently in the Room).
+  Future<void> reorderRoomProjects(MusicRoom room, List<String> orderedProjectIds);
+
   Future<Contribution> addContribution({
     required SongProject project,
     required String body,

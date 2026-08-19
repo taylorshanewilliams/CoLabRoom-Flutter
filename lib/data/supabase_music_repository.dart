@@ -86,7 +86,7 @@ class SupabaseMusicRepository implements MusicRepository {
         .select(
           'id, account_id, name, icon, created_at, updated_at, sort_order, '
           'room_members(user_id, display_name, role, color_value), '
-          'projects(id, room_id, account_id, title, description, status, created_at, updated_at, '
+          'projects(id, room_id, account_id, title, description, status, created_at, updated_at, sort_order, '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at)))',
         )
@@ -242,12 +242,22 @@ class SupabaseMusicRepository implements MusicRepository {
     final cleaned = NamePolicy.clean(title);
     NamePolicy.requireUsable(cleaned, label: 'Project name');
     try {
+      final existing = await client
+          .from('projects')
+          .select('sort_order')
+          .eq('room_id', room.id)
+          .order('sort_order', ascending: false)
+          .limit(1);
+      final maxSort = (existing as List<dynamic>).isEmpty
+          ? 0.0
+          : ((existing.first as Map)['sort_order'] as num).toDouble();
       final row = await client
           .from('projects')
           .insert(<String, dynamic>{
             'room_id': room.id,
             'account_id': room.accountId,
             'title': cleaned,
+            'sort_order': maxSort + 1024,
           })
           .select()
           .single();
@@ -275,6 +285,20 @@ class SupabaseMusicRepository implements MusicRepository {
     } on PostgrestException catch (error) {
       throw _friendlyDatabaseError(error, noun: 'project');
     }
+  }
+
+  @override
+  Future<void> reorderRoomProjects(MusicRoom room, List<String> orderedProjectIds) async {
+    if (orderedProjectIds.isEmpty) return;
+    // Same one-round-trip-RPC approach as reorderRooms (see migration 0012):
+    // an upsert would fail the NOT NULL check on `title`/`account_id` for a
+    // payload carrying only `id`/`sort_order`.
+    await client.rpc<void>(
+      'reorder_room_projects',
+      params: <String, dynamic>{
+        'project_ids': orderedProjectIds,
+      },
+    );
   }
 
   @override
@@ -631,6 +655,7 @@ class SupabaseMusicRepository implements MusicRepository {
       createdAt: DateTime.parse(row['created_at'] as String),
       updatedAt: DateTime.parse(row['updated_at'] as String),
       contributions: contributions,
+      sortOrder: (row['sort_order'] as num?)?.toDouble() ?? 0,
     );
   }
 

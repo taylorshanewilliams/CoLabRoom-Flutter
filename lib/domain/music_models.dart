@@ -108,6 +108,7 @@ class SongProject {
     this.description = '',
     this.status = SongStatus.active,
     this.contributions = const <Contribution>[],
+    this.sortOrder = 0,
   });
 
   final String id;
@@ -119,6 +120,7 @@ class SongProject {
   final DateTime createdAt;
   final DateTime updatedAt;
   final List<Contribution> contributions;
+  final double sortOrder;
 
   SongProject copyWith({
     String? roomId,
@@ -127,6 +129,7 @@ class SongProject {
     SongStatus? status,
     DateTime? updatedAt,
     List<Contribution>? contributions,
+    double? sortOrder,
   }) {
     return SongProject(
       id: id,
@@ -138,6 +141,7 @@ class SongProject {
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       contributions: contributions ?? this.contributions,
+      sortOrder: sortOrder ?? this.sortOrder,
     );
   }
 }

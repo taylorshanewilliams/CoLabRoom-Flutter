@@ -275,8 +275,8 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Beta feedback'),
-      content: SizedBox(
-        width: 460,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
         child: TextField(
           controller: _message,
           autofocus: true,

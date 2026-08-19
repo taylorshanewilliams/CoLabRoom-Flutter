@@ -227,8 +227,8 @@ class _AddSongsDialogState extends State<_AddSongsDialog> {
         .toList(growable: false);
     return AlertDialog(
       title: const Text('Add Songs'),
-      content: SizedBox(
-        width: 440,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
         child: available.isEmpty
             ? const Text('Every available song is already in this setlist.')
             : ListView.builder(

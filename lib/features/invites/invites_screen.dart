@@ -126,8 +126,8 @@ class _JoinCodeDialogState extends State<_JoinCodeDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Join with an Invite Code'),
-      content: SizedBox(
-        width: 440,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
         child: TextField(
           controller: _code,
           autofocus: true,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -11,10 +13,11 @@ import '../../widgets/music_tiles.dart';
 import '../home/new_song_flow.dart';
 import '../workspace/song_workspace_screen.dart';
 
-enum _ProjectSort { updatedRecent, alphabetical, createdNewest, createdOldest }
+enum _ProjectSort { manual, updatedRecent, alphabetical, createdNewest, createdOldest }
 
 extension on _ProjectSort {
   String get label => switch (this) {
+        _ProjectSort.manual => 'Custom order',
         _ProjectSort.updatedRecent => 'Recently updated',
         _ProjectSort.alphabetical => 'Alphabetical',
         _ProjectSort.createdNewest => 'Newest first',
@@ -22,6 +25,7 @@ extension on _ProjectSort {
       };
 
   IconData get icon => switch (this) {
+        _ProjectSort.manual => Icons.drag_indicator_rounded,
         _ProjectSort.updatedRecent => Icons.history_rounded,
         _ProjectSort.alphabetical => Icons.sort_by_alpha_rounded,
         _ProjectSort.createdNewest => Icons.arrow_downward_rounded,
@@ -51,6 +55,8 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
           : room.projects.where((project) => NamePolicy.normalized(project.title).contains(query)),
     );
     switch (_sort) {
+      case _ProjectSort.manual:
+        projects.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
       case _ProjectSort.updatedRecent:
         projects.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
       case _ProjectSort.alphabetical:
@@ -209,6 +215,21 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void _reorderProjects(
+    MusicRoom room,
+    List<SongProject> visibleProjects,
+    String draggedProjectId,
+    int dropIndex,
+  ) {
+    if (draggedProjectId == visibleProjects[dropIndex].id) return;
+    final reordered = List<SongProject>.from(visibleProjects);
+    final draggedIndex = reordered.indexWhere((project) => project.id == draggedProjectId);
+    if (draggedIndex == -1) return;
+    final dragged = reordered.removeAt(draggedIndex);
+    reordered.insert(dropIndex, dragged);
+    unawaited(BetaScope.of(context).reorderRoomProjects(room, reordered));
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = BetaScope.of(context);
@@ -256,8 +277,8 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: const Text('Invite ready'),
-            content: SizedBox(
-              width: 440,
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -493,21 +514,35 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
                         final project = sortedProjects[index];
+                        void onTap() {
+                          if (_selectedProjectIds.isNotEmpty) {
+                            _toggleSelection(project.id);
+                            return;
+                          }
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => SongWorkspaceScreen(projectId: project.id),
+                            ),
+                          );
+                        }
+
+                        if (_sort == _ProjectSort.manual &&
+                            _query.isEmpty &&
+                            _selectedProjectIds.isEmpty) {
+                          return _DraggableSongTile(
+                            key: ValueKey<String>(project.id),
+                            project: project,
+                            onTap: onTap,
+                            onLongPress: () => _toggleSelection(project.id),
+                            onReorder: (draggedId) =>
+                                _reorderProjects(room, sortedProjects, draggedId, index),
+                          );
+                        }
                         return SongTile(
                           project: project,
                           selected: _selectedProjectIds.contains(project.id),
                           onLongPress: () => _toggleSelection(project.id),
-                          onTap: () {
-                            if (_selectedProjectIds.isNotEmpty) {
-                              _toggleSelection(project.id);
-                              return;
-                            }
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => SongWorkspaceScreen(projectId: project.id),
-                              ),
-                            );
-                          },
+                          onTap: onTap,
                         );
                       },
                       childCount: sortedProjects.length,
@@ -521,6 +556,82 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Wraps [SongTile] with long-press drag-to-reorder support, mirroring
+/// _DraggableRoomTile on the Rooms screen. Only used while sorted by
+/// "Custom order" with no active search/selection.
+class _DraggableSongTile extends StatefulWidget {
+  const _DraggableSongTile({
+    required this.project,
+    required this.onTap,
+    required this.onLongPress,
+    required this.onReorder,
+    super.key,
+  });
+
+  final SongProject project;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+  final ValueChanged<String> onReorder;
+
+  @override
+  State<_DraggableSongTile> createState() => _DraggableSongTileState();
+}
+
+class _DraggableSongTileState extends State<_DraggableSongTile> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) => details.data != widget.project.id,
+      onAcceptWithDetails: (details) {
+        setState(() => _hovering = false);
+        widget.onReorder(details.data);
+      },
+      onMove: (_) => setState(() => _hovering = true),
+      onLeave: (_) => setState(() => _hovering = false),
+      builder: (context, candidates, rejected) {
+        return LongPressDraggable<String>(
+          data: widget.project.id,
+          delay: const Duration(milliseconds: 220),
+          feedback: Material(
+            color: Colors.transparent,
+            child: SizedBox(
+              width: 164,
+              height: 164,
+              child: Transform.scale(
+                scale: 1.05,
+                child: Opacity(
+                  opacity: 0.9,
+                  child: SongTile(project: widget.project, onTap: () {}),
+                ),
+              ),
+            ),
+          ),
+          childWhenDragging: Opacity(
+            opacity: 0.28,
+            child: SongTile(project: widget.project, onTap: () {}),
+          ),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 140),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: _hovering
+                  ? Border.all(color: AppColors.cyan, width: 2)
+                  : Border.all(color: Colors.transparent, width: 2),
+            ),
+            child: SongTile(
+              project: widget.project,
+              onTap: widget.onTap,
+              onLongPress: widget.onLongPress,
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -693,8 +804,8 @@ class _InviteCollaboratorDialogState extends State<_InviteCollaboratorDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Invite a Collaborator'),
-      content: SizedBox(
-        width: 440,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
