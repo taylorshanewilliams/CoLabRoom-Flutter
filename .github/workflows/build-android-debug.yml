@@ -1,0 +1,75 @@
+name: Build Android debug APK
+
+# Manual trigger, plus automatic builds on pushes to main so you always have
+# a fresh debug APK to install without asking for one.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'android/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/build-android-debug.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # Pin this to a specific version (e.g. flutter-version: '3.27.1')
+          # once you've confirmed a build that works well, so upgrades to
+          # the "stable" channel can't unexpectedly change your build.
+          cache: true
+
+      # This repo, as currently exported, has no android/ folder. If your
+      # real project already has one (likely, since this app has shipped
+      # betas before), that folder takes precedence and this step no-ops.
+      # If android/ truly doesn't exist yet, this scaffolds a bare one —
+      # see the note at the bottom of this file about permissions you'll
+      # then need to add by hand before recording/import features work.
+      - name: Scaffold Android platform folder if missing
+        run: |
+          if [ ! -d android ]; then
+            echo "No android/ folder found — scaffolding one."
+            flutter create --platforms=android --org com.colabroom --project-name colabroom .
+          else
+            echo "android/ folder already present, using it as-is."
+          fi
+
+      - run: flutter pub get
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: colabroom-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 14
+
+# ---------------------------------------------------------------------------
+# After the run finishes: open the workflow run on GitHub, scroll to
+# "Artifacts", and download colabroom-debug-apk.zip — it contains
+# app-debug.apk. Debug builds aren't signed for release and install fine
+# via `adb install` or by sideloading directly on a test device (you'll
+# need "install unknown apps" enabled for whatever app you use to open it).
+#
+# If this workflow had to scaffold android/ for you (check the build log
+# for "scaffolding one"), add these to android/app/src/main/AndroidManifest.xml
+# before testing recording/import, or those features will silently fail:
+#   <uses-permission android:name="android.permission.RECORD_AUDIO" />
+#   <uses-permission android:name="android.permission.INTERNET" />
+# and confirm applicationId in android/app/build.gradle matches the
+# authRedirectUrl scheme in lib/app/beta_config.dart (currently
+# com.colabroom.beta) so Supabase auth deep links resolve correctly.
+# ---------------------------------------------------------------------------

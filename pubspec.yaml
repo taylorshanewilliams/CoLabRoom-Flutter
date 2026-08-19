@@ -1,0 +1,34 @@
+name: colabroom
+description: Music-first collaborative rooms for Apple, Android, and web.
+publish_to: none
+version: 0.3.1+7
+
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  audioplayers: ^6.8.1
+  archive: ^4.0.9
+  cross_file: 0.3.5+4
+  csv: 6.0.0
+  file_picker: 12.0.0
+  http: 1.6.0
+  path_provider: 2.1.5
+  pdf_document: 3.5.1
+  pdf_graphics: 3.2.0
+  record: 6.2.1
+  pdf: ^3.13.0
+  printing: 5.15.0
+  share_plus: ^13.3.0
+  speech_to_text: ^7.0.0
+  supabase_flutter: ^2.0.0
+  xml: ^7.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
