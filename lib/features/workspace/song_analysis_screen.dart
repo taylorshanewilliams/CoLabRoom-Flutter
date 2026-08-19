@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
@@ -288,6 +289,53 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     );
   }
 
+  Future<void> _replaceProjectLyrics() async {
+    final reference = _bundle?.reference;
+    if (_working || reference == null) return;
+    final lines = _service.transcriptLyricLines(reference);
+    if (lines.isEmpty) return;
+    final hasExisting = widget.project.contributions.any((line) => line.body.trim().isNotEmpty);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Replace project lyrics?'),
+        content: Text(
+          hasExisting
+              ? 'This replaces everything currently in the project\'s lyrics with the words heard in this recording. This can\'t be undone.'
+              : 'This writes the words heard in this recording into the project\'s lyrics, so you don\'t have to retype them.',
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Replace'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _working = true);
+    try {
+      final controller = BetaScope.of(context);
+      for (final line in widget.project.contributions) {
+        await controller.deleteContribution(line);
+      }
+      await controller.importContributions(
+        widget.project,
+        lines.map((body) => ContributionDraft(body: body)).toList(growable: false),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Project lyrics replaced with this recording\'s transcript.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final bundle = _bundle;
@@ -408,6 +456,29 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                       ),
                     ),
                   ],
+                  if (_error == null && ready && reference?.analysisWarning != null) ...<Widget>[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.orange.withValues(alpha: 0.09),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          const Icon(Icons.info_outline_rounded, size: 16, color: AppColors.orange),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              reference!.analysisWarning!,
+                              style: const TextStyle(color: AppColors.orange, fontSize: 11.5, height: 1.4),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   if (reference != null && !ready) ...<Widget>[
                     const SizedBox(height: 20),
                     const _QuietNote(
@@ -417,6 +488,38 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                   ],
                   if (ready) ...<Widget>[
                     const SizedBox(height: 22),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                      decoration: BoxDecoration(
+                        color: AppColors.green.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Row(
+                        children: <Widget>[
+                          Icon(Icons.check_circle_rounded, size: 16, color: AppColors.green),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Saved to this project — no extra step needed. Replacing the project\'s lyrics below is optional.',
+                              style: TextStyle(color: AppColors.green, fontSize: 11.5, fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if ((reference?.transcriptWords.isNotEmpty ?? false)) ...<Widget>[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          key: const Key('replace_project_lyrics'),
+                          onPressed: _working ? null : _replaceProjectLyrics,
+                          icon: const Icon(Icons.sync_alt_rounded, size: 17),
+                          label: const Text('Replace project lyrics with this'),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
                     _AnalysisSummary(bundle: bundle!),
                     const SizedBox(height: 18),
                     Text(

@@ -153,7 +153,7 @@ class MusicianSongSheet extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
               child: lines.isEmpty
                   ? Text(
-                      'No lyric text is available yet. Record or upload a vocal take, then analyze again.',
+                      'Nothing to show yet — analyze a recording with either singing or a clear instrument track.',
                       style: TextStyle(
                         color: const Color(0xFF6D6254),
                         fontSize: 13 * fontScale,

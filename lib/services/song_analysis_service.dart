@@ -273,6 +273,38 @@ class SongAnalysisService {
     return client.storage.from('room-files').download(reference.storagePath);
   }
 
+  /// Groups a saved transcript's words back into line-sized chunks by pause
+  /// gaps, for the explicit "Replace project lyrics with this" action —
+  /// mirrors the grouping heuristic used when generating the song sheet in
+  /// the first place. Pure/no DB access; the caller is responsible for
+  /// actually writing these as Contributions (via MusicBetaController, so
+  /// existing lines get cleaned up correctly, voice notes included).
+  List<String> transcriptLyricLines(ReferenceTrack reference) {
+    final words = reference.transcriptWords;
+    if (words.isEmpty) return const <String>[];
+    const pauseGapMs = 650;
+    const maxWordsPerLine = 12;
+    const maxLineDurationMs = 9000;
+    final lines = <List<TranscriptWord>>[];
+    var current = <TranscriptWord>[];
+    for (final word in words) {
+      if (current.isNotEmpty) {
+        final gap = word.startMs - current.last.endMs;
+        final duration = word.endMs - current.first.startMs;
+        if (gap >= pauseGapMs || current.length >= maxWordsPerLine || duration >= maxLineDurationMs) {
+          lines.add(current);
+          current = <TranscriptWord>[];
+        }
+      }
+      current.add(word);
+    }
+    if (current.isNotEmpty) lines.add(current);
+    return lines
+        .map((line) => line.map((word) => word.word).join(' ').trim())
+        .where((body) => body.isNotEmpty)
+        .toList(growable: false);
+  }
+
   Future<SongAnalysisBundle> analyze({
     required SongProject project,
     required ReferenceTrack reference,
@@ -343,76 +375,89 @@ class SongAnalysisService {
         }
       }
 
-      dynamic result = await runTranscription(WhisperModel.baseEn);
-      if (result == null) {
-        // Observed in practice: the same file succeeds once and later fails
-        // with no other error on base.en, which points at a device-side
-        // resource ceiling for longer recordings rather than a genuine
-        // transcription failure. Retry once with the smaller tiny.en model
-        // instead of failing outright — worse accuracy beats no analysis.
-        onProgress?.call(const SongAnalysisProgress('Retrying with a lighter speech model', 0.18));
-        result = await runTranscription(WhisperModel.tinyEn);
+      // Chords don't need singing at all (they come from the raw audio via
+      // FFT/chroma, independent of speech), so a lyrics/transcription
+      // failure of any kind — instrumental audio, a failed/empty
+      // transcription, even the speech model failing to load — should
+      // never block chord detection. Every failure mode below sets
+      // lyricsWarning and falls through to chord analysis instead of
+      // throwing, and gets surfaced as a non-fatal analysis_warning rather
+      // than a hard error.
+      String? lyricsWarning;
+      dynamic result;
+      try {
+        result = await runTranscription(WhisperModel.baseEn);
+        if (result == null) {
+          // Observed in practice: the same file succeeds once and later
+          // fails with no other error on base.en, which points at a
+          // device-side resource ceiling for longer recordings rather than
+          // a genuine transcription failure. Retry once with the smaller
+          // tiny.en model instead of failing outright.
+          onProgress?.call(const SongAnalysisProgress('Retrying with a lighter speech model', 0.18));
+          result = await runTranscription(WhisperModel.tinyEn);
+        }
+      } catch (error) {
+        lyricsWarning = 'Could not process this recording\'s speech, so only chords were '
+            'detected. Details: $error';
+        result = null;
       }
-      if (result == null) {
+      if (result == null && lyricsWarning == null) {
         // The engine completed without throwing but still returned nothing
         // — distinct from "transcribed but heard no words" (handled below).
-        throw StateError(
-          'The speech model finished processing but returned no result for this recording.',
-        );
-      }
-      final words = _transcribedWords(result);
-      if (words.isEmpty) {
-        final dynamic wholeText = result.transcription?.text;
-        final heard = wholeText is String ? wholeText.trim() : '';
-        if (heard.isNotEmpty && !_looksLikeSpeech(heard)) {
-          // Whisper's own way of saying "this is instrumental, not singing"
-          // is to emit only non-speech markers like "♪♪♪" — that's a correct
-          // read of a guitar/instrumental-only recording, not a ColabRoom
-          // bug, so say so plainly instead of the "bug in ColabRoom"
-          // message below (which is for when real words got lost, not for
-          // when there were never any words to hear).
-          throw StateError(
-            'This recording sounds instrumental — no singing was detected, so '
-            'there are no words to sync lyrics to. Record with vocals (even '
-            'humming the melody) for lyric sync to work.',
-          );
-        }
-        // If Whisper actually produced text but our segment-based extraction
-        // found nothing, that's a parsing bug on our side, not a "couldn't
-        // hear you" situation — surface that distinction instead of masking
-        // it with the generic message.
-        if (heard.isNotEmpty) {
-          throw StateError(
-            'Heard "$heard" but could not extract word timings from it '
-            '(a bug in ColabRoom, not your recording).',
-          );
-        }
-        throw StateError('I could not hear enough sung words to sync these lyrics.');
+        lyricsWarning =
+            'The speech model finished processing but returned no result for this '
+            'recording, so only chords were detected.';
       }
 
-      onProgress?.call(SongAnalysisProgress(
-        hasLyrics ? 'Matching lyrics to the performance' : 'Writing down the lyrics',
-        0.54,
-      ));
-      // With lyrics already in the project: align them to the recording's
-      // timing (unchanged behavior). Without: leave `contributions` (the
-      // collaborative lyric-editing document) completely untouched, and
-      // instead save the raw transcript onto the reference row itself —
-      // the song sheet already knows how to render straight from
-      // transcriptWords when there are no project lyrics to align
-      // (see musician_sheet_logic.dart's buildMusicianSheetLines/
-      // _transcriptLines). This keeps anything typed manually into the
-      // project separate from anything generated by analysis, per design.
       _LyricAlignmentResult? lyricResult;
       List<TranscriptWord> transcriptWords = const <TranscriptWord>[];
       String? transcriptText;
-      if (hasLyrics) {
-        lyricResult = _alignLyrics(project, words, durationMs);
-      } else {
-        transcriptWords = words
-            .map((word) => TranscriptWord(word: word.raw, startMs: word.startMs, endMs: word.endMs))
-            .toList(growable: false);
-        transcriptText = transcriptWords.map((word) => word.word).join(' ');
+      if (result != null) {
+        final words = _transcribedWords(result);
+        if (words.isEmpty) {
+          final dynamic wholeText = result.transcription?.text;
+          final heard = wholeText is String ? wholeText.trim() : '';
+          if (heard.isNotEmpty && !_looksLikeSpeech(heard)) {
+            // Whisper's own way of saying "this is instrumental, not
+            // singing" is to emit only non-speech markers like "♪♪♪" —
+            // a correct read of a guitar/instrumental-only recording, not
+            // a bug, so say so plainly. Chords still get detected below.
+            lyricsWarning = 'This recording sounds instrumental — chords were detected, but '
+                'there are no words to sync lyrics to.';
+          } else if (heard.isNotEmpty) {
+            // Whisper actually produced text but the segment-based
+            // extraction found nothing — a parsing bug on our side, not a
+            // "couldn't hear you" situation, but still non-fatal.
+            lyricsWarning = 'Heard "$heard" but could not extract word timings from it '
+                '(a bug in ColabRoom, not your recording) — chords were still detected.';
+          } else {
+            lyricsWarning =
+                'Not enough sung words were heard to sync lyrics, but chords were still detected.';
+          }
+        } else {
+          onProgress?.call(SongAnalysisProgress(
+            hasLyrics ? 'Matching lyrics to the performance' : 'Writing down the lyrics',
+            0.54,
+          ));
+          // With lyrics already in the project: align them to the
+          // recording's timing (unchanged behavior). Without: leave
+          // `contributions` (the collaborative lyric-editing document)
+          // completely untouched, and instead save the raw transcript onto
+          // the reference row itself — the song sheet already knows how to
+          // render straight from transcriptWords when there are no project
+          // lyrics to align (see musician_sheet_logic.dart's
+          // buildMusicianSheetLines/_transcriptLines). This keeps anything
+          // typed manually into the project separate from anything
+          // generated by analysis, per design.
+          if (hasLyrics) {
+            lyricResult = _alignLyrics(project, words, durationMs);
+          } else {
+            transcriptWords = words
+                .map((word) => TranscriptWord(word: word.raw, startMs: word.startMs, endMs: word.endMs))
+                .toList(growable: false);
+            transcriptText = transcriptWords.map((word) => word.word).join(' ');
+          }
+        }
       }
 
       onProgress?.call(const SongAnalysisProgress('Finding chord changes', 0.62));
@@ -490,6 +535,7 @@ class SongAnalysisService {
             'chord_confidence': chordConfidence,
             'transcript_text': transcriptText,
             'transcript_words': transcriptWords.map((word) => word.toJson()).toList(growable: false),
+            'analysis_warning': lyricsWarning,
             'last_error': null,
           })
           .eq('project_id', project.id);

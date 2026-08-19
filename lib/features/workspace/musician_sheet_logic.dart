@@ -428,7 +428,7 @@ List<MusicianSheetLine> _transcriptLines(
     return lines;
   }
   final text = bundle.reference?.transcriptText?.trim() ?? '';
-  if (text.isEmpty) return const <MusicianSheetLine>[];
+  if (text.isEmpty) return _chordOnlyLines(bundle);
   final wordsOnly = text.replaceAll(RegExp(r'\s+'), ' ').split(' ');
   final chunks = <String>[];
   for (var start = 0; start < wordsOnly.length; start += 7) {
@@ -451,4 +451,33 @@ List<MusicianSheetLine> _transcriptLines(
       approximateTiming: true,
     );
   }).toList(growable: false);
+}
+
+/// For a genuinely instrumental recording (no sung words at all, so no
+/// transcript to build lines from): the chord chart is still worth
+/// showing rather than an empty sheet. Chord placement is driven by
+/// word position within a line (see chordPlacementsForLine), so this
+/// gives each chord a small placeholder marker to sit above instead of a
+/// real lyric word — the same visual shape as a chord-only instrumental
+/// section on a normal chord chart.
+List<MusicianSheetLine> _chordOnlyLines(SongAnalysisBundle bundle) {
+  final chords = bundle.chordCues;
+  if (chords.isEmpty) return const <MusicianSheetLine>[];
+  const chordsPerLine = 4;
+  final lines = <MusicianSheetLine>[];
+  for (var start = 0; start < chords.length; start += chordsPerLine) {
+    final slice = chords.sublist(start, math.min(start + chordsPerLine, chords.length));
+    lines.add(
+      MusicianSheetLine(
+        contributionId: null,
+        body: List<String>.filled(slice.length, '·').join('   '),
+        section: false,
+        startMs: slice.first.startMs,
+        endMs: slice.last.endMs,
+        chords: slice,
+        approximateTiming: false,
+      ),
+    );
+  }
+  return lines;
 }

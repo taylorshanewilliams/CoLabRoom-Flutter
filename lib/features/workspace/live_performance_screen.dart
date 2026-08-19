@@ -7,9 +7,15 @@ import 'package:flutter/services.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
-import 'continuous_song_editor.dart';
+import 'musician_sheet_logic.dart';
 
 enum LiveScrollMode { off, synced, slow, medium, fast, timed }
+
+/// Which lyric source Live Performance reads from — the live collaborative
+/// workspace (whatever's currently typed, unfrozen), or the Song Sheet (the
+/// snapshot from the last analysis, with chords). The user picks; neither
+/// is silently preferred over the other.
+enum LiveLyricSource { workspace, songSheet }
 
 class LivePerformanceScreen extends StatefulWidget {
   const LivePerformanceScreen({required this.project, this.analysis, super.key});
@@ -44,11 +50,26 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   Duration _elapsed = Duration.zero;
   String? _activeContributionId;
   String? _lastLayoutKey;
+  late final List<MusicianSheetLine> _workspaceLines;
+  late final List<MusicianSheetLine> _sheetLines;
+  late final Map<String, Color> _colorByContributionId;
+  late LiveLyricSource _source;
 
-  bool get _hasSync => widget.analysis?.hasSyncedLyrics ?? false;
+  static const _emptyBundle =
+      SongAnalysisBundle(reference: null, lyricCues: <LyricSyncCue>[], chordCues: <ChordCue>[]);
+
+  List<MusicianSheetLine> get _lines =>
+      _source == LiveLyricSource.workspace ? _workspaceLines : _sheetLines;
+
+  bool get _hasSync =>
+      _source == LiveLyricSource.songSheet && (widget.analysis?.hasSyncedLyrics ?? false);
 
   List<LyricSyncCue> get _sortedCues {
-    final cues = List<LyricSyncCue>.from(widget.analysis?.lyricCues ?? const <LyricSyncCue>[]);
+    final cues = List<LyricSyncCue>.from(
+      _source == LiveLyricSource.songSheet
+          ? widget.analysis?.lyricCues ?? const <LyricSyncCue>[]
+          : const <LyricSyncCue>[],
+    );
     cues.sort((a, b) => a.startMs.compareTo(b.startMs));
     return cues;
   }
@@ -57,6 +78,21 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   void initState() {
     super.initState();
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
+    // Both modes are built from the same unified line logic the Song Sheet
+    // view uses (buildMusicianSheetLines) — "workspace" just passes an
+    // empty analysis bundle, so it always reflects the live collaborative
+    // lyrics (no chords, no frozen timing) regardless of what the last
+    // analysis produced. "Song Sheet" passes the real analysis, which may
+    // itself be a generated transcript when the project had no lyrics of
+    // its own at analysis time.
+    _workspaceLines = buildMusicianSheetLines(widget.project, _emptyBundle);
+    _sheetLines = buildMusicianSheetLines(widget.project, widget.analysis ?? _emptyBundle);
+    _colorByContributionId = <String, Color>{
+      for (final contribution in widget.project.contributions)
+        contribution.id: Color(contribution.colorValue),
+    };
+    final sheetReady = widget.analysis?.ready ?? false;
+    _source = sheetReady ? LiveLyricSource.songSheet : LiveLyricSource.workspace;
     _mode = _hasSync ? LiveScrollMode.synced : LiveScrollMode.off;
     if (_hasSync) {
       final track = widget.analysis?.reference;
@@ -66,6 +102,20 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     }
     _ticker = Timer.periodic(const Duration(milliseconds: 50), (_) => _tick());
     _armControlHide();
+  }
+
+  void _selectSource(LiveLyricSource source) {
+    if (source == _source) return;
+    setState(() {
+      _source = source;
+      _playing = false;
+      _mode = _hasSync ? LiveScrollMode.synced : LiveScrollMode.off;
+      _elapsed = Duration.zero;
+      _activeContributionId = null;
+    });
+    _lastTick = null;
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    _markOffsetsDirty();
   }
 
   @override
@@ -319,7 +369,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final baseSize = landscape ? 22.0 : 25.0;
     final lyricSize = baseSize * _fontScale;
     final sidePadding = landscape ? media.size.width * 0.12 : 24.0;
-    final lines = widget.project.contributions;
+    final lines = _lines;
     // If a layout-affecting input changed since the last measurement, the
     // line offsets used by synced-scroll need to be recaptured post-frame.
     final layoutKey = '$landscape:${_fontScale.toStringAsFixed(2)}:${lines.length}';
@@ -369,14 +419,20 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                           ),
                         ),
                         SizedBox(height: landscape ? 22 : 34),
-                        for (final line in lines)
+                        for (var i = 0; i < lines.length; i++)
                           _PerformanceLine(
-                            key: _lineKeys.putIfAbsent(line.id, () => GlobalKey()),
-                            contribution: line,
+                            key: _lineKeys.putIfAbsent(
+                              lines[i].contributionId ?? 'line_$i',
+                              () => GlobalKey(),
+                            ),
+                            line: lines[i],
+                            dotColor: lines[i].contributionId != null
+                                ? (_colorByContributionId[lines[i].contributionId] ?? AppColors.cyan)
+                                : AppColors.cyan,
                             fontSize: lyricSize,
                             compact: landscape,
                             active: _mode == LiveScrollMode.synced &&
-                                line.id == _activeContributionId,
+                                lines[i].contributionId == _activeContributionId,
                           ),
                         SizedBox(height: media.size.height * 0.52),
                       ],
@@ -402,6 +458,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         onLarger: () => setState(
                           () => _fontScale = (_fontScale + 0.08).clamp(0.72, 1.35).toDouble(),
                         ),
+                        source: _source,
+                        onSource: _selectSource,
                       ),
                     ),
                   ),
@@ -439,24 +497,25 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
 
 class _PerformanceLine extends StatelessWidget {
   const _PerformanceLine({
-    required this.contribution,
+    required this.line,
+    required this.dotColor,
     required this.fontSize,
     required this.compact,
     this.active = false,
     super.key,
   });
 
-  final Contribution contribution;
+  final MusicianSheetLine line;
+  final Color dotColor;
   final double fontSize;
   final bool compact;
   final bool active;
 
   @override
   Widget build(BuildContext context) {
-    final body = displayContributionBody(contribution.body);
-    final section = contribution.kind == ContributionKind.section ||
-        RegExp(r'^\s*\[[^\]]+\]\s*$').hasMatch(body);
-    if (body.isEmpty) {
+    final body = line.body;
+    final section = line.section;
+    if (body.trim().isEmpty) {
       return SizedBox(height: compact ? fontSize * 0.65 : fontSize * 0.9);
     }
     final baseColor = section ? AppColors.cyan.withValues(alpha: 0.92) : AppColors.text;
@@ -477,7 +536,7 @@ class _PerformanceLine extends StatelessWidget {
               width: compact ? 5 : 6,
               height: compact ? 5 : 6,
               decoration: BoxDecoration(
-                color: active ? AppColors.cyan : Color(contribution.colorValue),
+                color: active ? AppColors.cyan : dotColor,
                 shape: BoxShape.circle,
               ),
             ),
@@ -509,12 +568,16 @@ class _TopLiveBar extends StatelessWidget {
     required this.onRestart,
     required this.onSmaller,
     required this.onLarger,
+    required this.source,
+    required this.onSource,
   });
 
   final VoidCallback onClose;
   final VoidCallback onRestart;
   final VoidCallback onSmaller;
   final VoidCallback onLarger;
+  final LiveLyricSource source;
+  final ValueChanged<LiveLyricSource> onSource;
 
   @override
   Widget build(BuildContext context) {
@@ -550,6 +613,42 @@ class _TopLiveBar extends StatelessWidget {
                 letterSpacing: 2.2,
               ),
             ),
+          ),
+          PopupMenuButton<LiveLyricSource>(
+            key: const Key('live_source_menu'),
+            tooltip: 'Lyric source',
+            initialValue: source,
+            onSelected: onSource,
+            icon: Icon(
+              source == LiveLyricSource.songSheet
+                  ? Icons.description_rounded
+                  : Icons.edit_note_rounded,
+              size: 20,
+            ),
+            itemBuilder: (_) => <PopupMenuEntry<LiveLyricSource>>[
+              PopupMenuItem<LiveLyricSource>(
+                value: LiveLyricSource.workspace,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.edit_note_rounded),
+                  title: const Text('Live workspace'),
+                  trailing: source == LiveLyricSource.workspace
+                      ? const Icon(Icons.check_rounded, color: AppColors.cyan)
+                      : null,
+                ),
+              ),
+              PopupMenuItem<LiveLyricSource>(
+                value: LiveLyricSource.songSheet,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.description_rounded),
+                  title: const Text('Song Sheet'),
+                  trailing: source == LiveLyricSource.songSheet
+                      ? const Icon(Icons.check_rounded, color: AppColors.cyan)
+                      : null,
+                ),
+              ),
+            ],
           ),
           IconButton(
             onPressed: onRestart,
