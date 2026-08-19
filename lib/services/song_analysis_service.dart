@@ -287,60 +287,71 @@ class SongAnalysisService {
       final durationMs = info.duration.inMilliseconds;
 
       final whisper = WhisperController();
-
-      onProgress?.call(const SongAnalysisProgress('Downloading speech model', 0.13));
-      try {
-        await whisper.downloadModel(WhisperModel.baseEn);
-      } catch (error) {
-        throw StateError(
-          'Could not download the on-device speech model. Check your internet '
-          'connection and try again. Details: $error',
-        );
-      }
-
-      onProgress?.call(const SongAnalysisProgress('Loading speech model', 0.16));
-      try {
-        await whisper.initModel(WhisperModel.baseEn);
-      } catch (error) {
-        throw StateError(
-          'The on-device speech model downloaded but failed to load on this '
-          'device. Details: $error',
-        );
-      }
-
-      onProgress?.call(const SongAnalysisProgress('Listening for the words', 0.2));
       final prompt = project.contributions
           .where(_visibleLine)
           .map((line) => line.body.replaceAll('\u200B', ''))
           .join(' ');
-      dynamic result;
-      try {
+      Future<dynamic> runTranscription(WhisperModel model) async {
+        onProgress?.call(const SongAnalysisProgress('Downloading speech model', 0.13));
         try {
-          result = await whisper.transcribe(
-            model: WhisperModel.baseEn,
-            audioPath: localPath,
-            lang: 'en',
-            withSegments: true,
-            splitOnWord: true,
-            suppressNonSpeechTokens: true,
-            initialPrompt: prompt.length > 1800 ? prompt.substring(0, 1800) : prompt,
-            onProgress: (percent) {
-              onProgress?.call(SongAnalysisProgress(
-                'Listening for the words',
-                0.2 + (percent.clamp(0, 100) / 100) * 0.3,
-              ));
-            },
-          );
+          await whisper.downloadModel(model);
         } catch (error) {
-          throw StateError('Transcription failed while listening to the recording. Details: $error');
+          throw StateError(
+            'Could not download the on-device speech model. Check your internet '
+            'connection and try again. Details: $error',
+          );
         }
-      } finally {
-        // Always release the loaded model, even if transcription threw —
-        // previously this only ran on the success path, so a failed
-        // transcription left the native model loaded and could make the
-        // *next* analysis attempt in the same session behave strangely
-        // (e.g. a previously-working file suddenly returning no result).
-        await whisper.releaseModel();
+
+        onProgress?.call(const SongAnalysisProgress('Loading speech model', 0.16));
+        try {
+          await whisper.initModel(model);
+        } catch (error) {
+          throw StateError(
+            'The on-device speech model downloaded but failed to load on this '
+            'device. Details: $error',
+          );
+        }
+
+        onProgress?.call(const SongAnalysisProgress('Listening for the words', 0.2));
+        try {
+          try {
+            return await whisper.transcribe(
+              model: model,
+              audioPath: localPath,
+              lang: 'en',
+              withSegments: true,
+              splitOnWord: true,
+              suppressNonSpeechTokens: true,
+              initialPrompt: prompt.length > 1800 ? prompt.substring(0, 1800) : prompt,
+              onProgress: (percent) {
+                onProgress?.call(SongAnalysisProgress(
+                  'Listening for the words',
+                  0.2 + (percent.clamp(0, 100) / 100) * 0.3,
+                ));
+              },
+            );
+          } catch (error) {
+            throw StateError('Transcription failed while listening to the recording. Details: $error');
+          }
+        } finally {
+          // Always release the loaded model, even if transcription threw —
+          // previously this only ran on the success path, so a failed
+          // transcription left the native model loaded and could make the
+          // *next* analysis attempt in the same session behave strangely
+          // (e.g. a previously-working file suddenly returning no result).
+          await whisper.releaseModel();
+        }
+      }
+
+      dynamic result = await runTranscription(WhisperModel.baseEn);
+      if (result == null) {
+        // Observed in practice: the same file succeeds once and later fails
+        // with no other error on base.en, which points at a device-side
+        // resource ceiling for longer recordings rather than a genuine
+        // transcription failure. Retry once with the smaller tiny.en model
+        // instead of failing outright — worse accuracy beats no analysis.
+        onProgress?.call(const SongAnalysisProgress('Retrying with a lighter speech model', 0.18));
+        result = await runTranscription(WhisperModel.tinyEn);
       }
       if (result == null) {
         // The engine completed without throwing but still returned nothing

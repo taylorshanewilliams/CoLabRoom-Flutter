@@ -901,7 +901,6 @@ class _LandscapeWorkspace extends StatelessWidget {
   const _LandscapeWorkspace({
     required this.project,
     required this.room,
-    required this.authorColor,
     required this.importingLyrics,
     required this.onBack,
     required this.onRename,
@@ -914,7 +913,6 @@ class _LandscapeWorkspace extends StatelessWidget {
 
   final SongProject project;
   final MusicRoom room;
-  final Color authorColor;
   final bool importingLyrics;
   final VoidCallback onBack;
   final VoidCallback onRename;
