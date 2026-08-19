@@ -14,6 +14,7 @@ Future<List<ContributionDraft>?> showLyricImportFlow(BuildContext context) async
   final source = await showModalBottomSheet<_ImportSource>(
     context: context,
     showDragHandle: true,
+    isScrollControlled: true,
     backgroundColor: AppColors.deepNavy,
     builder: (_) => const _ImportSourceSheet(),
   );
@@ -121,7 +122,7 @@ class _ImportSourceSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,

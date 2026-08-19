@@ -457,7 +457,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                       crossAxisCount: count,
                       mainAxisSpacing: 8,
                       crossAxisSpacing: 10,
-                      mainAxisExtent: 134,
+                      mainAxisExtent: 144,
                     ),
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
@@ -520,24 +520,31 @@ class _ProjectSelectionBar extends StatelessWidget {
           child: Row(
             children: <Widget>[
               IconButton(onPressed: onCancel, tooltip: 'Cancel selection', icon: const Icon(Icons.close_rounded)),
-              Text('$count selected', style: const TextStyle(fontWeight: FontWeight.w800)),
+              Flexible(
+                child: Text(
+                  '$count selected',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
               const Spacer(),
-              TextButton.icon(
+              IconButton(
                 onPressed: onSetlist,
+                tooltip: 'Add to setlist',
                 icon: const Icon(Icons.playlist_add_rounded),
-                label: const Text('Setlist'),
               ),
-              TextButton.icon(
+              IconButton(
                 onPressed: onMove,
+                tooltip: 'Move',
                 icon: const Icon(Icons.drive_file_move_rounded),
-                label: const Text('Move'),
               ),
-              TextButton.icon(
+              IconButton(
                 key: const Key('delete_selected_songs'),
                 onPressed: onDelete,
-                style: TextButton.styleFrom(foregroundColor: const Color(0xFFFF9AA9)),
+                tooltip: 'Delete',
+                color: const Color(0xFFFF9AA9),
                 icon: const Icon(Icons.delete_outline_rounded),
-                label: const Text('Delete'),
               ),
             ],
           ),

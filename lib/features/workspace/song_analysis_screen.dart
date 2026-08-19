@@ -60,6 +60,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     final choice = await showModalBottomSheet<_ReferenceSource>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       backgroundColor: AppColors.deepNavy,
       builder: (sheetContext) => SafeArea(
         child: Padding(

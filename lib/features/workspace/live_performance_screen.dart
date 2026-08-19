@@ -283,6 +283,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       context: context,
       backgroundColor: AppColors.deepNavy,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (sheetContext) => _DurationSheet(initial: _songDuration),
     );
     if (result == null || !mounted) return;

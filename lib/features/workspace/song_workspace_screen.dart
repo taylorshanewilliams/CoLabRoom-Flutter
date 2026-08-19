@@ -262,6 +262,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       backgroundColor: AppColors.deepNavy,
       builder: (sheetContext) => SafeArea(
         child: Padding(
@@ -362,6 +363,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       final action = await showModalBottomSheet<_VoiceNoteAction>(
         context: context,
         showDragHandle: true,
+        isScrollControlled: true,
         backgroundColor: AppColors.deepNavy,
         builder: (_) => SafeArea(
           child: Column(
