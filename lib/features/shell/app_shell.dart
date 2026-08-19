@@ -7,6 +7,7 @@ import '../account/account_screen.dart';
 import '../home/home_screen.dart';
 import '../invites/invites_screen.dart';
 import '../rooms/rooms_screen.dart';
+import '../toolbox/toolbox_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({required this.displayName, this.supabase, super.key});
@@ -25,25 +26,37 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
-    _index = kIsWeb && Uri.base.queryParameters['deleteAccount'] == '1' ? 3 : 0;
+    _index = 0;
+    if (kIsWeb && Uri.base.queryParameters['deleteAccount'] == '1') {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openAccount());
+    }
     _screens = <Widget>[
       HomeScreen(
         displayName: widget.displayName,
         onSeeRooms: () => setState(() => _index = 1),
         onJoinProject: () => setState(() => _index = 2),
-        onOpenAccount: () => setState(() => _index = 3),
+        onOpenAccount: _openAccount,
       ),
       const RoomsScreen(),
       const InvitesScreen(),
-      AccountScreen(supabase: widget.supabase),
+      const ToolboxScreen(),
     ];
+  }
+
+  // Account is no longer one of the four tabs (Toolbox took its slot) — it's
+  // reached the same way it always has been from Home's top-right icon,
+  // just as a pushed route instead of a tab switch.
+  void _openAccount() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => AccountScreen(supabase: widget.supabase)),
+    );
   }
 
   static const _destinations = <_Destination>[
     _Destination('Home', Icons.home_rounded),
     _Destination('Rooms', Icons.grid_view_rounded),
     _Destination('Invites', Icons.mail_outline_rounded),
-    _Destination('Account', Icons.person_outline_rounded),
+    _Destination('Toolbox', Icons.construction_rounded),
   ];
 
   @override

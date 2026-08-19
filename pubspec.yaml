@@ -24,6 +24,7 @@ dependencies:
   pdf: ^3.13.0
   printing: 5.15.0
   share_plus: ^13.3.0
+  shared_preferences: ^2.3.0
   speech_to_text: ^7.0.0
   supabase_flutter: ^2.0.0
   whisper_ggml: ^2.6.0
