@@ -482,8 +482,8 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                   if (reference != null && !ready) ...<Widget>[
                     const SizedBox(height: 20),
                     const _QuietNote(
-                      icon: Icons.download_for_offline_outlined,
-                      text: 'The first analysis downloads a compact on-device speech model once. Analysis then runs on the phone; the recording stays available to the Room as its reference track.',
+                      icon: Icons.cloud_outlined,
+                      text: 'Lyrics are transcribed by a cloud speech service; chords are detected on the phone. The recording stays available to the Room as its reference track.',
                     ),
                   ],
                   if (ready) ...<Widget>[

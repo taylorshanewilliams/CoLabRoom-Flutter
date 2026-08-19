@@ -27,7 +27,6 @@ dependencies:
   shared_preferences: ^2.3.0
   speech_to_text: ^7.0.0
   supabase_flutter: ^2.0.0
-  whisper_ggml: ^2.6.0
   xml: ^7.0.1
 
 dev_dependencies:

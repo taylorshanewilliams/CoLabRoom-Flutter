@@ -7,7 +7,6 @@ import 'package:fftea/fftea.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:whisper_ggml/whisper_ggml.dart';
 
 import '../domain/music_models.dart';
 import '../domain/song_analysis_models.dart';
@@ -305,6 +304,30 @@ class SongAnalysisService {
         .toList(growable: false);
   }
 
+  /// Calls the `transcribe-audio` Supabase Edge Function, which forwards
+  /// [reference]'s already-uploaded recording to OpenAI's Whisper API and
+  /// returns word-level timestamps. The OpenAI API key lives only in that
+  /// function's server-side secrets — never in the app — so this is a
+  /// network call, not a local model.
+  Future<Map<String, dynamic>> _transcribeViaCloud(ReferenceTrack reference) async {
+    final response = await client.functions.invoke(
+      'transcribe-audio',
+      body: <String, dynamic>{
+        'storagePath': reference.storagePath,
+        'bucket': 'room-files',
+      },
+    );
+    final data = response.data;
+    if (data is! Map) {
+      throw StateError('The transcription service returned an unexpected response.');
+    }
+    final map = Map<String, dynamic>.from(data);
+    if (map['error'] != null) {
+      throw StateError(map['error'].toString());
+    }
+    return map;
+  }
+
   Future<SongAnalysisBundle> analyze({
     required SongProject project,
     required ReferenceTrack reference,
@@ -317,133 +340,54 @@ class SongAnalysisService {
       final info = await AudioDecoder.getAudioInfo(localPath);
       final durationMs = info.duration.inMilliseconds;
 
-      final whisper = WhisperController();
-      Future<dynamic> runTranscription(WhisperModel model) async {
-        onProgress?.call(const SongAnalysisProgress('Downloading speech model', 0.13));
-        try {
-          await whisper.downloadModel(model);
-        } catch (error) {
-          throw StateError(
-            'Could not download the on-device speech model. Check your internet '
-            'connection and try again. Details: $error',
-          );
-        }
-
-        onProgress?.call(const SongAnalysisProgress('Loading speech model', 0.16));
-        try {
-          await whisper.initModel(model);
-        } catch (error) {
-          throw StateError(
-            'The on-device speech model downloaded but failed to load on this '
-            'device. Details: $error',
-          );
-        }
-
-        onProgress?.call(const SongAnalysisProgress('Listening for the words', 0.2));
-        try {
-          try {
-            return await whisper.transcribe(
-              model: model,
-              audioPath: localPath,
-              lang: 'en',
-              withSegments: true,
-              splitOnWord: true,
-              suppressNonSpeechTokens: true,
-              // Deliberately no initialPrompt from the project's own lyrics
-              // — analysis must never be influenced by (or read from) the
-              // manual workspace, only by the recording itself.
-              initialPrompt: '',
-              onProgress: (percent) {
-                onProgress?.call(SongAnalysisProgress(
-                  'Listening for the words',
-                  0.2 + (percent.clamp(0, 100) / 100) * 0.3,
-                ));
-              },
-            );
-          } catch (error) {
-            throw StateError('Transcription failed while listening to the recording. Details: $error');
-          }
-        } finally {
-          // Always release the loaded model, even if transcription threw —
-          // previously this only ran on the success path, so a failed
-          // transcription left the native model loaded and could make the
-          // *next* analysis attempt in the same session behave strangely
-          // (e.g. a previously-working file suddenly returning no result).
-          await whisper.releaseModel();
-        }
-      }
-
       // Chords don't need singing at all (they come from the raw audio via
       // FFT/chroma, independent of speech), so a lyrics/transcription
-      // failure of any kind — instrumental audio, a failed/empty
-      // transcription, even the speech model failing to load — should
-      // never block chord detection. Every failure mode below sets
-      // lyricsWarning and falls through to chord analysis instead of
-      // throwing, and gets surfaced as a non-fatal analysis_warning rather
-      // than a hard error.
+      // failure of any kind — instrumental audio, empty transcription, the
+      // transcription request itself failing — should never block chord
+      // detection. Every failure mode below sets lyricsWarning and falls
+      // through to chord analysis instead of throwing, surfaced as a
+      // non-fatal analysis_warning rather than a hard error.
       String? lyricsWarning;
-      dynamic result;
-      try {
-        result = await runTranscription(WhisperModel.baseEn);
-        if (result == null) {
-          // Observed in practice: the same file succeeds once and later
-          // fails with no other error on base.en, which points at a
-          // device-side resource ceiling for longer recordings rather than
-          // a genuine transcription failure. Retry once with the smaller
-          // tiny.en model instead of failing outright.
-          onProgress?.call(const SongAnalysisProgress('Retrying with a lighter speech model', 0.18));
-          result = await runTranscription(WhisperModel.tinyEn);
-        }
-      } catch (error) {
-        lyricsWarning = 'Could not process this recording\'s speech, so only chords were '
-            'detected. Details: $error';
-        result = null;
-      }
-      if (result == null && lyricsWarning == null) {
-        // The engine completed without throwing but still returned nothing
-        // — distinct from "transcribed but heard no words" (handled below).
-        lyricsWarning =
-            'The speech model finished processing but returned no result for this '
-            'recording, so only chords were detected.';
-      }
-
       List<TranscriptWord> transcriptWords = const <TranscriptWord>[];
       String? transcriptText;
-      if (result != null) {
-        final words = _transcribedWords(result);
-        if (words.isEmpty) {
-          final dynamic wholeText = result.transcription?.text;
-          final heard = wholeText is String ? wholeText.trim() : '';
+      try {
+        onProgress?.call(const SongAnalysisProgress('Listening for the words', 0.2));
+        final cloudResult = await _transcribeViaCloud(reference);
+        final rawWords = (cloudResult['words'] as List<dynamic>? ?? const <dynamic>[])
+            .map((value) => Map<String, dynamic>.from(value as Map))
+            .toList(growable: false);
+        if (rawWords.isEmpty) {
+          final heard = (cloudResult['text'] as String? ?? '').trim();
           if (heard.isNotEmpty && !_looksLikeSpeech(heard)) {
-            // Whisper's own way of saying "this is instrumental, not
-            // singing" is to emit only non-speech markers like "♪♪♪" —
-            // a correct read of a guitar/instrumental-only recording, not
-            // a bug, so say so plainly. Chords still get detected below.
+            // Instrumental audio (or non-speech sound) correctly produced
+            // no words — not a bug, chords still get detected below.
             lyricsWarning = 'This recording sounds instrumental — chords were detected, but '
                 'there are no words to sync lyrics to.';
-          } else if (heard.isNotEmpty) {
-            // Whisper actually produced text but the segment-based
-            // extraction found nothing — a parsing bug on our side, not a
-            // "couldn't hear you" situation, but still non-fatal.
-            lyricsWarning = 'Heard "$heard" but could not extract word timings from it '
-                '(a bug in ColabRoom, not your recording) — chords were still detected.';
           } else {
             lyricsWarning =
                 'Not enough sung words were heard to sync lyrics, but chords were still detected.';
           }
         } else {
-          onProgress?.call(const SongAnalysisProgress('Writing down the lyrics', 0.54));
+          onProgress?.call(const SongAnalysisProgress('Writing down the lyrics', 0.5));
           // Analysis always transcribes fresh from the recording — it never
           // reads from or writes to `contributions` (the collaborative
           // lyric-editing document). The two are deliberately independent:
           // one is the manual workspace, the other is what the app heard.
           // The song sheet renders straight from transcriptWords (see
-          // musician_sheet_logic.dart's buildSongSheetLines/_transcriptLines).
-          transcriptWords = words
-              .map((word) => TranscriptWord(word: word.raw, startMs: word.startMs, endMs: word.endMs))
+          // musician_sheet_logic.dart's buildMusicianSheetLines/_transcriptLines).
+          transcriptWords = rawWords
+              .map((row) => TranscriptWord(
+                    word: (row['word'] as String? ?? '').trim(),
+                    startMs: (row['start_ms'] as num?)?.toInt() ?? 0,
+                    endMs: (row['end_ms'] as num?)?.toInt() ?? 0,
+                  ))
+              .where((word) => word.word.isNotEmpty)
               .toList(growable: false);
           transcriptText = transcriptWords.map((word) => word.word).join(' ');
         }
+      } catch (error) {
+        lyricsWarning = 'Could not transcribe this recording\'s speech, so only chords were '
+            'detected. Details: $error';
       }
 
       onProgress?.call(const SongAnalysisProgress('Finding chord changes', 0.62));
@@ -506,7 +450,7 @@ class SongAnalysisService {
             'analysis_state': 'ready',
             'duration_ms': durationMs,
             'musical_key': chordResult['key'],
-            'analyzer_version': 'colabroom-device-0.1',
+            'analyzer_version': 'colabroom-cloud-0.1',
             // No longer a meaningful "match against existing text" score
             // now that lyrics are always transcribed fresh rather than
             // aligned to something else — nothing to compare against.
@@ -552,43 +496,6 @@ bool _looksLikeSpeech(String text) {
       .trim();
   return RegExp(r'[\p{L}\p{N}]', unicode: true).hasMatch(cleaned);
 }
-
-class _TimedWord {
-  const _TimedWord(this.word, this.raw, this.startMs, this.endMs);
-
-  /// Lowercased, punctuation-stripped — used for alignment matching.
-  final String word;
-
-  /// Whisper's original casing/punctuation for this word — used when
-  /// generating readable lyric lines from the transcript.
-  final String raw;
-  final int startMs;
-  final int endMs;
-}
-
-List<_TimedWord> _transcribedWords(dynamic result) {
-  final dynamic transcription = result?.transcription;
-  final dynamic rawSegments = transcription?.segments;
-  if (rawSegments == null) return const <_TimedWord>[];
-  final words = <_TimedWord>[];
-  for (final dynamic segment in rawSegments as Iterable<dynamic>) {
-    final rawText = (segment.text?.toString() ?? '').trim();
-    final token = _normalizeToken(rawText);
-    if (token.isEmpty) continue;
-    final dynamic from = segment.fromTs;
-    final dynamic to = segment.toTs;
-    final int start = from is Duration ? from.inMilliseconds : 0;
-    final int end = to is Duration ? to.inMilliseconds : start + 300;
-    words.add(_TimedWord(token, rawText, start, math.max(start + 40, end)));
-  }
-  return words;
-}
-
-
-String _normalizeToken(String value) => value
-    .toLowerCase()
-    .replaceAll(RegExp(r"[^a-z0-9']"), '')
-    .replaceAll(RegExp(r"^'+|'+$"), '');
 
 Map<String, dynamic> _analyzeChords(Map<String, dynamic> input) {
   final pcm = input['pcm'] as Uint8List;
