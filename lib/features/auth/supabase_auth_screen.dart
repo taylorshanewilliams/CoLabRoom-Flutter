@@ -41,6 +41,7 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
           email: _email.text.trim(),
           password: _password.text,
           data: <String, dynamic>{'display_name': _name.text.trim()},
+          emailRedirectTo: BetaConfig.authRedirectUrl.isEmpty ? null : BetaConfig.authRedirectUrl,
         );
         if (response.session == null && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

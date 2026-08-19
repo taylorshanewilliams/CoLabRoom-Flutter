@@ -94,8 +94,8 @@ class _CreateRoomDialogState extends State<_CreateRoomDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Create a Music Room'),
-      content: SizedBox(
-        width: 420,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -161,8 +161,8 @@ class _SongTitleDialogState extends State<_SongTitleDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Name your song'),
-      content: SizedBox(
-        width: 420,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
         child: TextField(
           controller: _title,
           autofocus: true,
@@ -214,8 +214,9 @@ class _RoomPickerSheetState extends State<_RoomPickerSheet> {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-        child: SizedBox(
-          width: 620,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 620),
+          child: SizedBox(
           height: MediaQuery.sizeOf(context).height * 0.68,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -275,6 +276,7 @@ class _RoomPickerSheetState extends State<_RoomPickerSheet> {
                 label: const Text('Create a New Room'),
               ),
             ],
+          ),
           ),
         ),
       ),
