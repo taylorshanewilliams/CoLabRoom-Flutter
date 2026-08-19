@@ -22,7 +22,7 @@ import 'song_analysis_screen.dart';
 
 enum _VoiceNoteAction { play, rerecord, delete }
 
-enum _SongMenuAction { analyze, record, live, print, share }
+enum _SongMenuAction { analyze, record, live, color, print, share }
 
 class SongWorkspaceScreen extends StatefulWidget {
   const SongWorkspaceScreen({required this.projectId, super.key});
@@ -270,6 +270,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       await _openLivePerformance(project);
       return;
     }
+    if (action == _SongMenuAction.color) {
+      _showColorPicker();
+      return;
+    }
     try {
       switch (action) {
         case _SongMenuAction.print:
@@ -281,6 +285,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         case _SongMenuAction.analyze:
         case _SongMenuAction.record:
         case _SongMenuAction.live:
+        case _SongMenuAction.color:
           break; // handled above
       }
     } catch (error) {
@@ -716,14 +721,12 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 key: const Key('workspace_landscape_panel'),
                 project: project,
                 room: room,
-                authorColor: authorColor,
                 importingLyrics: _importingLyrics,
                 onBack: () {
                   Navigator.maybePop(context);
                 },
                 onRename: () => _rename(project),
                 onOpenLive: () => _openLivePerformance(project),
-                onColor: _showColorPicker,
                 onImport: () => _importLyrics(project),
                 onExport: (action) => _exportSong(project, action),
                 editor: editor,
@@ -741,10 +744,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     onExport: (action) => _exportSong(project, action),
                   ),
                   _WorkspaceToolbar(
-                    authorColor: authorColor,
                     importingLyrics: _importingLyrics,
                     onOpenLive: () => _openLivePerformance(project),
-                    onColor: _showColorPicker,
                     onImport: () => _importLyrics(project),
                   ),
                   const Divider(height: 1),
@@ -864,6 +865,14 @@ class _PortraitProjectHeader extends StatelessWidget {
               ),
               PopupMenuDivider(),
               PopupMenuItem<_SongMenuAction>(
+                value: _SongMenuAction.color,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.circle_outlined),
+                  title: Text('Line color'),
+                ),
+              ),
+              PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.print,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -897,7 +906,6 @@ class _LandscapeWorkspace extends StatelessWidget {
     required this.onBack,
     required this.onRename,
     required this.onOpenLive,
-    required this.onColor,
     required this.onImport,
     required this.onExport,
     required this.editor,
@@ -911,7 +919,6 @@ class _LandscapeWorkspace extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onRename;
   final VoidCallback onOpenLive;
-  final VoidCallback onColor;
   final VoidCallback onImport;
   final ValueChanged<_SongMenuAction> onExport;
   final Widget editor;
@@ -961,11 +968,6 @@ class _LandscapeWorkspace extends StatelessWidget {
                 onPressed: onOpenLive,
                 tooltip: 'Live Performance',
                 icon: const Icon(Icons.play_circle_outline_rounded, size: 19, color: AppColors.cyan),
-              ),
-              IconButton(
-                onPressed: onColor,
-                tooltip: 'Choose line color',
-                icon: Icon(Icons.circle, size: 16, color: authorColor),
               ),
               IconButton(
                 key: const Key('workspace_import_lyrics'),
@@ -1060,17 +1062,13 @@ class _MusicMark extends StatelessWidget {
 
 class _WorkspaceToolbar extends StatelessWidget {
   const _WorkspaceToolbar({
-    required this.authorColor,
     required this.importingLyrics,
     required this.onOpenLive,
-    required this.onColor,
     required this.onImport,
   });
 
-  final Color authorColor;
   final bool importingLyrics;
   final VoidCallback onOpenLive;
-  final VoidCallback onColor;
   final VoidCallback onImport;
 
   @override
@@ -1082,13 +1080,6 @@ class _WorkspaceToolbar extends StatelessWidget {
         label: 'Live Performance',
         active: false,
         onTap: onOpenLive,
-      ),
-      _ToolPill(
-        icon: Icons.circle,
-        iconColor: authorColor,
-        label: 'Line color',
-        active: false,
-        onTap: onColor,
       ),
       _ToolPill(
         key: const Key('workspace_import_lyrics'),
@@ -1107,8 +1098,6 @@ class _WorkspaceToolbar extends StatelessWidget {
           child: Row(
             children: <Widget>[
               actions.first,
-              const SizedBox(width: 8),
-              actions[1],
               const SizedBox(width: 8),
               actions.last,
             ],
