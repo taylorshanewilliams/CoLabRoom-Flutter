@@ -52,25 +52,29 @@ jobs:
             # against API 35+; flutter.compileSdkVersion resolves lower on
             # this Flutter version.
             sed -i -E 's/^(\s*)compileSdk = .*/\1compileSdk = 36/' android/app/build.gradle.kts
-            echo "--- android/app/build.gradle.kts android {} block after patching ---"
-            grep -A5 '^android {' android/app/build.gradle.kts
             grep -q 'ndkVersion = "29.0.13113456"' android/app/build.gradle.kts || { echo "::error::ndkVersion patch did not apply"; exit 1; }
             grep -q 'compileSdk = 36' android/app/build.gradle.kts || { echo "::error::compileSdk patch did not apply"; exit 1; }
+            # whisper_ggml's own Gradle module (fetched from pub cache, not
+            # ours to edit) hardcodes compileSdk 34 independently of the
+            # app's setting, which is too low for its ffmpeg_kit_flutter_new_min
+            # dependency. Force every plugin subproject's compileSdk from the
+            # root build script instead — the standard fix for AAR metadata
+            # errors caused by a plugin's own compileSdk being stuck too low.
+            cat >> android/build.gradle.kts << 'EOF'
+
+subprojects {
+    afterEvaluate {
+        extensions.findByType(com.android.build.gradle.BaseExtension::class.java)?.let { android ->
+            android.compileSdkVersion(36)
+        }
+    }
+}
+EOF
           else
             echo "android/ folder already present, using it as-is."
           fi
 
       - run: flutter pub get
-
-      - name: DEBUG dump gradle files
-        run: |
-          echo "--- android/settings.gradle.kts ---"
-          cat android/settings.gradle.kts || true
-          echo "--- android/build.gradle.kts (root, if present) ---"
-          cat android/build.gradle.kts || true
-          echo "--- whisper_ggml plugin's own android/build.gradle(.kts) ---"
-          find "$PUB_CACHE/hosted" -path "*whisper_ggml*/android/build.gradle*" -print -exec cat {} \;
-          exit 1
 
       # whisper_ggml's Gradle module configures a side-by-side NDK version
       # that isn't pre-licensed on the runner's Android SDK image, which
