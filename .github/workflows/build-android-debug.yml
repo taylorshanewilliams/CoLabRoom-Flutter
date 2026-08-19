@@ -48,6 +48,13 @@ jobs:
 
       - run: flutter pub get
 
+      # whisper_ggml's Gradle module configures a side-by-side NDK version
+      # that isn't pre-licensed on the runner's Android SDK image, which
+      # fails the build with LicenceNotAcceptedException before compilation
+      # even starts. Accept all licenses up front.
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+
       - name: Build debug APK
         run: flutter build apk --debug
 
