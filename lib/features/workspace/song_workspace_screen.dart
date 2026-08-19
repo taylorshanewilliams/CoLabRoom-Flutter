@@ -47,6 +47,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   bool _listening = false;
   bool _autoScroll = true;
   bool _importingLyrics = false;
+  bool _voiceActionBusy = false;
   String? _recordingContributionId;
   String? _savingContributionId;
   String? _loadingVoiceContributionId;
@@ -423,6 +424,26 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       await _finishVoiceRecording(project, contribution);
       return;
     }
+    // Nothing else here gates re-entrancy until a recording actually starts
+    // (_recordingContributionId only gets set once the mic is live), so
+    // rapid repeated taps on the same bullet — or the debounced document
+    // save in _voiceTap taking a moment before this even fires — could each
+    // independently open their own confirmation dialog/action sheet,
+    // stacking duplicate ones. That's the same bug that made "Remove
+    // recording" look frozen on the analysis screen.
+    if (_voiceActionBusy) return;
+    _voiceActionBusy = true;
+    try {
+      await _voiceBulletAction(project, contribution);
+    } finally {
+      if (mounted) _voiceActionBusy = false;
+    }
+  }
+
+  Future<void> _voiceBulletAction(
+    SongProject project,
+    Contribution contribution,
+  ) async {
     if (contribution.voiceNote != null) {
       final action = await showModalBottomSheet<_VoiceNoteAction>(
         context: context,

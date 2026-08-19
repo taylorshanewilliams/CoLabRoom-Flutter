@@ -57,6 +57,13 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
 
   Future<void> _pickReferenceSource() async {
     if (_working) return;
+    // Set _working before the sheet even opens — otherwise this button
+    // stays tappable for the whole record/choose-file/attach flow (until
+    // _attachLocalFile finally sets it), and repeated taps in that window
+    // each independently open their own bottom sheet or push their own
+    // recorder screen, stacking duplicates. Same class of bug as the
+    // "Remove recording" dialog freeze.
+    setState(() => _working = true);
     final choice = await showModalBottomSheet<_ReferenceSource>(
       context: context,
       showDragHandle: true,
@@ -87,7 +94,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         ),
       ),
     );
-    if (!mounted || choice == null) return;
+    if (!mounted || choice == null) {
+      if (mounted) setState(() => _working = false);
+      return;
+    }
     switch (choice) {
       case _ReferenceSource.record:
         await _recordReference();
@@ -106,17 +116,22 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         fullscreenDialog: true,
       ),
     );
-    if (path == null || !mounted) return;
+    if (path == null || !mounted) {
+      if (mounted) setState(() => _working = false);
+      return;
+    }
     await _attachLocalFile(path: path, displayName: '${widget.project.title} (recorded)');
   }
 
   Future<void> _chooseRecording() async {
-    if (_working) return;
     final file = await FilePicker.pickFile(
       type: FileType.custom,
       allowedExtensions: const <String>['mp3', 'm4a', 'wav', 'flac', 'ogg', 'opus', 'aac'],
     );
-    if (file == null || file.path == null || !mounted) return;
+    if (file == null || file.path == null || !mounted) {
+      if (mounted) setState(() => _working = false);
+      return;
+    }
     await _attachLocalFile(path: file.path!, displayName: file.name);
   }
 
@@ -198,6 +213,15 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
   Future<void> _removeReference() async {
     final reference = _bundle?.reference;
     if (_working || reference == null) return;
+    // Set _working before the confirmation dialog even opens, not after it
+    // resolves — otherwise the "Remove recording" button stays enabled for
+    // as long as the dialog is up, and repeated taps each independently
+    // call showDialog, stacking duplicate confirmation dialogs on top of
+    // each other. Each "Remove" tap then only closes the top one, which
+    // looks identical to the one underneath — like the dialog is frozen —
+    // and the extra open dialogs can outlive whatever route is beneath them
+    // if the screen changes underneath in the meantime.
+    setState(() => _working = true);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -215,11 +239,11 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
-    setState(() {
-      _working = true;
-      _error = null;
-    });
+    if (confirmed != true || !mounted) {
+      if (mounted) setState(() => _working = false);
+      return;
+    }
+    setState(() => _error = null);
     try {
       await _service.removeReference(reference);
       if (!mounted) return;
