@@ -62,6 +62,16 @@ jobs:
 
       - run: flutter pub get
 
+      - name: DEBUG dump gradle files
+        run: |
+          echo "--- android/settings.gradle.kts ---"
+          cat android/settings.gradle.kts || true
+          echo "--- android/build.gradle.kts (root, if present) ---"
+          cat android/build.gradle.kts || true
+          echo "--- whisper_ggml plugin's own android/build.gradle(.kts) ---"
+          find "$PUB_CACHE/hosted" -path "*whisper_ggml*/android/build.gradle*" -print -exec cat {} \;
+          exit 1
+
       # whisper_ggml's Gradle module configures a side-by-side NDK version
       # that isn't pre-licensed on the runner's Android SDK image, which
       # fails the build with LicenceNotAcceptedException before compilation
