@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
@@ -88,14 +89,14 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
             children: <Widget>[
               ListTile(
                 key: const Key('pick_source_record'),
-                leading: const Icon(Icons.mic_rounded, color: AppColors.cyan),
+                leading: const Icon(Icons.mic_rounded, color: AppColors.gold),
                 title: const Text('Record now'),
                 subtitle: const Text('Capture a take with this phone\'s microphone'),
                 onTap: () => Navigator.pop(sheetContext, _ReferenceSource.record),
               ),
               ListTile(
                 key: const Key('pick_source_file'),
-                leading: const Icon(Icons.audio_file_rounded, color: AppColors.cyan),
+                leading: const Icon(Icons.audio_file_rounded, color: AppColors.gold),
                 title: const Text('Choose a file'),
                 subtitle: const Text('Pick an existing recording, demo, or mix'),
                 onTap: () => Navigator.pop(sheetContext, _ReferenceSource.file),
@@ -358,14 +359,14 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                         decoration: BoxDecoration(
-                          color: AppColors.cyan.withValues(alpha: 0.12),
+                          color: AppColors.gold.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: AppColors.cyan.withValues(alpha: 0.3)),
+                          border: Border.all(color: AppColors.gold.withValues(alpha: 0.3)),
                         ),
                         child: const Text(
                           'PREMIUM PREVIEW',
                           style: TextStyle(
-                            color: AppColors.cyan,
+                            color: AppColors.gold,
                             fontSize: 9,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 1.15,
@@ -382,10 +383,11 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                   const SizedBox(height: 18),
                   Text(
                     reference == null ? 'Add a reference recording' : reference.displayName,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          color: AppColors.text,
-                          fontWeight: FontWeight.w800,
-                        ),
+                    style: GoogleFonts.fraunces(
+                      color: AppColors.text,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -413,6 +415,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                           child: FilledButton.icon(
                             key: const Key('analyze_reference_recording'),
                             onPressed: _working ? null : _analyze,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.gold,
+                              foregroundColor: AppColors.ink,
+                            ),
                             icon: const Icon(Icons.auto_awesome_rounded),
                             label: Text(ready ? 'Analyze again' : 'Analyze song'),
                           ),
@@ -435,7 +441,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                   ],
                   if (_working && _progress != null) ...<Widget>[
                     const SizedBox(height: 18),
-                    LinearProgressIndicator(value: _progress!.fraction.clamp(0, 1)),
+                    LinearProgressIndicator(
+                      value: _progress!.fraction.clamp(0, 1),
+                      color: AppColors.gold,
+                    ),
                     const SizedBox(height: 7),
                     Text(
                       _progress!.label,
@@ -487,25 +496,27 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     ),
                   ],
                   if (ready) ...<Widget>[
-                    const SizedBox(height: 22),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                      decoration: BoxDecoration(
-                        color: AppColors.green.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Row(
-                        children: <Widget>[
-                          Icon(Icons.check_circle_rounded, size: 16, color: AppColors.green),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Saved to this project — no extra step needed. Replacing the project\'s lyrics below is optional.',
-                              style: TextStyle(color: AppColors.green, fontSize: 11.5, fontWeight: FontWeight.w700),
+                    const SizedBox(height: 20),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        const Icon(Icons.check_rounded, size: 14, color: AppColors.muted),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text.rich(
+                            TextSpan(
+                              children: <TextSpan>[
+                                const TextSpan(
+                                  text: 'Saved to this project. ',
+                                  style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w700),
+                                ),
+                                const TextSpan(text: 'Replacing the lyrics below is optional.'),
+                              ],
                             ),
+                            style: const TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.4),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                     if ((reference?.transcriptWords.isNotEmpty ?? false)) ...<Widget>[
                       const SizedBox(height: 10),
@@ -514,6 +525,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                         child: TextButton.icon(
                           key: const Key('replace_project_lyrics'),
                           onPressed: _working ? null : _replaceProjectLyrics,
+                          style: TextButton.styleFrom(foregroundColor: AppColors.gold),
                           icon: const Icon(Icons.sync_alt_rounded, size: 17),
                           label: const Text('Replace project lyrics with this'),
                         ),

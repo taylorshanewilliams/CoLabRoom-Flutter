@@ -353,8 +353,13 @@ class SongAnalysisService {
       try {
         onProgress?.call(const SongAnalysisProgress('Listening for the words', 0.2));
         final cloudResult = await _transcribeViaCloud(reference);
+        // Whisper (cloud, same as on-device) emits literal "♪" placeholder
+        // tokens as "words" for non-lexical/instrumental stretches instead
+        // of just leaving them out — filter those out here so they don't
+        // get treated as real sung lyrics.
         final rawWords = (cloudResult['words'] as List<dynamic>? ?? const <dynamic>[])
             .map((value) => Map<String, dynamic>.from(value as Map))
+            .where((row) => _looksLikeSpeech((row['word'] as String? ?? '')))
             .toList(growable: false);
         if (rawWords.isEmpty) {
           final heard = (cloudResult['text'] as String? ?? '').trim();

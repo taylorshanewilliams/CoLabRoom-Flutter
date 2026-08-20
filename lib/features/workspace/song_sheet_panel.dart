@@ -242,7 +242,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
                           : Icons.music_off_rounded,
                       size: 17,
                       color:
-                          _showChords ? AppColors.cyan : AppColors.muted,
+                          _showChords ? AppColors.gold : AppColors.muted,
                     ),
                     label: Text(
                       _showChords ? 'Chords on' : 'Chords off',
@@ -282,10 +282,10 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: AppColors.cyan.withValues(alpha: 0.07),
+              color: AppColors.gold.withValues(alpha: 0.07),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: AppColors.cyan.withValues(alpha: 0.16),
+                color: AppColors.gold.withValues(alpha: 0.16),
               ),
             ),
             child: Row(
@@ -293,7 +293,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
               children: <Widget>[
                 const Icon(
                   Icons.touch_app_rounded,
-                  color: AppColors.cyan,
+                  color: AppColors.gold,
                   size: 17,
                 ),
                 const SizedBox(width: 8),
@@ -346,6 +346,10 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
                 child: FilledButton.icon(
                   key: const Key('open_synced_live'),
                   onPressed: widget.onOpenLive,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.gold,
+                    foregroundColor: AppColors.ink,
+                  ),
                   icon: const Icon(Icons.present_to_all_rounded),
                   label: const Text('Synced Live'),
                 ),

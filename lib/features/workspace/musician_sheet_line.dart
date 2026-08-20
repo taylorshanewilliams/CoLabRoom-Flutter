@@ -1,3 +1,4 @@
+import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:flutter/material.dart';
@@ -35,7 +36,7 @@ class MusicianSectionLine extends StatelessWidget {
         line.body.toUpperCase(),
         style: TextStyle(
           color: liveMode
-              ? const Color(0xFF46D8FF)
+              ? AppColors.gold
               : const Color(0xFF7A6C5A),
           fontSize: (liveMode ? 10.5 : 9.5) * fontScale,
           fontWeight: FontWeight.w900,
@@ -168,7 +169,7 @@ class _ChordWord extends StatelessWidget {
                 chordText,
                 style: TextStyle(
                   color: liveMode
-                      ? const Color(0xFF45D7FF)
+                      ? AppColors.gold
                       : chord!.isManual
                           ? const Color(0xFF0D655F)
                           : const Color(0xFF197A74),
@@ -210,7 +211,7 @@ class _ChordWord extends StatelessWidget {
         decoration: editable ? TextDecoration.underline : null,
         decorationStyle: TextDecorationStyle.dotted,
         decorationColor:
-            liveMode ? const Color(0x6645D7FF) : const Color(0x557A6C5A),
+            liveMode ? AppColors.gold.withValues(alpha: 0.4) : const Color(0x557A6C5A),
       ),
     );
 

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
+import 'musician_sheet_line.dart';
 import 'musician_sheet_logic.dart';
 
 enum LiveScrollMode { off, synced, slow, medium, fast, timed }
@@ -430,8 +431,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                             ),
                             line: lines[i],
                             dotColor: lines[i].contributionId != null
-                                ? (_colorByContributionId[lines[i].contributionId] ?? AppColors.cyan)
-                                : AppColors.cyan,
+                                ? (_colorByContributionId[lines[i].contributionId] ?? AppColors.gold)
+                                : AppColors.gold,
                             fontSize: lyricSize,
                             compact: landscape,
                             active: _mode == LiveScrollMode.synced &&
@@ -521,13 +522,45 @@ class _PerformanceLine extends StatelessWidget {
     if (body.trim().isEmpty) {
       return SizedBox(height: compact ? fontSize * 0.65 : fontSize * 0.9);
     }
-    final baseColor = section ? AppColors.cyan.withValues(alpha: 0.92) : AppColors.text;
+    if (section) {
+      return Padding(
+        padding: EdgeInsets.symmetric(vertical: compact ? 3 : 5),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Padding(
+              padding: EdgeInsets.only(top: fontSize * 0.48, right: compact ? 9 : 12),
+              child: Container(
+                width: compact ? 5 : 6,
+                height: compact ? 5 : 6,
+                decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                body,
+                style: TextStyle(
+                  color: AppColors.gold.withValues(alpha: 0.92),
+                  fontSize: fontSize * 0.72,
+                  height: 1.25,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    // Chords are rendered above the exact word they change on, via the
+    // same widget the Song Sheet uses (musician_sheet_line.dart) — Live
+    // mode previously showed lyric text only, with no chords at all.
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       padding: EdgeInsets.symmetric(vertical: compact ? 3 : 5, horizontal: active ? 8 : 0),
       margin: EdgeInsets.symmetric(vertical: active ? 2 : 0),
       decoration: BoxDecoration(
-        color: active ? AppColors.cyan.withValues(alpha: 0.1) : Colors.transparent,
+        color: active ? AppColors.gold.withValues(alpha: 0.1) : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
@@ -539,24 +572,19 @@ class _PerformanceLine extends StatelessWidget {
               width: compact ? 5 : 6,
               height: compact ? 5 : 6,
               decoration: BoxDecoration(
-                color: active ? AppColors.cyan : dotColor,
+                color: active ? AppColors.gold : dotColor,
                 shape: BoxShape.circle,
               ),
             ),
           ),
           Expanded(
-            child: AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 220),
-              style: TextStyle(
-                color: active ? AppColors.text : baseColor.withValues(alpha: active ? 1 : 0.82),
-                fontSize: section ? fontSize * 0.72 : fontSize,
-                height: section ? 1.25 : 1.3,
-                fontWeight: section
-                    ? FontWeight.w800
-                    : (active ? FontWeight.w700 : FontWeight.w500),
-                letterSpacing: section ? 0.6 : 0.05,
-              ),
-              child: Text(body),
+            child: MusicianChordLyricLine(
+              line: line,
+              transpose: 0,
+              fontScale: fontSize / 13.0,
+              showChords: true,
+              liveMode: true,
+              active: active,
             ),
           ),
         ],
@@ -610,7 +638,7 @@ class _TopLiveBar extends StatelessWidget {
               'LIVE',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: AppColors.cyan,
+                color: AppColors.gold,
                 fontSize: 11,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 2.2,
@@ -636,7 +664,7 @@ class _TopLiveBar extends StatelessWidget {
                   leading: const Icon(Icons.edit_note_rounded),
                   title: const Text('Live workspace'),
                   trailing: source == LiveLyricSource.workspace
-                      ? const Icon(Icons.check_rounded, color: AppColors.cyan)
+                      ? const Icon(Icons.check_rounded, color: AppColors.gold)
                       : null,
                 ),
               ),
@@ -647,7 +675,7 @@ class _TopLiveBar extends StatelessWidget {
                   leading: const Icon(Icons.description_rounded),
                   title: const Text('Song Sheet'),
                   trailing: source == LiveLyricSource.songSheet
-                      ? const Icon(Icons.check_rounded, color: AppColors.cyan)
+                      ? const Icon(Icons.check_rounded, color: AppColors.gold)
                       : null,
                 ),
               ),
@@ -775,6 +803,7 @@ class _LiveControls extends StatelessWidget {
                               .clamp(0, 1)
                               .toDouble(),
                       minHeight: 2,
+                      color: AppColors.gold,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -805,13 +834,14 @@ class _ModeChip extends StatelessWidget {
         selected: selected,
         avatar: icon == null
             ? null
-            : Icon(icon, size: 14, color: selected ? AppColors.text : AppColors.muted),
+            : Icon(icon, size: 14, color: selected ? AppColors.ink : AppColors.muted),
         label: Text(label),
         onSelected: (_) => onTap(),
+        selectedColor: AppColors.gold,
         labelStyle: TextStyle(
           fontSize: 10.5,
           fontWeight: FontWeight.w800,
-          color: selected ? AppColors.text : AppColors.muted,
+          color: selected ? AppColors.ink : AppColors.muted,
         ),
         visualDensity: VisualDensity.compact,
       ),

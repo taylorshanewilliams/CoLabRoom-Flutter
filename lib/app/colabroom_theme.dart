@@ -13,6 +13,11 @@ abstract final class AppColors {
   static const orange = Color(0xFFFF914D);
   static const green = Color(0xFF45D6A5);
 
+  /// The premium accent — Analyze, Song Sheet, and Live Performance use this
+  /// in place of cyan/blue, on the same ink/navy shell as the rest of the
+  /// app. See memory/project_premium_tier_visual_design.md for why.
+  static const gold = Color(0xFFE3B34D);
+
   /// The 10 collaborator colors the backend assigns members from (see
   /// accept_room_invitation_by_id / set_my_room_color in
   /// supabase/migrations/0006_shared_document_editor.sql) — kept in the
