@@ -69,12 +69,21 @@ jobs:
       - name: Generate Podfile and prime the iOS build
         run: flutter build ios --release --no-codesign
 
+      # xcodebuild needs an actual file on disk to authenticate
+      # -allowProvisioningUpdates with — the fastlane api_key object isn't
+      # automatically forwarded to raw xcodebuild signing (only to
+      # fastlane's own App Store Connect API calls, e.g. upload_to_testflight).
+      - name: Write App Store Connect API key file
+        run: |
+          mkdir -p ios/private_keys
+          printf '%s' "$APPLE_API_KEY_P8" > "ios/private_keys/AuthKey_${APPLE_API_KEY_ID}.p8"
+
       # Written fresh every run rather than committed — keeps the signing
       # pipeline entirely inside this workflow file, matching how the
       # scaffold step above isn't committed either. app_store_connect_api_key
-      # authenticates every action after it (build_app included, for
-      # automatic signing/provisioning) and upload_to_testflight with the
-      # same key — no Apple ID password or 2FA needed anywhere in CI.
+      # authenticates upload_to_testflight; build_app's signing needs the
+      # explicit -authenticationKeyPath/-ID/-IssuerID flags below instead,
+      # pointing at the file written above.
       - name: Write Fastfile
         run: |
           mkdir -p ios/fastlane
@@ -91,12 +100,17 @@ jobs:
                 is_key_content_base64: false
               )
 
+              auth_args = "-allowProvisioningUpdates " \
+                "-authenticationKeyPath #{Dir.pwd}/private_keys/AuthKey_#{ENV['APPLE_API_KEY_ID']}.p8 " \
+                "-authenticationKeyID #{ENV['APPLE_API_KEY_ID']} " \
+                "-authenticationKeyIssuerID #{ENV['APPLE_API_ISSUER_ID']}"
+
               build_app(
                 workspace: "Runner.xcworkspace",
                 scheme: "Runner",
                 export_method: "app-store",
-                xcargs: "-allowProvisioningUpdates DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} CODE_SIGN_STYLE=Automatic",
-                export_xcargs: "-allowProvisioningUpdates",
+                xcargs: "#{auth_args} DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} CODE_SIGN_STYLE=Automatic",
+                export_xcargs: auth_args,
                 output_directory: "build",
                 output_name: "Runner.ipa"
               )
