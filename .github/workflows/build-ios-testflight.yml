@@ -69,27 +69,21 @@ jobs:
       - name: Generate Podfile and prime the iOS build
         run: flutter build ios --release --no-codesign
 
-      # xcodebuild needs an actual file on disk to authenticate
-      # -allowProvisioningUpdates with — the fastlane api_key object isn't
-      # automatically forwarded to raw xcodebuild signing (only to
-      # fastlane's own App Store Connect API calls, e.g. upload_to_testflight).
-      - name: Write App Store Connect API key file
-        run: |
-          mkdir -p ios/private_keys
-          KEY_PATH="$GITHUB_WORKSPACE/ios/private_keys/AuthKey_${APPLE_API_KEY_ID}.p8"
-          printf '%s' "$APPLE_API_KEY_P8" > "$KEY_PATH"
-          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
-          # Proves the file actually exists with real content before the
-          # build even starts, instead of finding out from a signing
-          # failure three steps later.
-          ls -la "$KEY_PATH"
-
       # Written fresh every run rather than committed — keeps the signing
       # pipeline entirely inside this workflow file, matching how the
-      # scaffold step above isn't committed either. app_store_connect_api_key
-      # authenticates upload_to_testflight; build_app's signing needs the
-      # explicit -authenticationKeyPath/-ID/-IssuerID flags below instead,
-      # pointing at the file written above.
+      # scaffold step above isn't committed either.
+      #
+      # Several rounds of automatic-signing flag combinations (xcargs
+      # DEVELOPMENT_TEAM/CODE_SIGN_STYLE/CODE_SIGN_IDENTITY overrides) kept
+      # producing new conflicts — e.g. forcing CODE_SIGN_IDENTITY while
+      # CODE_SIGN_STYLE=Automatic is a direct contradiction Xcode correctly
+      # rejects, and it was leaking onto every plugin's Swift Package
+      # target too, none of which need signing at all. Switched to the
+      # more deterministic path instead: explicitly create the
+      # distribution certificate (cert) and App Store provisioning profile
+      # (sigh) via the API key, then point Runner's signing at them
+      # directly (update_code_signing_settings, manual mode, Runner target
+      # only) — no ambiguity left for Xcode to resolve on its own.
       - name: Write Fastfile
         run: |
           mkdir -p ios/fastlane
@@ -106,23 +100,30 @@ jobs:
                 is_key_content_base64: false
               )
 
-              auth_args = "-allowProvisioningUpdates " \
-                "-authenticationKeyPath #{ENV['APPLE_API_KEY_PATH']} " \
-                "-authenticationKeyID #{ENV['APPLE_API_KEY_ID']} " \
-                "-authenticationKeyIssuerID #{ENV['APPLE_API_ISSUER_ID']}"
+              cert(
+                api_key: api_key,
+                team_id: ENV["APPLE_TEAM_ID"]
+              )
+
+              sigh(
+                api_key: api_key,
+                app_identifier: "com.colabroom.beta",
+                team_id: ENV["APPLE_TEAM_ID"]
+              )
+
+              update_code_signing_settings(
+                use_automatic_signing: false,
+                path: "Runner.xcodeproj",
+                targets: ["Runner"],
+                team_id: ENV["APPLE_TEAM_ID"],
+                code_sign_identity: "Apple Distribution",
+                profile_name: ENV["SIGH_PROFILE_NAME"]
+              )
 
               build_app(
                 workspace: "Runner.xcworkspace",
                 scheme: "Runner",
                 export_method: "app-store",
-                # Without an explicit identity, automatic signing defaulted
-                # to requesting an iOS App *Development* profile for the
-                # archive step — which needs a registered test device, and
-                # this brand-new team has none. Forcing the Distribution
-                # identity requests an App Store profile instead, which
-                # never needs a device.
-                xcargs: "#{auth_args} DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY=\"Apple Distribution\"",
-                export_xcargs: auth_args,
                 output_directory: "build",
                 output_name: "Runner.ipa"
               )
