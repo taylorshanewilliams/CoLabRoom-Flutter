@@ -78,12 +78,19 @@ jobs:
             # counterpart, so every TestFlight build shipped the wrong
             # icon. Regenerate the full AppIcon.appiconset from that same
             # source instead of trusting the scaffolded placeholder.
-            brew install librsvg
+            brew install librsvg imagemagick
             ICONSET=ios/Runner/Assets.xcassets/AppIcon.appiconset
             rm -rf "$ICONSET"
             mkdir -p "$ICONSET"
             for size in 20 29 40 58 60 76 80 87 120 152 167 180 1024; do
               rsvg-convert -w "$size" -h "$size" assets/icon/launcher_icon.svg -o "$ICONSET/icon-$size.png"
+              # The source SVG has rounded corners (correct for Android,
+              # which masks the icon itself), leaving the PNG's corners
+              # transparent — but Apple requires iOS icons to be a fully
+              # opaque square with no alpha channel at all (iOS applies its
+              # own rounding). Flatten onto the icon's own navy background
+              # so the corners fill in instead of showing as transparent.
+              magick "$ICONSET/icon-$size.png" -background '#06101F' -alpha remove -alpha off "$ICONSET/icon-$size.png"
             done
             printf '%s' '{"images":[{"idiom":"iphone","scale":"2x","size":"20x20","filename":"icon-40.png"},{"idiom":"iphone","scale":"3x","size":"20x20","filename":"icon-60.png"},{"idiom":"iphone","scale":"2x","size":"29x29","filename":"icon-58.png"},{"idiom":"iphone","scale":"3x","size":"29x29","filename":"icon-87.png"},{"idiom":"iphone","scale":"2x","size":"40x40","filename":"icon-80.png"},{"idiom":"iphone","scale":"3x","size":"40x40","filename":"icon-120.png"},{"idiom":"iphone","scale":"2x","size":"60x60","filename":"icon-120.png"},{"idiom":"iphone","scale":"3x","size":"60x60","filename":"icon-180.png"},{"idiom":"ipad","scale":"1x","size":"20x20","filename":"icon-20.png"},{"idiom":"ipad","scale":"2x","size":"20x20","filename":"icon-40.png"},{"idiom":"ipad","scale":"1x","size":"29x29","filename":"icon-29.png"},{"idiom":"ipad","scale":"2x","size":"29x29","filename":"icon-58.png"},{"idiom":"ipad","scale":"1x","size":"40x40","filename":"icon-40.png"},{"idiom":"ipad","scale":"2x","size":"40x40","filename":"icon-80.png"},{"idiom":"ipad","scale":"1x","size":"76x76","filename":"icon-76.png"},{"idiom":"ipad","scale":"2x","size":"76x76","filename":"icon-152.png"},{"idiom":"ipad","scale":"2x","size":"83.5x83.5","filename":"icon-167.png"},{"idiom":"ios-marketing","scale":"1x","size":"1024x1024","filename":"icon-1024.png"}],"info":{"author":"xcode","version":1}}' > "$ICONSET/Contents.json"
           else
