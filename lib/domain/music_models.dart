@@ -110,6 +110,7 @@ class SongProject {
     this.contributions = const <Contribution>[],
     this.sortOrder = 0,
     this.coverImagePath,
+    this.hasAudioReference = false,
   });
 
   final String id;
@@ -128,6 +129,10 @@ class SongProject {
   /// back to the default tile icon.
   final String? coverImagePath;
 
+  /// Whether this song has a reference recording attached (Song Analysis),
+  /// surfaced on its tile as a small indicator.
+  final bool hasAudioReference;
+
   SongProject copyWith({
     String? roomId,
     String? title,
@@ -137,6 +142,7 @@ class SongProject {
     List<Contribution>? contributions,
     double? sortOrder,
     Object? coverImagePath = _unset,
+    bool? hasAudioReference,
   }) {
     return SongProject(
       id: id,
@@ -150,6 +156,7 @@ class SongProject {
       contributions: contributions ?? this.contributions,
       sortOrder: sortOrder ?? this.sortOrder,
       coverImagePath: identical(coverImagePath, _unset) ? this.coverImagePath : coverImagePath as String?,
+      hasAudioReference: hasAudioReference ?? this.hasAudioReference,
     );
   }
 }

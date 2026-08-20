@@ -269,6 +269,17 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                   onTap: () => Navigator.pop(context, 'remove_cover'),
                 ),
               ListTile(
+                leading: Icon(
+                  project.status == SongStatus.completed
+                      ? Icons.radio_button_unchecked_rounded
+                      : Icons.check_circle_outline_rounded,
+                ),
+                title: Text(
+                  project.status == SongStatus.completed ? 'Mark In Progress' : 'Mark Complete',
+                ),
+                onTap: () => Navigator.pop(context, 'toggle_status'),
+              ),
+              ListTile(
                 leading: const Icon(Icons.check_box_outlined),
                 title: const Text('Select Multiple'),
                 onTap: () => Navigator.pop(context, 'select'),
@@ -292,6 +303,15 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
       case 'remove_cover':
         try {
           await BetaScope.of(context).clearProjectCover(project);
+        } catch (error) {
+          if (mounted) _showMessage(error.toString());
+        }
+      case 'toggle_status':
+        try {
+          await BetaScope.of(context).setSongStatus(
+            project,
+            project.status == SongStatus.completed ? SongStatus.active : SongStatus.completed,
+          );
         } catch (error) {
           if (mounted) _showMessage(error.toString());
         }

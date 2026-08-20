@@ -41,6 +41,11 @@ abstract interface class MusicRepository {
     required String title,
   });
 
+  Future<SongProject> setSongStatus({
+    required SongProject project,
+    required SongStatus status,
+  });
+
   Future<void> deleteSong(SongProject project);
 
   /// Persists a new manual song order within [room] ([orderedProjectIds]

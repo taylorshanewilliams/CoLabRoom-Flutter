@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../domain/music_models.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/brand_mark.dart';
 import '../../widgets/bloom_tap.dart';
@@ -26,7 +27,10 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = BetaScope.of(context);
-    final recentRooms = controller.rooms.take(4).toList(growable: false);
+    final recentRooms = (List<MusicRoom>.from(controller.rooms)
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt)))
+        .take(4)
+        .toList(growable: false);
     final words = displayName
         .trim()
         .split(RegExp(r'\s+'))
@@ -138,7 +142,7 @@ class HomeScreen extends StatelessWidget {
           sliver: SliverToBoxAdapter(
             child: Row(
               children: <Widget>[
-                Text('My Rooms', style: Theme.of(context).textTheme.titleLarge),
+                Text('Recent Rooms', style: Theme.of(context).textTheme.titleLarge),
                 const Spacer(),
                 TextButton(onPressed: onSeeRooms, child: const Text('See all  ›')),
               ],

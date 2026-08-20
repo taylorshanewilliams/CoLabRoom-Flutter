@@ -196,6 +196,11 @@ class MusicBetaController extends ChangeNotifier {
     await load();
   }
 
+  Future<void> setSongStatus(SongProject project, SongStatus status) async {
+    await repository.setSongStatus(project: project, status: status);
+    await load();
+  }
+
   Future<void> deleteSong(SongProject project) async {
     await repository.deleteSong(project);
     await load();

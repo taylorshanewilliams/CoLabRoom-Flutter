@@ -81,7 +81,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
         showDragHandle: true,
         backgroundColor: AppColors.deepNavy,
         builder: (_) => _AddSongsSheet(
-          projects: controller.projects.toList(growable: false),
+          rooms: controller.rooms,
           existingIds: setlist.projectIds.toSet(),
         ),
       );
@@ -216,9 +216,9 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
 }
 
 class _AddSongsSheet extends StatefulWidget {
-  const _AddSongsSheet({required this.projects, required this.existingIds});
+  const _AddSongsSheet({required this.rooms, required this.existingIds});
 
-  final List<SongProject> projects;
+  final List<MusicRoom> rooms;
   final Set<String> existingIds;
 
   @override
@@ -227,11 +227,24 @@ class _AddSongsSheet extends StatefulWidget {
 
 class _AddSongsSheetState extends State<_AddSongsSheet> {
   final Set<String> _selected = <String>{};
+  final _query = TextEditingController();
+  String? _roomId;
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final available = widget.projects
-        .where((project) => !widget.existingIds.contains(project.id))
+    final normalizedQuery = _query.text.trim().toLowerCase();
+    final available = widget.rooms
+        .where((room) => _roomId == null || room.id == _roomId)
+        .expand((room) => room.projects)
+        .where((project) =>
+            !widget.existingIds.contains(project.id) &&
+            (normalizedQuery.isEmpty || project.title.toLowerCase().contains(normalizedQuery)))
         .toList(growable: false);
     return SafeArea(
       top: false,
@@ -243,18 +256,54 @@ class _AddSongsSheetState extends State<_AddSongsSheet> {
       // care: an explicit fixed height plus Expanded (not shrinkWrap) is
       // what actually gives the list something bounded to scroll within.
       child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.7,
+        height: MediaQuery.of(context).size.height * 0.75,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text('Add Songs', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _query,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search_rounded, size: 20),
+                  hintText: 'Search songs',
+                  isDense: true,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 34,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: <Widget>[
+                    _RoomFilterChip(
+                      label: 'All Rooms',
+                      selected: _roomId == null,
+                      onTap: () => setState(() => _roomId = null),
+                    ),
+                    for (final room in widget.rooms) ...<Widget>[
+                      const SizedBox(width: 8),
+                      _RoomFilterChip(
+                        label: room.name,
+                        selected: _roomId == room.id,
+                        onTap: () => setState(() => _roomId = room.id),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
               Expanded(
                 child: available.isEmpty
-                    ? const Center(
-                        child: Text('Every available song is already in this setlist.'),
+                    ? Center(
+                        child: Text(
+                          normalizedQuery.isNotEmpty || _roomId != null
+                              ? 'No matching songs.'
+                              : 'Every available song is already in this setlist.',
+                        ),
                       )
                     : ListView.builder(
                         itemCount: available.length,
@@ -291,6 +340,26 @@ class _AddSongsSheetState extends State<_AddSongsSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _RoomFilterChip extends StatelessWidget {
+  const _RoomFilterChip({required this.label, required this.selected, required this.onTap});
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      showCheckmark: false,
+      onSelected: (_) => onTap(),
+      selectedColor: AppColors.raised,
+      side: BorderSide(color: selected ? AppColors.cyan : AppColors.line),
     );
   }
 }

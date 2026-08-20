@@ -87,6 +87,7 @@ class SupabaseMusicRepository implements MusicRepository {
           'id, account_id, name, icon, created_at, updated_at, sort_order, logo_path, '
           'room_members(user_id, display_name, role, color_value), '
           'projects(id, room_id, account_id, title, description, status, created_at, updated_at, sort_order, cover_image_path, '
+          'project_audio_references(project_id), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at)))',
         )
@@ -310,10 +311,26 @@ class SupabaseMusicRepository implements MusicRepository {
       return _project(<String, dynamic>{
         ...row,
         'contributions': project.contributions.map(_contributionJson).toList(growable: false),
+        'project_audio_references': project.hasAudioReference ? <dynamic>[<String, dynamic>{}] : <dynamic>[],
       });
     } on PostgrestException catch (error) {
       throw _friendlyDatabaseError(error, noun: 'project');
     }
+  }
+
+  @override
+  Future<SongProject> setSongStatus({required SongProject project, required SongStatus status}) async {
+    final row = await client
+        .from('projects')
+        .update(<String, dynamic>{'status': status.name})
+        .eq('id', project.id)
+        .select()
+        .single();
+    return _project(<String, dynamic>{
+      ...row,
+      'contributions': project.contributions.map(_contributionJson).toList(growable: false),
+      'project_audio_references': project.hasAudioReference ? <dynamic>[<String, dynamic>{}] : <dynamic>[],
+    });
   }
 
   @override
@@ -732,6 +749,7 @@ class SupabaseMusicRepository implements MusicRepository {
       contributions: contributions,
       sortOrder: (row['sort_order'] as num?)?.toDouble() ?? 0,
       coverImagePath: row['cover_image_path'] as String?,
+      hasAudioReference: (row['project_audio_references'] as List<dynamic>? ?? const <dynamic>[]).isNotEmpty,
     );
   }
 
@@ -790,6 +808,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'updated_at': project.updatedAt.toIso8601String(),
         'contributions': project.contributions.map(_contributionJson).toList(growable: false),
         'cover_image_path': project.coverImagePath,
+        'project_audio_references': project.hasAudioReference ? <dynamic>[<String, dynamic>{}] : <dynamic>[],
       };
 
   Map<String, dynamic> _contributionJson(Contribution contribution) => <String, dynamic>{

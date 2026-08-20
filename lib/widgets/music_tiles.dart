@@ -214,11 +214,25 @@ class SongTile extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    '${project.contributions.length} contributions',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12),
+                  Row(
+                    children: <Widget>[
+                      Flexible(
+                        child: Text(
+                          '${project.contributions.length} contributions',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      if (project.hasAudioReference) ...<Widget>[
+                        const SizedBox(width: 5),
+                        const Icon(Icons.graphic_eq_rounded, size: 13, color: AppColors.muted),
+                      ],
+                      if (project.status == SongStatus.completed) ...<Widget>[
+                        const SizedBox(width: 4),
+                        const Icon(Icons.check_circle_rounded, size: 13, color: AppColors.cyan),
+                      ],
+                    ],
                   ),
                 ],
               ),

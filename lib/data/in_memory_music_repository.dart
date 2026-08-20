@@ -285,6 +285,13 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<SongProject> setSongStatus({required SongProject project, required SongStatus status}) async {
+    final updated = project.copyWith(status: status, updatedAt: DateTime.now());
+    _replaceProject(updated);
+    return updated;
+  }
+
+  @override
   Future<Contribution> addContribution({
     required SongProject project,
     required String body,
