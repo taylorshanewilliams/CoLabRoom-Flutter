@@ -115,7 +115,13 @@ jobs:
                 workspace: "Runner.xcworkspace",
                 scheme: "Runner",
                 export_method: "app-store",
-                xcargs: "#{auth_args} DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} CODE_SIGN_STYLE=Automatic",
+                # Without an explicit identity, automatic signing defaulted
+                # to requesting an iOS App *Development* profile for the
+                # archive step — which needs a registered test device, and
+                # this brand-new team has none. Forcing the Distribution
+                # identity requests an App Store profile instead, which
+                # never needs a device.
+                xcargs: "#{auth_args} DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY=\"Apple Distribution\"",
                 export_xcargs: auth_args,
                 output_directory: "build",
                 output_name: "Runner.ipa"
