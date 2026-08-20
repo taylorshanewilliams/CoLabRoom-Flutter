@@ -75,7 +75,15 @@ abstract final class LyricImportService {
       line = line.replaceFirst(RegExp(r'^(?:[•●▪◦‣⁃*\-]+|\d+[.)])\s+'), '');
       line = line.replaceAll(RegExp(r'[\t ]+'), ' ').trim();
       if (line.length > maxLineLength) line = '${line.substring(0, maxLineLength)}…';
-      if (line.isEmpty || RegExp(r'^\d+$').hasMatch(line)) continue;
+      // Catches stray separator rows (a lone "-", "—", "x", "N/A") that
+      // survive as a non-empty cell in an otherwise-unused row — these
+      // aren't digits, so the check above lets them through, but they're
+      // not lyrics either.
+      if (line.isEmpty ||
+          RegExp(r'^\d+$').hasMatch(line) ||
+          !RegExp(r'\p{L}', unicode: true).hasMatch(line)) {
+        continue;
+      }
       final lowered = line.toLowerCase();
       if (<String>{
         'lyric',
@@ -181,15 +189,21 @@ abstract final class LyricImportService {
         shouldParseNumbers: false,
         eol: '\n',
       ).convert(normalized);
-      // One spreadsheet row becomes one line, joining that row's non-empty
-      // cells — not one line per *cell* flattened across every row/column,
-      // which scrambles anything with more than a single lyric column
-      // (e.g. a "section" or "notes" column next to the lyrics).
+      // One spreadsheet row becomes one line — using that row's single
+      // longest cell, not every non-empty cell joined together. A sheet
+      // built for songwriting usually has more than a lyrics column (chord,
+      // section, timing, notes); those are reliably shorter than the actual
+      // lyric text in the same row, so picking the longest cell isolates
+      // the lyrics column without needing the user to say which one it is.
       return rows
-          .map((row) => row
-              .map((value) => value?.toString().trim() ?? '')
-              .where((value) => value.isNotEmpty)
-              .join(' '))
+          .map((row) {
+            var longest = '';
+            for (final cell in row) {
+              final value = cell?.toString().trim() ?? '';
+              if (value.length > longest.length) longest = value;
+            }
+            return longest;
+          })
           .where((line) => line.isNotEmpty)
           .toList(growable: false);
     } catch (error) {
