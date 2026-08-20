@@ -11,11 +11,18 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+    # match (see the Fastfile below) stores the encrypted signing cert on a
+    # branch of this same repo, so it needs push access.
+    permissions:
+      contents: write
     env:
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
       APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MATCH_GIT_REPOSITORY: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
 
@@ -75,15 +82,21 @@ jobs:
       #
       # Several rounds of automatic-signing flag combinations (xcargs
       # DEVELOPMENT_TEAM/CODE_SIGN_STYLE/CODE_SIGN_IDENTITY overrides) kept
-      # producing new conflicts — e.g. forcing CODE_SIGN_IDENTITY while
-      # CODE_SIGN_STYLE=Automatic is a direct contradiction Xcode correctly
-      # rejects, and it was leaking onto every plugin's Swift Package
-      # target too, none of which need signing at all. Switched to the
-      # more deterministic path instead: explicitly create the
-      # distribution certificate (cert) and App Store provisioning profile
-      # (sigh) via the API key, then point Runner's signing at them
-      # directly (update_code_signing_settings, manual mode, Runner target
-      # only) — no ambiguity left for Xcode to resolve on its own.
+      # producing new conflicts, so signing moved to explicit manual mode
+      # (update_code_signing_settings, Runner target only).
+      #
+      # Manual signing still needs a real cert+profile from somewhere. The
+      # first attempt used `cert`/`sigh`, which mint a brand new Apple
+      # Distribution certificate every run — but each GitHub-hosted runner
+      # is thrown away afterward, so nothing ever gets reused, and Apple
+      # caps how many active Distribution certs an account can have. Two
+      # throwaway runs were enough to hit that cap outright ("reached the
+      # maximum number of available Distribution certificates"), which
+      # would recur on every single future run under that design, not just
+      # this one. `match` fixes the actual problem: it generates the
+      # cert+profile once, encrypts them with MATCH_PASSWORD, and pushes
+      # them to a branch of this repo — every run after the first just
+      # downloads and reuses that same pair instead of minting a new one.
       - name: Write Fastfile
         run: |
           mkdir -p ios/fastlane
@@ -93,14 +106,11 @@ jobs:
           platform :ios do
             desc "Build and upload a TestFlight beta build"
             lane :beta do
-              # cert/sigh/update_code_signing_settings all reported success,
-              # but the archive step still said "Runner requires a
-              # provisioning profile" — the classic sign of a certificate
-              # that got created on Apple's servers but never became a
-              # usable local signing identity, because the CI runner's
-              # default keychain isn't unlocked/writable for fastlane to
-              # import it into. setup_ci creates a proper temporary keychain
-              # for exactly this.
+              # Also used by match below as the keychain to import the
+              # cert+key into (it defaults to whichever keychain setup_ci
+              # just made the system default, so no explicit keychain_path
+              # is needed here — that was the pitfall with the old `cert`
+              # action).
               setup_ci
 
               api_key = app_store_connect_api_key(
@@ -110,28 +120,15 @@ jobs:
                 is_key_content_base64: false
               )
 
-              cert(
-                api_key: api_key,
-                team_id: ENV["APPLE_TEAM_ID"],
-                # setup_ci creates this keychain and unlocks it, but cert
-                # doesn't pick that up automatically — without pointing at
-                # it explicitly, cert falls back to the default login
-                # keychain, which isn't unlocked/writable here, and the
-                # certificate it "successfully" generates never actually
-                # becomes a usable local signing identity. lane_context's
-                # own KEYCHAIN_PATH has an unexpanded "~" (Ruby doesn't
-                # expand that automatically) and is missing the "-db" suffix
-                # the actual keychain file has on this macOS version (per
-                # setup_ci's own `security list-keychains` output above) —
-                # building the real path explicitly instead of trusting
-                # either value as-is.
-                keychain_path: File.expand_path("~/Library/Keychains/fastlane_tmp_keychain-db")
-              )
-
-              sigh(
+              match(
+                type: "appstore",
                 api_key: api_key,
                 app_identifier: "com.colabroom.beta",
-                team_id: ENV["APPLE_TEAM_ID"]
+                team_id: ENV["APPLE_TEAM_ID"],
+                storage_mode: "git",
+                git_url: "https://x-access-token:#{ENV['MATCH_GIT_TOKEN']}@github.com/#{ENV['MATCH_GIT_REPOSITORY']}.git",
+                git_branch: "ios-signing-certs",
+                readonly: false
               )
 
               update_code_signing_settings(
@@ -140,7 +137,7 @@ jobs:
                 targets: ["Runner"],
                 team_id: ENV["APPLE_TEAM_ID"],
                 code_sign_identity: "Apple Distribution",
-                profile_name: ENV["SIGH_PROFILE_NAME"]
+                profile_name: lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING]["com.colabroom.beta"]
               )
 
               build_app(
@@ -178,4 +175,10 @@ jobs:
 # actually running it on GitHub's macOS runner — if it fails, the error in
 # the Actions log (usually a signing or CocoaPods issue) is the next thing
 # to look at, not a sign anything is fundamentally wrong with the approach.
+#
+# One-time setup this workflow depends on: a repo secret named
+# MATCH_PASSWORD (any passphrase you pick — it's only used to encrypt the
+# certificate before match stores it on the ios-signing-certs branch, never
+# sent to Apple). GITHUB_TOKEN is provided automatically by Actions, no
+# setup needed for that one.
 # ---------------------------------------------------------------------------
