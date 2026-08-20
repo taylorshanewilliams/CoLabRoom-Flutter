@@ -83,6 +83,31 @@ class RoomTile extends StatelessWidget {
   }
 }
 
+/// How much room a [SongTile] gets — a Room with only a handful of songs
+/// can afford the spacious card; a Room with dozens shouldn't force endless
+/// scrolling for what's ultimately the same glance-and-tap card, so it
+/// steps down automatically as project count grows (see
+/// RoomDetailScreen._densityFor).
+enum SongTileDensity {
+  spacious(mainAxisExtent: 172, iconBox: 40, iconGlyph: 21, iconRadius: 13, padding: 12),
+  cozy(mainAxisExtent: 138, iconBox: 32, iconGlyph: 18, iconRadius: 12, padding: 10),
+  compact(mainAxisExtent: 108, iconBox: 26, iconGlyph: 15, iconRadius: 10, padding: 8);
+
+  const SongTileDensity({
+    required this.mainAxisExtent,
+    required this.iconBox,
+    required this.iconGlyph,
+    required this.iconRadius,
+    required this.padding,
+  });
+
+  final double mainAxisExtent;
+  final double iconBox;
+  final double iconGlyph;
+  final double iconRadius;
+  final double padding;
+}
+
 class SongTile extends StatelessWidget {
   const SongTile({
     required this.project,
@@ -90,6 +115,7 @@ class SongTile extends StatelessWidget {
     this.onLongPress,
     this.onMore,
     this.selected = false,
+    this.density = SongTileDensity.spacious,
     super.key,
   });
 
@@ -102,6 +128,7 @@ class SongTile extends StatelessWidget {
   /// [RoomTile.onMore].
   final VoidCallback? onMore;
   final bool selected;
+  final SongTileDensity density;
 
   @override
   Widget build(BuildContext context) {
@@ -110,7 +137,7 @@ class SongTile extends StatelessWidget {
       onLongPress: onLongPress,
       semanticLabel: 'Open ${project.title}',
       child: AppSurface(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(density.padding),
         color: selected ? const Color(0xFF0C2341) : AppColors.surface,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -118,16 +145,16 @@ class SongTile extends StatelessWidget {
             Row(
               children: <Widget>[
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: density.iconBox,
+                  height: density.iconBox,
                   decoration: BoxDecoration(
                     color: AppColors.raised,
-                    borderRadius: BorderRadius.circular(13),
+                    borderRadius: BorderRadius.circular(density.iconRadius),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.music_note_rounded,
                     color: AppColors.cyan,
-                    size: 21,
+                    size: density.iconGlyph,
                   ),
                 ),
                 const Spacer(),

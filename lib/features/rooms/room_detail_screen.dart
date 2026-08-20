@@ -595,12 +595,14 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                   final width = constraints.crossAxisExtent;
                   final count = width >= 1100 ? 4 : width >= 700 ? 3 : 2;
                   final sortedProjects = _sortedProjects(room);
+                  final density = _densityFor(sortedProjects.length);
+                  final tileWidth = (width - 10 * (count - 1)) / count;
                   return SliverGrid(
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: count,
                       mainAxisSpacing: 8,
                       crossAxisSpacing: 10,
-                      mainAxisExtent: 172,
+                      mainAxisExtent: density.mainAxisExtent,
                     ),
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
@@ -623,6 +625,8 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                           return _DraggableSongTile(
                             key: ValueKey<String>(project.id),
                             project: project,
+                            density: density,
+                            tileSize: Size(tileWidth, density.mainAxisExtent),
                             onTap: onTap,
                             onMore: () => _showSongMenu(room, project),
                             onReorder: (draggedId) =>
@@ -631,6 +635,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                         }
                         return SongTile(
                           project: project,
+                          density: density,
                           selected: _selectedProjectIds.contains(project.id),
                           onMore: _selectedProjectIds.isEmpty ? () => _showSongMenu(room, project) : null,
                           onTap: onTap,
@@ -649,6 +654,16 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
       ),
     );
   }
+
+  /// A Room with a handful of songs can afford the spacious card; one with
+  /// dozens shouldn't force endless scrolling for what's ultimately the
+  /// same glance-and-tap card, so tiles step down automatically as the
+  /// Room fills up instead of staying a fixed size forever.
+  SongTileDensity _densityFor(int projectCount) {
+    if (projectCount <= 8) return SongTileDensity.spacious;
+    if (projectCount <= 24) return SongTileDensity.cozy;
+    return SongTileDensity.compact;
+  }
 }
 
 /// Wraps [SongTile] with long-press drag-to-reorder support, mirroring
@@ -657,6 +672,8 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
 class _DraggableSongTile extends StatefulWidget {
   const _DraggableSongTile({
     required this.project,
+    required this.density,
+    required this.tileSize,
     required this.onTap,
     required this.onMore,
     required this.onReorder,
@@ -664,6 +681,8 @@ class _DraggableSongTile extends StatefulWidget {
   });
 
   final SongProject project;
+  final SongTileDensity density;
+  final Size tileSize;
   final VoidCallback onTap;
   final VoidCallback onMore;
   final ValueChanged<String> onReorder;
@@ -692,20 +711,20 @@ class _DraggableSongTileState extends State<_DraggableSongTile> {
           feedback: Material(
             color: Colors.transparent,
             child: SizedBox(
-              width: 164,
-              height: 172,
+              width: widget.tileSize.width,
+              height: widget.tileSize.height,
               child: Transform.scale(
                 scale: 1.05,
                 child: Opacity(
                   opacity: 0.9,
-                  child: SongTile(project: widget.project, onTap: () {}),
+                  child: SongTile(project: widget.project, density: widget.density, onTap: () {}),
                 ),
               ),
             ),
           ),
           childWhenDragging: Opacity(
             opacity: 0.28,
-            child: SongTile(project: widget.project, onTap: () {}),
+            child: SongTile(project: widget.project, density: widget.density, onTap: () {}),
           ),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 140),
@@ -717,6 +736,7 @@ class _DraggableSongTileState extends State<_DraggableSongTile> {
             ),
             child: SongTile(
               project: widget.project,
+              density: widget.density,
               onTap: widget.onTap,
               onMore: widget.onMore,
             ),
