@@ -196,8 +196,8 @@ class _ChordWord extends StatelessWidget {
             )
           : null,
     );
-    final lyric = Text(
-      word,
+    final lyric = AnimatedDefaultTextStyle(
+      duration: const Duration(milliseconds: 220),
       style: TextStyle(
         color: liveMode
             ? active
@@ -213,6 +213,7 @@ class _ChordWord extends StatelessWidget {
         decorationColor:
             liveMode ? AppColors.gold.withValues(alpha: 0.4) : const Color(0x557A6C5A),
       ),
+      child: Text(word),
     );
 
     return IntrinsicWidth(

@@ -1208,7 +1208,7 @@ class _ToolPill extends StatelessWidget {
             : const <BoxShadow>[],
       ),
       child: Material(
-        color: active ? const Color(0xFF0C2341) : AppColors.surface,
+        color: active ? activeColor.withValues(alpha: 0.12) : AppColors.surface,
         shape: StadiumBorder(side: BorderSide(color: active ? activeColor : AppColors.line)),
         child: InkWell(
           onTap: onTap,
