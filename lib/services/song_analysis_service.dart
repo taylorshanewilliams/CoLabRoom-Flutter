@@ -363,14 +363,20 @@ class SongAnalysisService {
             .toList(growable: false);
         if (rawWords.isEmpty) {
           final heard = (cloudResult['text'] as String? ?? '').trim();
+          // Surfacing what Whisper actually returned (rather than just "no
+          // words") makes it possible to tell a real instrumental apart from
+          // Whisper mis-hearing an unusual voice (e.g. AI-generated vocals)
+          // as non-speech — worth seeing the raw snippet either way.
+          final heardSnippet = heard.isEmpty
+              ? ''
+              : ' Whisper heard: "${heard.length > 80 ? '${heard.substring(0, 80)}…' : heard}"';
           if (heard.isNotEmpty && !_looksLikeSpeech(heard)) {
-            // Instrumental audio (or non-speech sound) correctly produced
-            // no words — not a bug, chords still get detected below.
             lyricsWarning = 'This recording sounds instrumental — chords were detected, but '
-                'there are no words to sync lyrics to.';
+                'there are no words to sync lyrics to.$heardSnippet';
           } else {
             lyricsWarning =
-                'Not enough sung words were heard to sync lyrics, but chords were still detected.';
+                'Not enough sung words were heard to sync lyrics, but chords were still detected.'
+                '$heardSnippet';
           }
         } else {
           onProgress?.call(const SongAnalysisProgress('Writing down the lyrics', 0.5));

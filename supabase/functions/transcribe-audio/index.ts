@@ -72,6 +72,10 @@ Deno.serve(async (req) => {
   openAiForm.append('model', 'whisper-1');
   openAiForm.append('response_format', 'verbose_json');
   openAiForm.append('timestamp_granularities[]', 'word');
+  // Nudges Whisper toward expecting sung vocals rather than defaulting to
+  // "no speech" on recordings with unusual vocal timbre (e.g. AI-generated
+  // singers), reverb-heavy mixes, or ambiguous instrumental intros.
+  openAiForm.append('prompt', 'Song lyrics, sung vocals.');
 
   let openAiResponse: Response;
   try {

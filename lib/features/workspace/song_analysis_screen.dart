@@ -10,6 +10,7 @@ import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
 import 'live_performance_screen.dart';
+import 'lyric_review_screen.dart';
 import 'reference_recorder_sheet.dart';
 import 'song_sheet_panel.dart';
 
@@ -290,6 +291,22 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     );
   }
 
+  Future<void> _reviewLyrics() async {
+    final reference = _bundle?.reference;
+    if (reference == null) return;
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => LyricReviewScreen(project: widget.project, reference: reference),
+        fullscreenDialog: true,
+      ),
+    );
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Project lyrics updated.')),
+      );
+    }
+  }
+
   Future<void> _replaceProjectLyrics() async {
     final reference = _bundle?.reference;
     if (_working || reference == null) return;
@@ -545,7 +562,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     SongSheetPanel(
                       project: widget.project,
                       bundle: bundle,
-                      onReviewLyrics: () => Navigator.of(context).pop(),
+                      onReviewLyrics: (reference?.transcriptWords.isNotEmpty ?? false) ? _reviewLyrics : null,
                       onOpenLive: _openLive,
                       onAnalysisChanged: (updated) => setState(() => _bundle = updated),
                     ),

@@ -417,24 +417,44 @@ List<MusicianSheetLine> _transcriptLines(
   final words =
       bundle.reference?.transcriptWords ?? const <TranscriptWord>[];
   if (words.isNotEmpty) {
-    final lines = <MusicianSheetLine>[];
-    for (var start = 0; start < words.length; start += 7) {
-      final slice =
-          words.sublist(start, math.min(start + 7, words.length));
-      lines.add(
-        MusicianSheetLine(
-          contributionId: null,
-          body: slice.map((word) => word.word).join(' '),
-          section: false,
-          startMs: slice.first.startMs,
-          endMs: slice.last.endMs,
-          chords:
-              bundle.chordsForRange(slice.first.startMs, slice.last.endMs),
-          approximateTiming: false,
-        ),
-      );
+    // Break lines on natural pauses in the sung timing (a breath, a held
+    // note, a bar between phrases) rather than a fixed word count — a fixed
+    // count breaks lines mid-phrase whenever the actual phrasing doesn't
+    // happen to land on a multiple of it. Mirrors the grouping in
+    // SongAnalysisService.transcriptLyricLines, which uses the same
+    // pause-gap heuristic for the "Replace project lyrics" action.
+    const pauseGapMs = 650;
+    const maxWordsPerLine = 12;
+    const maxLineDurationMs = 9000;
+    final slices = <List<TranscriptWord>>[];
+    var current = <TranscriptWord>[];
+    for (final word in words) {
+      if (current.isNotEmpty) {
+        final gap = word.startMs - current.last.endMs;
+        final duration = word.endMs - current.first.startMs;
+        if (gap >= pauseGapMs ||
+            current.length >= maxWordsPerLine ||
+            duration >= maxLineDurationMs) {
+          slices.add(current);
+          current = <TranscriptWord>[];
+        }
+      }
+      current.add(word);
     }
-    return lines;
+    if (current.isNotEmpty) slices.add(current);
+
+    return slices
+        .map((slice) => MusicianSheetLine(
+              contributionId: null,
+              body: slice.map((word) => word.word).join(' '),
+              section: false,
+              startMs: slice.first.startMs,
+              endMs: slice.last.endMs,
+              chords: bundle.chordsForRange(
+                  slice.first.startMs, slice.last.endMs),
+              approximateTiming: false,
+            ))
+        .toList(growable: false);
   }
   final text = bundle.reference?.transcriptText?.trim() ?? '';
   if (text.isEmpty) return _chordOnlyLines(bundle);

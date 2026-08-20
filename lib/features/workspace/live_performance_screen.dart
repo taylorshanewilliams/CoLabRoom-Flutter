@@ -46,6 +46,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   LiveScrollMode _mode = LiveScrollMode.off;
   bool _playing = false;
   bool _controlsVisible = true;
+  bool _showChords = true;
   double _fontScale = 1;
   Duration _songDuration = const Duration(minutes: 3, seconds: 30);
   Duration _elapsed = Duration.zero;
@@ -435,6 +436,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                                 : AppColors.gold,
                             fontSize: lyricSize,
                             compact: landscape,
+                            showChords: _showChords,
                             active: _mode == LiveScrollMode.synced &&
                                 _lineKey(i) == _activeLineKey,
                           ),
@@ -464,6 +466,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         ),
                         source: _source,
                         onSource: _selectSource,
+                        showChords: _showChords,
+                        onToggleChords: () => setState(() => _showChords = !_showChords),
                       ),
                     ),
                   ),
@@ -505,6 +509,7 @@ class _PerformanceLine extends StatelessWidget {
     required this.dotColor,
     required this.fontSize,
     required this.compact,
+    required this.showChords,
     this.active = false,
     super.key,
   });
@@ -513,6 +518,7 @@ class _PerformanceLine extends StatelessWidget {
   final Color dotColor;
   final double fontSize;
   final bool compact;
+  final bool showChords;
   final bool active;
 
   @override
@@ -582,7 +588,7 @@ class _PerformanceLine extends StatelessWidget {
               line: line,
               transpose: 0,
               fontScale: fontSize / 13.0,
-              showChords: true,
+              showChords: showChords,
               liveMode: true,
               active: active,
             ),
@@ -601,6 +607,8 @@ class _TopLiveBar extends StatelessWidget {
     required this.onLarger,
     required this.source,
     required this.onSource,
+    required this.showChords,
+    required this.onToggleChords,
   });
 
   final VoidCallback onClose;
@@ -609,6 +617,8 @@ class _TopLiveBar extends StatelessWidget {
   final VoidCallback onLarger;
   final LiveLyricSource source;
   final ValueChanged<LiveLyricSource> onSource;
+  final bool showChords;
+  final VoidCallback onToggleChords;
 
   @override
   Widget build(BuildContext context) {
@@ -680,6 +690,16 @@ class _TopLiveBar extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          IconButton(
+            key: const Key('live_toggle_chords'),
+            onPressed: onToggleChords,
+            tooltip: showChords ? 'Hide chords' : 'Show chords',
+            icon: Icon(
+              showChords ? Icons.music_note_rounded : Icons.music_off_rounded,
+              size: 19,
+              color: showChords ? AppColors.gold : AppColors.muted,
+            ),
           ),
           IconButton(
             onPressed: onRestart,

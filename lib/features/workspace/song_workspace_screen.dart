@@ -55,11 +55,27 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   DateTime? _voiceStartedAt;
   Duration _recordingElapsed = Duration.zero;
   int _lastContributionCount = -1;
+  SongAnalysisBundle? _analysisBundle;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_loadAnalysisBundle());
+  }
+
+  /// Best-effort, non-blocking — lets the toolbar show whether this project
+  /// already has a reference recording attached, without needing to open
+  /// Analyze first. Not a substitute for a real multi-recording history
+  /// (that needs a schema change), just visibility into the one recording
+  /// the current model supports.
+  Future<void> _loadAnalysisBundle() async {
+    try {
+      final bundle = await SongAnalysisService().load(widget.projectId);
+      if (mounted) setState(() => _analysisBundle = bundle);
+    } catch (_) {
+      // Non-fatal: the toolbar just won't show a recording indicator.
+    }
   }
 
   @override
@@ -251,19 +267,35 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     );
   }
 
+  Future<void> _openRecording(SongProject project) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SongAnalysisScreen(project: project),
+        fullscreenDialog: true,
+      ),
+    );
+    unawaited(_loadAnalysisBundle());
+  }
+
   Future<void> _exportSong(SongProject project, _SongMenuAction action) async {
     if (action == _SongMenuAction.analyze) {
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => SongAnalysisScreen(project: project)),
+        MaterialPageRoute<void>(
+          builder: (_) => SongAnalysisScreen(project: project),
+          fullscreenDialog: true,
+        ),
       );
+      unawaited(_loadAnalysisBundle());
       return;
     }
     if (action == _SongMenuAction.record) {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => SongAnalysisScreen(project: project, autoRecord: true),
+          fullscreenDialog: true,
         ),
       );
+      unawaited(_loadAnalysisBundle());
       return;
     }
     if (action == _SongMenuAction.live) {
@@ -729,6 +761,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 onOpenLive: () => _openLivePerformance(project),
                 onImport: () => _importLyrics(project),
                 onExport: (action) => _exportSong(project, action),
+                hasRecording: _analysisBundle?.reference != null,
+                onOpenRecording: () => _openRecording(project),
                 editor: editor,
               )
             : Column(
@@ -747,6 +781,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     importingLyrics: _importingLyrics,
                     onOpenLive: () => _openLivePerformance(project),
                     onImport: () => _importLyrics(project),
+                    hasRecording: _analysisBundle?.reference != null,
+                    onOpenRecording: () => _openRecording(project),
                   ),
                   const Divider(height: 1),
                   Expanded(child: editor),
@@ -907,6 +943,8 @@ class _LandscapeWorkspace extends StatelessWidget {
     required this.onOpenLive,
     required this.onImport,
     required this.onExport,
+    required this.hasRecording,
+    required this.onOpenRecording,
     required this.editor,
     super.key,
   });
@@ -919,6 +957,8 @@ class _LandscapeWorkspace extends StatelessWidget {
   final VoidCallback onOpenLive;
   final VoidCallback onImport;
   final ValueChanged<_SongMenuAction> onExport;
+  final bool hasRecording;
+  final VoidCallback onOpenRecording;
   final Widget editor;
 
   @override
@@ -959,6 +999,16 @@ class _LandscapeWorkspace extends StatelessWidget {
                       ],
                     ),
                   ),
+                ),
+              ),
+              IconButton(
+                key: const Key('workspace_recording_button'),
+                onPressed: onOpenRecording,
+                tooltip: hasRecording ? 'Recording' : 'No recording yet',
+                icon: Icon(
+                  hasRecording ? Icons.graphic_eq_rounded : Icons.mic_none_rounded,
+                  size: 19,
+                  color: hasRecording ? AppColors.gold : AppColors.muted,
                 ),
               ),
               IconButton(
@@ -1063,15 +1113,27 @@ class _WorkspaceToolbar extends StatelessWidget {
     required this.importingLyrics,
     required this.onOpenLive,
     required this.onImport,
+    required this.hasRecording,
+    required this.onOpenRecording,
   });
 
   final bool importingLyrics;
   final VoidCallback onOpenLive;
   final VoidCallback onImport;
+  final bool hasRecording;
+  final VoidCallback onOpenRecording;
 
   @override
   Widget build(BuildContext context) {
     final actions = <Widget>[
+      _ToolPill(
+        key: const Key('workspace_recording_button'),
+        icon: hasRecording ? Icons.graphic_eq_rounded : Icons.mic_none_rounded,
+        label: hasRecording ? 'Recording' : 'No recording',
+        active: hasRecording,
+        activeColor: AppColors.gold,
+        onTap: onOpenRecording,
+      ),
       _ToolPill(
         key: const Key('workspace_live_button'),
         icon: Icons.play_circle_outline_rounded,
@@ -1095,9 +1157,10 @@ class _WorkspaceToolbar extends StatelessWidget {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: <Widget>[
-              actions.first,
-              const SizedBox(width: 8),
-              actions.last,
+              for (var i = 0; i < actions.length; i += 1) ...<Widget>[
+                if (i > 0) const SizedBox(width: 8),
+                actions[i],
+              ],
             ],
           ),
         ),
@@ -1113,6 +1176,7 @@ class _ToolPill extends StatelessWidget {
     required this.active,
     required this.onTap,
     this.iconColor,
+    this.activeColor = AppColors.cyan,
     super.key,
   });
 
@@ -1121,19 +1185,20 @@ class _ToolPill extends StatelessWidget {
   final bool active;
   final VoidCallback? onTap;
   final Color? iconColor;
+  final Color activeColor;
 
   @override
   Widget build(BuildContext context) {
-    final color = iconColor ?? (active ? AppColors.cyan : AppColors.muted);
+    final color = iconColor ?? (active ? activeColor : AppColors.muted);
     return DecoratedBox(
       decoration: BoxDecoration(
         boxShadow: active
-            ? const <BoxShadow>[BoxShadow(color: Color(0x293AD3FF), blurRadius: 18)]
+            ? <BoxShadow>[BoxShadow(color: activeColor.withValues(alpha: 0.16), blurRadius: 18)]
             : const <BoxShadow>[],
       ),
       child: Material(
         color: active ? const Color(0xFF0C2341) : AppColors.surface,
-        shape: StadiumBorder(side: BorderSide(color: active ? AppColors.cyan : AppColors.line)),
+        shape: StadiumBorder(side: BorderSide(color: active ? activeColor : AppColors.line)),
         child: InkWell(
           onTap: onTap,
           customBorder: const StadiumBorder(),
