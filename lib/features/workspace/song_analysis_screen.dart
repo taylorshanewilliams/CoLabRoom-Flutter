@@ -604,8 +604,21 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                         ),
                       ],
                     ),
-                    if ((reference?.transcriptWords.isNotEmpty ?? false)) ...<Widget>[
+                    if (visibleMusicianLyrics(widget.project).isNotEmpty) ...<Widget>[
                       const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          key: const Key('replace_analyzed_lyrics'),
+                          onPressed: _working ? null : _replaceAnalyzedLyrics,
+                          style: TextButton.styleFrom(foregroundColor: AppColors.cyan),
+                          icon: const Icon(Icons.sync_alt_rounded, size: 17),
+                          label: const Text('Use my Workspace lyrics on the Song Sheet'),
+                        ),
+                      ),
+                    ],
+                    if ((reference?.transcriptWords.isNotEmpty ?? false)) ...<Widget>[
+                      const SizedBox(height: 4),
                       Align(
                         alignment: Alignment.centerLeft,
                         child: TextButton.icon(
@@ -613,20 +626,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                           onPressed: _working ? null : _replaceProjectLyrics,
                           style: TextButton.styleFrom(foregroundColor: AppColors.gold),
                           icon: const Icon(Icons.sync_alt_rounded, size: 17),
-                          label: const Text('Replace project lyrics with this'),
-                        ),
-                      ),
-                    ],
-                    if (visibleMusicianLyrics(widget.project).isNotEmpty) ...<Widget>[
-                      const SizedBox(height: 4),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          key: const Key('replace_analyzed_lyrics'),
-                          onPressed: _working ? null : _replaceAnalyzedLyrics,
-                          style: TextButton.styleFrom(foregroundColor: AppColors.muted),
-                          icon: const Icon(Icons.sync_alt_rounded, size: 17),
-                          label: const Text('Replace Song Sheet lyrics with these'),
+                          label: const Text('Copy the Song Sheet\'s lyrics into my Workspace'),
                         ),
                       ),
                     ],
