@@ -100,8 +100,14 @@ class RoomTile extends StatelessWidget {
 /// RoomDetailScreen._densityFor).
 enum SongTileDensity {
   spacious(mainAxisExtent: 172, iconBox: 40, iconGlyph: 21, iconRadius: 13, padding: 12),
-  cozy(mainAxisExtent: 138, iconBox: 32, iconGlyph: 18, iconRadius: 12, padding: 10),
-  compact(mainAxisExtent: 108, iconBox: 26, iconGlyph: 15, iconRadius: 10, padding: 8);
+  // cozy/compact previously overflowed by a couple of pixels (title +
+  // caption text stays the same fixed font size at every density, so it
+  // doesn't shrink along with the icon/padding) — this never surfaced
+  // before because the old, higher project-count thresholds meant these
+  // two tiers rarely got exercised. A few extra px of mainAxisExtent gives
+  // the fixed-size text room regardless of density.
+  cozy(mainAxisExtent: 146, iconBox: 32, iconGlyph: 18, iconRadius: 12, padding: 10),
+  compact(mainAxisExtent: 116, iconBox: 26, iconGlyph: 15, iconRadius: 10, padding: 8);
 
   const SongTileDensity({
     required this.mainAxisExtent,

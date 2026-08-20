@@ -176,6 +176,7 @@ class HomeScreen extends StatelessWidget {
                             builder: (_) => RoomDetailScreen(roomId: room.id),
                           ),
                         ),
+                        logoBytes: controller.roomLogoBytes(room),
                       );
                     },
                     childCount: recentRooms.length,

@@ -4,6 +4,12 @@ name: Build Android debug APK
 # a fresh debug APK to install without asking for one.
 on:
   workflow_dispatch:
+    inputs:
+      build_mode:
+        description: 'debug (default, matches every push-triggered build) or release (diagnostic only — Dart strips assert() calls in release, so this is how to check whether a debug-only crash is actually a release-mode problem too)'
+        type: choice
+        options: [debug, release]
+        default: debug
   push:
     branches: [main]
     paths:
@@ -85,13 +91,16 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
 
-      - name: Build debug APK
-        run: flutter build apk --debug
+      - name: Build APK
+        # push-triggered runs have no `inputs` context at all, hence the
+        # `github.event_name == 'workflow_dispatch' &&` guard before reading
+        # inputs.build_mode — falls back to debug otherwise.
+        run: flutter build apk --${{ (github.event_name == 'workflow_dispatch' && inputs.build_mode == 'release') && 'release' || 'debug' }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: colabroom-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: colabroom-${{ (github.event_name == 'workflow_dispatch' && inputs.build_mode == 'release') && 'release' || 'debug' }}-apk
+          path: build/app/outputs/flutter-apk/app-${{ (github.event_name == 'workflow_dispatch' && inputs.build_mode == 'release') && 'release' || 'debug' }}.apk
           retention-days: 14
 
 # ---------------------------------------------------------------------------
