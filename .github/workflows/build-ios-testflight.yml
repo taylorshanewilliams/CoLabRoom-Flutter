@@ -112,7 +112,14 @@ jobs:
 
               cert(
                 api_key: api_key,
-                team_id: ENV["APPLE_TEAM_ID"]
+                team_id: ENV["APPLE_TEAM_ID"],
+                # setup_ci creates this keychain and unlocks it, but cert
+                # doesn't pick that up automatically — without pointing at
+                # it explicitly, cert falls back to the default login
+                # keychain, which isn't unlocked/writable here, and the
+                # certificate it "successfully" generates never actually
+                # becomes a usable local signing identity.
+                keychain_path: "fastlane_tmp_keychain"
               )
 
               sigh(
