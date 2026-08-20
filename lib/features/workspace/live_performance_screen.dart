@@ -213,11 +213,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     // the actual clock the user hears, so this tick must not also advance it
     // by wall-clock time on top of that or the two would drift apart.
     final audioIsClock = _audioPlayer != null && _mode == LiveScrollMode.synced;
+    var delta = Duration.zero;
     if (!audioIsClock) {
       final now = DateTime.now();
       final previous = _lastTick ?? now;
       _lastTick = now;
-      final delta = now.difference(previous);
+      delta = now.difference(previous);
       if (delta <= Duration.zero) return;
       _elapsed += delta;
     }
@@ -848,7 +849,7 @@ class _LiveControls extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Icon(
-                  hasAudio ? Icons.headphones_rounded : Icons.headphones_off_rounded,
+                  Icons.headphones_rounded,
                   size: 16,
                   color: hasAudio ? AppColors.gold : AppColors.muted,
                   semanticLabel: hasAudio
