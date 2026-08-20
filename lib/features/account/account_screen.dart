@@ -277,13 +277,15 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
       title: const Text('Beta feedback'),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 460),
-        child: TextField(
-          controller: _message,
-          autofocus: true,
-          minLines: 4,
-          maxLines: 8,
-          decoration: const InputDecoration(
-            hintText: 'What happened, and what did you expect?',
+        child: SingleChildScrollView(
+          child: TextField(
+            controller: _message,
+            autofocus: true,
+            minLines: 4,
+            maxLines: 8,
+            decoration: const InputDecoration(
+              hintText: 'What happened, and what did you expect?',
+            ),
           ),
         ),
       ),

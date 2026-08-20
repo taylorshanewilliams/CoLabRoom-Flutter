@@ -44,35 +44,37 @@ class _InviteCollaboratorDialogState extends State<InviteCollaboratorDialog> {
       title: Text(widget.title),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 440),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            if (widget.subtitle != null) ...<Widget>[
-              Text(widget.subtitle!, style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
-              const SizedBox(height: 14),
-            ],
-            TextField(
-              controller: _email,
-              autofocus: true,
-              keyboardType: TextInputType.emailAddress,
-              autocorrect: false,
-              decoration: const InputDecoration(labelText: 'Their email'),
-            ),
-            const SizedBox(height: 14),
-            DropdownButtonFormField<RoomRole>(
-              initialValue: _role,
-              decoration: const InputDecoration(labelText: 'Permission'),
-              items: const <DropdownMenuItem<RoomRole>>[
-                DropdownMenuItem(value: RoomRole.editor, child: Text('Editor')),
-                DropdownMenuItem(value: RoomRole.commenter, child: Text('Commenter')),
-                DropdownMenuItem(value: RoomRole.viewer, child: Text('Viewer')),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              if (widget.subtitle != null) ...<Widget>[
+                Text(widget.subtitle!, style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
+                const SizedBox(height: 14),
               ],
-              onChanged: (value) {
-                if (value != null) setState(() => _role = value);
-              },
-            ),
-          ],
+              TextField(
+                controller: _email,
+                autofocus: true,
+                keyboardType: TextInputType.emailAddress,
+                autocorrect: false,
+                decoration: const InputDecoration(labelText: 'Their email'),
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<RoomRole>(
+                initialValue: _role,
+                decoration: const InputDecoration(labelText: 'Permission'),
+                items: const <DropdownMenuItem<RoomRole>>[
+                  DropdownMenuItem(value: RoomRole.editor, child: Text('Editor')),
+                  DropdownMenuItem(value: RoomRole.commenter, child: Text('Commenter')),
+                  DropdownMenuItem(value: RoomRole.viewer, child: Text('Viewer')),
+                ],
+                onChanged: (value) {
+                  if (value != null) setState(() => _role = value);
+                },
+              ),
+            ],
+          ),
         ),
       ),
       actions: <Widget>[

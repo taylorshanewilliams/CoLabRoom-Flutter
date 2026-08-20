@@ -96,6 +96,7 @@ class _CreateRoomDialogState extends State<_CreateRoomDialog> {
       title: const Text('Create a Music Room'),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
+        child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -126,6 +127,7 @@ class _CreateRoomDialogState extends State<_CreateRoomDialog> {
               }).toList(growable: false),
             ),
           ],
+        ),
         ),
       ),
       actions: <Widget>[

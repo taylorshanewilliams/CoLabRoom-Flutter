@@ -233,7 +233,10 @@ class _AddSongsDialogState extends State<_AddSongsDialog> {
     return AlertDialog(
       title: const Text('Add Songs'),
       content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 440),
+        constraints: BoxConstraints(
+          maxWidth: 440,
+          maxHeight: MediaQuery.of(context).size.height * 0.5,
+        ),
         child: available.isEmpty
             ? const Text('Every available song is already in this setlist.')
             : ListView.builder(
@@ -242,6 +245,7 @@ class _AddSongsDialogState extends State<_AddSongsDialog> {
                 itemBuilder: (context, index) {
                   final project = available[index];
                   return CheckboxListTile(
+                    key: ValueKey<String>(project.id),
                     value: _selected.contains(project.id),
                     title: Text(project.title),
                     onChanged: (selected) => setState(() {
