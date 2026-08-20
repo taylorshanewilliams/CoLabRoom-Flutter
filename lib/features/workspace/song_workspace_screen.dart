@@ -358,17 +358,20 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     try {
       final drafts = await showLyricImportFlow(context);
       if (drafts == null || !mounted) return;
-      // Let the review dialog's closing route fully settle before importing
-      // — importing a large batch of lines rebuilds a big chunk of the tree,
-      // and doing that while the dialog's own exit transition is still
-      // animating can trip a Flutter debug-only InheritedElement assertion
-      // (harmless in release builds, where asserts are stripped, but still
-      // worth avoiding). A single endOfFrame wasn't enough — the dialog's
-      // route removal animates across several frames, not just one — so
-      // this waits out the actual transition duration instead of guessing
-      // by frame count.
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-      if (!mounted) return;
+      // Let every closing route (the source-picker sheet, and the review
+      // dialog on top of it) fully settle before importing — a large batch
+      // of new lines rebuilds a big chunk of the tree, and doing that while
+      // an exit transition is still animating can trip a Flutter debug-only
+      // InheritedElement assertion (harmless in release, where asserts are
+      // stripped, but still worth avoiding). A single endOfFrame wasn't
+      // enough (too early) and a fixed real-time delay wasn't reliable
+      // either (transition length varies by device/animation curve) — wait
+      // out several actual rendered frames instead, which tracks real
+      // completion rather than guessing a duration.
+      for (var frame = 0; frame < 8; frame += 1) {
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted) return;
+      }
       final room = BetaScope.of(context).roomForProject(project.id);
       final count = await BetaScope.of(context).importContributions(
         project,

@@ -445,16 +445,24 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                     width: 56,
                     height: 56,
                     alignment: Alignment.center,
+                    clipBehavior: Clip.antiAlias,
                     decoration: const BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: RadialGradient(
                         colors: <Color>[Color(0x7A2B6FFF), Color(0x382B6FFF), Color(0x082B6FFF)],
                       ),
                     ),
-                    child: Text(
-                      room.icon,
-                      style: const TextStyle(fontSize: 27, color: AppColors.cyan),
-                    ),
+                    child: controller.roomLogoBytes(room) != null
+                        ? Image.memory(
+                            controller.roomLogoBytes(room)!,
+                            fit: BoxFit.cover,
+                            width: 56,
+                            height: 56,
+                          )
+                        : Text(
+                            room.icon,
+                            style: const TextStyle(fontSize: 27, color: AppColors.cyan),
+                          ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -653,8 +661,8 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
   /// same glance-and-tap card, so tiles step down automatically as the
   /// Room fills up instead of staying a fixed size forever.
   SongTileDensity _densityFor(int projectCount) {
-    if (projectCount <= 8) return SongTileDensity.spacious;
-    if (projectCount <= 24) return SongTileDensity.cozy;
+    if (projectCount <= 4) return SongTileDensity.spacious;
+    if (projectCount <= 14) return SongTileDensity.cozy;
     return SongTileDensity.compact;
   }
 }
