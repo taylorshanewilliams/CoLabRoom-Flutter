@@ -50,6 +50,12 @@ jobs:
             grep -q 'PRODUCT_BUNDLE_IDENTIFIER = com.colabroom.beta;' "$PBXPROJ" || { echo "::error::Bundle identifier patch did not apply"; exit 1; }
 
             PLIST=ios/Runner/Info.plist
+            # flutter create derives CFBundleName/CFBundleDisplayName from
+            # --project-name (lowercase "colabroom"), which is what shows
+            # under the icon on the home screen — override both to the
+            # properly-cased brand name (matches the Android manifest fix).
+            /usr/libexec/PlistBuddy -c "Set :CFBundleName CoLabRoom" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string CoLabRoom" "$PLIST"
             # record + speech_to_text both need explicit usage descriptions
             # on iOS or the app crashes the instant either is used — Android
             # only needs a manifest permission, so this has no Android

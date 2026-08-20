@@ -581,55 +581,54 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                       text: 'Lyrics are transcribed by a cloud speech service; chords are detected on the phone. The recording stays available to the Room as its reference track.',
                     ),
                   ],
-                  if (ready) ...<Widget>[
+                  // These two don't require the *latest* analysis attempt to
+                  // have succeeded (`ready`) — they only need a reference to
+                  // attach a Song Sheet to, plus whichever side (manual or
+                  // analyzed) has the words to copy from. Gating them behind
+                  // `ready` used to hide them entirely whenever an analysis
+                  // attempt errored, even if a usable Song Sheet already
+                  // existed from an earlier successful run.
+                  if (reference != null && visibleMusicianLyrics(widget.project).isNotEmpty) ...<Widget>[
                     const SizedBox(height: 20),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        key: const Key('replace_analyzed_lyrics'),
+                        onPressed: _working ? null : _replaceAnalyzedLyrics,
+                        style: TextButton.styleFrom(foregroundColor: AppColors.cyan),
+                        icon: const Icon(Icons.edit_note_rounded, size: 18),
+                        label: const Text('Fix the Song Sheet using my typed lyrics'),
+                      ),
+                    ),
+                  ],
+                  if (reference?.transcriptWords.isNotEmpty ?? false) ...<Widget>[
+                    const SizedBox(height: 4),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        key: const Key('replace_project_lyrics'),
+                        onPressed: _working ? null : _replaceProjectLyrics,
+                        style: TextButton.styleFrom(foregroundColor: AppColors.gold),
+                        icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                        label: const Text('Fill in my lyrics from the Song Sheet'),
+                      ),
+                    ),
+                  ],
+                  if (ready) ...<Widget>[
+                    const SizedBox(height: 12),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         const Icon(Icons.check_rounded, size: 14, color: AppColors.muted),
                         const SizedBox(width: 7),
                         Expanded(
-                          child: Text.rich(
-                            TextSpan(
-                              children: <TextSpan>[
-                                const TextSpan(
-                                  text: 'Saved to this project. ',
-                                  style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w700),
-                                ),
-                                const TextSpan(text: 'Replacing the lyrics below is optional.'),
-                              ],
-                            ),
+                          child: Text(
+                            'Saved to this project.',
                             style: const TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.4),
                           ),
                         ),
                       ],
                     ),
-                    if (visibleMusicianLyrics(widget.project).isNotEmpty) ...<Widget>[
-                      const SizedBox(height: 10),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          key: const Key('replace_analyzed_lyrics'),
-                          onPressed: _working ? null : _replaceAnalyzedLyrics,
-                          style: TextButton.styleFrom(foregroundColor: AppColors.cyan),
-                          icon: const Icon(Icons.sync_alt_rounded, size: 17),
-                          label: const Text('Use my Workspace lyrics on the Song Sheet'),
-                        ),
-                      ),
-                    ],
-                    if ((reference?.transcriptWords.isNotEmpty ?? false)) ...<Widget>[
-                      const SizedBox(height: 4),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          key: const Key('replace_project_lyrics'),
-                          onPressed: _working ? null : _replaceProjectLyrics,
-                          style: TextButton.styleFrom(foregroundColor: AppColors.gold),
-                          icon: const Icon(Icons.sync_alt_rounded, size: 17),
-                          label: const Text('Copy the Song Sheet\'s lyrics into my Workspace'),
-                        ),
-                      ),
-                    ],
                     const SizedBox(height: 12),
                     _AnalysisSummary(bundle: bundle!),
                     const SizedBox(height: 18),

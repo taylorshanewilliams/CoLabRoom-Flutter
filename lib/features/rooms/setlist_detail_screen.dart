@@ -75,9 +75,12 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
     }
 
     Future<void> addSongs() async {
-      final selected = await showDialog<Set<String>>(
+      final selected = await showModalBottomSheet<Set<String>>(
         context: context,
-        builder: (_) => _AddSongsDialog(
+        isScrollControlled: true,
+        showDragHandle: true,
+        backgroundColor: AppColors.deepNavy,
+        builder: (_) => _AddSongsSheet(
           projects: controller.projects.toList(growable: false),
           existingIds: setlist.projectIds.toSet(),
         ),
@@ -212,17 +215,17 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
   }
 }
 
-class _AddSongsDialog extends StatefulWidget {
-  const _AddSongsDialog({required this.projects, required this.existingIds});
+class _AddSongsSheet extends StatefulWidget {
+  const _AddSongsSheet({required this.projects, required this.existingIds});
 
   final List<SongProject> projects;
   final Set<String> existingIds;
 
   @override
-  State<_AddSongsDialog> createState() => _AddSongsDialogState();
+  State<_AddSongsSheet> createState() => _AddSongsSheetState();
 }
 
-class _AddSongsDialogState extends State<_AddSongsDialog> {
+class _AddSongsSheetState extends State<_AddSongsSheet> {
   final Set<String> _selected = <String>{};
 
   @override
@@ -230,42 +233,64 @@ class _AddSongsDialogState extends State<_AddSongsDialog> {
     final available = widget.projects
         .where((project) => !widget.existingIds.contains(project.id))
         .toList(growable: false);
-    return AlertDialog(
-      title: const Text('Add Songs'),
-      content: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 440,
-          maxHeight: MediaQuery.of(context).size.height * 0.5,
-        ),
-        child: available.isEmpty
-            ? const Text('Every available song is already in this setlist.')
-            : ListView.builder(
-                shrinkWrap: true,
-                itemCount: available.length,
-                itemBuilder: (context, index) {
-                  final project = available[index];
-                  return CheckboxListTile(
-                    key: ValueKey<String>(project.id),
-                    value: _selected.contains(project.id),
-                    title: Text(project.title),
-                    onChanged: (selected) => setState(() {
-                      if (selected ?? false) {
-                        _selected.add(project.id);
-                      } else {
-                        _selected.remove(project.id);
-                      }
-                    }),
-                  );
-                },
+    return SafeArea(
+      top: false,
+      // An AlertDialog's shrink-wrapped ListView had no bounded ancestor to
+      // shrink-wrap within (a Dialog doesn't force one), so with enough
+      // songs it tried to size itself to the sum of every row — taller
+      // than the dialog could ever be, which is a real overflow the Flutter
+      // framework can't recover from cleanly. Bottom sheets need the same
+      // care: an explicit fixed height plus Expanded (not shrinkWrap) is
+      // what actually gives the list something bounded to scroll within.
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.7,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text('Add Songs', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 14),
+              Expanded(
+                child: available.isEmpty
+                    ? const Center(
+                        child: Text('Every available song is already in this setlist.'),
+                      )
+                    : ListView.builder(
+                        itemCount: available.length,
+                        itemBuilder: (context, index) {
+                          final project = available[index];
+                          return CheckboxListTile(
+                            key: ValueKey<String>(project.id),
+                            value: _selected.contains(project.id),
+                            title: Text(project.title),
+                            onChanged: (selected) => setState(() {
+                              if (selected ?? false) {
+                                _selected.add(project.id);
+                              } else {
+                                _selected.remove(project.id);
+                              }
+                            }),
+                          );
+                        },
+                      ),
               ),
-      ),
-      actions: <Widget>[
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
-          onPressed: _selected.isEmpty ? null : () => Navigator.pop(context, _selected),
-          child: const Text('Add'),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: <Widget>[
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _selected.isEmpty ? null : () => Navigator.pop(context, _selected),
+                    child: const Text('Add'),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-      ],
+      ),
     );
   }
 }
