@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
+import '../../services/song_analysis_service.dart';
 import 'musician_sheet_line.dart';
 import 'musician_sheet_logic.dart';
 
@@ -56,6 +58,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   late final List<MusicianSheetLine> _sheetLines;
   late final Map<String, Color> _colorByContributionId;
   late LiveLyricSource _source;
+  AudioPlayer? _audioPlayer;
+  StreamSubscription<Duration>? _audioPositionSub;
+  StreamSubscription<void>? _audioCompleteSub;
+  bool _audioReady = false;
 
   static const _emptyBundle =
       SongAnalysisBundle(reference: null, lyricCues: <LyricSyncCue>[], chordCues: <ChordCue>[]);
@@ -103,10 +109,53 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     }
     _ticker = Timer.periodic(const Duration(milliseconds: 50), (_) => _tick());
     _armControlHide();
+    final reference = widget.analysis?.reference;
+    if (reference != null) unawaited(_prepareAudio(reference));
+  }
+
+  /// Loads the analyzed reference recording so "synced" mode can play the
+  /// actual take underneath the scrolling lyrics — without this, "synced"
+  /// was only ever a guess at where you should be, with no way to actually
+  /// hear whether it lines up.
+  Future<void> _prepareAudio(ReferenceTrack reference) async {
+    try {
+      final path = await SongAnalysisService().ensureLocalReference(reference);
+      if (!mounted) return;
+      final player = AudioPlayer();
+      await player.setSource(DeviceFileSource(path));
+      if (!mounted) {
+        await player.dispose();
+        return;
+      }
+      _audioPositionSub = player.onPositionChanged.listen((position) {
+        // Only the actual clock for "synced" mode — other scroll modes keep
+        // their own manual speed, with audio just playing alongside.
+        if (_playing && _mode == LiveScrollMode.synced) _elapsed = position;
+      });
+      _audioCompleteSub = player.onPlayerComplete.listen((_) {
+        if (mounted) setState(() => _playing = false);
+      });
+      setState(() {
+        _audioPlayer = player;
+        _audioReady = true;
+      });
+      // If playback was already started (Play tapped before this finished
+      // loading), the audio needs to catch up now rather than sitting
+      // loaded-but-silent until the next play/pause toggle.
+      if (_playing) unawaited(player.resume());
+    } catch (_) {
+      // Non-fatal: Live mode falls back to manual scroll speeds with no
+      // audio, same as before this was added.
+    }
   }
 
   void _selectSource(LiveLyricSource source) {
     if (source == _source) return;
+    final audio = _audioPlayer;
+    if (audio != null) {
+      unawaited(audio.pause());
+      unawaited(audio.seek(Duration.zero));
+    }
     setState(() {
       _source = source;
       _playing = false;
@@ -124,6 +173,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _ticker?.cancel();
     _hideControls?.cancel();
     _scroll.dispose();
+    unawaited(_audioPositionSub?.cancel());
+    unawaited(_audioCompleteSub?.cancel());
+    unawaited(_audioPlayer?.dispose());
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     super.dispose();
   }
@@ -156,12 +208,19 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _lastTick = null;
       return;
     }
-    final now = DateTime.now();
-    final previous = _lastTick ?? now;
-    _lastTick = now;
-    final delta = now.difference(previous);
-    if (delta <= Duration.zero) return;
-    _elapsed += delta;
+    // When real audio is playing in synced mode, _elapsed is kept current by
+    // the player's own onPositionChanged stream (see _prepareAudio) — that's
+    // the actual clock the user hears, so this tick must not also advance it
+    // by wall-clock time on top of that or the two would drift apart.
+    final audioIsClock = _audioPlayer != null && _mode == LiveScrollMode.synced;
+    if (!audioIsClock) {
+      final now = DateTime.now();
+      final previous = _lastTick ?? now;
+      _lastTick = now;
+      final delta = now.difference(previous);
+      if (delta <= Duration.zero) return;
+      _elapsed += delta;
+    }
 
     if (_offsetsDirty && _mode == LiveScrollMode.synced) _captureLineOffsets();
 
@@ -310,6 +369,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   }
 
   void _togglePlay() {
+    final audio = _audioPlayer;
     setState(() {
       if (_mode == LiveScrollMode.off) {
         _mode = _hasSync ? LiveScrollMode.synced : LiveScrollMode.medium;
@@ -319,11 +379,19 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     });
     if (_mode == LiveScrollMode.synced) _markOffsetsDirty();
     _lastTick = null;
+    if (audio != null) {
+      unawaited(_playing ? audio.resume() : audio.pause());
+    }
     _armControlHide();
   }
 
   void _restart() {
     if (_scroll.hasClients) _scroll.jumpTo(0);
+    final audio = _audioPlayer;
+    if (audio != null) {
+      unawaited(audio.seek(Duration.zero));
+      unawaited(audio.pause());
+    }
     setState(() {
       _elapsed = Duration.zero;
       _playing = false;
@@ -342,6 +410,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       builder: (sheetContext) => _DurationSheet(initial: _songDuration),
     );
     if (result == null || !mounted) return;
+    final audio = _audioPlayer;
+    if (audio != null) {
+      unawaited(audio.seek(Duration.zero));
+      unawaited(audio.pause());
+    }
     setState(() {
       _songDuration = result;
       _elapsed = Duration.zero;
@@ -355,6 +428,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     if (mode == LiveScrollMode.timed) {
       unawaited(_chooseTimedDuration());
       return;
+    }
+    final audio = _audioPlayer;
+    if (audio != null) {
+      unawaited(audio.seek(Duration.zero));
+      if (mode == LiveScrollMode.off) unawaited(audio.pause());
     }
     setState(() {
       _mode = mode;
@@ -488,6 +566,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         elapsed: _elapsed,
                         duration: _songDuration,
                         hasSync: _hasSync,
+                        hasAudio: _audioReady,
                         onPlay: _togglePlay,
                         onMode: _selectMode,
                       ),
@@ -729,6 +808,7 @@ class _LiveControls extends StatelessWidget {
     required this.elapsed,
     required this.duration,
     required this.hasSync,
+    required this.hasAudio,
     required this.onPlay,
     required this.onMode,
   });
@@ -738,6 +818,7 @@ class _LiveControls extends StatelessWidget {
   final Duration elapsed;
   final Duration duration;
   final bool hasSync;
+  final bool hasAudio;
   final VoidCallback onPlay;
   final ValueChanged<LiveScrollMode> onMode;
 
@@ -764,6 +845,15 @@ class _LiveControls extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                   ),
+                ),
+                const SizedBox(width: 6),
+                Icon(
+                  hasAudio ? Icons.headphones_rounded : Icons.headphones_off_rounded,
+                  size: 16,
+                  color: hasAudio ? AppColors.gold : AppColors.muted,
+                  semanticLabel: hasAudio
+                      ? 'The recording plays along with this'
+                      : 'No recording available to play along',
                 ),
                 const SizedBox(width: 8),
                 Expanded(
