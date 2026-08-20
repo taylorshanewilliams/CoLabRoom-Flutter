@@ -232,6 +232,8 @@ class BetaInvite {
     required this.inviterName,
     required this.email,
     this.role = RoomRole.editor,
+    this.projectId,
+    this.projectTitle,
   });
 
   final String id;
@@ -240,6 +242,14 @@ class BetaInvite {
   final String inviterName;
   final String email;
   final RoomRole role;
+
+  /// When set, this invite grants access to just this one song (see
+  /// project_members / accept_project_invitation_by_id) rather than the
+  /// whole Room. [projectTitle] is only meaningful alongside this.
+  final String? projectId;
+  final String? projectTitle;
+
+  bool get isProjectScoped => projectId != null;
 }
 
 class FeedbackDraft {

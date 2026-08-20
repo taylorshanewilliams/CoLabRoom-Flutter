@@ -88,6 +88,14 @@ abstract interface class MusicRepository {
     RoomRole role = RoomRole.editor,
   });
 
+  /// Like [createInvite], but the resulting invite grants access to just
+  /// [project] instead of its whole Room.
+  Future<String> createProjectInvite({
+    required SongProject project,
+    required String email,
+    RoomRole role = RoomRole.editor,
+  });
+
   Future<void> acceptInvite({String? code, BetaInvite? invite});
 
   /// Sets the caller's own display color within [roomId] to [colorValue].

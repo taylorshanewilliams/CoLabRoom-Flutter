@@ -84,7 +84,9 @@ class InvitesScreen extends StatelessWidget {
                             onJoin: () => _runInviteAction(
                               context,
                               () => controller.acceptInvite(invite: invites[index]),
-                              success: 'Room joined. You can open it from Rooms.',
+                              success: invites[index].isProjectScoped
+                                  ? 'Song joined. You can open it from Rooms.'
+                                  : 'Room joined. You can open it from Rooms.',
                             ),
                             onDecline: () => _runInviteAction(
                               context,
@@ -179,7 +181,15 @@ class _InviteCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text(invite.roomName, style: Theme.of(context).textTheme.titleMedium),
+                    Text(
+                      invite.isProjectScoped ? invite.projectTitle ?? 'A song' : invite.roomName,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    if (invite.isProjectScoped)
+                      Text(
+                        'One song in ${invite.roomName} · not the rest of the Room',
+                        style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                      ),
                     Text('Invited by ${invite.inviterName} · ${invite.role.name}'),
                   ],
                 ),

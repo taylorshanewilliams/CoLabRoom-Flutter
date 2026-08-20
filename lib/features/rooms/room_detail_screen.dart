@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
@@ -9,6 +8,7 @@ import '../../domain/music_models.dart';
 import '../../domain/name_policy.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/bloom_tap.dart';
+import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/music_tiles.dart';
 import '../home/new_song_flow.dart';
 import '../workspace/song_workspace_screen.dart';
@@ -356,57 +356,15 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     }
 
     Future<void> invite() async {
-      final draft = await showDialog<_InviteDraft>(
+      final draft = await showDialog<InviteDraft>(
         context: context,
-        builder: (_) => const _InviteCollaboratorDialog(),
+        builder: (_) => const InviteCollaboratorDialog(),
       );
       if (draft == null) return;
       try {
         final code = await controller.createInvite(room, draft.email, role: draft.role);
         if (!context.mounted) return;
-        await showDialog<void>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            title: const Text('Invite ready'),
-            content: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text('Send this code to ${draft.email}. It expires in seven days.'),
-                  const SizedBox(height: 16),
-                  SelectableText(
-                    code,
-                    style: const TextStyle(
-                      color: AppColors.cyan,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 18,
-                      letterSpacing: 1.1,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () async {
-                  await Clipboard.setData(ClipboardData(text: code));
-                  if (dialogContext.mounted) {
-                    ScaffoldMessenger.of(dialogContext).showSnackBar(
-                      const SnackBar(content: Text('Invite code copied.')),
-                    );
-                  }
-                },
-                child: const Text('Copy Code'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Done'),
-              ),
-            ],
-          ),
-        );
+        await showInviteReadyDialog(context, email: draft.email, code: code);
       } catch (error) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
@@ -842,13 +800,6 @@ class _NewSetlistDialogState extends State<_NewSetlistDialog> {
   }
 }
 
-class _InviteDraft {
-  const _InviteDraft(this.email, this.role);
-
-  final String email;
-  final RoomRole role;
-}
-
 class _RenameRoomDialog extends StatefulWidget {
   const _RenameRoomDialog({required this.initialName});
 
@@ -939,62 +890,3 @@ class _RenameProjectDialogState extends State<_RenameProjectDialog> {
   }
 }
 
-class _InviteCollaboratorDialog extends StatefulWidget {
-  const _InviteCollaboratorDialog();
-
-  @override
-  State<_InviteCollaboratorDialog> createState() => _InviteCollaboratorDialogState();
-}
-
-class _InviteCollaboratorDialogState extends State<_InviteCollaboratorDialog> {
-  final _email = TextEditingController();
-  RoomRole _role = RoomRole.editor;
-
-  @override
-  void dispose() {
-    _email.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Invite a Collaborator'),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 440),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            TextField(
-              controller: _email,
-              autofocus: true,
-              keyboardType: TextInputType.emailAddress,
-              autocorrect: false,
-              decoration: const InputDecoration(labelText: 'Their email'),
-            ),
-            const SizedBox(height: 14),
-            DropdownButtonFormField<RoomRole>(
-              initialValue: _role,
-              decoration: const InputDecoration(labelText: 'Permission'),
-              items: const <DropdownMenuItem<RoomRole>>[
-                DropdownMenuItem(value: RoomRole.editor, child: Text('Editor')),
-                DropdownMenuItem(value: RoomRole.commenter, child: Text('Commenter')),
-                DropdownMenuItem(value: RoomRole.viewer, child: Text('Viewer')),
-              ],
-              onChanged: (value) {
-                if (value != null) setState(() => _role = value);
-              },
-            ),
-          ],
-        ),
-      ),
-      actions: <Widget>[
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _InviteDraft(_email.text, _role)),
-          child: const Text('Create Invite'),
-        ),
-      ],
-    );
-  }
-}

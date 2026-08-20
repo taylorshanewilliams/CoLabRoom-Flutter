@@ -482,6 +482,17 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<String> createProjectInvite({
+    required SongProject project,
+    required String email,
+    RoomRole role = RoomRole.editor,
+  }) async {
+    final cleaned = email.trim().toLowerCase();
+    if (!cleaned.contains('@')) throw const NameConflict('Enter a valid email address.');
+    return 'SONG-${project.id.toUpperCase()}';
+  }
+
+  @override
   Future<void> acceptInvite({String? code, BetaInvite? invite}) async {
     final selected = invite ??
         (code?.trim().toUpperCase() == 'STUDIO-JOIN'

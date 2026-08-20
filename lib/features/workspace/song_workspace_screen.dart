@@ -15,6 +15,7 @@ import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/project_export_service.dart';
 import '../../services/song_analysis_service.dart';
+import '../../widgets/invite_collaborator_dialog.dart';
 import 'continuous_song_editor.dart';
 import 'live_performance_screen.dart';
 import 'lyric_import_flow.dart';
@@ -22,7 +23,7 @@ import 'song_analysis_screen.dart';
 
 enum _VoiceNoteAction { play, rerecord, delete }
 
-enum _SongMenuAction { analyze, record, live, color, print, share }
+enum _SongMenuAction { analyze, record, live, invite, color, print, share }
 
 class SongWorkspaceScreen extends StatefulWidget {
   const SongWorkspaceScreen({required this.projectId, super.key});
@@ -306,6 +307,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       _showColorPicker();
       return;
     }
+    if (action == _SongMenuAction.invite) {
+      await _inviteToSong(project);
+      return;
+    }
     try {
       switch (action) {
         case _SongMenuAction.print:
@@ -317,9 +322,31 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         case _SongMenuAction.analyze:
         case _SongMenuAction.record:
         case _SongMenuAction.live:
+        case _SongMenuAction.invite:
         case _SongMenuAction.color:
           break; // handled above
       }
+    } catch (error) {
+      if (mounted) _showMessage(error.toString());
+    }
+  }
+
+  /// Invites someone to just this one song rather than the whole Room —
+  /// the narrower alternative to the Room's own "Invite collaborator",
+  /// which grants every song in the Room at once.
+  Future<void> _inviteToSong(SongProject project) async {
+    final draft = await showDialog<InviteDraft>(
+      context: context,
+      builder: (_) => InviteCollaboratorDialog(
+        title: 'Invite to This Song',
+        subtitle: 'They\'ll get access to "${project.title}" only — not the rest of this Room.',
+      ),
+    );
+    if (draft == null || !mounted) return;
+    try {
+      final code = await BetaScope.of(context).createProjectInvite(project, draft.email, role: draft.role);
+      if (!mounted) return;
+      await showInviteReadyDialog(context, email: draft.email, code: code);
     } catch (error) {
       if (mounted) _showMessage(error.toString());
     }
@@ -910,6 +937,14 @@ class _PortraitProjectHeader extends StatelessWidget {
                   title: Text('Live Performance'),
                 ),
               ),
+              PopupMenuItem<_SongMenuAction>(
+                value: _SongMenuAction.invite,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.person_add_alt_1_rounded),
+                  title: Text('Invite to This Song'),
+                ),
+              ),
               PopupMenuDivider(),
               PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.color,
@@ -1067,6 +1102,14 @@ class _LandscapeWorkspace extends StatelessWidget {
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.play_circle_outline_rounded),
                       title: Text('Live Performance'),
+                    ),
+                  ),
+                  PopupMenuItem<_SongMenuAction>(
+                    value: _SongMenuAction.invite,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.person_add_alt_1_rounded),
+                      title: Text('Invite to This Song'),
                     ),
                   ),
                   PopupMenuDivider(),

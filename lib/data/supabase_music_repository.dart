@@ -104,7 +104,7 @@ class SupabaseMusicRepository implements MusicRepository {
     final rows = await client
         .from('invitations')
         .select(
-          'id, room_id, email, role, rooms(name), '
+          'id, room_id, project_id, email, role, rooms(name), projects(title), '
           'inviter:profiles!invitations_invited_by_fkey(display_name)',
         )
         .eq('status', 'pending')
@@ -114,6 +114,7 @@ class SupabaseMusicRepository implements MusicRepository {
       final row = Map<String, dynamic>.from(value as Map);
       final room = Map<String, dynamic>.from(row['rooms'] as Map);
       final inviter = Map<String, dynamic>.from(row['inviter'] as Map);
+      final projectRow = row['projects'] as Map<String, dynamic>?;
       return BetaInvite(
         id: row['id'] as String,
         roomId: row['room_id'] as String,
@@ -121,6 +122,8 @@ class SupabaseMusicRepository implements MusicRepository {
         inviterName: inviter['display_name'] as String? ?? 'A collaborator',
         email: row['email'] as String,
         role: RoomRole.values.byName(row['role'] as String? ?? RoomRole.editor.name),
+        projectId: row['project_id'] as String?,
+        projectTitle: projectRow?['title'] as String?,
       );
     }).toList(growable: false);
   }
@@ -554,10 +557,29 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<String> createProjectInvite({
+    required SongProject project,
+    required String email,
+    RoomRole role = RoomRole.editor,
+  }) async {
+    final cleaned = email.trim().toLowerCase();
+    if (!cleaned.contains('@')) throw const NameConflict('Enter a valid email address.');
+    final result = await client.rpc<String>(
+      'create_project_invitation',
+      params: <String, dynamic>{
+        'target_project': project.id,
+        'invite_email': cleaned,
+        'invite_role': role.name,
+      },
+    );
+    return result;
+  }
+
+  @override
   Future<void> acceptInvite({String? code, BetaInvite? invite}) async {
     if (invite != null) {
       await client.rpc<void>(
-        'accept_room_invitation_by_id',
+        invite.isProjectScoped ? 'accept_project_invitation_by_id' : 'accept_room_invitation_by_id',
         params: <String, dynamic>{'target_invitation': invite.id},
       );
       return;

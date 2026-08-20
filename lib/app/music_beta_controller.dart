@@ -230,6 +230,16 @@ class MusicBetaController extends ChangeNotifier {
     return repository.createInvite(room: room, email: email, role: role);
   }
 
+  /// Like [createInvite], but the resulting invite grants access to just
+  /// [project] instead of its whole Room.
+  Future<String> createProjectInvite(
+    SongProject project,
+    String email, {
+    RoomRole role = RoomRole.editor,
+  }) {
+    return repository.createProjectInvite(project: project, email: email, role: role);
+  }
+
   Future<void> acceptInvite({String? code, BetaInvite? invite}) async {
     await repository.acceptInvite(code: code, invite: invite);
     await load();
