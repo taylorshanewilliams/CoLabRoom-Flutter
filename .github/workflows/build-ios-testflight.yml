@@ -118,8 +118,11 @@ jobs:
                 # it explicitly, cert falls back to the default login
                 # keychain, which isn't unlocked/writable here, and the
                 # certificate it "successfully" generates never actually
-                # becomes a usable local signing identity.
-                keychain_path: "fastlane_tmp_keychain"
+                # becomes a usable local signing identity. Reading the
+                # already-resolved path from setup_ci's own lane context
+                # (a bare "fastlane_tmp_keychain" string gets treated as a
+                # relative filesystem path, not a keychain name, and fails).
+                keychain_path: lane_context[SharedValues::KEYCHAIN_PATH]
               )
 
               sigh(
