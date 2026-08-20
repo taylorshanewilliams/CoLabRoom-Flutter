@@ -1,0 +1,80 @@
+name: Build iOS (unsigned validation)
+
+# Manual only, for now — this validates that the app actually compiles for
+# iOS (scaffolds the ios/ project if missing, sets the bundle id and the
+# permission strings/URL scheme the app needs, then does an UNSIGNED build).
+# It does not sign or upload anywhere yet; that needs the Apple Developer
+# account to finish activating first, and four repo secrets
+# (APPLE_API_KEY_P8, APPLE_API_KEY_ID, APPLE_API_ISSUER_ID, APPLE_TEAM_ID)
+# added once it has. A second job for signing + TestFlight upload gets
+# added once those exist.
+#
+# Runs on macos-latest, which GitHub bills at a higher per-minute rate than
+# the Linux runner the Android workflow uses — that's unavoidable for iOS
+# (Xcode only runs on macOS), which is why this stays manual-trigger-only
+# rather than running on every push like the Android build does.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Mirrors the Android workflow's "scaffold if missing" pattern. If a
+      # real ios/ folder gets committed later (e.g. generated locally on a
+      # Mac), that takes precedence and this step no-ops.
+      - name: Scaffold iOS platform folder if missing
+        run: |
+          if [ ! -d ios ]; then
+            echo "No ios/ folder found — scaffolding one."
+            flutter create --platforms=ios --org com.colabroom --project-name colabroom .
+
+            PBXPROJ=ios/Runner.xcodeproj/project.pbxproj
+            # Match Android's applicationId (com.colabroom.beta) rather than
+            # the org/project-name default (com.colabroom.colabroom) — the
+            # Supabase auth redirect URL is hardcoded to this scheme in
+            # lib/app/beta_config.dart, so it must match exactly.
+            sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = com\.colabroom\.colabroom;/PRODUCT_BUNDLE_IDENTIFIER = com.colabroom.beta;/g' "$PBXPROJ"
+            grep -q 'PRODUCT_BUNDLE_IDENTIFIER = com.colabroom.beta;' "$PBXPROJ" || { echo "::error::Bundle identifier patch did not apply"; exit 1; }
+
+            PLIST=ios/Runner/Info.plist
+            # record + speech_to_text both need explicit usage descriptions
+            # on iOS or the app crashes the instant either is used — Android
+            # only needs a manifest permission, so this has no Android
+            # equivalent to mirror.
+            /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string 'CoLabRoom needs the microphone to record song ideas and voice notes.'" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Add :NSSpeechRecognitionUsageDescription string 'CoLabRoom uses speech recognition to turn your voice into lyrics.'" "$PLIST"
+            # Registers the com.colabroom.beta:// URL scheme so Supabase's
+            # auth redirect can hand control back to the app after sign-in.
+            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string com.colabroom.beta" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string com.colabroom.beta" "$PLIST"
+          else
+            echo "ios/ folder already present, using it as-is."
+          fi
+
+      - run: flutter pub get
+
+      # No signing identity/provisioning profile exists yet, so this can
+      # only validate that the code + every plugin's iOS side actually
+      # compiles — it does not produce something installable on a device.
+      - name: Build iOS (unsigned)
+        run: flutter build ios --release --no-codesign
+
+# ---------------------------------------------------------------------------
+# What this proves: if this job goes green, the Dart code and every native
+# plugin (audioplayers, record, speech_to_text, file_picker, etc.) compile
+# cleanly for iOS. What it does NOT do yet: produce an .ipa, sign it, or
+# upload it to TestFlight — that's a second job, added once the Apple
+# Developer account finishes activating and the four secrets listed above
+# exist in the repo.
+# ---------------------------------------------------------------------------
