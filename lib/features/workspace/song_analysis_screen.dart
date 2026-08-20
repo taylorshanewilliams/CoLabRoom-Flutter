@@ -395,12 +395,24 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     try {
       final durationMs = reference.durationMs ?? math.max(12000, lyrics.length * 3600);
       final words = <TranscriptWord>[];
+      // Live Performance's Song Sheet mode (musician_sheet_logic.dart's
+      // _transcriptLines) doesn't use the original contribution lines at
+      // all — it re-derives line breaks from the transcript by looking for
+      // a >=650ms pause between consecutive words. proportionalSheetRange
+      // gives each line a perfectly contiguous span (line i's end exactly
+      // equals line i+1's start), so with no gap reserved here it never
+      // finds a pause and instead re-chunks by raw word count, producing
+      // completely different — and wrong — line groupings than what was
+      // actually typed. Reserving a real gap at the end of each line's
+      // span is what makes that re-segmentation land back on the real
+      // line boundaries.
+      const lineGapMs = 700;
       for (var i = 0; i < lyrics.length; i += 1) {
         final text = displayContributionBody(lyrics[i].body).trim();
         if (text.isEmpty) continue;
         final lineWords = text.split(RegExp(r'\s+'));
         final range = proportionalSheetRange(i, lyrics.length, durationMs);
-        final span = math.max(120, range.$2 - range.$1);
+        final span = math.max(120, range.$2 - range.$1 - lineGapMs);
         final step = span / lineWords.length;
         for (var w = 0; w < lineWords.length; w += 1) {
           words.add(TranscriptWord(
