@@ -23,6 +23,14 @@ abstract interface class MusicRepository {
   /// [orderedRooms] becomes the new order).
   Future<void> reorderRooms(List<MusicRoom> orderedRooms);
 
+  /// Uploads [bytes] as [room]'s tile logo, replacing any existing one.
+  Future<MusicRoom> setRoomLogo({required MusicRoom room, required Uint8List bytes});
+
+  /// Removes [room]'s custom tile logo, reverting to its default icon.
+  Future<MusicRoom> clearRoomLogo(MusicRoom room);
+
+  Future<Uint8List> loadRoomLogo(MusicRoom room);
+
   Future<SongProject> createSong({
     required MusicRoom room,
     required String title,
@@ -38,6 +46,15 @@ abstract interface class MusicRepository {
   /// Persists a new manual song order within [room] ([orderedProjectIds]
   /// must contain the same set of project ids currently in the Room).
   Future<void> reorderRoomProjects(MusicRoom room, List<String> orderedProjectIds);
+
+  /// Uploads [bytes] as [project]'s tile cover image, replacing any existing
+  /// one.
+  Future<SongProject> setProjectCover({required SongProject project, required Uint8List bytes});
+
+  /// Removes [project]'s custom cover image, reverting to its default icon.
+  Future<SongProject> clearProjectCover(SongProject project);
+
+  Future<Uint8List> loadProjectCover(SongProject project);
 
   Future<Contribution> addContribution({
     required SongProject project,

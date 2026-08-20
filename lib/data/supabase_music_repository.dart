@@ -84,9 +84,9 @@ class SupabaseMusicRepository implements MusicRepository {
     final rows = await client
         .from('rooms')
         .select(
-          'id, account_id, name, icon, created_at, updated_at, sort_order, '
+          'id, account_id, name, icon, created_at, updated_at, sort_order, logo_path, '
           'room_members(user_id, display_name, role, color_value), '
-          'projects(id, room_id, account_id, title, description, status, created_at, updated_at, sort_order, '
+          'projects(id, room_id, account_id, title, description, status, created_at, updated_at, sort_order, cover_image_path, '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at)))',
         )
@@ -213,6 +213,32 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<MusicRoom> setRoomLogo({required MusicRoom room, required Uint8List bytes}) async {
+    final path = '${room.id}/room-logo.png';
+    await client.storage.from('room-files').uploadBinary(
+          path,
+          bytes,
+          fileOptions: const FileOptions(upsert: true, contentType: 'image/png'),
+        );
+    await client.from('rooms').update(<String, dynamic>{'logo_path': path}).eq('id', room.id);
+    return room.copyWith(logoPath: path);
+  }
+
+  @override
+  Future<MusicRoom> clearRoomLogo(MusicRoom room) async {
+    if (room.logoPath != null) {
+      await client.storage.from('room-files').remove(<String>[room.logoPath!]);
+    }
+    await client.from('rooms').update(<String, dynamic>{'logo_path': null}).eq('id', room.id);
+    return room.copyWith(logoPath: null);
+  }
+
+  @override
+  Future<Uint8List> loadRoomLogo(MusicRoom room) {
+    return client.storage.from('room-files').download(room.logoPath!);
+  }
+
+  @override
   Future<MusicRoom> renameRoom({required MusicRoom room, required String name}) async {
     final cleaned = NamePolicy.clean(name);
     NamePolicy.requireUsable(cleaned, label: 'Room name');
@@ -302,6 +328,32 @@ class SupabaseMusicRepository implements MusicRepository {
         'project_ids': orderedProjectIds,
       },
     );
+  }
+
+  @override
+  Future<SongProject> setProjectCover({required SongProject project, required Uint8List bytes}) async {
+    final path = '${project.roomId}/${project.id}-cover.png';
+    await client.storage.from('room-files').uploadBinary(
+          path,
+          bytes,
+          fileOptions: const FileOptions(upsert: true, contentType: 'image/png'),
+        );
+    await client.from('projects').update(<String, dynamic>{'cover_image_path': path}).eq('id', project.id);
+    return project.copyWith(coverImagePath: path);
+  }
+
+  @override
+  Future<SongProject> clearProjectCover(SongProject project) async {
+    if (project.coverImagePath != null) {
+      await client.storage.from('room-files').remove(<String>[project.coverImagePath!]);
+    }
+    await client.from('projects').update(<String, dynamic>{'cover_image_path': null}).eq('id', project.id);
+    return project.copyWith(coverImagePath: null);
+  }
+
+  @override
+  Future<Uint8List> loadProjectCover(SongProject project) {
+    return client.storage.from('room-files').download(project.coverImagePath!);
   }
 
   @override
@@ -647,6 +699,7 @@ class SupabaseMusicRepository implements MusicRepository {
       members: members,
       projects: projects,
       sortOrder: (row['sort_order'] as num?)?.toDouble() ?? 0,
+      logoPath: row['logo_path'] as String?,
     );
   }
 
@@ -678,6 +731,7 @@ class SupabaseMusicRepository implements MusicRepository {
       updatedAt: DateTime.parse(row['updated_at'] as String),
       contributions: contributions,
       sortOrder: (row['sort_order'] as num?)?.toDouble() ?? 0,
+      coverImagePath: row['cover_image_path'] as String?,
     );
   }
 
@@ -735,6 +789,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'created_at': project.createdAt.toIso8601String(),
         'updated_at': project.updatedAt.toIso8601String(),
         'contributions': project.contributions.map(_contributionJson).toList(growable: false),
+        'cover_image_path': project.coverImagePath,
       };
 
   Map<String, dynamic> _contributionJson(Contribution contribution) => <String, dynamic>{

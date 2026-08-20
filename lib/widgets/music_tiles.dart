@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../app/colabroom_theme.dart';
@@ -6,7 +8,7 @@ import 'app_surface.dart';
 import 'bloom_tap.dart';
 
 class RoomTile extends StatelessWidget {
-  const RoomTile({required this.room, required this.onTap, this.onMore, super.key});
+  const RoomTile({required this.room, required this.onTap, this.onMore, this.logoBytes, super.key});
 
   final MusicRoom room;
   final VoidCallback onTap;
@@ -15,6 +17,11 @@ class RoomTile extends StatelessWidget {
   /// plain chevron. Left null on read-only previews (e.g. the Home screen's
   /// "My Rooms" strip) where those actions don't apply.
   final VoidCallback? onMore;
+
+  /// Custom logo image bytes for [room], or null to show the default
+  /// [MusicRoom.icon] glyph. Left null while the image is still loading —
+  /// see [MusicBetaController.roomLogoBytes].
+  final Uint8List? logoBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -31,16 +38,19 @@ class RoomTile extends StatelessWidget {
                   width: 42,
                   height: 42,
                   alignment: Alignment.center,
+                  clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: const RadialGradient(
                       colors: <Color>[Color(0x7A2B6FFF), Color(0x382B6FFF), Color(0x082B6FFF)],
                     ),
                   ),
-                  child: Text(
-                    room.icon,
-                    style: const TextStyle(fontSize: 23, color: AppColors.cyan),
-                  ),
+                  child: logoBytes != null
+                      ? Image.memory(logoBytes!, fit: BoxFit.cover, width: 42, height: 42)
+                      : Text(
+                          room.icon,
+                          style: const TextStyle(fontSize: 23, color: AppColors.cyan),
+                        ),
                 ),
                 const Spacer(),
                 if (onMore != null)
@@ -116,6 +126,7 @@ class SongTile extends StatelessWidget {
     this.onMore,
     this.selected = false,
     this.density = SongTileDensity.spacious,
+    this.coverBytes,
     super.key,
   });
 
@@ -129,6 +140,10 @@ class SongTile extends StatelessWidget {
   final VoidCallback? onMore;
   final bool selected;
   final SongTileDensity density;
+
+  /// Custom cover image bytes for [project], or null to show the default
+  /// note-glyph icon — see [RoomTile.logoBytes].
+  final Uint8List? coverBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -147,15 +162,24 @@ class SongTile extends StatelessWidget {
                 Container(
                   width: density.iconBox,
                   height: density.iconBox,
+                  alignment: Alignment.center,
+                  clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
                     color: AppColors.raised,
                     borderRadius: BorderRadius.circular(density.iconRadius),
                   ),
-                  child: Icon(
-                    Icons.music_note_rounded,
-                    color: AppColors.cyan,
-                    size: density.iconGlyph,
-                  ),
+                  child: coverBytes != null
+                      ? Image.memory(
+                          coverBytes!,
+                          fit: BoxFit.cover,
+                          width: density.iconBox,
+                          height: density.iconBox,
+                        )
+                      : Icon(
+                          Icons.music_note_rounded,
+                          color: AppColors.cyan,
+                          size: density.iconGlyph,
+                        ),
                 ),
                 const Spacer(),
                 if (selected)

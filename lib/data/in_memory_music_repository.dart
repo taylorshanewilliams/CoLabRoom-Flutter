@@ -145,6 +145,28 @@ class InMemoryMusicRepository implements MusicRepository {
     }
   }
 
+  final Map<String, Uint8List> _imageBytesByPath = <String, Uint8List>{};
+
+  @override
+  Future<MusicRoom> setRoomLogo({required MusicRoom room, required Uint8List bytes}) async {
+    final path = 'local/${room.id}/room-logo';
+    _imageBytesByPath[path] = bytes;
+    final updated = room.copyWith(logoPath: path);
+    _replaceRoom(updated);
+    return updated;
+  }
+
+  @override
+  Future<MusicRoom> clearRoomLogo(MusicRoom room) async {
+    if (room.logoPath != null) _imageBytesByPath.remove(room.logoPath);
+    final updated = room.copyWith(logoPath: null);
+    _replaceRoom(updated);
+    return updated;
+  }
+
+  @override
+  Future<Uint8List> loadRoomLogo(MusicRoom room) async => _imageBytesByPath[room.logoPath]!;
+
   @override
   Future<MusicRoom> renameRoom({required MusicRoom room, required String name}) async {
     final cleaned = NamePolicy.clean(name);
@@ -206,6 +228,27 @@ class InMemoryMusicRepository implements MusicRepository {
       _replaceProject(current.projects[projectIndex].copyWith(sortOrder: (index + 1) * 1024.0));
     }
   }
+
+  @override
+  Future<SongProject> setProjectCover({required SongProject project, required Uint8List bytes}) async {
+    final path = 'local/${project.roomId}/${project.id}-cover';
+    _imageBytesByPath[path] = bytes;
+    final updated = project.copyWith(coverImagePath: path);
+    _replaceProject(updated);
+    return updated;
+  }
+
+  @override
+  Future<SongProject> clearProjectCover(SongProject project) async {
+    if (project.coverImagePath != null) _imageBytesByPath.remove(project.coverImagePath);
+    final updated = project.copyWith(coverImagePath: null);
+    _replaceProject(updated);
+    return updated;
+  }
+
+  @override
+  Future<Uint8List> loadProjectCover(SongProject project) async =>
+      _imageBytesByPath[project.coverImagePath]!;
 
   @override
   Future<void> deleteSong(SongProject project) async {

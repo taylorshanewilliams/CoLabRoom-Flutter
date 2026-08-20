@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
@@ -22,6 +23,12 @@ class MusicBetaController extends ChangeNotifier {
   String? _error;
   StreamSubscription<void>? _changesSubscription;
   Timer? _reloadDebounce;
+
+  // Room logos / song covers are stored privately and fetched by storage
+  // path on demand, then kept here so every tile rebuild doesn't re-hit
+  // storage — cleared for a path once its Room/Song's logo/cover changes.
+  final Map<String, Uint8List> _imageCache = <String, Uint8List>{};
+  final Set<String> _imageFetchesInFlight = <String>{};
 
   List<MusicRoom> get rooms => List<MusicRoom>.unmodifiable(_rooms);
   List<BetaInvite> get invites => List<BetaInvite>.unmodifiable(_invites);
@@ -100,6 +107,81 @@ class MusicBetaController extends ChangeNotifier {
       await repository.reorderRooms(orderedRooms);
     } finally {
       await load();
+    }
+  }
+
+  /// Bytes for [room]'s custom logo, or null if it has none or they haven't
+  /// been fetched yet (a fetch starts automatically and [notifyListeners]
+  /// fires once it lands).
+  Uint8List? roomLogoBytes(MusicRoom room) => _imageBytes(room.logoPath);
+
+  Future<void> setRoomLogo(MusicRoom room, Uint8List bytes) async {
+    final updated = await repository.setRoomLogo(room: room, bytes: bytes);
+    _imageCache[updated.logoPath!] = bytes;
+    await load();
+  }
+
+  Future<void> clearRoomLogo(MusicRoom room) async {
+    if (room.logoPath != null) _imageCache.remove(room.logoPath);
+    await repository.clearRoomLogo(room);
+    await load();
+  }
+
+  /// Bytes for [project]'s custom cover image, or null if it has none or
+  /// they haven't been fetched yet — see [roomLogoBytes].
+  Uint8List? projectCoverBytes(SongProject project) => _imageBytes(project.coverImagePath);
+
+  Future<void> setProjectCover(SongProject project, Uint8List bytes) async {
+    final updated = await repository.setProjectCover(project: project, bytes: bytes);
+    _imageCache[updated.coverImagePath!] = bytes;
+    await load();
+  }
+
+  Future<void> clearProjectCover(SongProject project) async {
+    if (project.coverImagePath != null) _imageCache.remove(project.coverImagePath);
+    await repository.clearProjectCover(project);
+    await load();
+  }
+
+  Uint8List? _imageBytes(String? path) {
+    if (path == null) return null;
+    final cached = _imageCache[path];
+    if (cached != null) return cached;
+    if (_imageFetchesInFlight.add(path)) {
+      unawaited(_fetchImage(path));
+    }
+    return null;
+  }
+
+  Future<void> _fetchImage(String path) async {
+    try {
+      MusicRoom? room;
+      for (final candidate in _rooms) {
+        if (candidate.logoPath == path) {
+          room = candidate;
+          break;
+        }
+      }
+      Uint8List bytes;
+      if (room != null) {
+        bytes = await repository.loadRoomLogo(room);
+      } else {
+        SongProject? project;
+        for (final candidate in projects) {
+          if (candidate.coverImagePath == path) {
+            project = candidate;
+            break;
+          }
+        }
+        if (project == null) return;
+        bytes = await repository.loadProjectCover(project);
+      }
+      _imageCache[path] = bytes;
+      notifyListeners();
+    } catch (_) {
+      // Leave the tile on its default icon if the fetch fails.
+    } finally {
+      _imageFetchesInFlight.remove(path);
     }
   }
 

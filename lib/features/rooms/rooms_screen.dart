@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
@@ -176,6 +178,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
                       ),
                       onReorder: (draggedId) => _reorderRooms(controller, rooms, draggedId, index),
                       onMore: () => _showRoomMenu(controller, rooms[index]),
+                      logoBytes: controller.roomLogoBytes(rooms[index]),
                     ),
                     childCount: itemCount,
                   ),
@@ -209,6 +212,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
                             ),
                           ),
                           onMore: () => _showRoomMenu(controller, room),
+                          logoBytes: controller.roomLogoBytes(room),
                         );
                       }
                       final setlist = setlists[index];
@@ -246,6 +250,20 @@ class _RoomsScreenState extends State<RoomsScreen> {
     unawaited(controller.reorderRooms(reordered));
   }
 
+  Future<void> _pickAndSetRoomLogo(MusicBetaController controller, MusicRoom room) async {
+    final file = await FilePicker.pickFile(type: FileType.image);
+    if (file == null || !mounted) return;
+    try {
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) throw Exception('ColabRoom could not read that image.');
+      await controller.setRoomLogo(room, bytes);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
   Future<void> _showRoomMenu(MusicBetaController controller, MusicRoom room) async {
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -264,6 +282,17 @@ class _RoomsScreenState extends State<RoomsScreen> {
                 onTap: () => Navigator.pop(context, 'rename'),
               ),
               ListTile(
+                leading: const Icon(Icons.image_outlined, color: AppColors.cyan),
+                title: Text(room.logoPath == null ? 'Set Room Logo' : 'Replace Room Logo'),
+                onTap: () => Navigator.pop(context, 'set_logo'),
+              ),
+              if (room.logoPath != null)
+                ListTile(
+                  leading: const Icon(Icons.hide_image_outlined, color: AppColors.muted),
+                  title: const Text('Remove Room Logo'),
+                  onTap: () => Navigator.pop(context, 'remove_logo'),
+                ),
+              ListTile(
                 leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFF9AA9)),
                 title: const Text('Delete Room'),
                 onTap: () => Navigator.pop(context, 'delete'),
@@ -274,6 +303,22 @@ class _RoomsScreenState extends State<RoomsScreen> {
       ),
     );
     if (action == null || !mounted) return;
+
+    if (action == 'set_logo') {
+      await _pickAndSetRoomLogo(controller, room);
+      return;
+    }
+
+    if (action == 'remove_logo') {
+      try {
+        await controller.clearRoomLogo(room);
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+        }
+      }
+      return;
+    }
 
     if (action == 'rename') {
       final value = await showDialog<String>(
@@ -372,6 +417,7 @@ class _DraggableRoomTile extends StatefulWidget {
     required this.onTap,
     required this.onReorder,
     required this.onMore,
+    this.logoBytes,
     super.key,
   });
 
@@ -379,6 +425,7 @@ class _DraggableRoomTile extends StatefulWidget {
   final VoidCallback onTap;
   final ValueChanged<String> onReorder;
   final VoidCallback onMore;
+  final Uint8List? logoBytes;
 
   @override
   State<_DraggableRoomTile> createState() => _DraggableRoomTileState();
@@ -427,7 +474,12 @@ class _DraggableRoomTileState extends State<_DraggableRoomTile> {
                   ? Border.all(color: AppColors.cyan, width: 2)
                   : Border.all(color: Colors.transparent, width: 2),
             ),
-            child: RoomTile(room: widget.room, onTap: widget.onTap, onMore: widget.onMore),
+            child: RoomTile(
+              room: widget.room,
+              onTap: widget.onTap,
+              onMore: widget.onMore,
+              logoBytes: widget.logoBytes,
+            ),
           ),
         );
       },

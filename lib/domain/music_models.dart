@@ -109,6 +109,7 @@ class SongProject {
     this.status = SongStatus.active,
     this.contributions = const <Contribution>[],
     this.sortOrder = 0,
+    this.coverImagePath,
   });
 
   final String id;
@@ -122,6 +123,11 @@ class SongProject {
   final List<Contribution> contributions;
   final double sortOrder;
 
+  /// Storage path (in the `room-files` bucket) of a custom cover image the
+  /// Room owner/an editor uploaded for this song's tile, or null to fall
+  /// back to the default tile icon.
+  final String? coverImagePath;
+
   SongProject copyWith({
     String? roomId,
     String? title,
@@ -130,6 +136,7 @@ class SongProject {
     DateTime? updatedAt,
     List<Contribution>? contributions,
     double? sortOrder,
+    Object? coverImagePath = _unset,
   }) {
     return SongProject(
       id: id,
@@ -142,9 +149,14 @@ class SongProject {
       updatedAt: updatedAt ?? this.updatedAt,
       contributions: contributions ?? this.contributions,
       sortOrder: sortOrder ?? this.sortOrder,
+      coverImagePath: identical(coverImagePath, _unset) ? this.coverImagePath : coverImagePath as String?,
     );
   }
 }
+
+/// Sentinel distinguishing "argument omitted" from "explicitly set to null"
+/// in `copyWith` methods that need to support clearing a nullable field.
+const Object _unset = Object();
 
 class Setlist {
   const Setlist({
@@ -190,6 +202,7 @@ class MusicRoom {
     this.members = const <RoomMember>[],
     this.projects = const <SongProject>[],
     this.sortOrder = 0,
+    this.logoPath,
   });
 
   final String id;
@@ -202,6 +215,11 @@ class MusicRoom {
   final List<SongProject> projects;
   final double sortOrder;
 
+  /// Storage path (in the `room-files` bucket) of a custom logo the Room
+  /// owner/an editor uploaded for this Room's tile, or null to fall back to
+  /// the default [icon] glyph.
+  final String? logoPath;
+
   MusicRoom copyWith({
     String? name,
     String? icon,
@@ -209,6 +227,7 @@ class MusicRoom {
     List<RoomMember>? members,
     List<SongProject>? projects,
     double? sortOrder,
+    Object? logoPath = _unset,
   }) {
     return MusicRoom(
       id: id,
@@ -220,6 +239,7 @@ class MusicRoom {
       members: members ?? this.members,
       projects: projects ?? this.projects,
       sortOrder: sortOrder ?? this.sortOrder,
+      logoPath: identical(logoPath, _unset) ? this.logoPath : logoPath as String?,
     );
   }
 }

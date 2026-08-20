@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
@@ -256,6 +258,17 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                 onTap: () => Navigator.pop(context, 'rename'),
               ),
               ListTile(
+                leading: const Icon(Icons.image_outlined),
+                title: Text(project.coverImagePath == null ? 'Set Song Cover' : 'Replace Song Cover'),
+                onTap: () => Navigator.pop(context, 'set_cover'),
+              ),
+              if (project.coverImagePath != null)
+                ListTile(
+                  leading: const Icon(Icons.hide_image_outlined, color: AppColors.muted),
+                  title: const Text('Remove Song Cover'),
+                  onTap: () => Navigator.pop(context, 'remove_cover'),
+                ),
+              ListTile(
                 leading: const Icon(Icons.check_box_outlined),
                 title: const Text('Select Multiple'),
                 onTap: () => Navigator.pop(context, 'select'),
@@ -274,10 +287,30 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     switch (action) {
       case 'rename':
         await _renameSong(project);
+      case 'set_cover':
+        await _pickAndSetSongCover(project);
+      case 'remove_cover':
+        try {
+          await BetaScope.of(context).clearProjectCover(project);
+        } catch (error) {
+          if (mounted) _showMessage(error.toString());
+        }
       case 'select':
         setState(() => _selectedProjectIds.add(project.id));
       case 'delete':
         await _deleteSingleSong(room, project);
+    }
+  }
+
+  Future<void> _pickAndSetSongCover(SongProject project) async {
+    final file = await FilePicker.pickFile(type: FileType.image);
+    if (file == null || !mounted) return;
+    try {
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) throw Exception('ColabRoom could not read that image.');
+      await BetaScope.of(context).setProjectCover(project, bytes);
+    } catch (error) {
+      if (mounted) _showMessage(error.toString());
     }
   }
 
@@ -589,6 +622,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                             onMore: () => _showSongMenu(room, project),
                             onReorder: (draggedId) =>
                                 _reorderProjects(room, sortedProjects, draggedId, index),
+                            coverBytes: controller.projectCoverBytes(project),
                           );
                         }
                         return SongTile(
@@ -597,6 +631,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                           selected: _selectedProjectIds.contains(project.id),
                           onMore: _selectedProjectIds.isEmpty ? () => _showSongMenu(room, project) : null,
                           onTap: onTap,
+                          coverBytes: controller.projectCoverBytes(project),
                         );
                       },
                       childCount: sortedProjects.length,
@@ -635,6 +670,7 @@ class _DraggableSongTile extends StatefulWidget {
     required this.onTap,
     required this.onMore,
     required this.onReorder,
+    this.coverBytes,
     super.key,
   });
 
@@ -644,6 +680,7 @@ class _DraggableSongTile extends StatefulWidget {
   final VoidCallback onTap;
   final VoidCallback onMore;
   final ValueChanged<String> onReorder;
+  final Uint8List? coverBytes;
 
   @override
   State<_DraggableSongTile> createState() => _DraggableSongTileState();
@@ -697,6 +734,7 @@ class _DraggableSongTileState extends State<_DraggableSongTile> {
               density: widget.density,
               onTap: widget.onTap,
               onMore: widget.onMore,
+              coverBytes: widget.coverBytes,
             ),
           ),
         );
