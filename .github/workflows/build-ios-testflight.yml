@@ -23,6 +23,7 @@ jobs:
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       MATCH_GIT_REPOSITORY: ${{ github.repository }}
+      GITHUB_RUN_NUMBER: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
 
@@ -152,6 +153,15 @@ jobs:
                 git_url: "https://x-access-token:#{ENV['MATCH_GIT_TOKEN']}@github.com/#{ENV['MATCH_GIT_REPOSITORY']}.git",
                 git_branch: "ios-signing-certs",
                 readonly: false
+              )
+
+              # Apple rejects re-uploading a build number it's already seen,
+              # and nothing else in this pipeline changes it between runs —
+              # the GitHub Actions run number always increases, so tying the
+              # build number to it guarantees every upload is new.
+              increment_build_number(
+                build_number: ENV["GITHUB_RUN_NUMBER"],
+                xcodeproj: "Runner.xcodeproj"
               )
 
               update_code_signing_settings(
