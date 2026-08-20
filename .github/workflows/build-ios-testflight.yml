@@ -61,8 +61,13 @@ jobs:
 
       - run: flutter pub get
 
-      - name: Install CocoaPods dependencies
-        run: cd ios && pod install
+      # flutter create doesn't ship a static ios/Podfile — Flutter generates
+      # it lazily during an actual build step (and runs `pod install` as
+      # part of that), not from `flutter pub get` alone. This unsigned
+      # build is the same one the earlier validation run already proved
+      # works; fastlane's build_app below does the real signed archive.
+      - name: Generate Podfile and prime the iOS build
+        run: flutter build ios --release --no-codesign
 
       # Written fresh every run rather than committed — keeps the signing
       # pipeline entirely inside this workflow file, matching how the
