@@ -76,7 +76,13 @@ jobs:
       - name: Write App Store Connect API key file
         run: |
           mkdir -p ios/private_keys
-          printf '%s' "$APPLE_API_KEY_P8" > "ios/private_keys/AuthKey_${APPLE_API_KEY_ID}.p8"
+          KEY_PATH="$GITHUB_WORKSPACE/ios/private_keys/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s' "$APPLE_API_KEY_P8" > "$KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          # Proves the file actually exists with real content before the
+          # build even starts, instead of finding out from a signing
+          # failure three steps later.
+          ls -la "$KEY_PATH"
 
       # Written fresh every run rather than committed — keeps the signing
       # pipeline entirely inside this workflow file, matching how the
@@ -101,7 +107,7 @@ jobs:
               )
 
               auth_args = "-allowProvisioningUpdates " \
-                "-authenticationKeyPath #{Dir.pwd}/private_keys/AuthKey_#{ENV['APPLE_API_KEY_ID']}.p8 " \
+                "-authenticationKeyPath #{ENV['APPLE_API_KEY_PATH']} " \
                 "-authenticationKeyID #{ENV['APPLE_API_KEY_ID']} " \
                 "-authenticationKeyIssuerID #{ENV['APPLE_API_ISSUER_ID']}"
 
