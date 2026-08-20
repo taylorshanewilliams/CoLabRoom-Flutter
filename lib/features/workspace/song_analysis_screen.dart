@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -9,8 +10,10 @@ import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
+import 'continuous_song_editor.dart';
 import 'live_performance_screen.dart';
 import 'lyric_review_screen.dart';
+import 'musician_sheet_logic.dart';
 import 'reference_recorder_sheet.dart';
 import 'song_sheet_panel.dart';
 
@@ -356,6 +359,70 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     }
   }
 
+  /// The mirror of _replaceProjectLyrics: when analysis mis-heard the
+  /// recording but the manual workspace already has the right words, this
+  /// pushes those words into the transcript instead, so the Song Sheet and
+  /// Live Performance end up correct regardless of which side was right.
+  /// Lines get proportional timing across the recording (same fallback
+  /// _transcriptLines uses for a transcript with no per-word timestamps) —
+  /// approximate, but enough to keep Live Performance's scroll roughly in
+  /// the right place.
+  Future<void> _replaceAnalyzedLyrics() async {
+    final reference = _bundle?.reference;
+    if (_working || reference == null) return;
+    final lyrics = visibleMusicianLyrics(widget.project);
+    if (lyrics.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Replace Song Sheet lyrics?'),
+        content: const Text(
+          'This replaces the analyzed transcript with the project\'s manual lyrics, spread evenly across '
+          'the recording. The Song Sheet and Live Performance will use these instead. This can\'t be undone.',
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.gold, foregroundColor: AppColors.ink),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Replace'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _working = true);
+    try {
+      final durationMs = reference.durationMs ?? math.max(12000, lyrics.length * 3600);
+      final words = <TranscriptWord>[];
+      for (var i = 0; i < lyrics.length; i += 1) {
+        final text = displayContributionBody(lyrics[i].body).trim();
+        if (text.isEmpty) continue;
+        final lineWords = text.split(RegExp(r'\s+'));
+        final range = proportionalSheetRange(i, lyrics.length, durationMs);
+        final span = math.max(120, range.$2 - range.$1);
+        final step = span / lineWords.length;
+        for (var w = 0; w < lineWords.length; w += 1) {
+          words.add(TranscriptWord(
+            word: lineWords[w],
+            startMs: (range.$1 + step * w).round(),
+            endMs: (range.$1 + step * (w + 1)).round(),
+          ));
+        }
+      }
+      final updated = await _service.updateTranscript(projectId: widget.project.id, words: words);
+      if (!mounted) return;
+      setState(() => _bundle = updated);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Song Sheet updated with the manual lyrics.')),
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final bundle = _bundle;
@@ -547,6 +614,19 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                           style: TextButton.styleFrom(foregroundColor: AppColors.gold),
                           icon: const Icon(Icons.sync_alt_rounded, size: 17),
                           label: const Text('Replace project lyrics with this'),
+                        ),
+                      ),
+                    ],
+                    if (visibleMusicianLyrics(widget.project).isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 4),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          key: const Key('replace_analyzed_lyrics'),
+                          onPressed: _working ? null : _replaceAnalyzedLyrics,
+                          style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+                          icon: const Icon(Icons.sync_alt_rounded, size: 17),
+                          label: const Text('Replace Song Sheet lyrics with these'),
                         ),
                       ),
                     ],
