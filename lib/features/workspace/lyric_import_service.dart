@@ -30,6 +30,10 @@ class LyricImportException implements Exception {
 abstract final class LyricImportService {
   static const maxFileBytes = 12 * 1024 * 1024;
   static const maxLines = 500;
+  // Guards against a single pathologically long cell/paragraph (e.g. a
+  // misread spreadsheet row with no column boundaries) blowing up the
+  // review screen's text field with one enormous unbroken line.
+  static const maxLineLength = 400;
 
   static LyricImportDraft fromFile({
     required String name,
@@ -70,6 +74,7 @@ abstract final class LyricImportService {
           .trim();
       line = line.replaceFirst(RegExp(r'^(?:[•●▪◦‣⁃*\-]+|\d+[.)])\s+'), '');
       line = line.replaceAll(RegExp(r'[\t ]+'), ' ').trim();
+      if (line.length > maxLineLength) line = '${line.substring(0, maxLineLength)}…';
       if (line.isEmpty || RegExp(r'^\d+$').hasMatch(line)) continue;
       final lowered = line.toLowerCase();
       if (<String>{
@@ -176,10 +181,16 @@ abstract final class LyricImportService {
         shouldParseNumbers: false,
         eol: '\n',
       ).convert(normalized);
+      // One spreadsheet row becomes one line, joining that row's non-empty
+      // cells — not one line per *cell* flattened across every row/column,
+      // which scrambles anything with more than a single lyric column
+      // (e.g. a "section" or "notes" column next to the lyrics).
       return rows
-          .expand((row) => row)
-          .map((value) => value?.toString() ?? '')
-          .where((value) => value.trim().isNotEmpty)
+          .map((row) => row
+              .map((value) => value?.toString().trim() ?? '')
+              .where((value) => value.isNotEmpty)
+              .join(' '))
+          .where((line) => line.isNotEmpty)
           .toList(growable: false);
     } catch (error) {
       throw LyricImportException('Could not read that CSV: $error');

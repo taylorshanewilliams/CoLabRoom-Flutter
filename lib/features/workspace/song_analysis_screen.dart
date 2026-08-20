@@ -301,8 +301,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
       ),
     );
     if (saved == true && mounted) {
+      await _refresh();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Project lyrics updated.')),
+        const SnackBar(content: Text('Transcript updated — the Song Sheet and Live Performance now use these corrections.')),
       );
     }
   }

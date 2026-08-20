@@ -272,15 +272,11 @@ class SongAnalysisService {
     return client.storage.from('room-files').download(reference.storagePath);
   }
 
-  /// Groups a saved transcript's words back into line-sized chunks by pause
-  /// gaps, for the explicit "Replace project lyrics with this" action —
-  /// mirrors the grouping heuristic used when generating the song sheet in
-  /// the first place. Pure/no DB access; the caller is responsible for
-  /// actually writing these as Contributions (via MusicBetaController, so
-  /// existing lines get cleaned up correctly, voice notes included).
-  List<String> transcriptLyricLines(ReferenceTrack reference) {
-    final words = reference.transcriptWords;
-    if (words.isEmpty) return const <String>[];
+  /// Groups a transcript's words back into line-sized chunks by pause gaps —
+  /// shared by the explicit "Replace project lyrics with this" action and
+  /// the lyric review screen. Pure/no DB access.
+  List<List<TranscriptWord>> groupTranscriptWords(List<TranscriptWord> words) {
+    if (words.isEmpty) return const <List<TranscriptWord>>[];
     const pauseGapMs = 650;
     const maxWordsPerLine = 12;
     const maxLineDurationMs = 9000;
@@ -298,10 +294,33 @@ class SongAnalysisService {
       current.add(word);
     }
     if (current.isNotEmpty) lines.add(current);
-    return lines
+    return lines;
+  }
+
+  /// Text form of [groupTranscriptWords], for the explicit "Replace project
+  /// lyrics with this" action — the caller is responsible for actually
+  /// writing these as Contributions (via MusicBetaController, so existing
+  /// lines get cleaned up correctly, voice notes included).
+  List<String> transcriptLyricLines(ReferenceTrack reference) {
+    return groupTranscriptWords(reference.transcriptWords)
         .map((line) => line.map((word) => word.word).join(' ').trim())
         .where((body) => body.isNotEmpty)
         .toList(growable: false);
+  }
+
+  /// Overwrites the saved transcript itself (not the manual workspace) —
+  /// used by the lyric review screen so corrections show up on the Song
+  /// Sheet and in Live Performance's "Song Sheet" source, both of which
+  /// read from this transcript rather than from project.contributions.
+  Future<SongAnalysisBundle> updateTranscript({
+    required String projectId,
+    required List<TranscriptWord> words,
+  }) async {
+    await client.from('project_audio_references').update(<String, dynamic>{
+      'transcript_words': words.map((word) => word.toJson()).toList(growable: false),
+      'transcript_text': words.map((word) => word.word).join(' '),
+    }).eq('project_id', projectId);
+    return load(projectId);
   }
 
   /// Calls the `transcribe-audio` Supabase Edge Function, which forwards
