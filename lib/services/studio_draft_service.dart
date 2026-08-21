@@ -117,6 +117,13 @@ class StudioDraftService {
     }
   }
 
+  Future<void> renameDraft(StudioDraft draft, String displayName) async {
+    await client
+        .from('studio_drafts')
+        .update(<String, dynamic>{'display_name': displayName})
+        .eq('id', draft.id);
+  }
+
   Future<String> ensureLocalDraftFile(StudioDraft draft) async {
     if (kIsWeb) throw UnsupportedError('Draft download is not available on web yet.');
     final directory = await getTemporaryDirectory();

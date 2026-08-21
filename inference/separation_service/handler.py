@@ -48,32 +48,48 @@ import runpod
 SILENCE_RMS_THRESHOLD = 0.008
 
 
-def _stem_presence(path: str) -> dict | None:
-    """Energy-presence, not real instrument recognition — confidence is a
-    normalized RMS ratio, not a classifier score. Returns None (rather than
-    a false "not present") if the stem can't be read at all.
+def _load_audio(path: str) -> tuple[np.ndarray | None, int | None]:
+    """Single decode+resample per file — bpm/instrument-presence/structure
+    used to each independently reload drums.wav and/or the original mix,
+    which meant the same audio got decoded and resampled to 22050Hz two or
+    three times over on every job. Loading each file exactly once here and
+    passing the waveform around cuts that redundant work out entirely.
     """
     try:
-        y, _ = librosa.load(path, sr=22050, mono=True)
-        if y.size == 0:
-            return {"present": False, "confidence": 0.0}
-        rms = float(np.sqrt(np.mean(np.square(y))))
-        confidence = max(0.0, min(1.0, rms / (SILENCE_RMS_THRESHOLD * 5)))
-        return {"present": rms > SILENCE_RMS_THRESHOLD, "confidence": round(confidence, 3)}
+        y, sr = librosa.load(path, sr=22050, mono=True)
+        return y, sr
     except Exception:
+        return None, None
+
+
+def _stem_presence(y: np.ndarray | None) -> dict | None:
+    """Energy-presence, not real instrument recognition — confidence is a
+    normalized RMS ratio, not a classifier score. Returns None (rather than
+    a false "not present") if the stem couldn't be loaded at all.
+    """
+    if y is None:
         return None
+    if y.size == 0:
+        return {"present": False, "confidence": 0.0}
+    rms = float(np.sqrt(np.mean(np.square(y))))
+    confidence = max(0.0, min(1.0, rms / (SILENCE_RMS_THRESHOLD * 5)))
+    return {"present": rms > SILENCE_RMS_THRESHOLD, "confidence": round(confidence, 3)}
 
 
-def _detect_bpm(drums_path: str, fallback_path: str) -> float | None:
+def _detect_bpm(
+    y_drums: np.ndarray | None,
+    sr_drums: int | None,
+    y_fallback: np.ndarray | None,
+    sr_fallback: int | None,
+) -> float | None:
     """Beat-tracks the isolated drum stem first (the natural source for
     tempo) — falls back to the full original mix when drums are silent or
     absent (a cappella, programmed/no-drums demos), rather than guessing.
     """
-    for path in (drums_path, fallback_path):
+    for y, sr in ((y_drums, sr_drums), (y_fallback, sr_fallback)):
+        if y is None or y.size == 0:
+            continue
         try:
-            y, sr = librosa.load(path, sr=22050, mono=True)
-            if y.size == 0:
-                continue
             rms = float(np.sqrt(np.mean(np.square(y))))
             if rms < SILENCE_RMS_THRESHOLD:
                 continue
@@ -86,15 +102,16 @@ def _detect_bpm(drums_path: str, fallback_path: str) -> float | None:
     return None
 
 
-def _detect_structure(path: str, target_sections: int = 8) -> list[dict]:
+def _detect_structure(y: np.ndarray | None, sr: int | None, target_sections: int = 8) -> list[dict]:
     """Chroma self-similarity boundary detection — labels are purely
     positional ("Section A" is whichever comes first in the timeline, not
     "the chorus"), with a separate repeat hint pointing back to an earlier
     section whose chroma closely matches. Never asserts Verse/Chorus/Bridge;
     see StructureSection's doc comment on the Dart side for why.
     """
+    if y is None:
+        return []
     try:
-        y, sr = librosa.load(path, sr=22050, mono=True)
         duration_s = float(librosa.get_duration(y=y, sr=sr))
         if duration_s < 20:
             return []  # too short for a meaningful multi-section split
@@ -179,17 +196,23 @@ def handler(job):
         if not os.path.exists(bass_path) or not os.path.exists(other_path):
             return {"error": f"Expected stems not found under {base}"}
 
-        bpm = _detect_bpm(drums_path, in_path)
+        y_vocals, _ = _load_audio(vocals_path)
+        y_drums, sr_drums = _load_audio(drums_path)
+        y_bass, _ = _load_audio(bass_path)
+        y_other, _ = _load_audio(other_path)
+        y_mix, sr_mix = _load_audio(in_path)
+
+        bpm = _detect_bpm(y_drums, sr_drums, y_mix, sr_mix)
         instruments = {
-            "vocals": _stem_presence(vocals_path),
-            "drums": _stem_presence(drums_path),
-            "bass": _stem_presence(bass_path),
+            "vocals": _stem_presence(y_vocals),
+            "drums": _stem_presence(y_drums),
+            "bass": _stem_presence(y_bass),
             # "other" covers guitar/keys/synth indiscriminately at this
             # stage — labeled "guitar" on the wire for the app's existing
             # "Guitar/Keys" chip, not a claim it's specifically a guitar.
-            "guitar": _stem_presence(other_path),
+            "guitar": _stem_presence(y_other),
         }
-        structure = _detect_structure(in_path)
+        structure = _detect_structure(y_mix, sr_mix)
 
         # ffmpeg's amix mixes the two stems and re-encodes to MP3 in one
         # pass, instead of a separate numpy/soundfile mixing step plus a

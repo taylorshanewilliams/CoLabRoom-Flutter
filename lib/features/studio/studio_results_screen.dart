@@ -135,18 +135,7 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
               style: const TextStyle(color: AppColors.text, fontSize: 24, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 18),
-            if (_working) ...<Widget>[
-              LinearProgressIndicator(
-                value: _progress?.fraction,
-                backgroundColor: AppColors.raised,
-                color: AppColors.gold,
-              ),
-              const SizedBox(height: 7),
-              Text(
-                _progress?.label ?? 'Working…',
-                style: const TextStyle(color: AppColors.muted, fontSize: 10.5),
-              ),
-            ],
+            if (_working) _AnalyzingRing(progress: _progress),
             if (_error != null) ...<Widget>[
               const SizedBox(height: 16),
               Container(
@@ -292,6 +281,100 @@ class _Metric extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A progress ring + step checklist rather than a flat linear bar — matches
+/// the premium-tier "studio" feel used elsewhere (Analyze/Song Sheet/Live),
+/// and gives the wait something to look at beyond a percentage.
+class _AnalyzingRing extends StatelessWidget {
+  const _AnalyzingRing({required this.progress});
+
+  final SongAnalysisProgress? progress;
+
+  static const _steps = <(String, double)>[
+    ('Preparing audio', 0.05),
+    ('Listening & transcribing', 0.2),
+    ('Analyzing chords & structure', 0.55),
+    ('Saving your song map', 0.9),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final fraction = progress?.fraction ?? 0.0;
+    return Column(
+      children: <Widget>[
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 400),
+          width: 108,
+          height: 108,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            // Bloom grows with progress — a bare sliver of glow at the
+            // start, a proper gold halo by the time it's nearly done.
+            boxShadow: <BoxShadow>[
+              BoxShadow(
+                color: AppColors.gold.withValues(alpha: 0.18 + fraction * 0.32),
+                blurRadius: 22 + fraction * 26,
+                spreadRadius: 1 + fraction * 3,
+              ),
+            ],
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: <Widget>[
+              SizedBox(
+                width: 108,
+                height: 108,
+                child: CircularProgressIndicator(
+                  value: fraction,
+                  strokeWidth: 6,
+                  backgroundColor: AppColors.raised,
+                  color: AppColors.gold,
+                ),
+              ),
+              Text(
+                '${(fraction * 100).round()}%',
+                style: const TextStyle(color: AppColors.text, fontSize: 20, fontWeight: FontWeight.w800),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          progress?.label ?? 'Working…',
+          style: const TextStyle(color: AppColors.gold, fontSize: 13, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 18),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            for (final step in _steps)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: <Widget>[
+                    Icon(
+                      fraction >= step.$2 ? Icons.check_circle_rounded : Icons.circle_outlined,
+                      size: 16,
+                      color: fraction >= step.$2 ? AppColors.gold : AppColors.muted,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      step.$1,
+                      style: TextStyle(
+                        color: fraction >= step.$2 ? AppColors.text : AppColors.muted,
+                        fontSize: 12.5,
+                        fontWeight: fraction >= step.$2 ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

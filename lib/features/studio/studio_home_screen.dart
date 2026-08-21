@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
+import '../../domain/name_policy.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../domain/studio_draft_models.dart';
 import '../../services/studio_draft_service.dart';
@@ -11,6 +12,8 @@ import '../workspace/reference_recorder_sheet.dart';
 import 'studio_results_screen.dart';
 
 enum _UploadSource { record, file }
+
+enum _StudioView { active, promoted }
 
 /// The Studio tab — upload a raw demo with no project yet and get key/BPM/
 /// structure/chords/lyrics back, then turn it into a real song project.
@@ -29,6 +32,8 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
   List<StudioDraft>? _drafts;
   bool _working = false;
   String? _error;
+  String _query = '';
+  _StudioView _view = _StudioView.active;
 
   @override
   void initState() {
@@ -161,9 +166,121 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
     unawaited(_refresh());
   }
 
+  Future<void> _renameDraft(StudioDraft draft) async {
+    final controller = TextEditingController(text: draft.displayName);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Rename recording'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(labelText: 'Name'),
+          onSubmitted: (value) => Navigator.pop(dialogContext, value),
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || !mounted) return;
+    String cleaned;
+    try {
+      NamePolicy.requireUsable(name, label: 'Recording name');
+      cleaned = NamePolicy.clean(name);
+    } catch (error) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      return;
+    }
+    final previous = _drafts;
+    setState(() {
+      _drafts = _drafts
+          ?.map((d) => d.id == draft.id ? _withDisplayName(d, cleaned) : d)
+          .toList(growable: false);
+    });
+    try {
+      await _service.renameDraft(draft, cleaned);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _drafts = previous);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  StudioDraft _withDisplayName(StudioDraft draft, String displayName) {
+    return StudioDraft(
+      id: draft.id,
+      accountId: draft.accountId,
+      displayName: displayName,
+      storagePath: draft.storagePath,
+      state: draft.state,
+      createdAt: draft.createdAt,
+      mimeType: draft.mimeType,
+      byteSize: draft.byteSize,
+      durationMs: draft.durationMs,
+      bpm: draft.bpm,
+      musicalKey: draft.musicalKey,
+      analyzerVersion: draft.analyzerVersion,
+      chordConfidence: draft.chordConfidence,
+      transcriptText: draft.transcriptText,
+      transcriptWords: draft.transcriptWords,
+      structureSections: draft.structureSections,
+      instruments: draft.instruments,
+      analysisWarning: draft.analysisWarning,
+      lastError: draft.lastError,
+      promotedProjectId: draft.promotedProjectId,
+    );
+  }
+
+  Future<void> _deleteDraft(StudioDraft draft) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete this recording?'),
+        content: Text(
+          'This removes "${draft.displayName}" and its analysis. This can\'t be undone.',
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF718B)),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final previous = _drafts;
+    // Remove optimistically — deleteDraft's own storage cleanup is
+    // non-fatal-if-it-fails (see StudioDraftService), so the row being gone
+    // from the list shouldn't wait on that.
+    setState(() => _drafts = _drafts?.where((d) => d.id != draft.id).toList(growable: false));
+    try {
+      await _service.deleteDraft(draft);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _drafts = previous);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final drafts = _drafts;
+    final allDrafts = _drafts;
+    final showingActive = _view == _StudioView.active;
+    final query = NamePolicy.normalized(_query);
+    final visibleDrafts = allDrafts
+        ?.where((draft) => draft.isPromoted != showingActive)
+        .where((draft) => query.isEmpty || NamePolicy.normalized(draft.displayName).contains(query))
+        .toList(growable: false);
+
     return CustomScrollView(
       slivers: <Widget>[
         SliverPadding(
@@ -198,6 +315,39 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
             ),
           ),
         ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 4),
+          sliver: SliverToBoxAdapter(
+            child: SegmentedButton<_StudioView>(
+              segments: const <ButtonSegment<_StudioView>>[
+                ButtonSegment<_StudioView>(
+                  value: _StudioView.active,
+                  icon: Icon(Icons.mic_rounded),
+                  label: Text('Recordings'),
+                ),
+                ButtonSegment<_StudioView>(
+                  value: _StudioView.promoted,
+                  icon: Icon(Icons.check_circle_rounded),
+                  label: Text('Promoted'),
+                ),
+              ],
+              selected: <_StudioView>{_view},
+              onSelectionChanged: (selection) => setState(() => _view = selection.first),
+            ),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(18, 8, 18, 4),
+          sliver: SliverToBoxAdapter(
+            child: TextField(
+              onChanged: (value) => setState(() => _query = value),
+              decoration: const InputDecoration(
+                hintText: 'Search recordings',
+                prefixIcon: Icon(Icons.search_rounded),
+              ),
+            ),
+          ),
+        ),
         if (_error != null)
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
@@ -205,21 +355,21 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
               child: Text(_error!, style: const TextStyle(color: Color(0xFFFFA0B0), fontSize: 12)),
             ),
           ),
-        if (drafts == null)
+        if (visibleDrafts == null)
           const SliverFillRemaining(
             hasScrollBody: false,
             child: Center(child: CircularProgressIndicator()),
           )
-        else if (drafts.isEmpty)
-          const SliverFillRemaining(
+        else if (visibleDrafts.isEmpty)
+          SliverFillRemaining(
             hasScrollBody: false,
             child: Center(
               child: Padding(
-                padding: EdgeInsets.all(28),
+                padding: const EdgeInsets.all(28),
                 child: Text(
-                  'No recordings yet. Tap "New Recording" to detect your first song\'s key, chords, and structure.',
+                  _emptyStateMessage(showingActive: showingActive, hasQuery: query.isNotEmpty),
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: AppColors.muted, fontSize: 13),
+                  style: const TextStyle(color: AppColors.muted, fontSize: 13),
                 ),
               ),
             ),
@@ -228,24 +378,41 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(18, 6, 18, 24),
             sliver: SliverList.separated(
-              itemCount: drafts.length,
+              itemCount: visibleDrafts.length,
               separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (context, index) => _DraftTile(
-                draft: drafts[index],
-                onTap: () => _openDraft(drafts[index]),
+                draft: visibleDrafts[index],
+                onTap: () => _openDraft(visibleDrafts[index]),
+                onRename: () => _renameDraft(visibleDrafts[index]),
+                onDelete: () => _deleteDraft(visibleDrafts[index]),
               ),
             ),
           ),
       ],
     );
   }
+
+  String _emptyStateMessage({required bool showingActive, required bool hasQuery}) {
+    if (hasQuery) return 'No recordings match “$_query”.';
+    if (showingActive) {
+      return 'No recordings yet. Tap "New Recording" to detect your first song\'s key, chords, and structure.';
+    }
+    return 'Nothing promoted yet — recordings show up here once you tap "Create Song Project" on them.';
+  }
 }
 
 class _DraftTile extends StatelessWidget {
-  const _DraftTile({required this.draft, required this.onTap});
+  const _DraftTile({
+    required this.draft,
+    required this.onTap,
+    required this.onRename,
+    required this.onDelete,
+  });
 
   final StudioDraft draft;
   final VoidCallback onTap;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -253,7 +420,7 @@ class _DraftTile extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.fromLTRB(14, 14, 6, 14),
         decoration: BoxDecoration(
           color: AppColors.raised,
           borderRadius: BorderRadius.circular(16),
@@ -284,6 +451,30 @@ class _DraftTile extends StatelessWidget {
               ),
             ),
             _StateChip(state: draft.state, promoted: draft.isPromoted),
+            PopupMenuButton<VoidCallback>(
+              key: const Key('studio_draft_menu'),
+              tooltip: 'Recording options',
+              icon: const Icon(Icons.more_vert_rounded, size: 19, color: AppColors.muted),
+              onSelected: (action) => action(),
+              itemBuilder: (_) => <PopupMenuEntry<VoidCallback>>[
+                PopupMenuItem<VoidCallback>(
+                  value: onRename,
+                  child: const ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.edit_rounded),
+                    title: Text('Rename'),
+                  ),
+                ),
+                PopupMenuItem<VoidCallback>(
+                  value: onDelete,
+                  child: const ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.delete_outline_rounded, color: Color(0xFFFF718B)),
+                    title: Text('Delete'),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
