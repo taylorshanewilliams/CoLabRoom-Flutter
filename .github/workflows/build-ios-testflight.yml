@@ -50,32 +50,50 @@ jobs:
             grep -q 'PRODUCT_BUNDLE_IDENTIFIER = com.colabroom.beta;' "$PBXPROJ" || { echo "::error::Bundle identifier patch did not apply"; exit 1; }
 
             PLIST=ios/Runner/Info.plist
+            # PlistBuddy's `Add` fails outright if the key already exists,
+            # `Set` fails if it doesn't — which of those is true keeps
+            # shifting as Flutter's own `flutter create` template evolves
+            # (this broke a real run: a newer template started shipping
+            # CFBundleDisplayName by default, where it previously didn't).
+            # Try Set first and only Add as a fallback so this keeps working
+            # regardless of what a given Flutter version's template
+            # happens to pre-populate.
+            plist_set() {
+              /usr/libexec/PlistBuddy -c "Set $1 $2" "$PLIST" 2>/dev/null \
+                || /usr/libexec/PlistBuddy -c "Add $1 $3 $2" "$PLIST"
+            }
+
             # flutter create derives CFBundleName/CFBundleDisplayName from
             # --project-name (lowercase "colabroom"), which is what shows
             # under the icon on the home screen — override both to the
             # properly-cased brand name (matches the Android manifest fix).
-            /usr/libexec/PlistBuddy -c "Set :CFBundleName CoLabRoom" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string CoLabRoom" "$PLIST"
+            plist_set :CFBundleName CoLabRoom string
+            plist_set :CFBundleDisplayName CoLabRoom string
             # record + speech_to_text both need explicit usage descriptions
             # on iOS or the app crashes the instant either is used — Android
             # only needs a manifest permission, so this has no Android
             # equivalent to mirror.
-            /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string 'CoLabRoom needs the microphone to record song ideas and voice notes.'" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :NSSpeechRecognitionUsageDescription string 'CoLabRoom uses speech recognition to turn your voice into lyrics.'" "$PLIST"
+            plist_set :NSMicrophoneUsageDescription "'CoLabRoom needs the microphone to record song ideas and voice notes.'" string
+            plist_set :NSSpeechRecognitionUsageDescription "'CoLabRoom uses speech recognition to turn your voice into lyrics.'" string
             # Registers the com.colabroom.beta:// URL scheme so Supabase's
             # auth redirect can hand control back to the app after sign-in.
-            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string com.colabroom.beta" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string com.colabroom.beta" "$PLIST"
+            # These are structural (array/dict), not scalar values Set can
+            # touch, so Add-with-fallback isn't applicable — check for
+            # existence directly instead.
+            /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes" "$PLIST" >/dev/null 2>&1 || {
+              /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$PLIST"
+              /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$PLIST"
+              /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string com.colabroom.beta" "$PLIST"
+              /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST"
+              /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string com.colabroom.beta" "$PLIST"
+            }
 
             # CoLabRoom only ever talks to Supabase over plain HTTPS/TLS —
             # no custom encryption — so it qualifies for Apple's standard
             # exemption. Declaring that up front here means every future
             # TestFlight build skips the "Missing Compliance" prompt
             # App Store Connect otherwise shows for every single upload.
-            /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
+            plist_set :ITSAppUsesNonExemptEncryption false bool
 
             # flutter create only ships Flutter's generic placeholder app
             # icon — the real one (assets/icon/launcher_icon.svg, the same
