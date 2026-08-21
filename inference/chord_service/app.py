@@ -11,15 +11,29 @@ Phase 0), so wrapping it is less to keep in sync than reimplementing it.
 """
 
 import os
+import secrets
 import subprocess
 import tempfile
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
 CHORDMINI_DIR = "/app/ChordMini"
+
+# --allow-unauthenticated is what makes Cloud Run give this a public URL at
+# all (Cloud Run's own IAM-based auth is overkill for a single internal
+# caller) — this header check is what keeps that public URL from being a
+# free compute sink for anyone who finds it. Deploy sets API_KEY from the
+# CHORD_SERVICE_API_KEY GitHub secret; the Edge Function that calls this
+# in Phase 2 needs the same value.
+API_KEY = os.environ.get("API_KEY")
+
+
+def require_api_key(x_api_key: str = Header(default="")):
+    if not API_KEY or not secrets.compare_digest(x_api_key, API_KEY):
+        raise HTTPException(status_code=401, detail="Missing or invalid X-API-Key")
 
 
 @app.get("/health")
@@ -27,7 +41,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/analyze")
+@app.post("/analyze", dependencies=[Depends(require_api_key)])
 async def analyze(file: UploadFile = File(...)):
     with tempfile.TemporaryDirectory() as tmp:
         audio_path = os.path.join(tmp, file.filename or "input.mp3")
