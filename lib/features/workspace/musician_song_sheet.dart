@@ -1,13 +1,18 @@
-import 'package:colabroom/domain/music_models.dart';
-import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/musician_sheet_line.dart';
-import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
+import 'package:colabroom/features/workspace/musician_sheet_logic.dart' show transposeChord;
 import 'package:flutter/material.dart';
 
+/// A "physical paper" chord+lyric sheet — chords sit directly above the word
+/// they land on. Deliberately takes already-built [lines] rather than a
+/// SongProject/SongAnalysisBundle: the per-project Song Sheet and The
+/// Studio's pre-project drafts both need this exact rendering, but only one
+/// of them has a project to wrap the data in (see transcriptSheetLines in
+/// musician_sheet_logic.dart, which both callers build [lines] from).
 class MusicianSongSheet extends StatelessWidget {
   const MusicianSongSheet({
-    required this.project,
-    required this.bundle,
+    required this.title,
+    required this.lines,
+    required this.musicalKey,
     required this.transpose,
     required this.fontScale,
     required this.showChords,
@@ -17,8 +22,9 @@ class MusicianSongSheet extends StatelessWidget {
     super.key,
   });
 
-  final SongProject project;
-  final SongAnalysisBundle bundle;
+  final String title;
+  final List<MusicianSheetLine> lines;
+  final String? musicalKey;
   final int transpose;
   final double fontScale;
   final bool showChords;
@@ -28,8 +34,7 @@ class MusicianSongSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final lines = buildMusicianSheetLines(project, bundle, ignoreWorkspaceLyrics: true);
-    final key = bundle.reference?.musicalKey;
+    final key = musicalKey;
     final approximate = lines.any((line) => line.approximateTiming);
     return Container(
       key: const Key('musician_song_sheet'),
@@ -65,7 +70,7 @@ class MusicianSongSheet extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         Text(
-                          project.title,
+                          title,
                           style: TextStyle(
                             color: const Color(0xFF241E18),
                             fontSize: 23 * fontScale,

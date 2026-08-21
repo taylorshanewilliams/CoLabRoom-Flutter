@@ -248,7 +248,14 @@ List<MusicianSheetLine> buildMusicianSheetLines(
 }) {
   final duration = bundle.reference?.durationMs ??
       (bundle.chordCues.isEmpty ? 0 : bundle.chordCues.last.endMs);
-  if (ignoreWorkspaceLyrics) return _transcriptLines(bundle, duration);
+  if (ignoreWorkspaceLyrics) {
+    return transcriptSheetLines(
+      transcriptWords: bundle.reference?.transcriptWords ?? const <TranscriptWord>[],
+      transcriptText: bundle.reference?.transcriptText,
+      chordCues: bundle.chordCues,
+      durationMs: duration,
+    );
+  }
 
   final contributions = project.contributions
       .where((line) =>
@@ -256,7 +263,14 @@ List<MusicianSheetLine> buildMusicianSheetLines(
           displayContributionBody(line.body).trim().isNotEmpty)
       .toList(growable: false);
   final lyrics = visibleMusicianLyrics(project);
-  if (lyrics.isEmpty) return _transcriptLines(bundle, duration);
+  if (lyrics.isEmpty) {
+    return transcriptSheetLines(
+      transcriptWords: bundle.reference?.transcriptWords ?? const <TranscriptWord>[],
+      transcriptText: bundle.reference?.transcriptText,
+      chordCues: bundle.chordCues,
+      durationMs: duration,
+    );
+  }
 
   final performanceById = <String, LyricSyncCue>{
     for (final cue in buildPerformanceLyricCues(project, bundle))
@@ -436,12 +450,23 @@ String cleanSheetSection(String value) => value
   return (start, math.max(start + 120, end).toInt());
 }
 
-List<MusicianSheetLine> _transcriptLines(
-  SongAnalysisBundle bundle,
-  int durationMs,
-) {
-  final words =
-      bundle.reference?.transcriptWords ?? const <TranscriptWord>[];
+/// Builds sheet lines straight from a transcript + chord cues, with no
+/// SongProject/SongAnalysisBundle involved — the actual "chords positioned
+/// above the word they land on" rendering only ever needs these primitives,
+/// so both the per-project Song Sheet (via [buildMusicianSheetLines]) and
+/// The Studio's pre-project drafts (which have no project to wrap this in)
+/// can share the exact same line-building logic instead of duplicating it.
+List<MusicianSheetLine> transcriptSheetLines({
+  required List<TranscriptWord> transcriptWords,
+  required String? transcriptText,
+  required List<ChordCue> chordCues,
+  required int durationMs,
+}) {
+  List<ChordCue> chordsForRange(int startMs, int endMs) => chordCues
+      .where((cue) => cue.endMs >= startMs && cue.startMs <= endMs)
+      .toList(growable: false);
+
+  final words = transcriptWords;
   if (words.isNotEmpty) {
     // Break lines on natural pauses in the sung timing (a breath, a held
     // note, a bar between phrases) rather than a fixed word count — a fixed
@@ -476,16 +501,15 @@ List<MusicianSheetLine> _transcriptLines(
               section: false,
               startMs: slice.first.startMs,
               endMs: slice.last.endMs,
-              chords: bundle.chordsForRange(
-                  slice.first.startMs, slice.last.endMs),
+              chords: chordsForRange(slice.first.startMs, slice.last.endMs),
               approximateTiming: false,
               wordStartsMs:
                   slice.map((word) => word.startMs).toList(growable: false),
             ))
         .toList(growable: false);
   }
-  final text = bundle.reference?.transcriptText?.trim() ?? '';
-  if (text.isEmpty) return _chordOnlyLines(bundle);
+  final text = transcriptText?.trim() ?? '';
+  if (text.isEmpty) return _chordOnlyLines(chordCues);
   final wordsOnly = text.replaceAll(RegExp(r'\s+'), ' ').split(' ');
   final chunks = <String>[];
   for (var start = 0; start < wordsOnly.length; start += 7) {
@@ -504,7 +528,7 @@ List<MusicianSheetLine> _transcriptLines(
       section: false,
       startMs: range.$1,
       endMs: range.$2,
-      chords: bundle.chordsForRange(range.$1, range.$2),
+      chords: chordsForRange(range.$1, range.$2),
       approximateTiming: true,
     );
   }).toList(growable: false);
@@ -517,8 +541,7 @@ List<MusicianSheetLine> _transcriptLines(
 /// gives each chord a small placeholder marker to sit above instead of a
 /// real lyric word — the same visual shape as a chord-only instrumental
 /// section on a normal chord chart.
-List<MusicianSheetLine> _chordOnlyLines(SongAnalysisBundle bundle) {
-  final chords = bundle.chordCues;
+List<MusicianSheetLine> _chordOnlyLines(List<ChordCue> chords) {
   if (chords.isEmpty) return const <MusicianSheetLine>[];
   const chordsPerLine = 4;
   final lines = <MusicianSheetLine>[];

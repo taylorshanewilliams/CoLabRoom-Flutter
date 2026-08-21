@@ -164,8 +164,9 @@ void main() {
         home: Scaffold(
           body: SingleChildScrollView(
             child: MusicianSongSheet(
-              project: project,
-              bundle: bundle,
+              title: project.title,
+              lines: buildMusicianSheetLines(project, bundle, ignoreWorkspaceLyrics: true),
+              musicalKey: bundle.reference?.musicalKey,
               transpose: 0,
               fontScale: 1,
               showChords: true,

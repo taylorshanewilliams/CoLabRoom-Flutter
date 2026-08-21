@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
@@ -8,6 +9,8 @@ import '../../domain/song_analysis_models.dart';
 import '../../domain/studio_draft_models.dart';
 import '../../services/audio_analysis_utils.dart';
 import '../../services/studio_draft_service.dart';
+import '../workspace/musician_sheet_logic.dart';
+import '../workspace/musician_song_sheet.dart';
 import '../workspace/song_workspace_screen.dart';
 import 'instrument_chips.dart';
 import 'structure_timeline.dart';
@@ -163,6 +166,8 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
             ],
             if (bundle != null) ...<Widget>[
               const SizedBox(height: 20),
+              _AudioPreviewPlayer(draft: draft, service: _service),
+              const SizedBox(height: 20),
               Wrap(
                 spacing: 22,
                 runSpacing: 14,
@@ -193,26 +198,23 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
               InstrumentChips(instruments: draft.instruments),
               const SizedBox(height: 22),
               const Text(
-                'Chords',
+                'Song Sheet',
                 style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w800),
               ),
-              const SizedBox(height: 8),
-              Text(
-                _chordProgression(bundle.chordCues),
-                style: const TextStyle(color: AppColors.gold, fontSize: 14, fontWeight: FontWeight.w700),
+              const SizedBox(height: 10),
+              MusicianSongSheet(
+                title: draft.displayName,
+                lines: transcriptSheetLines(
+                  transcriptWords: draft.transcriptWords,
+                  transcriptText: draft.transcriptText,
+                  chordCues: bundle.chordCues,
+                  durationMs: draft.durationMs ?? 0,
+                ),
+                musicalKey: draft.musicalKey,
+                transpose: 0,
+                fontScale: 1,
+                showChords: true,
               ),
-              if (draft.hasTranscript) ...<Widget>[
-                const SizedBox(height: 22),
-                const Text(
-                  'Lyrics',
-                  style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  draft.transcriptText ?? '',
-                  style: const TextStyle(color: AppColors.muted, fontSize: 13, height: 1.5),
-                ),
-              ],
             ],
           ],
         ),
@@ -250,14 +252,6 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
     return '$minutes:${seconds.toString().padLeft(2, '0')}';
   }
 
-  String _chordProgression(List<ChordCue> cues) {
-    if (cues.isEmpty) return 'No chords detected';
-    final unique = <String>[];
-    for (final cue in cues) {
-      if (unique.isEmpty || unique.last != cue.chord) unique.add(cue.chord);
-    }
-    return unique.join('  –  ');
-  }
 }
 
 class _Metric extends StatelessWidget {
@@ -278,6 +272,155 @@ class _Metric extends StatelessWidget {
           Text(
             value,
             style: const TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w800),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Lets you hear the recording while reading the sheet it produced — the
+/// player itself is lazy: nothing downloads or plays until the first tap,
+/// same lazy-download shape as ensureLocalDraftFile already uses elsewhere.
+class _AudioPreviewPlayer extends StatefulWidget {
+  const _AudioPreviewPlayer({required this.draft, required this.service});
+
+  final StudioDraft draft;
+  final StudioDraftService service;
+
+  @override
+  State<_AudioPreviewPlayer> createState() => _AudioPreviewPlayerState();
+}
+
+class _AudioPreviewPlayerState extends State<_AudioPreviewPlayer> {
+  AudioPlayer? _player;
+  bool _loading = false;
+  bool _playing = false;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<Duration>? _durationSub;
+  StreamSubscription<void>? _completeSub;
+  String? _error;
+
+  @override
+  void dispose() {
+    unawaited(_positionSub?.cancel());
+    unawaited(_durationSub?.cancel());
+    unawaited(_completeSub?.cancel());
+    unawaited(_player?.dispose());
+    super.dispose();
+  }
+
+  Future<void> _togglePlay() async {
+    if (_error != null) setState(() => _error = null);
+    var player = _player;
+    if (player == null) {
+      setState(() => _loading = true);
+      try {
+        final path = await widget.service.ensureLocalDraftFile(widget.draft);
+        if (!mounted) return;
+        player = AudioPlayer();
+        await player.setSource(DeviceFileSource(path));
+        _positionSub = player.onPositionChanged.listen((position) {
+          if (mounted) setState(() => _position = position);
+        });
+        _durationSub = player.onDurationChanged.listen((duration) {
+          if (mounted) setState(() => _duration = duration);
+        });
+        _completeSub = player.onPlayerComplete.listen((_) {
+          if (mounted) setState(() => _playing = false);
+        });
+        if (!mounted) {
+          await player.dispose();
+          return;
+        }
+        setState(() {
+          _player = player;
+          _loading = false;
+        });
+      } catch (error) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error = error.toString();
+          });
+        }
+        return;
+      }
+    }
+    setState(() => _playing = !_playing);
+    unawaited(_playing ? player.resume() : player.pause());
+  }
+
+  String _formatMs(int ms) {
+    final totalSeconds = ms ~/ 1000;
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final durationMs = _duration.inMilliseconds > 0
+        ? _duration.inMilliseconds
+        : (widget.draft.durationMs ?? 0);
+    final rawPositionMs = _position.inMilliseconds;
+    final positionMs = rawPositionMs < 0 ? 0 : (rawPositionMs > durationMs ? durationMs : rawPositionMs);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.raised,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Row(
+        children: <Widget>[
+          IconButton(
+            key: const Key('studio_preview_play'),
+            onPressed: _loading ? null : _togglePlay,
+            icon: _loading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.gold),
+                  )
+                : Icon(
+                    _playing ? Icons.pause_circle_filled_rounded : Icons.play_circle_fill_rounded,
+                    color: AppColors.gold,
+                    size: 32,
+                  ),
+          ),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  ),
+                  child: Slider(
+                    value: positionMs.toDouble(),
+                    max: durationMs > 0 ? durationMs.toDouble() : 1,
+                    activeColor: AppColors.gold,
+                    inactiveColor: AppColors.line,
+                    onChanged: _player == null
+                        ? null
+                        : (value) {
+                            unawaited(_player!.seek(Duration(milliseconds: value.round())));
+                          },
+                  ),
+                ),
+                Text(
+                  '${_formatMs(positionMs)} / ${_formatMs(durationMs)}',
+                  style: const TextStyle(color: AppColors.muted, fontSize: 10.5),
+                ),
+                if (_error != null)
+                  Text(_error!, style: const TextStyle(color: Color(0xFFFFA0B0), fontSize: 10.5)),
+              ],
+            ),
           ),
         ],
       ),

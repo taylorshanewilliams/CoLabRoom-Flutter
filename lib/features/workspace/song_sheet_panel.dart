@@ -315,8 +315,9 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
         ],
         const SizedBox(height: 10),
         MusicianSongSheet(
-          project: widget.project,
-          bundle: _bundle,
+          title: widget.project.title,
+          lines: buildMusicianSheetLines(widget.project, _bundle, ignoreWorkspaceLyrics: true),
+          musicalKey: _bundle.reference?.musicalKey,
           transpose: _transpose,
           fontScale: _fontScale,
           showChords: _showChords,
