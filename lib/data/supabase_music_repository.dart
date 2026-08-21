@@ -311,7 +311,7 @@ class SupabaseMusicRepository implements MusicRepository {
       return _project(<String, dynamic>{
         ...row,
         'contributions': project.contributions.map(_contributionJson).toList(growable: false),
-        'project_audio_references': project.hasAudioReference ? <dynamic>[<String, dynamic>{}] : <dynamic>[],
+        'project_audio_references': project.hasAudioReference ? <String, dynamic>{} : null,
       });
     } on PostgrestException catch (error) {
       throw _friendlyDatabaseError(error, noun: 'project');
@@ -329,7 +329,7 @@ class SupabaseMusicRepository implements MusicRepository {
     return _project(<String, dynamic>{
       ...row,
       'contributions': project.contributions.map(_contributionJson).toList(growable: false),
-      'project_audio_references': project.hasAudioReference ? <dynamic>[<String, dynamic>{}] : <dynamic>[],
+      'project_audio_references': project.hasAudioReference ? <String, dynamic>{} : null,
     });
   }
 
@@ -749,7 +749,11 @@ class SupabaseMusicRepository implements MusicRepository {
       contributions: contributions,
       sortOrder: (row['sort_order'] as num?)?.toDouble() ?? 0,
       coverImagePath: row['cover_image_path'] as String?,
-      hasAudioReference: (row['project_audio_references'] as List<dynamic>? ?? const <dynamic>[]).isNotEmpty,
+      // project_audio_references.project_id is the primary key, so this is
+      // a one-to-one relation — PostgREST embeds those as a single object
+      // (or null), not a list, unlike the one-to-many embeds elsewhere in
+      // this query.
+      hasAudioReference: row['project_audio_references'] != null,
     );
   }
 
@@ -808,7 +812,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'updated_at': project.updatedAt.toIso8601String(),
         'contributions': project.contributions.map(_contributionJson).toList(growable: false),
         'cover_image_path': project.coverImagePath,
-        'project_audio_references': project.hasAudioReference ? <dynamic>[<String, dynamic>{}] : <dynamic>[],
+        'project_audio_references': project.hasAudioReference ? <String, dynamic>{} : null,
       };
 
   Map<String, dynamic> _contributionJson(Contribution contribution) => <String, dynamic>{
