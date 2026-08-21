@@ -9,6 +9,7 @@ import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
+import 'live_countdown_store.dart';
 import 'musician_sheet_line.dart';
 import 'musician_sheet_logic.dart';
 
@@ -44,7 +45,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
 
   Timer? _ticker;
   Timer? _hideControls;
+  Timer? _countdownTimer;
   DateTime? _lastTick;
+  bool _countdownEnabled = false;
+  int _countdownSeconds = LiveCountdownStore.defaultSeconds;
+  int? _countdownRemaining;
   LiveScrollMode _mode = LiveScrollMode.off;
   bool _playing = false;
   bool _controlsVisible = true;
@@ -111,6 +116,16 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _armControlHide();
     final reference = widget.analysis?.reference;
     if (reference != null) unawaited(_prepareAudio(reference));
+    unawaited(_loadCountdownPrefs());
+  }
+
+  Future<void> _loadCountdownPrefs() async {
+    final (enabled, seconds) = await LiveCountdownStore.load();
+    if (!mounted) return;
+    setState(() {
+      _countdownEnabled = enabled;
+      _countdownSeconds = seconds;
+    });
   }
 
   /// Loads the analyzed reference recording so "synced" mode can play the
@@ -151,6 +166,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
 
   void _selectSource(LiveLyricSource source) {
     if (source == _source) return;
+    _cancelCountdown();
     final audio = _audioPlayer;
     if (audio != null) {
       unawaited(audio.pause());
@@ -172,6 +188,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   void dispose() {
     _ticker?.cancel();
     _hideControls?.cancel();
+    _countdownTimer?.cancel();
     _scroll.dispose();
     unawaited(_audioPositionSub?.cancel());
     unawaited(_audioCompleteSub?.cancel());
@@ -369,6 +386,46 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _armControlHide();
   }
 
+  /// Entry point from the play button — inserts the count-in before actually
+  /// starting playback (if enabled), rather than starting the scroll/sync
+  /// instantly. Pausing, and tapping play again mid-countdown to cancel it,
+  /// both skip straight to _togglePlay.
+  void _onPlayPressed() {
+    if (_countdownRemaining != null) {
+      _cancelCountdown();
+      return;
+    }
+    if (!_playing && _countdownEnabled) {
+      _startCountdown();
+      return;
+    }
+    _togglePlay();
+  }
+
+  void _startCountdown() {
+    _countdownTimer?.cancel();
+    setState(() => _countdownRemaining = _countdownSeconds);
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      final next = (_countdownRemaining ?? 1) - 1;
+      if (next <= 0) {
+        timer.cancel();
+        _countdownTimer = null;
+        if (!mounted) return;
+        setState(() => _countdownRemaining = null);
+        _togglePlay();
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _countdownRemaining = next);
+    });
+  }
+
+  void _cancelCountdown() {
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+    if (mounted) setState(() => _countdownRemaining = null);
+  }
+
   void _togglePlay() {
     final audio = _audioPlayer;
     setState(() {
@@ -387,6 +444,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   }
 
   void _restart() {
+    _cancelCountdown();
     if (_scroll.hasClients) _scroll.jumpTo(0);
     final audio = _audioPlayer;
     if (audio != null) {
@@ -426,6 +484,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   }
 
   void _selectMode(LiveScrollMode mode) {
+    _cancelCountdown();
     if (mode == LiveScrollMode.timed) {
       unawaited(_chooseTimedDuration());
       return;
@@ -547,6 +606,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         onSource: _selectSource,
                         showChords: _showChords,
                         onToggleChords: () => setState(() => _showChords = !_showChords),
+                        countdownEnabled: _countdownEnabled,
+                        onOpenCountdownSettings: _openCountdownSettings,
                       ),
                     ),
                   ),
@@ -568,18 +629,44 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         duration: _songDuration,
                         hasSync: _hasSync,
                         hasAudio: _audioReady,
-                        onPlay: _togglePlay,
+                        onPlay: _onPlayPressed,
                         onMode: _selectMode,
                       ),
                     ),
                   ),
                 ),
+                if (_countdownRemaining != null)
+                  Positioned.fill(
+                    child: _CountdownOverlay(
+                      remaining: _countdownRemaining!,
+                      onCancel: _cancelCountdown,
+                    ),
+                  ),
               ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  void _openCountdownSettings() {
+    unawaited(showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.deepNavy,
+      showDragHandle: true,
+      builder: (_) => _CountdownSettingsSheet(
+        enabled: _countdownEnabled,
+        seconds: _countdownSeconds,
+        onChanged: (enabled, seconds) {
+          setState(() {
+            _countdownEnabled = enabled;
+            _countdownSeconds = seconds;
+          });
+          unawaited(LiveCountdownStore.save(enabled: enabled, seconds: seconds));
+        },
+      ),
+    ));
   }
 }
 
@@ -689,6 +776,8 @@ class _TopLiveBar extends StatelessWidget {
     required this.onSource,
     required this.showChords,
     required this.onToggleChords,
+    required this.countdownEnabled,
+    required this.onOpenCountdownSettings,
   });
 
   final VoidCallback onClose;
@@ -699,6 +788,8 @@ class _TopLiveBar extends StatelessWidget {
   final ValueChanged<LiveLyricSource> onSource;
   final bool showChords;
   final VoidCallback onToggleChords;
+  final bool countdownEnabled;
+  final VoidCallback onOpenCountdownSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -782,6 +873,16 @@ class _TopLiveBar extends StatelessWidget {
             ),
           ),
           IconButton(
+            key: const Key('live_countdown_settings'),
+            onPressed: onOpenCountdownSettings,
+            tooltip: 'Count-in before play',
+            icon: Icon(
+              Icons.timer_outlined,
+              size: 19,
+              color: countdownEnabled ? AppColors.gold : AppColors.muted,
+            ),
+          ),
+          IconButton(
             onPressed: onRestart,
             tooltip: 'Restart song',
             icon: const Icon(Icons.restart_alt_rounded, size: 20),
@@ -797,6 +898,140 @@ class _TopLiveBar extends StatelessWidget {
             icon: const Icon(Icons.text_increase_rounded, size: 19),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Full-screen scrim shown between tapping play and the scroll/sync actually
+/// starting, when the count-in is enabled — gives the band a beat to get
+/// instruments up and eyes on the screen before anything moves.
+class _CountdownOverlay extends StatelessWidget {
+  const _CountdownOverlay({required this.remaining, required this.onCancel});
+
+  final int remaining;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onCancel,
+      child: Container(
+        color: const Color(0xFF01050C).withValues(alpha: 0.82),
+        alignment: Alignment.center,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              transitionBuilder: (child, animation) =>
+                  ScaleTransition(scale: animation, child: FadeTransition(opacity: animation, child: child)),
+              child: Text(
+                '$remaining',
+                key: ValueKey<int>(remaining),
+                style: const TextStyle(
+                  color: AppColors.gold,
+                  fontSize: 118,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Get ready — tap to skip',
+              style: TextStyle(color: AppColors.muted, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CountdownSettingsSheet extends StatefulWidget {
+  const _CountdownSettingsSheet({
+    required this.enabled,
+    required this.seconds,
+    required this.onChanged,
+  });
+
+  final bool enabled;
+  final int seconds;
+
+  /// Fired whenever either value changes — the sheet applies live rather
+  /// than waiting for a "Done" tap, matching every other Live setting
+  /// (font scale, chords toggle) which take effect immediately.
+  final void Function(bool enabled, int seconds) onChanged;
+
+  @override
+  State<_CountdownSettingsSheet> createState() => _CountdownSettingsSheetState();
+}
+
+class _CountdownSettingsSheetState extends State<_CountdownSettingsSheet> {
+  late bool _enabled = widget.enabled;
+  late int _seconds = widget.seconds;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(22, 4, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              'Count-in before play',
+              style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              "Give the band a few seconds to get ready before the scroll or sync starts.",
+              style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              activeThumbColor: AppColors.gold,
+              value: _enabled,
+              onChanged: (value) {
+                setState(() => _enabled = value);
+                widget.onChanged(_enabled, _seconds);
+              },
+              title: const Text('Enabled', style: TextStyle(color: AppColors.text, fontSize: 14)),
+            ),
+            if (_enabled) ...<Widget>[
+              const SizedBox(height: 4),
+              Row(
+                children: <Widget>[
+                  Text(
+                    '$_seconds sec',
+                    style: const TextStyle(
+                      color: AppColors.gold,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Expanded(
+                    child: Slider(
+                      value: _seconds.toDouble(),
+                      min: 3,
+                      max: 10,
+                      divisions: 7,
+                      activeColor: AppColors.gold,
+                      label: '$_seconds sec',
+                      onChanged: (value) => setState(() => _seconds = value.round()),
+                      onChangeEnd: (_) => widget.onChanged(_enabled, _seconds),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

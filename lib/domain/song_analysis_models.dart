@@ -41,6 +41,9 @@ class ReferenceTrack {
     this.transcriptWords = const <TranscriptWord>[],
     this.analysisWarning,
     this.lastError,
+    this.bpm,
+    this.structureSections = const <StructureSection>[],
+    this.instruments,
   });
 
   final String projectId;
@@ -56,8 +59,103 @@ class ReferenceTrack {
   final List<TranscriptWord> transcriptWords;
   final String? analysisWarning;
   final String? lastError;
+  final double? bpm;
+  final List<StructureSection> structureSections;
+  final InstrumentSummary? instruments;
 
   bool get hasTranscript => (transcriptText?.trim().isNotEmpty ?? false);
+}
+
+/// A suggested song-structure boundary (e.g. "where the chorus probably
+/// starts") — [label] is always a generic placeholder ("Section A", "Section
+/// B", ...), never asserted as Verse/Chorus/Bridge. The musician relabels
+/// sections themselves; this only claims to know where the music changes,
+/// not what to call the result. [repeatsSectionLabel] is a soft hint (this
+/// section's chroma closely matches an earlier one) worth surfacing as
+/// "repeats Section B" but not treated as certain.
+class StructureSection {
+  const StructureSection({
+    required this.startMs,
+    required this.endMs,
+    required this.label,
+    this.repeatsSectionLabel,
+  });
+
+  final int startMs;
+  final int endMs;
+  final String label;
+  final String? repeatsSectionLabel;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'start_ms': startMs,
+        'end_ms': endMs,
+        'label': label,
+        if (repeatsSectionLabel != null) 'repeats_section_label': repeatsSectionLabel,
+      };
+
+  factory StructureSection.fromJson(Map<String, dynamic> json) {
+    return StructureSection(
+      startMs: (json['start_ms'] as num?)?.toInt() ?? 0,
+      endMs: (json['end_ms'] as num?)?.toInt() ?? 0,
+      label: json['label'] as String? ?? '',
+      repeatsSectionLabel: json['repeats_section_label'] as String?,
+    );
+  }
+}
+
+/// Energy-presence, not real instrument recognition — [confidence] is a
+/// normalized ratio of stem RMS energy against a silence floor, not a
+/// classifier score.
+class InstrumentPresence {
+  const InstrumentPresence({required this.present, required this.confidence});
+
+  final bool present;
+  final double confidence;
+
+  Map<String, dynamic> toJson() =>
+      <String, dynamic>{'present': present, 'confidence': confidence};
+
+  factory InstrumentPresence.fromJson(Map<String, dynamic> json) {
+    return InstrumentPresence(
+      present: json['present'] as bool? ?? false,
+      confidence: (json['confidence'] as num?)?.toDouble() ?? 0,
+    );
+  }
+}
+
+/// [guitar] actually covers Demucs' "other" stem — guitar, keys, and synths
+/// are indistinguishable at this stage, so the UI should label it something
+/// like "Guitar/Keys" rather than claim guitar specifically was detected.
+class InstrumentSummary {
+  const InstrumentSummary({this.vocals, this.guitar, this.bass, this.drums});
+
+  final InstrumentPresence? vocals;
+  final InstrumentPresence? guitar;
+  final InstrumentPresence? bass;
+  final InstrumentPresence? drums;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        if (vocals != null) 'vocals': vocals!.toJson(),
+        if (guitar != null) 'guitar': guitar!.toJson(),
+        if (bass != null) 'bass': bass!.toJson(),
+        if (drums != null) 'drums': drums!.toJson(),
+      };
+
+  factory InstrumentSummary.fromJson(Map<String, dynamic> json) {
+    InstrumentPresence? read(String key) {
+      final value = json[key];
+      return value is Map<String, dynamic>
+          ? InstrumentPresence.fromJson(value)
+          : null;
+    }
+
+    return InstrumentSummary(
+      vocals: read('vocals'),
+      guitar: read('guitar'),
+      bass: read('bass'),
+      drums: read('drums'),
+    );
+  }
 }
 
 class LyricSyncCue {

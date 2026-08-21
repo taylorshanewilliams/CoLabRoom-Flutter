@@ -7,6 +7,7 @@ import '../account/account_screen.dart';
 import '../home/home_screen.dart';
 import '../invites/invites_screen.dart';
 import '../rooms/rooms_screen.dart';
+import '../studio/studio_home_screen.dart';
 import '../toolbox/toolbox_screen.dart';
 
 class AppShell extends StatefulWidget {
@@ -40,6 +41,7 @@ class _AppShellState extends State<AppShell> {
       const RoomsScreen(),
       const InvitesScreen(),
       const ToolboxScreen(),
+      const StudioHomeScreen(),
     ];
   }
 
@@ -57,6 +59,7 @@ class _AppShellState extends State<AppShell> {
     _Destination('Rooms', Icons.grid_view_rounded),
     _Destination('Invites', Icons.mail_outline_rounded),
     _Destination('Toolbox', Icons.construction_rounded),
+    _Destination('Studio', Icons.auto_awesome_rounded),
   ];
 
   @override

@@ -10,6 +10,8 @@ import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
+import '../studio/instrument_chips.dart';
+import '../studio/structure_timeline.dart';
 import 'continuous_song_editor.dart';
 import 'live_performance_screen.dart';
 import 'lyric_review_screen.dart';
@@ -643,6 +645,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     ),
                     const SizedBox(height: 12),
                     _AnalysisSummary(bundle: bundle!),
+                    _SongUnderstanding(reference: bundle.reference!),
                     const SizedBox(height: 18),
                     Text(
                       'Chord sheet',
@@ -688,12 +691,50 @@ class _AnalysisSummary extends StatelessWidget {
         children: <Widget>[
           _Metric(label: 'Length', value: _clockMs(ref.durationMs ?? 0)),
           _Metric(label: 'Key / center', value: ref.musicalKey ?? '—'),
+          _Metric(label: 'BPM', value: ref.bpm != null ? ref.bpm!.round().toString() : '—'),
           _Metric(label: 'Timed lines', value: '${bundle.lyricCues.length}'),
           _Metric(label: 'Chord changes', value: '${bundle.chordCues.length}'),
           _Metric(label: 'Lyric match', value: _percent(ref.lyricConfidence)),
           _Metric(label: 'Chord confidence', value: _percent(ref.chordConfidence)),
         ],
       ),
+    );
+  }
+}
+
+/// "Explain My Song" — the structure/instrument breakdown the Studio engine
+/// produces, shown right here rather than behind a separate action: since
+/// SongAnalysisService.analyze() already writes bpm/structure/instruments
+/// onto this same reference the moment analysis completes, there's nothing
+/// left to "put into" the song — it's already in it.
+class _SongUnderstanding extends StatelessWidget {
+  const _SongUnderstanding({required this.reference});
+
+  final ReferenceTrack reference;
+
+  @override
+  Widget build(BuildContext context) {
+    if (reference.structureSections.isEmpty && reference.instruments == null) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SizedBox(height: 18),
+        const Text(
+          'Structure',
+          style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 10),
+        StructureTimeline(sections: reference.structureSections),
+        const SizedBox(height: 18),
+        const Text(
+          'Instruments',
+          style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 10),
+        InstrumentChips(instruments: reference.instruments),
+      ],
     );
   }
 }

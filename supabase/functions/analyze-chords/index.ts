@@ -46,7 +46,14 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
-async function separateAudio(audioUrl: string, filename: string): Promise<Uint8Array> {
+interface SeparationResult {
+  harmonicMix: Uint8Array;
+  bpm: number | null;
+  instruments: unknown;
+  structure: unknown;
+}
+
+async function separateAudio(audioUrl: string, filename: string): Promise<SeparationResult> {
   const runResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`, {
     method: 'POST',
     headers: {
@@ -76,7 +83,16 @@ async function separateAudio(audioUrl: string, filename: string): Promise<Uint8A
     if (statusBody.status === 'COMPLETED') {
       const mixB64 = statusBody.output?.harmonic_mix_b64;
       if (!mixB64) throw new Error('RunPod job completed but returned no harmonic_mix_b64.');
-      return base64ToBytes(mixB64);
+      return {
+        harmonicMix: base64ToBytes(mixB64),
+        // Best-effort fields the separation_service computes alongside the
+        // mix (BPM, instrument presence, structure boundaries) — absent or
+        // null here just means that detector didn't run/failed, not an
+        // error worth failing the whole job over.
+        bpm: typeof statusBody.output?.bpm === 'number' ? statusBody.output.bpm : null,
+        instruments: statusBody.output?.instruments ?? null,
+        structure: statusBody.output?.structure ?? [],
+      };
     }
     if (statusBody.status === 'FAILED') {
       throw new Error(`RunPod separation failed: ${statusBody.error ?? 'unknown error'}`);
@@ -176,8 +192,8 @@ Deno.serve(async (req) => {
   const filename = storagePath.split('/').pop() ?? 'audio.mp3';
 
   try {
-    const harmonicMix = await separateAudio(signedUrlData.signedUrl, filename);
-    const chords = await detectChords(harmonicMix);
+    const separation = await separateAudio(signedUrlData.signedUrl, filename);
+    const chords = await detectChords(separation.harmonicMix);
     const key = estimateKey(chords);
     // ChordMini's .lab output doesn't expose per-segment confidence, only
     // the chord label itself — flat placeholder rather than fabricating
@@ -189,7 +205,13 @@ Deno.serve(async (req) => {
       chord: c.chord,
       confidence: 0.8,
     }));
-    return json({ cues, key });
+    return json({
+      cues,
+      key,
+      bpm: separation.bpm,
+      instruments: separation.instruments,
+      structure: separation.structure,
+    });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : String(error) }, 502);
   }

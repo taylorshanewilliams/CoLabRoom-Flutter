@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cross_file/cross_file.dart';
@@ -860,6 +861,7 @@ class _PortraitProjectHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final logoBytes = BetaScope.of(context).roomLogoBytes(room);
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       height: compact ? 52 : 68,
@@ -872,7 +874,7 @@ class _PortraitProjectHeader extends StatelessWidget {
             icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 19),
           ),
           if (!compact) ...<Widget>[
-            const _MusicMark(size: 42),
+            _RoomMark(size: 42, logoBytes: logoBytes, fallbackIcon: room.icon),
             const SizedBox(width: 11),
           ],
           Expanded(
@@ -1145,22 +1147,29 @@ class _LandscapeWorkspace extends StatelessWidget {
   }
 }
 
-class _MusicMark extends StatelessWidget {
-  const _MusicMark({required this.size});
+class _RoomMark extends StatelessWidget {
+  const _RoomMark({required this.size, required this.logoBytes, required this.fallbackIcon});
 
   final double size;
+  final Uint8List? logoBytes;
+  final String fallbackIcon;
 
   @override
   Widget build(BuildContext context) {
+    final bytes = logoBytes;
     return Container(
       width: size,
       height: size,
+      alignment: Alignment.center,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         gradient: const LinearGradient(colors: <Color>[AppColors.blue, AppColors.cyan]),
         borderRadius: BorderRadius.circular(size * 0.33),
         boxShadow: const <BoxShadow>[BoxShadow(color: Color(0x2932D4FF), blurRadius: 24)],
       ),
-      child: Icon(Icons.music_note_rounded, color: Colors.white, size: size * 0.55),
+      child: bytes != null
+          ? Image.memory(bytes, fit: BoxFit.cover, width: size, height: size)
+          : Text(fallbackIcon, style: TextStyle(fontSize: size * 0.5)),
     );
   }
 }
