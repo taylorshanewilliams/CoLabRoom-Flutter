@@ -442,7 +442,9 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: SafeArea(
+        top: false,
+        child: Column(
         children: <Widget>[
           if (_selectedProjectIds.isNotEmpty)
             _ProjectSelectionBar(
@@ -672,6 +674,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

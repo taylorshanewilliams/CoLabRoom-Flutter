@@ -128,7 +128,9 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
           ),
         ],
       ),
-      body: projects.isEmpty
+      body: SafeArea(
+        top: false,
+        child: projects.isEmpty
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(28),
@@ -211,6 +213,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                 );
               },
             ),
+      ),
     );
   }
 }

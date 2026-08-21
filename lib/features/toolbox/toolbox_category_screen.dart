@@ -55,9 +55,12 @@ class _ToolboxCategoryScreenState extends State<ToolboxCategoryScreen> {
         backgroundColor: Colors.transparent,
         title: Text(category.name),
       ),
-      body: _loadingOrder
-          ? const Center(child: CircularProgressIndicator())
-          : _buildBody(context, category),
+      body: SafeArea(
+        top: false,
+        child: _loadingOrder
+            ? const Center(child: CircularProgressIndicator())
+            : _buildBody(context, category),
+      ),
     );
   }
 
