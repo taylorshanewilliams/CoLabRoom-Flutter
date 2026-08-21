@@ -13,6 +13,7 @@ class MusicianSheetLine {
     required this.endMs,
     required this.chords,
     required this.approximateTiming,
+    this.wordStartsMs,
   });
 
   final String? contributionId;
@@ -22,6 +23,14 @@ class MusicianSheetLine {
   final int endMs;
   final List<ChordCue> chords;
   final bool approximateTiming;
+
+  /// One real start timestamp per word in [body], in the same order —
+  /// only set when the line came from actual transcribed word timing
+  /// (see _transcriptLines), null for proportional/manual-guess lines.
+  /// Lets chordPlacementsForLine anchor a chord to the word that's
+  /// actually sounding when it changes, instead of assuming every word
+  /// in the line takes the same amount of time to sing.
+  final List<int>? wordStartsMs;
 }
 
 List<Contribution> visibleMusicianLyrics(SongProject project) {
@@ -295,6 +304,7 @@ Map<int, ChordCue> chordPlacementsForLine({
   required int lineStartMs,
   required int lineEndMs,
   required List<ChordCue> chords,
+  List<int>? wordStartsMs,
 }) {
   if (wordCount <= 0 || chords.isEmpty) return const <int, ChordCue>{};
   final unique = <ChordCue>[];
@@ -305,13 +315,29 @@ Map<int, ChordCue> chordPlacementsForLine({
       unique.add(chord);
     }
   }
+  final hasWordTiming = wordStartsMs != null && wordStartsMs.length == wordCount;
   final span = math.max(1, lineEndMs - lineStartMs);
   final placements = <int, ChordCue>{};
   for (final chord in unique) {
-    final ratio =
-        ((chord.startMs - lineStartMs) / span).clamp(0.0, 0.999);
-    var index =
-        (ratio * wordCount).floor().clamp(0, wordCount - 1).toInt();
+    int index;
+    if (hasWordTiming) {
+      // Real per-word timestamps: anchor the chord to whichever word is
+      // actually sounding when it changes. A uniform-spacing guess is
+      // wrong whenever words in the line don't take equal time to sing
+      // (a held note, a fast run, a mid-line breath) — which is most of
+      // the time in an actual vocal performance.
+      index = 0;
+      for (var i = 0; i < wordStartsMs.length; i += 1) {
+        if (wordStartsMs[i] <= chord.startMs) {
+          index = i;
+        } else {
+          break;
+        }
+      }
+    } else {
+      final ratio = ((chord.startMs - lineStartMs) / span).clamp(0.0, 0.999);
+      index = (ratio * wordCount).floor().clamp(0, wordCount - 1).toInt();
+    }
     while (placements.containsKey(index) && index < wordCount - 1) {
       index += 1;
     }
@@ -453,6 +479,8 @@ List<MusicianSheetLine> _transcriptLines(
               chords: bundle.chordsForRange(
                   slice.first.startMs, slice.last.endMs),
               approximateTiming: false,
+              wordStartsMs:
+                  slice.map((word) => word.startMs).toList(growable: false),
             ))
         .toList(growable: false);
   }

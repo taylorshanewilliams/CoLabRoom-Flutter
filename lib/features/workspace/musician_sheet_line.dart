@@ -82,6 +82,7 @@ class MusicianChordLyricLine extends StatelessWidget {
       lineStartMs: line.startMs,
       lineEndMs: line.endMs,
       chords: line.chords,
+      wordStartsMs: line.wordStartsMs,
     );
     return Padding(
       padding: EdgeInsets.symmetric(vertical: liveMode ? 3 : 4),

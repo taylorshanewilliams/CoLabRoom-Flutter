@@ -590,7 +590,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     const SizedBox(height: 20),
                     const _QuietNote(
                       icon: Icons.cloud_outlined,
-                      text: 'Lyrics are transcribed by a cloud speech service; chords are detected on the phone. The recording stays available to the Room as its reference track.',
+                      text: 'This recording is analyzed off-device to keep results accurate, then stays saved to the Room as its reference track.',
                     ),
                   ],
                   // These two don't require the *latest* analysis attempt to
