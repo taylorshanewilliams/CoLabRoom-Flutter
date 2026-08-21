@@ -1,0 +1,56 @@
+name: Build inference service containers
+
+# Validates both Docker images actually build before any cloud deploy step
+# exists — no cloud credentials needed for this, just confirms the
+# Dockerfiles are correct. Add real deploy jobs (Cloud Run for
+# chord_service, a RunPod endpoint update for separation_service) once
+# GCP_SERVICE_ACCOUNT_KEY / RUNPOD_API_KEY etc. secrets exist.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'inference/**'
+      - '.github/workflows/build-inference-services.yml'
+
+jobs:
+  build-chord-service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build chord_service image
+        uses: docker/build-push-action@v6
+        with:
+          context: inference/chord_service
+          push: false
+          tags: colabroom-chord-service:ci
+
+      - name: Smoke test — container responds to /health
+        run: |
+          docker run -d --name chord-smoke -p 8080:8080 colabroom-chord-service:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health; then
+              echo "Healthy"
+              docker stop chord-smoke
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::chord_service never became healthy"
+          docker logs chord-smoke
+          exit 1
+
+  build-separation-service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build separation_service image
+        # Build-only — no GPU on this runner, so no smoke test here.
+        # RunPod's own platform is the first place this actually runs.
+        uses: docker/build-push-action@v6
+        with:
+          context: inference/separation_service
+          push: false
+          tags: colabroom-separation-service:ci
