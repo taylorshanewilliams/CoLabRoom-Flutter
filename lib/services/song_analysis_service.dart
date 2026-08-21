@@ -347,6 +347,30 @@ class SongAnalysisService {
     return map;
   }
 
+  /// Calls the `analyze-chords` Supabase Edge Function, which runs
+  /// [reference]'s recording through the self-hosted Demucs -> ChordMini
+  /// pipeline (see supabase/functions/analyze-chords) instead of the
+  /// on-device chroma heuristic. Returns the same {cues, key} shape
+  /// _analyzeChords does, so callers don't need to care which one ran.
+  Future<Map<String, dynamic>> _detectChordsViaCloud(ReferenceTrack reference) async {
+    final response = await client.functions.invoke(
+      'analyze-chords',
+      body: <String, dynamic>{
+        'storagePath': reference.storagePath,
+        'bucket': 'room-files',
+      },
+    );
+    final data = response.data;
+    if (data is! Map) {
+      throw StateError('The chord detection service returned an unexpected response.');
+    }
+    final map = Map<String, dynamic>.from(data);
+    if (map['error'] != null) {
+      throw StateError(map['error'].toString());
+    }
+    return map;
+  }
+
   Future<SongAnalysisBundle> analyze({
     required SongProject project,
     required ReferenceTrack reference,
@@ -421,19 +445,31 @@ class SongAnalysisService {
       }
 
       onProgress?.call(const SongAnalysisProgress('Finding chord changes', 0.62));
-      final rawPcm = await AudioDecoder.convertToWavBytes(
-        await File(localPath).readAsBytes(),
-        formatHint: _extension(localPath),
-        sampleRate: 11025,
-        channels: 1,
-        bitDepth: 16,
-        includeHeader: false,
-      );
-      final chordResult = await compute(_analyzeChords, <String, dynamic>{
-        'pcm': rawPcm,
-        'sampleRate': 11025,
-        'durationMs': durationMs,
-      });
+      Map<String, dynamic> chordResult;
+      try {
+        chordResult = await _detectChordsViaCloud(reference);
+      } catch (error) {
+        // Same resilience shape as the lyrics path above — an outage in
+        // the new Demucs/ChordMini pipeline shouldn't turn "no chords
+        // this time" into "no analysis at all". Falls back to the
+        // on-device heuristic, which is worse but still functional.
+        final rawPcm = await AudioDecoder.convertToWavBytes(
+          await File(localPath).readAsBytes(),
+          formatHint: _extension(localPath),
+          sampleRate: 11025,
+          channels: 1,
+          bitDepth: 16,
+          includeHeader: false,
+        );
+        chordResult = await compute(_analyzeChords, <String, dynamic>{
+          'pcm': rawPcm,
+          'sampleRate': 11025,
+          'durationMs': durationMs,
+        });
+        final fallbackNote =
+            'Cloud chord detection was unavailable, so a less accurate on-device fallback was used. Details: $error';
+        lyricsWarning = lyricsWarning == null ? fallbackNote : '$lyricsWarning\n\n$fallbackNote';
+      }
 
       onProgress?.call(const SongAnalysisProgress('Saving song map', 0.9));
       // lyric_sync_cues is no longer written to — it existed to key timing

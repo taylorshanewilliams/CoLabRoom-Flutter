@@ -1,0 +1,43 @@
+name: Deploy analyze-chords Edge Function
+
+# Manual only. Deploys supabase/functions/analyze-chords and pushes its
+# runtime secrets (the RunPod + chord service credentials) into Supabase
+# — those live in Supabase's own secret store, separate from GitHub's,
+# since that's what the deployed function actually reads at runtime.
+on:
+  workflow_dispatch:
+
+env:
+  RUNPOD_ENDPOINT_ID: 7ykxzcpvw4873h
+  CHORD_SERVICE_URL: https://colabroom-chord-service-7nvccxceca-uc.a.run.app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Push runtime secrets
+        run: |
+          supabase secrets set \
+            RUNPOD_API_KEY="${{ secrets.RUNPOD_API_KEY }}" \
+            RUNPOD_ENDPOINT_ID="${{ env.RUNPOD_ENDPOINT_ID }}" \
+            CHORD_SERVICE_URL="${{ env.CHORD_SERVICE_URL }}" \
+            CHORD_SERVICE_API_KEY="${{ secrets.CHORD_SERVICE_API_KEY }}" \
+            --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy function
+        run: supabase functions deploy analyze-chords --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
