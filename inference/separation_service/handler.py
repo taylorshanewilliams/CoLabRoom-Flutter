@@ -1,7 +1,13 @@
 """RunPod Serverless handler wrapping Demucs (htdemucs) source separation.
 
-Input:  {"input": {"audio_b64": "<base64 mp3/wav>", "filename": "song.mp3"}}
+Input:  {"input": {"audio_url": "<signed URL>", "filename": "song.mp3"}}
 Output: {"harmonic_mix_b64": "<base64 mp3>"} or {"error": "..."} on failure.
+
+Takes a URL rather than the audio inline — RunPod's own /run endpoint
+caps request bodies at 10MiB, which a base64-encoded full song blows
+past easily (the failure mode of an earlier version of this pipeline).
+The caller (analyze-chords Edge Function) hands this a short-lived
+Supabase Storage signed URL; this handler downloads the file itself.
 
 Returns only the bass+other mix (the harmonic content ChordMini reads —
 see the Phase 0.5 validation notes) as compressed MP3, not all four raw
@@ -17,20 +23,26 @@ import os
 import subprocess
 import tempfile
 
+import requests
 import runpod
 
 
 def handler(job):
     job_input = job.get("input", {})
-    audio_b64 = job_input.get("audio_b64")
+    audio_url = job_input.get("audio_url")
     filename = job_input.get("filename", "input.mp3")
-    if not audio_b64:
-        return {"error": "Missing 'audio_b64' in input."}
+    if not audio_url:
+        return {"error": "Missing 'audio_url' in input."}
 
     with tempfile.TemporaryDirectory() as tmp:
         in_path = os.path.join(tmp, filename)
+        try:
+            response = requests.get(audio_url, timeout=60)
+            response.raise_for_status()
+        except requests.RequestException as error:
+            return {"error": f"Could not download audio from signed URL: {error}"}
         with open(in_path, "wb") as f:
-            f.write(base64.b64decode(audio_b64))
+            f.write(response.content)
 
         out_dir = os.path.join(tmp, "separated")
         result = subprocess.run(

@@ -9,7 +9,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir demucs runpod
+RUN pip install --no-cache-dir demucs runpod requests
 
 COPY handler.py /app/handler.py
 

@@ -39,15 +39,6 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
 function base64ToBytes(base64: string): Uint8Array {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -55,15 +46,19 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
-async function separateAudio(audioBytes: Uint8Array, filename: string): Promise<Uint8Array> {
+async function separateAudio(audioUrl: string, filename: string): Promise<Uint8Array> {
   const runResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${RUNPOD_API_KEY}`,
       'Content-Type': 'application/json',
     },
+    // A signed URL, not the audio itself — RunPod's /run endpoint caps
+    // request bodies at 10MiB, which a base64-encoded full song blows
+    // past easily. The separation_service worker downloads the file
+    // itself from this URL instead of receiving it inline.
     body: JSON.stringify({
-      input: { audio_b64: bytesToBase64(audioBytes), filename },
+      input: { audio_url: audioUrl, filename },
     }),
   });
   if (!runResponse.ok) {
@@ -168,17 +163,20 @@ Deno.serve(async (req) => {
   if (userError || !userData?.user) return json({ error: 'Unauthorized' }, 401);
 
   const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-  const { data: audioBlob, error: downloadError } = await adminClient.storage
+  // No need to pull the file into the function's own memory at all — the
+  // separation_service worker downloads it directly from this signed URL,
+  // which also sidesteps RunPod's 10MiB request-body cap entirely rather
+  // than trying to squeeze under it.
+  const { data: signedUrlData, error: signedUrlError } = await adminClient.storage
     .from(bucket)
-    .download(storagePath);
-  if (downloadError || !audioBlob) {
-    return json({ error: `Could not download audio: ${downloadError?.message ?? 'not found'}` }, 404);
+    .createSignedUrl(storagePath, 300);
+  if (signedUrlError || !signedUrlData) {
+    return json({ error: `Could not create signed URL: ${signedUrlError?.message ?? 'not found'}` }, 404);
   }
-  const audioBytes = new Uint8Array(await audioBlob.arrayBuffer());
   const filename = storagePath.split('/').pop() ?? 'audio.mp3';
 
   try {
-    const harmonicMix = await separateAudio(audioBytes, filename);
+    const harmonicMix = await separateAudio(signedUrlData.signedUrl, filename);
     const chords = await detectChords(harmonicMix);
     const key = estimateKey(chords);
     // ChordMini's .lab output doesn't expose per-segment confidence, only
