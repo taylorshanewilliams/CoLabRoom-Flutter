@@ -24,6 +24,7 @@ jobs:
         with:
           context: inference/chord_service
           push: false
+          load: true
           tags: colabroom-chord-service:ci
 
       - name: Smoke test — container responds to /health
