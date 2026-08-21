@@ -1,13 +1,15 @@
 """RunPod Serverless handler wrapping Demucs (htdemucs) source separation.
 
 Input:  {"input": {"audio_b64": "<base64 mp3/wav>", "filename": "song.mp3"}}
-Output: {"stems": {"vocals": "<base64 wav>", "drums": ..., "bass": ..., "other": ...}}
-        or {"error": "..."} on failure.
+Output: {"harmonic_mix_b64": "<base64 mp3>"} or {"error": "..."} on failure.
 
-Kept as raw stems rather than pre-mixing bass+other here — the "which
-stems feed the chord model" choice belongs to the caller (currently
-bass+other, see the Phase 0.5 validation notes), and returning all four
-keeps that decision changeable without redeploying this service.
+Returns only the bass+other mix (the harmonic content ChordMini reads —
+see the Phase 0.5 validation notes) as compressed MP3, not all four raw
+WAV stems. An earlier version returned all four uncompressed — RunPod's
+job-result response silently dropped the output entirely once it got
+that large (no error, the "output" field just never appeared). Mixing
+down to one track and compressing it were both necessary, not just nice
+to have.
 """
 
 import base64
@@ -37,19 +39,45 @@ def handler(job):
             text=True,
         )
         if result.returncode != 0:
-            return {"error": result.stderr[-2000:]}
+            return {"error": f"demucs failed: {result.stderr[-2000:]}"}
 
         name = os.path.splitext(os.path.basename(filename))[0]
         base = os.path.join(out_dir, "htdemucs", name)
-        stems = {}
-        for stem in ("vocals", "drums", "bass", "other"):
-            stem_path = os.path.join(base, f"{stem}.wav")
-            if not os.path.exists(stem_path):
-                return {"error": f"Expected stem not found: {stem_path}"}
-            with open(stem_path, "rb") as f:
-                stems[stem] = base64.b64encode(f.read()).decode("ascii")
+        bass_path = os.path.join(base, "bass.wav")
+        other_path = os.path.join(base, "other.wav")
+        if not os.path.exists(bass_path) or not os.path.exists(other_path):
+            return {"error": f"Expected stems not found under {base}"}
 
-        return {"stems": stems}
+        # ffmpeg's amix mixes the two stems and re-encodes to MP3 in one
+        # pass, instead of a separate numpy/soundfile mixing step plus a
+        # second encode call.
+        mix_path = os.path.join(tmp, "harmonic_mix.mp3")
+        mix_result = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                bass_path,
+                "-i",
+                other_path,
+                "-filter_complex",
+                "amix=inputs=2:duration=longest",
+                "-codec:a",
+                "libmp3lame",
+                "-qscale:a",
+                "4",
+                mix_path,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if mix_result.returncode != 0 or not os.path.exists(mix_path):
+            return {"error": f"ffmpeg mix failed: {mix_result.stderr[-2000:]}"}
+
+        with open(mix_path, "rb") as f:
+            harmonic_mix_b64 = base64.b64encode(f.read()).decode("ascii")
+
+        return {"harmonic_mix_b64": harmonic_mix_b64}
 
 
 runpod.serverless.start({"handler": handler})
