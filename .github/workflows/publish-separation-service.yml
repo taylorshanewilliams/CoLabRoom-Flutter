@@ -1,10 +1,16 @@
 name: Publish separation service image
 
-# Builds inference/separation_service and pushes it to GitHub Container
-# Registry so RunPod's Serverless endpoint has something to pull. Manual
-# only — this is a large image (CUDA + PyTorch + Demucs), no reason to
-# rebuild it on every push.
+# Builds inference/separation_service, pushes it to GitHub Container
+# Registry, then tells RunPod's Serverless endpoint to roll its workers
+# onto the new image. Runs automatically on every push that touches the
+# service, so a merged fix is live within a few minutes instead of
+# depending on someone remembering to redeploy by hand.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'inference/separation_service/**'
+      - '.github/workflows/publish-separation-service.yml'
   workflow_dispatch:
 
 env:
@@ -37,5 +43,34 @@ jobs:
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ github.sha }}
 
-      - name: Print image reference
-        run: echo "Pushed ${{ env.IMAGE }}:latest — RunPod's endpoint should point at this."
+      - name: Roll RunPod workers onto the new image
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          RUNPOD_ENDPOINT_ID: ${{ secrets.RUNPOD_ENDPOINT_ID }}
+        run: |
+          # Deploying a fresh image to GHCR doesn't do anything on its own —
+          # RunPod's existing workers keep running whatever image they last
+          # pulled until something tells the endpoint's template to change.
+          # PATCHing the template's imageName is what RunPod documents as
+          # the trigger for a "Release": it starts new workers on the new
+          # image and drains the old ones automatically, no manual
+          # dashboard flush/restart needed.
+          if [ -z "$RUNPOD_API_KEY" ] || [ -z "$RUNPOD_ENDPOINT_ID" ]; then
+            echo "::warning::RUNPOD_API_KEY or RUNPOD_ENDPOINT_ID repo secret is not set — the image was pushed to GHCR but RunPod was NOT told to redeploy. Add both secrets under Settings > Secrets and variables > Actions to enable auto-rollout."
+            exit 0
+          fi
+
+          template_id=$(curl -sf -H "Authorization: Bearer $RUNPOD_API_KEY" \
+            "https://rest.runpod.io/v1/endpoints/$RUNPOD_ENDPOINT_ID" | jq -r '.templateId')
+
+          if [ -z "$template_id" ] || [ "$template_id" = "null" ]; then
+            echo "::error::Could not resolve a templateId for RunPod endpoint $RUNPOD_ENDPOINT_ID — check RUNPOD_ENDPOINT_ID is correct."
+            exit 1
+          fi
+
+          curl -sf -X PATCH "https://rest.runpod.io/v1/templates/$template_id" \
+            -H "Authorization: Bearer $RUNPOD_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"imageName\": \"${{ env.IMAGE }}:${{ github.sha }}\"}" > /dev/null
+
+          echo "Told RunPod template $template_id to roll onto ${{ env.IMAGE }}:${{ github.sha }} — new workers will pull it, old ones drain automatically."
