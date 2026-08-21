@@ -1,5 +1,5 @@
 import 'package:colabroom/features/workspace/musician_sheet_line.dart';
-import 'package:colabroom/features/workspace/musician_sheet_logic.dart' show transposeChord;
+import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:flutter/material.dart';
 
 /// A "physical paper" chord+lyric sheet — chords sit directly above the word
