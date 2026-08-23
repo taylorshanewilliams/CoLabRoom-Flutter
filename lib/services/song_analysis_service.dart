@@ -89,6 +89,14 @@ SongAnalysisProgress separationProgress(int attempt) {
   return SongAnalysisProgress(label, 0.15 + (0.35 * fraction.clamp(0, 1)));
 }
 
+/// Shown in place of separation progress when the Edge Function recognizes
+/// the recording and hands back an analysis it already had (see migration
+/// 0024). There is no GPU job to wait on, so the bar lands where separation
+/// would have finished rather than animating through work that isn't
+/// happening.
+const SongAnalysisProgress reusedAnalysisProgress =
+    SongAnalysisProgress('Heard this one before — reusing its analysis', 0.5);
+
 /// Splits timed transcript words into lines, breaking on a real pause rather
 /// than a fixed word count so the lines land where the singer breathed.
 ///
@@ -543,6 +551,12 @@ class SongAnalysisService {
       'projectId': reference.projectId,
       'storagePath': reference.storagePath,
       'bucket': 'room-files',
+      // Tells the Edge Function this build can handle `start` coming back
+      // finished instead of with a job id. Builds that predate the analysis
+      // cache would read that as "no job was started" and fail, and a
+      // bandmate on last week's APK shouldn't break the moment the function
+      // is deployed.
+      'acceptsCachedAnalysis': true,
     };
 
     // The Edge Function starts the separation job and hands back its id
@@ -551,6 +565,12 @@ class SongAnalysisService {
     // GPU worker comfortably exceeds that — so the waiting happens here,
     // where it can take as long as it needs and show progress meanwhile.
     final started = await _invokeAnalyze(<String, dynamic>{...request, 'action': 'start'});
+    // A recording that has been through the pipeline before comes back
+    // finished from this first call — same bytes, same answer, no GPU job.
+    if (started['status'] == 'complete') {
+      onProgress?.call(reusedAnalysisProgress);
+      return started;
+    }
     final jobId = started['jobId'] as String?;
     if (jobId == null) {
       throw StateError('The separation service did not start a job.');

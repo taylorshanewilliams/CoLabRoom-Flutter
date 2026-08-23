@@ -15,6 +15,13 @@
 // stems never travel through RunPod's job-result payload (which silently
 // drops large outputs — see handler.py's notes).
 //
+// And it no longer separates the same recording twice. `start` hashes the
+// audio as it streams out of Storage and looks that hash up in
+// analysis_cache; on a hit it returns the finished analysis from that first
+// call, copies the stems into the caller's own folder, and never touches the
+// GPU. See migration 0024 for why the key is the content rather than a file
+// id.
+//
 // Required secrets (set via `supabase secrets set` or the dashboard):
 //   RUNPOD_API_KEY        - from runpod.io Settings -> API Keys
 //   RUNPOD_ENDPOINT_ID     - the separation service's endpoint id
@@ -24,6 +31,12 @@
 // already provided automatically to every Edge Function.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+// The platform's own crypto.subtle.digest only takes a whole buffer, which
+// would mean holding an entire song in memory just to hash it — the exact
+// mistake that produced WORKER_RESOURCE_LIMIT here once already. @std/crypto's
+// accepts a stream and hashes it chunk by chunk.
+import { crypto as stdCrypto } from 'jsr:@std/crypto@1';
+import { encodeHex } from 'jsr:@std/encoding@1/hex';
 
 const RUNPOD_API_KEY = Deno.env.get('RUNPOD_API_KEY');
 const RUNPOD_ENDPOINT_ID = Deno.env.get('RUNPOD_ENDPOINT_ID');
@@ -42,6 +55,33 @@ const RUNPOD_MAX_POLLS = 45; // ~3 minutes
 // separately below because the lyrics pass reads it.
 const STEMS = ['vocals', 'drums', 'bass', 'guitar', 'piano', 'other'] as const;
 type Stem = (typeof STEMS)[number];
+
+// Which pipeline a cached analysis came from. Bump this whenever a change
+// would make the same recording produce a different (or better) answer —
+// a new separation model, a new chord model, a new beat tracker — so every
+// existing cache row stops matching and is replaced by a real run. Not
+// bumping it after such a change is the one way this cache can serve a stale
+// answer, so it belongs next to the models it describes.
+const PIPELINE_VERSION = 'htdemucs_6s+chordmini+beat_this.1';
+
+/// The SHA-256 of whatever the URL serves, hex-encoded, hashed as it streams
+/// rather than buffered.
+///
+/// Returns null instead of throwing on any failure. A hash that can't be
+/// computed means "no caching this time", which costs a GPU job; a hash that
+/// throws would mean an analysis the user can't run at all. The cache is an
+/// optimization and is never allowed to be the reason something breaks — the
+/// same reasoning applies at every call site below.
+async function sha256OfUrl(url: string): Promise<string | null> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok || !response.body) return null;
+    const digest = await stdCrypto.subtle.digest('SHA-256', response.body);
+    return encodeHex(new Uint8Array(digest));
+  } catch {
+    return null;
+  }
+}
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -223,6 +263,11 @@ Deno.serve(async (req) => {
   let draftId: string | null;
   let action: string;
   let jobId: string | null;
+  // Whether this build understands a `start` that comes back already
+  // finished. Older ones read the response for a job id and fail without
+  // one, so they keep getting a real separation job — slower and dearer, but
+  // working, which matters more while a band is running mixed builds.
+  let acceptsCachedAnalysis: boolean;
   try {
     const body = await req.json();
     storagePath = body.storagePath;
@@ -231,6 +276,7 @@ Deno.serve(async (req) => {
     draftId = typeof body.draftId === 'string' && body.draftId.length > 0 ? body.draftId : null;
     action = typeof body.action === 'string' ? body.action : 'start';
     jobId = typeof body.jobId === 'string' && body.jobId.length > 0 ? body.jobId : null;
+    acceptsCachedAnalysis = body.acceptsCachedAnalysis === true;
     if (typeof storagePath !== 'string' || storagePath.length === 0) {
       return json({ error: 'storagePath is required' }, 400);
     }
@@ -271,13 +317,30 @@ Deno.serve(async (req) => {
 
   const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  // Stems live beside the reference recording: <room>/<project>/analysis/stems/<stem>.mp3.
-  // That keeps the first two path segments intact, which is what the
-  // room-files storage policies match on for room and project membership.
-  // Derived from storagePath rather than carried between calls, so `poll`
-  // needs no server-side state to find what `start` set up.
+  // Stems live beside the reference recording:
+  // <room>/<project>/analysis/stems/<recording>/<stem>.mp3. Keeping the first
+  // two path segments intact is what lets the room-files storage policies
+  // match on room and project membership.
+  //
+  // The <recording> segment is new. A project's stem directory used to be
+  // one flat folder, the same for every recording the project ever held —
+  // so attaching a new reference and analyzing it overwrote the previous
+  // take's stems in place. Naming the folder after the recording that
+  // produced it fixes that, and is what lets analysis_cache safely point at
+  // a stem directory and still be right months later.
+  //
+  // Derived from the storage path rather than from the audio's hash on
+  // purpose, so `start` and `poll` reach the same answer with no shared
+  // state between them: a project's references are named
+  // reference_<microseconds> and a Studio idea's folder is its own draft id,
+  // so this is already unique per recording in both buckets.
   const analysisDir = storagePath.split('/').slice(0, -1).join('/');
-  const stemPathFor = (stem: Stem) => `${analysisDir}/stems/${stem}.mp3`;
+  const recordingName = (storagePath.split('/').pop() ?? 'reference').replace(/\.[^.]+$/, '');
+  const stemDir = `${analysisDir}/stems/${recordingName}`;
+  // Where analyses before this change left their stems. Swept on re-analysis
+  // so a project doesn't keep a permanent copy of every take it ever had.
+  const legacyStemDir = `${analysisDir}/stems`;
+  const stemPathIn = (dir: string, stem: Stem) => `${dir}/${stem}.mp3`;
 
   // The harmonic mix goes through Storage rather than the job payload, for
   // every caller including ones without a projectId. Inlining it as base64
@@ -286,7 +349,133 @@ Deno.serve(async (req) => {
   // produced WORKER_RESOURCE_LIMIT on a four-minute song. Not persisted in
   // project_stems: it's an intermediate for the chord service, not a stem
   // anyone plays.
-  const mixPath = `${analysisDir}/stems/_harmonic_mix.mp3`;
+  const mixPath = `${stemDir}/_harmonic_mix.mp3`;
+
+  /// Records which stems a finished analysis produced, for whichever owner
+  /// this call is for. Shared by the cache-hit path and the normal one so
+  /// they cannot drift apart.
+  ///
+  /// Clears first in both cases: a re-analysis where some stem failed to
+  /// upload this time would otherwise leave a row pointing at an object
+  /// deleted before the job started, i.e. a playback entry that 404s.
+  /// Service role throughout — neither stem table has an insert policy for
+  /// `authenticated` on purpose, same trust model as notifications.
+  async function persistStems(stems: { stem: string; storagePath: string }[]) {
+    if (projectId) {
+      await adminClient.from('project_stems').delete().eq('project_id', projectId);
+      if (stems.length > 0) {
+        await adminClient.from('project_stems').insert(
+          stems.map((entry) => ({
+            project_id: projectId,
+            stem: entry.stem,
+            storage_path: entry.storagePath,
+          })),
+        );
+      }
+    } else if (draftId) {
+      await adminClient.from('studio_draft_stems').delete().eq('draft_id', draftId);
+      if (stems.length > 0) {
+        await adminClient.from('studio_draft_stems').insert(
+          stems.map((entry) => ({
+            draft_id: draftId,
+            stem: entry.stem,
+            storage_path: entry.storagePath,
+          })),
+        );
+      }
+    }
+  }
+
+  /// Moves a previous analysis's stems into the directory this caller needs
+  /// them in. True when all of them are in place afterwards.
+  ///
+  /// Copies rather than pointing at the originals so every band's stems stay
+  /// inside their own room's storage prefix, where the bucket policies can
+  /// reach them. Storage does the copy server-side, so the audio never passes
+  /// through this function.
+  async function copyStems(fromBucket: string, fromDir: string, names: Stem[]): Promise<boolean> {
+    if (fromBucket === bucket && fromDir === stemDir) {
+      // The same project (or the same Studio idea) re-analyzing the same
+      // recording: the stems are already exactly where they need to be.
+      // Confirm the objects still exist rather than trusting a row that
+      // could outlive them.
+      const { data: listed, error } = await adminClient.storage.from(bucket).list(stemDir);
+      if (error || !listed) return false;
+      const present = new Set(listed.map((object) => object.name));
+      return names.every((stem) => present.has(`${stem}.mp3`));
+    }
+    try {
+      for (const stem of names) {
+        const to = stemPathIn(stemDir, stem);
+        await adminClient.storage.from(bucket).remove([to]);
+        const { error } = await adminClient.storage
+          .from(fromBucket)
+          .copy(stemPathIn(fromDir, stem), to, { destinationBucket: bucket });
+        if (error) return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /// A finished analyze-chords response for a recording that has been through
+  /// the pipeline before, or null to say "run it for real".
+  async function reuseCachedAnalysis(sha: string): Promise<Record<string, unknown> | null> {
+    const { data: cached, error } = await adminClient
+      .from('analysis_cache')
+      .select('*')
+      .eq('audio_sha256', sha)
+      .eq('pipeline_version', PIPELINE_VERSION)
+      .maybeSingle();
+    if (error || !cached) return null;
+
+    let stems: { stem: string; storagePath: string }[] = [];
+    if (projectId || draftId) {
+      const names = ((cached.stems as string[] | null) ?? []).filter((stem): stem is Stem =>
+        (STEMS as readonly string[]).includes(stem)
+      );
+      // A cached row whose stems were never kept, or whose objects have since
+      // been deleted, is only half a hit. Regenerating just the stems means
+      // running the separation job anyway, so there is nothing left to save —
+      // fall through to a full run rather than hand back an analysis whose
+      // stem player is quietly empty.
+      if (names.length === 0 || !cached.stem_bucket || !cached.stem_dir) return null;
+      const copied = await copyStems(
+        cached.stem_bucket as string,
+        cached.stem_dir as string,
+        names,
+      );
+      if (!copied) return null;
+      stems = names.map((stem) => ({ stem, storagePath: stemPathIn(stemDir, stem) }));
+      await persistStems(stems);
+    }
+
+    await adminClient
+      .from('analysis_cache')
+      .update({
+        last_used_at: new Date().toISOString(),
+        hit_count: ((cached.hit_count as number | null) ?? 0) + 1,
+      })
+      .eq('audio_sha256', sha);
+
+    return {
+      status: 'complete',
+      // Purely informational: the app uses it to say it recognized the
+      // recording instead of pretending to have done the work again.
+      cached: true,
+      cues: cached.cues ?? [],
+      key: cached.musical_key ?? null,
+      bpm: cached.bpm ?? null,
+      beatsMs: cached.beats_ms ?? [],
+      downbeatsMs: cached.downbeats_ms ?? [],
+      beatsPerBar: cached.beats_per_bar ?? null,
+      instruments: cached.instruments ?? null,
+      structure: cached.structure ?? [],
+      stems,
+      vocalStemPath: stems.find((entry) => entry.stem === 'vocals')?.storagePath ?? null,
+    };
+  }
 
   // ── start ──────────────────────────────────────────────────────────────
   // Submits the separation job and returns immediately with its id.
@@ -311,6 +500,17 @@ Deno.serve(async (req) => {
     }
     const filename = storagePath.split('/').pop() ?? 'audio.mp3';
 
+    // Read the whole recording once, cheaply, before spending anything on it.
+    // A few seconds of streaming inside Supabase's own network is the price
+    // of possibly skipping a multi-minute GPU job.
+    if (acceptsCachedAnalysis) {
+      const audioSha256 = await sha256OfUrl(signedUrlData.signedUrl);
+      if (audioSha256) {
+        const reused = await reuseCachedAnalysis(audioSha256);
+        if (reused) return json(reused);
+      }
+    }
+
     await adminClient.storage.from(bucket).remove([mixPath]);
     const { data: mixUploadData } = await adminClient.storage
       .from(bucket)
@@ -321,11 +521,19 @@ Deno.serve(async (req) => {
     if (projectId || draftId) {
       // Re-analysis reuses the same object names; clear them first so a fresh
       // signed upload URL can't collide with a stale object.
-      await adminClient.storage.from(bucket).remove(STEMS.map(stemPathFor));
+      await adminClient.storage.from(bucket).remove(STEMS.map((stem) => stemPathIn(stemDir, stem)));
+      // And sweep the flat directory analyses used before stem folders were
+      // named after the recording. The rows that pointed at those objects are
+      // about to be replaced by persistStems, so leaving them would be a
+      // permanent copy of every stem this project ever had.
+      await adminClient.storage.from(bucket).remove([
+        ...STEMS.map((stem) => stemPathIn(legacyStemDir, stem)),
+        `${legacyStemDir}/_harmonic_mix.mp3`,
+      ]);
       for (const stem of STEMS) {
         const { data: upload } = await adminClient.storage
           .from(bucket)
-          .createSignedUploadUrl(stemPathFor(stem));
+          .createSignedUploadUrl(stemPathIn(stemDir, stem));
         if (upload?.signedUrl) stemUploads[stem] = upload.signedUrl;
       }
     }
@@ -373,41 +581,12 @@ Deno.serve(async (req) => {
     const key = separation.key ?? estimateKeyFallback(chords);
 
     let stems: { stem: string; storagePath: string }[] = [];
-    const analyzedProjectId = projectId;
-    const analyzedDraftId = draftId;
-    if (analyzedProjectId || analyzedDraftId) {
+    if (projectId || draftId) {
       stems = separation.uploadedStems
         .filter((stem): stem is Stem => (STEMS as readonly string[]).includes(stem))
-        .map((stem) => ({ stem, storagePath: stemPathFor(stem) }));
+        .map((stem) => ({ stem, storagePath: stemPathIn(stemDir, stem) }));
     }
-    // Clear first in both cases: a re-analysis where some stem failed to
-    // upload this time would otherwise leave a row pointing at an object
-    // deleted before the job started, i.e. a playback entry that 404s.
-    // Service role throughout — neither stem table has an insert policy for
-    // `authenticated` on purpose, same trust model as notifications.
-    if (analyzedProjectId) {
-      await adminClient.from('project_stems').delete().eq('project_id', analyzedProjectId);
-      if (stems.length > 0) {
-        await adminClient.from('project_stems').insert(
-          stems.map((entry) => ({
-            project_id: analyzedProjectId,
-            stem: entry.stem,
-            storage_path: entry.storagePath,
-          })),
-        );
-      }
-    } else if (analyzedDraftId) {
-      await adminClient.from('studio_draft_stems').delete().eq('draft_id', analyzedDraftId);
-      if (stems.length > 0) {
-        await adminClient.from('studio_draft_stems').insert(
-          stems.map((entry) => ({
-            draft_id: analyzedDraftId,
-            stem: entry.stem,
-            storage_path: entry.storagePath,
-          })),
-        );
-      }
-    }
+    await persistStems(stems);
 
     // ChordMini's .lab output doesn't expose per-segment confidence, only
     // the chord label itself — flat placeholder rather than fabricating
@@ -419,6 +598,56 @@ Deno.serve(async (req) => {
       chord: c.chord,
       confidence: 0.8,
     }));
+
+    // A run that named no chords at all is the one a musician retries, and
+    // caching it would make retrying pointless — the same empty answer,
+    // instantly, forever. Only a result worth having gets remembered.
+    const worthCaching = cues.length > 0;
+
+    // Which recording this was. Hashed again here rather than carried over
+    // from `start`, because the alternatives are worse: handing the key to
+    // the app and taking it back would let a client file one song's analysis
+    // under another song's hash and hand every other band the wrong chords,
+    // and a table of job breadcrumbs would put `poll` back in the business of
+    // remembering things. Reading the audio a second time costs a couple of
+    // seconds inside Supabase's own network, once, at the end of a job that
+    // just spent minutes on a GPU — and nothing depends on the result, so a
+    // failure here only means this run doesn't get cached.
+    const { data: rehashUrl } = worthCaching
+      ? await adminClient.storage.from(bucket).createSignedUrl(storagePath, 600)
+      : { data: null };
+    const audioSha256 = rehashUrl ? await sha256OfUrl(rehashUrl.signedUrl) : null;
+
+    // Remember this run so the next one doesn't have to happen. Written last,
+    // after every step that could still fail, so the cache only ever holds
+    // analyses that were actually delivered. Best-effort: a song that
+    // analyzed successfully should reach the user whether or not it could
+    // also be filed away.
+    if (audioSha256) {
+      // hit_count is deliberately absent — an upsert only overwrites the
+      // columns it names, so a re-analysis of the same recording under the
+      // same pipeline keeps the running total rather than resetting it.
+      await adminClient.from('analysis_cache').upsert(
+        {
+          audio_sha256: audioSha256,
+          pipeline_version: PIPELINE_VERSION,
+          cues,
+          musical_key: key,
+          bpm: separation.bpm,
+          beats_ms: separation.beatsMs,
+          downbeats_ms: separation.downbeatsMs,
+          beats_per_bar: separation.beatsPerBar,
+          instruments: separation.instruments,
+          structure: separation.structure,
+          stem_bucket: stems.length > 0 ? bucket : null,
+          stem_dir: stems.length > 0 ? stemDir : null,
+          stems: stems.map((entry) => entry.stem),
+          last_used_at: new Date().toISOString(),
+        },
+        { onConflict: 'audio_sha256' },
+      );
+    }
+
     return json({
       status: 'complete',
       cues,

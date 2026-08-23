@@ -14,7 +14,12 @@ import '../features/home/new_song_flow.dart';
 import 'audio_analysis_utils.dart';
 import 'error_reporter.dart';
 import 'song_analysis_service.dart'
-    show chordCoverage, separationMaxPolls, separationPollInterval, separationProgress;
+    show
+        chordCoverage,
+        reusedAnalysisProgress,
+        separationMaxPolls,
+        separationPollInterval,
+        separationProgress;
 
 List<int> _msList(dynamic value) {
   if (value is! List) return const <int>[];
@@ -258,8 +263,17 @@ class StudioDraftService {
       'draftId': draft.id,
       'storagePath': draft.storagePath,
       'bucket': 'studio-drafts',
+      // See the note on the project path: older builds can't read a `start`
+      // that comes back already finished.
+      'acceptsCachedAnalysis': true,
     };
     final started = await _invokeAnalyze(<String, dynamic>{...request, 'action': 'start'});
+    // Recognized from an earlier run — the idea you already analyzed, or the
+    // same take sitting in a project. Finished before the first poll.
+    if (started['status'] == 'complete') {
+      onProgress?.call(reusedAnalysisProgress);
+      return started;
+    }
     final jobId = started['jobId'] as String?;
     if (jobId == null) {
       throw StateError('The separation service did not start a job.');
