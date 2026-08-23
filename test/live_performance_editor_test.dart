@@ -63,7 +63,9 @@ void main() {
     expect(tester.takeException(), isNull);
     // Lyrics render word by word so chords can sit above individual words.
     expect(find.text('You'), findsOneWidget);
-    expect(find.textContaining('Verse'), findsWidgets);
+    // Sections are uppercased in Live, matching the Song Sheet — a marker a
+    // performer can pick out at a glance rather than another lyric line.
+    expect(find.textContaining('VERSE'), findsWidgets);
 
     // Live runs a ticker; tearing the tree down must cancel it cleanly
     // rather than leave a timer firing after dispose.

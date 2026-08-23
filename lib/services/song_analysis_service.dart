@@ -12,6 +12,27 @@ import 'error_reporter.dart';
 
 export 'audio_analysis_utils.dart' show SongAnalysisProgress;
 
+/// How often the app asks whether separation has finished, and for how long.
+/// Six minutes covers a cold GPU worker plus a long take; past that something
+/// is genuinely wrong and saying so beats spinning forever.
+const Duration separationPollInterval = Duration(seconds: 4);
+const int separationMaxPolls = 90;
+
+/// Progress while waiting on separation, spanning 0.15–0.50 so the bar keeps
+/// moving through the longest part of the job. The wording changes once the
+/// wait stops being typical, because a spinner that says the same thing for
+/// four minutes reads as broken even when it isn't.
+SongAnalysisProgress separationProgress(int attempt) {
+  final elapsed = separationPollInterval * (attempt + 1);
+  final fraction = (attempt + 1) / separationMaxPolls;
+  final label = elapsed < const Duration(seconds: 45)
+      ? 'Separating the instruments'
+      : elapsed < const Duration(minutes: 2)
+          ? 'Still separating — waking up the GPU'
+          : 'Still going. Long takes can take a few minutes';
+  return SongAnalysisProgress(label, 0.15 + (0.35 * fraction.clamp(0, 1)));
+}
+
 /// Splits timed transcript words into lines, breaking on a real pause rather
 /// than a fixed word count so the lines land where the singer breathed.
 ///
@@ -437,15 +458,8 @@ class SongAnalysisService {
   /// pipeline (see supabase/functions/analyze-chords) instead of the
   /// on-device chroma heuristic. Returns the same {cues, key} shape
   /// analyzeChordsOnDevice does, so callers don't need to care which one ran.
-  Future<Map<String, dynamic>> _detectChordsViaCloud(ReferenceTrack reference) async {
-    final response = await client.functions.invoke(
-      'analyze-chords',
-      body: <String, dynamic>{
-        'projectId': reference.projectId,
-        'storagePath': reference.storagePath,
-        'bucket': 'room-files',
-      },
-    );
+  Future<Map<String, dynamic>> _invokeAnalyze(Map<String, dynamic> body) async {
+    final response = await client.functions.invoke('analyze-chords', body: body);
     final data = response.data;
     if (data is! Map) {
       throw StateError('The chord detection service returned an unexpected response.');
@@ -455,6 +469,41 @@ class SongAnalysisService {
       throw StateError(map['error'].toString());
     }
     return map;
+  }
+
+  Future<Map<String, dynamic>> _detectChordsViaCloud(
+    ReferenceTrack reference, {
+    ValueChanged<SongAnalysisProgress>? onProgress,
+  }) async {
+    final request = <String, dynamic>{
+      'projectId': reference.projectId,
+      'storagePath': reference.storagePath,
+      'bucket': 'room-files',
+    };
+
+    // The Edge Function starts the separation job and hands back its id
+    // rather than waiting for it. Supabase kills a function that goes 150s
+    // without producing output, and separating a four-minute song on a cold
+    // GPU worker comfortably exceeds that — so the waiting happens here,
+    // where it can take as long as it needs and show progress meanwhile.
+    final started = await _invokeAnalyze(<String, dynamic>{...request, 'action': 'start'});
+    final jobId = started['jobId'] as String?;
+    if (jobId == null) {
+      throw StateError('The separation service did not start a job.');
+    }
+
+    for (var attempt = 0; attempt < separationMaxPolls; attempt++) {
+      await Future<void>.delayed(separationPollInterval);
+      final poll = await _invokeAnalyze(
+        <String, dynamic>{...request, 'action': 'poll', 'jobId': jobId},
+      );
+      if (poll['status'] != 'pending') return poll;
+      onProgress?.call(separationProgress(attempt));
+    }
+    throw StateError(
+      'Separating this recording is taking longer than usual. It may still be '
+      'running — try analyzing again in a minute.',
+    );
   }
 
   Future<SongAnalysisBundle> analyze({
@@ -483,7 +532,7 @@ class SongAnalysisService {
       Map<String, dynamic> chordResult;
       var usedFallback = false;
       try {
-        chordResult = await _detectChordsViaCloud(reference);
+        chordResult = await _detectChordsViaCloud(reference, onProgress: onProgress);
       } catch (error) {
         // An outage in the Demucs/ChordMini pipeline shouldn't turn "no
         // chords this time" into "no analysis at all". Falls back to the

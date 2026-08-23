@@ -711,13 +711,18 @@ class _PerformanceLine extends StatelessWidget {
             ),
             Expanded(
               child: Text(
-                body,
+                // Uppercased, matching the Song Sheet's section treatment.
+                // Sections are set smaller than the lyrics on purpose — they
+                // are signposts, not the thing being sung — and at a metre
+                // away small mixed-case gold text reads as just another line.
+                // Caps plus wider tracking is what makes it scan as a marker.
+                body.toUpperCase(),
                 style: TextStyle(
                   color: AppColors.gold.withValues(alpha: 0.92),
                   fontSize: fontSize * 0.72,
                   height: 1.25,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.6,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.4,
                 ),
               ),
             ),

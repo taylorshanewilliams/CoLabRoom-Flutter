@@ -12,6 +12,9 @@ import '../domain/song_analysis_models.dart';
 import '../domain/studio_draft_models.dart';
 import '../features/home/new_song_flow.dart';
 import 'audio_analysis_utils.dart';
+import 'error_reporter.dart';
+import 'song_analysis_service.dart'
+    show separationMaxPolls, separationPollInterval, separationProgress;
 
 /// The Studio's pre-project counterpart to [SongAnalysisService] — same
 /// analysis pipeline (same Edge Functions, same on-device fallback), but
@@ -19,9 +22,12 @@ import 'audio_analysis_utils.dart';
 /// draft has no room/project to hang off yet. See studio_draft_models.dart
 /// and supabase/migrations/0017_studio_drafts.sql for the parallel schema.
 class StudioDraftService {
-  StudioDraftService({SupabaseClient? client}) : _clientOverride = client;
+  StudioDraftService({SupabaseClient? client, ErrorReporter? reporter})
+      : _clientOverride = client,
+        _reporter = reporter ?? ErrorReporter(client: client);
 
   final SupabaseClient? _clientOverride;
+  final ErrorReporter _reporter;
 
   /// Resolved on use, not at construction. StudioHomeScreen builds this in a
   /// state field, and IndexedStack instantiates every tab whether or not
@@ -157,11 +163,8 @@ class StudioDraftService {
     return map;
   }
 
-  Future<Map<String, dynamic>> _detectChordsViaCloud(StudioDraft draft) async {
-    final response = await client.functions.invoke(
-      'analyze-chords',
-      body: <String, dynamic>{'storagePath': draft.storagePath, 'bucket': 'studio-drafts'},
-    );
+  Future<Map<String, dynamic>> _invokeAnalyze(Map<String, dynamic> body) async {
+    final response = await client.functions.invoke('analyze-chords', body: body);
     final data = response.data;
     if (data is! Map) {
       throw StateError('The chord detection service returned an unexpected response.');
@@ -169,6 +172,37 @@ class StudioDraftService {
     final map = Map<String, dynamic>.from(data);
     if (map['error'] != null) throw StateError(map['error'].toString());
     return map;
+  }
+
+  /// Same start-then-poll protocol the project analysis path uses — see
+  /// SongAnalysisService for why the Edge Function no longer waits on the
+  /// separation job itself.
+  Future<Map<String, dynamic>> _detectChordsViaCloud(
+    StudioDraft draft, {
+    ValueChanged<SongAnalysisProgress>? onProgress,
+  }) async {
+    final request = <String, dynamic>{
+      'storagePath': draft.storagePath,
+      'bucket': 'studio-drafts',
+    };
+    final started = await _invokeAnalyze(<String, dynamic>{...request, 'action': 'start'});
+    final jobId = started['jobId'] as String?;
+    if (jobId == null) {
+      throw StateError('The separation service did not start a job.');
+    }
+
+    for (var attempt = 0; attempt < separationMaxPolls; attempt++) {
+      await Future<void>.delayed(separationPollInterval);
+      final poll = await _invokeAnalyze(
+        <String, dynamic>{...request, 'action': 'poll', 'jobId': jobId},
+      );
+      if (poll['status'] != 'pending') return poll;
+      onProgress?.call(separationProgress(attempt));
+    }
+    throw StateError(
+      'Separating this recording is taking longer than usual. It may still be '
+      'running — try analyzing again in a minute.',
+    );
   }
 
   Future<StudioDraftBundle> analyze({
@@ -222,13 +256,18 @@ class StudioDraftService {
       } catch (error) {
         warning = 'Could not transcribe this recording\'s speech, so only chords were '
             'detected. Details: $error';
+        await _reporter.reportWarning(
+          service: 'studio_analysis',
+          stage: 'lyrics',
+          message: 'Transcription failed: $error',
+        );
       }
 
       onProgress?.call(const SongAnalysisProgress('Finding chord changes', 0.55));
       Map<String, dynamic> chordResult;
       var usedFallback = false;
       try {
-        chordResult = await _detectChordsViaCloud(draft);
+        chordResult = await _detectChordsViaCloud(draft, onProgress: onProgress);
       } catch (error) {
         usedFallback = true;
         final rawPcm = await AudioDecoder.convertToWavBytes(
@@ -247,6 +286,14 @@ class StudioDraftService {
         final fallbackNote =
             'Cloud chord detection was unavailable, so a less accurate on-device fallback was used. Details: $error';
         warning = warning == null ? fallbackNote : '$warning\n\n$fallbackNote';
+        // The Studio path was never instrumented, which is why the failure a
+        // user hit here produced no telemetry at all and had to be reported
+        // by screenshot.
+        await _reporter.reportWarning(
+          service: 'studio_analysis',
+          stage: 'separation',
+          message: 'Cloud chord detection unavailable, used on-device fallback: $error',
+        );
       }
 
       onProgress?.call(const SongAnalysisProgress('Listening for the beat and structure', 0.75));
@@ -321,6 +368,10 @@ class StudioDraftService {
         'analysis_state': 'failed',
         'last_error': error.toString(),
       }).eq('id', draft.id);
+      await _reporter.reportError(
+        service: 'studio_analysis',
+        message: error.toString(),
+      );
       rethrow;
     }
   }

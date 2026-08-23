@@ -72,12 +72,12 @@ interface SeparationResult {
   uploadedStems: string[];
 }
 
-async function separateAudio(
+async function submitSeparation(
   audioUrl: string,
   filename: string,
   stemUploads: Record<string, string>,
   mixUpload: string | null,
-): Promise<SeparationResult> {
+): Promise<string> {
   const runResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`, {
     method: 'POST',
     headers: {
@@ -102,41 +102,48 @@ async function separateAudio(
     throw new Error(`RunPod job submission failed (${runResponse.status}): ${await runResponse.text()}`);
   }
   const { id: jobId } = await runResponse.json();
-
-  for (let poll = 0; poll < RUNPOD_MAX_POLLS; poll++) {
-    await new Promise((resolve) => setTimeout(resolve, RUNPOD_POLL_INTERVAL_MS));
-    const statusResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/status/${jobId}`, {
-      headers: { Authorization: `Bearer ${RUNPOD_API_KEY}` },
-    });
-    if (!statusResponse.ok) continue;
-    const statusBody = await statusResponse.json();
-    if (statusBody.status === 'COMPLETED') {
-      const mixUploaded = statusBody.output?.harmonic_mix_uploaded === true;
-      const mixB64 = statusBody.output?.harmonic_mix_b64 ?? null;
-      if (!mixUploaded && !mixB64) {
-        throw new Error('RunPod job completed but returned no harmonic mix.');
-      }
-      return {
-        harmonicMixB64: mixB64,
-        mixUploaded,
-        // Best-effort fields the separation_service computes alongside the
-        // mix (BPM, key, instrument presence, structure boundaries) — absent
-        // or null here just means that detector didn't run/failed, not an
-        // error worth failing the whole job over.
-        bpm: typeof statusBody.output?.bpm === 'number' ? statusBody.output.bpm : null,
-        key: typeof statusBody.output?.key === 'string' ? statusBody.output.key : null,
-        instruments: statusBody.output?.instruments ?? null,
-        structure: statusBody.output?.structure ?? [],
-        uploadedStems: Array.isArray(statusBody.output?.uploaded_stems)
-          ? statusBody.output.uploaded_stems.filter((s: unknown) => typeof s === 'string')
-          : [],
-      };
-    }
-    if (statusBody.status === 'FAILED') {
-      throw new Error(`RunPod separation failed: ${statusBody.error ?? 'unknown error'}`);
-    }
+  if (typeof jobId !== 'string' || jobId.length === 0) {
+    throw new Error('RunPod accepted the job but returned no id.');
   }
-  throw new Error('RunPod separation timed out.');
+  return jobId;
+}
+
+/// null while the job is still queued or running.
+async function readSeparation(jobId: string): Promise<SeparationResult | null> {
+  const statusResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/status/${jobId}`, {
+    headers: { Authorization: `Bearer ${RUNPOD_API_KEY}` },
+  });
+  if (!statusResponse.ok) {
+    // A transient status-endpoint blip is not a failed job; let the caller
+    // ask again rather than discarding work that may well be finishing.
+    return null;
+  }
+  const statusBody = await statusResponse.json();
+  if (statusBody.status === 'FAILED') {
+    throw new Error(`RunPod separation failed: ${statusBody.error ?? 'unknown error'}`);
+  }
+  if (statusBody.status !== 'COMPLETED') return null;
+
+  const mixUploaded = statusBody.output?.harmonic_mix_uploaded === true;
+  const mixB64 = statusBody.output?.harmonic_mix_b64 ?? null;
+  if (!mixUploaded && !mixB64) {
+    throw new Error('RunPod job completed but returned no harmonic mix.');
+  }
+  return {
+    harmonicMixB64: mixB64,
+    mixUploaded,
+    // Best-effort fields the separation_service computes alongside the
+    // mix (BPM, key, instrument presence, structure boundaries) — absent
+    // or null here just means that detector didn't run/failed, not an
+    // error worth failing the whole job over.
+    bpm: typeof statusBody.output?.bpm === 'number' ? statusBody.output.bpm : null,
+    key: typeof statusBody.output?.key === 'string' ? statusBody.output.key : null,
+    instruments: statusBody.output?.instruments ?? null,
+    structure: statusBody.output?.structure ?? [],
+    uploadedStems: Array.isArray(statusBody.output?.uploaded_stems)
+      ? statusBody.output.uploaded_stems.filter((s: unknown) => typeof s === 'string')
+      : [],
+  };
 }
 
 async function detectChords(
@@ -199,13 +206,23 @@ Deno.serve(async (req) => {
   let storagePath: string;
   let bucket: string;
   let projectId: string | null;
+  let action: string;
+  let jobId: string | null;
   try {
     const body = await req.json();
     storagePath = body.storagePath;
     bucket = body.bucket ?? 'room-files';
     projectId = typeof body.projectId === 'string' && body.projectId.length > 0 ? body.projectId : null;
+    action = typeof body.action === 'string' ? body.action : 'start';
+    jobId = typeof body.jobId === 'string' && body.jobId.length > 0 ? body.jobId : null;
     if (typeof storagePath !== 'string' || storagePath.length === 0) {
       return json({ error: 'storagePath is required' }, 400);
+    }
+    if (action !== 'start' && action !== 'poll') {
+      return json({ error: "action must be 'start' or 'poll'" }, 400);
+    }
+    if (action === 'poll' && jobId == null) {
+      return json({ error: 'jobId is required to poll' }, 400);
     }
   } catch {
     return json({ error: 'Invalid JSON body' }, 400);
@@ -237,21 +254,12 @@ Deno.serve(async (req) => {
   }
 
   const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-  // No need to pull the file into the function's own memory at all — the
-  // separation_service worker downloads it directly from this signed URL,
-  // which also sidesteps RunPod's 10MiB request-body cap entirely rather
-  // than trying to squeeze under it.
-  const { data: signedUrlData, error: signedUrlError } = await adminClient.storage
-    .from(bucket)
-    .createSignedUrl(storagePath, 900);
-  if (signedUrlError || !signedUrlData) {
-    return json({ error: `Could not create signed URL: ${signedUrlError?.message ?? 'not found'}` }, 404);
-  }
-  const filename = storagePath.split('/').pop() ?? 'audio.mp3';
 
   // Stems live beside the reference recording: <room>/<project>/analysis/stems/<stem>.mp3.
   // That keeps the first two path segments intact, which is what the
   // room-files storage policies match on for room and project membership.
+  // Derived from storagePath rather than carried between calls, so `poll`
+  // needs no server-side state to find what `start` set up.
   const analysisDir = storagePath.split('/').slice(0, -1).join('/');
   const stemPathFor = (stem: Stem) => `${analysisDir}/stems/${stem}.mp3`;
 
@@ -263,32 +271,69 @@ Deno.serve(async (req) => {
   // project_stems: it's an intermediate for the chord service, not a stem
   // anyone plays.
   const mixPath = `${analysisDir}/stems/_harmonic_mix.mp3`;
-  await adminClient.storage.from(bucket).remove([mixPath]);
-  const { data: mixUploadData } = await adminClient.storage
-    .from(bucket)
-    .createSignedUploadUrl(mixPath);
-  const mixUpload = mixUploadData?.signedUrl ?? null;
 
-  const stemUploads: Record<string, string> = {};
-  if (projectId) {
-    // Re-analysis reuses the same object names; clear them first so a fresh
-    // signed upload URL can't collide with a stale object.
-    await adminClient.storage.from(bucket).remove(STEMS.map(stemPathFor));
-    for (const stem of STEMS) {
-      const { data: upload } = await adminClient.storage
-        .from(bucket)
-        .createSignedUploadUrl(stemPathFor(stem));
-      if (upload?.signedUrl) stemUploads[stem] = upload.signedUrl;
+  // ── start ──────────────────────────────────────────────────────────────
+  // Submits the separation job and returns immediately with its id.
+  //
+  // This function used to poll RunPod to completion inline, which meant one
+  // request sat awaiting a multi-minute GPU job while producing no output —
+  // and Supabase kills a function that goes 150s without activity
+  // (IDLE_TIMEOUT). Raising the poll ceiling only moves that wall; handing
+  // the job id back and letting the app do the waiting removes it. The app
+  // can wait as long as it likes, and show real progress while it does.
+  if (action === 'start') {
+    // No need to pull the file into the function's own memory at all — the
+    // separation_service worker downloads it directly from this signed URL,
+    // which also sidesteps RunPod's 10MiB request-body cap entirely rather
+    // than trying to squeeze under it. Long-lived because the worker may not
+    // pick the job up until after a cold start.
+    const { data: signedUrlData, error: signedUrlError } = await adminClient.storage
+      .from(bucket)
+      .createSignedUrl(storagePath, 3600);
+    if (signedUrlError || !signedUrlData) {
+      return json({ error: `Could not create signed URL: ${signedUrlError?.message ?? 'not found'}` }, 404);
+    }
+    const filename = storagePath.split('/').pop() ?? 'audio.mp3';
+
+    await adminClient.storage.from(bucket).remove([mixPath]);
+    const { data: mixUploadData } = await adminClient.storage
+      .from(bucket)
+      .createSignedUploadUrl(mixPath);
+    const mixUpload = mixUploadData?.signedUrl ?? null;
+
+    const stemUploads: Record<string, string> = {};
+    if (projectId) {
+      // Re-analysis reuses the same object names; clear them first so a fresh
+      // signed upload URL can't collide with a stale object.
+      await adminClient.storage.from(bucket).remove(STEMS.map(stemPathFor));
+      for (const stem of STEMS) {
+        const { data: upload } = await adminClient.storage
+          .from(bucket)
+          .createSignedUploadUrl(stemPathFor(stem));
+        if (upload?.signedUrl) stemUploads[stem] = upload.signedUrl;
+      }
+    }
+
+    try {
+      const startedJobId = await submitSeparation(
+        signedUrlData.signedUrl,
+        filename,
+        stemUploads,
+        mixUpload,
+      );
+      return json({ status: 'started', jobId: startedJobId });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, 502);
     }
   }
 
+  // ── poll ───────────────────────────────────────────────────────────────
+  // Cheap while the job runs. Once separation completes, this is also the
+  // call that runs chord detection and persists the stems — a few seconds of
+  // work, comfortably inside the idle limit.
   try {
-    const separation = await separateAudio(
-      signedUrlData.signedUrl,
-      filename,
-      stemUploads,
-      mixUpload,
-    );
+    const separation = await readSeparation(jobId!);
+    if (separation == null) return json({ status: 'pending' });
 
     let mixBlob: Blob;
     if (separation.mixUploaded) {
@@ -345,6 +390,7 @@ Deno.serve(async (req) => {
       confidence: 0.8,
     }));
     return json({
+      status: 'complete',
       cues,
       key,
       bpm: separation.bpm,
