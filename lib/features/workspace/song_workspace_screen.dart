@@ -24,7 +24,14 @@ import 'song_analysis_screen.dart';
 
 enum _VoiceNoteAction { play, rerecord, delete }
 
-enum _SongMenuAction { analyze, record, live, invite, color, print, share }
+/// Actions reachable from the song screen's overflow menu.
+///
+/// Deliberately does *not* include analyze/record/perform any more: those
+/// three are the verbs a musician came to this screen for, so they live in
+/// the always-visible toolbar instead. They used to appear in both places
+/// under two different names — the "Recording" pill and the "Analyze Song"
+/// menu item pushed the exact same screen.
+enum _SongMenuAction { importLyrics, invite, color, print, share }
 
 class SongWorkspaceScreen extends StatefulWidget {
   const SongWorkspaceScreen({required this.projectId, super.key});
@@ -269,10 +276,13 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     );
   }
 
-  Future<void> _openRecording(SongProject project) async {
+  /// Opens the analysis screen — the chord/lyric/stem breakdown of this
+  /// song's recording. [autoRecord] jumps straight into capturing a new take
+  /// rather than landing on the summary.
+  Future<void> _openAnalysis(SongProject project, {bool autoRecord = false}) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SongAnalysisScreen(project: project),
+        builder: (_) => SongAnalysisScreen(project: project, autoRecord: autoRecord),
         fullscreenDialog: true,
       ),
     );
@@ -280,28 +290,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   }
 
   Future<void> _exportSong(SongProject project, _SongMenuAction action) async {
-    if (action == _SongMenuAction.analyze) {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => SongAnalysisScreen(project: project),
-          fullscreenDialog: true,
-        ),
-      );
-      unawaited(_loadAnalysisBundle());
-      return;
-    }
-    if (action == _SongMenuAction.record) {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => SongAnalysisScreen(project: project, autoRecord: true),
-          fullscreenDialog: true,
-        ),
-      );
-      unawaited(_loadAnalysisBundle());
-      return;
-    }
-    if (action == _SongMenuAction.live) {
-      await _openLivePerformance(project);
+    if (action == _SongMenuAction.importLyrics) {
+      await _importLyrics(project);
       return;
     }
     if (action == _SongMenuAction.color) {
@@ -320,9 +310,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         case _SongMenuAction.share:
           await ProjectExportService.shareSong(project);
           break;
-        case _SongMenuAction.analyze:
-        case _SongMenuAction.record:
-        case _SongMenuAction.live:
+        case _SongMenuAction.importLyrics:
         case _SongMenuAction.invite:
         case _SongMenuAction.color:
           break; // handled above
@@ -800,16 +788,15 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 key: const Key('workspace_landscape_panel'),
                 project: project,
                 room: room,
-                importingLyrics: _importingLyrics,
                 onBack: () {
                   Navigator.maybePop(context);
                 },
                 onRename: () => _rename(project),
                 onOpenLive: () => _openLivePerformance(project),
-                onImport: () => _importLyrics(project),
                 onExport: (action) => _exportSong(project, action),
                 hasRecording: _analysisBundle?.reference != null,
-                onOpenRecording: () => _openRecording(project),
+                onAnalyze: () => _openAnalysis(project),
+                onRecord: () => _openAnalysis(project, autoRecord: true),
                 editor: editor,
               )
             : Column(
@@ -825,11 +812,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     onExport: (action) => _exportSong(project, action),
                   ),
                   _WorkspaceToolbar(
-                    importingLyrics: _importingLyrics,
                     onOpenLive: () => _openLivePerformance(project),
-                    onImport: () => _importLyrics(project),
+                    onAnalyze: () => _openAnalysis(project),
+                    onRecord: () => _openAnalysis(project, autoRecord: true),
                     hasRecording: _analysisBundle?.reference != null,
-                    onOpenRecording: () => _openRecording(project),
                   ),
                   const Divider(height: 1),
                   Expanded(child: editor),
@@ -924,27 +910,11 @@ class _PortraitProjectHeader extends StatelessWidget {
             onSelected: onExport,
             itemBuilder: (_) => const <PopupMenuEntry<_SongMenuAction>>[
               PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.analyze,
+                value: _SongMenuAction.importLyrics,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.graphic_eq_rounded),
-                  title: Text('Analyze Song'),
-                ),
-              ),
-              PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.record,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.mic_rounded),
-                  title: Text('Record Audio'),
-                ),
-              ),
-              PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.live,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.play_circle_outline_rounded),
-                  title: Text('Live Performance'),
+                  leading: Icon(Icons.file_download_outlined),
+                  title: Text('Import lyrics'),
                 ),
               ),
               PopupMenuItem<_SongMenuAction>(
@@ -993,28 +963,26 @@ class _LandscapeWorkspace extends StatelessWidget {
   const _LandscapeWorkspace({
     required this.project,
     required this.room,
-    required this.importingLyrics,
     required this.onBack,
     required this.onRename,
     required this.onOpenLive,
-    required this.onImport,
     required this.onExport,
     required this.hasRecording,
-    required this.onOpenRecording,
+    required this.onAnalyze,
+    required this.onRecord,
     required this.editor,
     super.key,
   });
 
   final SongProject project;
   final MusicRoom room;
-  final bool importingLyrics;
   final VoidCallback onBack;
   final VoidCallback onRename;
   final VoidCallback onOpenLive;
-  final VoidCallback onImport;
   final ValueChanged<_SongMenuAction> onExport;
   final bool hasRecording;
-  final VoidCallback onOpenRecording;
+  final VoidCallback onAnalyze;
+  final VoidCallback onRecord;
   final Widget editor;
 
   @override
@@ -1057,33 +1025,30 @@ class _LandscapeWorkspace extends StatelessWidget {
                   ),
                 ),
               ),
+              // Same three verbs as portrait's toolbar, as icons to fit the
+              // shorter landscape bar — and reaching the same callbacks, so
+              // the two orientations can't drift apart in what they offer.
               IconButton(
-                key: const Key('workspace_recording_button'),
-                onPressed: onOpenRecording,
-                tooltip: hasRecording ? 'Recording' : 'No recording yet',
+                key: const Key('workspace_analyze_button'),
+                onPressed: onAnalyze,
+                tooltip: hasRecording ? 'Analysis' : 'Analyze this song',
                 icon: Icon(
-                  hasRecording ? Icons.graphic_eq_rounded : Icons.mic_none_rounded,
+                  Icons.graphic_eq_rounded,
                   size: 19,
                   color: hasRecording ? AppColors.gold : AppColors.muted,
                 ),
               ),
               IconButton(
-                key: const Key('workspace_live_button'),
-                onPressed: onOpenLive,
-                tooltip: 'Live Performance',
-                icon: const Icon(Icons.play_circle_outline_rounded, size: 19, color: AppColors.cyan),
+                key: const Key('workspace_record_button'),
+                onPressed: onRecord,
+                tooltip: hasRecording ? 'Record a new take' : 'Record',
+                icon: const Icon(Icons.mic_none_rounded, size: 19, color: AppColors.muted),
               ),
               IconButton(
-                key: const Key('workspace_import_lyrics'),
-                onPressed: importingLyrics ? null : onImport,
-                tooltip: 'Import lyrics',
-                icon: importingLyrics
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.file_download_outlined, size: 20),
+                key: const Key('workspace_live_button'),
+                onPressed: onOpenLive,
+                tooltip: 'Perform',
+                icon: const Icon(Icons.play_circle_outline_rounded, size: 19, color: AppColors.cyan),
               ),
               PopupMenuButton<_SongMenuAction>(
                 key: const Key('song_options_menu'),
@@ -1091,27 +1056,11 @@ class _LandscapeWorkspace extends StatelessWidget {
                 onSelected: onExport,
                 itemBuilder: (_) => const <PopupMenuEntry<_SongMenuAction>>[
                   PopupMenuItem<_SongMenuAction>(
-                    value: _SongMenuAction.analyze,
+                    value: _SongMenuAction.importLyrics,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.graphic_eq_rounded),
-                      title: Text('Analyze Song'),
-                    ),
-                  ),
-                  PopupMenuItem<_SongMenuAction>(
-                    value: _SongMenuAction.record,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.mic_rounded),
-                      title: Text('Record Audio'),
-                    ),
-                  ),
-                  PopupMenuItem<_SongMenuAction>(
-                    value: _SongMenuAction.live,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.play_circle_outline_rounded),
-                      title: Text('Live Performance'),
+                      leading: Icon(Icons.file_download_outlined),
+                      title: Text('Import lyrics'),
                     ),
                   ),
                   PopupMenuItem<_SongMenuAction>(
@@ -1123,6 +1072,14 @@ class _LandscapeWorkspace extends StatelessWidget {
                     ),
                   ),
                   PopupMenuDivider(),
+                  PopupMenuItem<_SongMenuAction>(
+                    value: _SongMenuAction.color,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.circle_outlined),
+                      title: Text('Line color'),
+                    ),
+                  ),
                   PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.print,
                     child: ListTile(
@@ -1181,43 +1138,46 @@ class _RoomMark extends StatelessWidget {
 
 class _WorkspaceToolbar extends StatelessWidget {
   const _WorkspaceToolbar({
-    required this.importingLyrics,
     required this.onOpenLive,
-    required this.onImport,
     required this.hasRecording,
-    required this.onOpenRecording,
+    required this.onAnalyze,
+    required this.onRecord,
   });
 
-  final bool importingLyrics;
   final VoidCallback onOpenLive;
-  final VoidCallback onImport;
   final bool hasRecording;
-  final VoidCallback onOpenRecording;
+  final VoidCallback onAnalyze;
+  final VoidCallback onRecord;
 
   @override
   Widget build(BuildContext context) {
+    // The three things a musician opens a song to do, always visible. Analyze
+    // in particular used to be buried in the overflow menu between "Record
+    // Audio" and "Send to printer" despite being the app's most distinctive
+    // capability. Everything that isn't one of these three verbs — import,
+    // invite, colour, print, share — lives in the overflow, listed once.
     final actions = <Widget>[
       _ToolPill(
-        key: const Key('workspace_recording_button'),
-        icon: hasRecording ? Icons.graphic_eq_rounded : Icons.mic_none_rounded,
-        label: hasRecording ? 'Recording' : 'No recording',
+        key: const Key('workspace_analyze_button'),
+        icon: Icons.graphic_eq_rounded,
+        label: hasRecording ? 'Analysis' : 'Analyze',
         active: hasRecording,
         activeColor: AppColors.gold,
-        onTap: onOpenRecording,
+        onTap: onAnalyze,
+      ),
+      _ToolPill(
+        key: const Key('workspace_record_button'),
+        icon: Icons.mic_none_rounded,
+        label: hasRecording ? 'New take' : 'Record',
+        active: false,
+        onTap: onRecord,
       ),
       _ToolPill(
         key: const Key('workspace_live_button'),
         icon: Icons.play_circle_outline_rounded,
-        label: 'Live Performance',
+        label: 'Perform',
         active: false,
         onTap: onOpenLive,
-      ),
-      _ToolPill(
-        key: const Key('workspace_import_lyrics'),
-        icon: Icons.file_download_outlined,
-        label: importingLyrics ? 'Importing…' : 'Import lyrics',
-        active: false,
-        onTap: importingLyrics ? null : onImport,
       ),
     ];
     return SizedBox(

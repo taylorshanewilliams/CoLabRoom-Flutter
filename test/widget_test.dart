@@ -27,8 +27,12 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Midnight Signal'), findsOneWidget);
+    // The three verbs live in the always-visible toolbar; everything else is
+    // in the overflow. Each appears exactly once — analyze and perform used
+    // to be in both the toolbar and the menu under two different names.
+    expect(find.byKey(const Key('workspace_analyze_button')), findsOneWidget);
+    expect(find.byKey(const Key('workspace_record_button')), findsOneWidget);
     expect(find.byKey(const Key('workspace_live_button')), findsOneWidget);
-    expect(find.byKey(const Key('workspace_import_lyrics')), findsOneWidget);
     expect(find.byKey(const Key('continuous_song_document')), findsOneWidget);
     expect(find.byKey(const Key('talk_to_text_button')), findsOneWidget);
     expect(find.text('Taylor'), findsNothing);
@@ -77,8 +81,11 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.byKey(const Key('workspace_landscape_panel')), findsOneWidget);
+    // Landscape offers the same three verbs as portrait, as icons — the two
+    // orientations shouldn't drift apart in what they can reach.
+    expect(find.byKey(const Key('workspace_analyze_button')), findsOneWidget);
+    expect(find.byKey(const Key('workspace_record_button')), findsOneWidget);
     expect(find.byKey(const Key('workspace_live_button')), findsOneWidget);
-    expect(find.byKey(const Key('workspace_import_lyrics')), findsOneWidget);
     expect(find.byKey(const Key('continuous_song_document')), findsOneWidget);
   });
 }
