@@ -7,10 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../app/supabase_access.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/project_export_service.dart';
@@ -198,7 +198,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   /// falls back to AppColors.orange only if the member row can't be found
   /// yet (e.g. room still loading).
   Color _authorColorFor(MusicRoom? room) {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final userId = currentUserIdOrNull();
     if (room != null && userId != null) {
       for (final member in room.members) {
         if (member.userId == userId) return Color(member.colorValue);
@@ -401,7 +401,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   Future<void> _showColorPicker() async {
     final room = BetaScope.of(context).roomForProject(widget.projectId);
     if (room == null) return;
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final currentUserId = currentUserIdOrNull();
     final currentColorValue = _authorColorFor(room).toARGB32();
     await showModalBottomSheet<void>(
       context: context,

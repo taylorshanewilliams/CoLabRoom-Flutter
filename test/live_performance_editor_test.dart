@@ -44,13 +44,18 @@ void main() {
         ),
       ],
     );
+    // Deliberately not `ready`: a ready bundle switches Live mode to its
+    // Song Sheet source, which renders the analysis transcript and ignores
+    // workspace lyrics entirely. This test is about placing chords onto the
+    // project's own typed lines ('Verse 1:' and 'line-1'), which is the
+    // workspace source — so the reference stays mid-analysis.
     const analysis = SongAnalysisBundle(
       reference: ReferenceTrack(
         projectId: 'song-live',
         fileId: 'file-live',
         storagePath: 'room/song/reference.wav',
         displayName: 'reference.wav',
-        state: SongAnalysisState.ready,
+        state: SongAnalysisState.processing,
         durationMs: 12000,
         musicalKey: 'D',
       ),
