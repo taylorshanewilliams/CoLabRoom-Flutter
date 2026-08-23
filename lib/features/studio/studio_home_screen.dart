@@ -133,6 +133,51 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
       if (mounted) setState(() => _working = false);
       return;
     }
+
+    // Confirm before starting. Picking a file used to begin analysis on the
+    // spot — a multi-minute job with no way to stop it — so tapping the wrong
+    // row in a file browser meant waiting it out. Showing the name that was
+    // actually picked is the point: it's the only chance to notice the wrong
+    // one before the GPU starts.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Analyze this recording?'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(file.name, style: const TextStyle(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 10),
+              const Text(
+                'This separates the instruments, finds the chords and key, and '
+                'transcribes the words. It usually takes a couple of minutes and '
+                'can’t be stopped once it starts.',
+                style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.45),
+              ),
+            ],
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('studio_confirm_analyze'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Analyze'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      if (mounted) setState(() => _working = false);
+      return;
+    }
+
     await _upload(path: file.path!, displayName: file.name);
   }
 

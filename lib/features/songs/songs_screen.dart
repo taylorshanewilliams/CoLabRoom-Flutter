@@ -4,9 +4,15 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../widgets/app_surface.dart';
+import '../../domain/name_policy.dart';
+import '../../widgets/music_tiles.dart';
 import '../home/new_song_flow.dart';
+import '../rooms/setlist_detail_screen.dart';
 import '../workspace/song_workspace_screen.dart';
 import 'song_search.dart';
+
+/// Songs, or the sets they're grouped into for a specific occasion.
+enum _SongsView { songs, sets }
 
 /// Every song the user can reach, in one place.
 ///
@@ -26,6 +32,7 @@ class _SongsScreenState extends State<SongsScreen> {
   final _searchController = TextEditingController();
   String _query = '';
   String? _roomFilterId;
+  _SongsView _view = _SongsView.songs;
 
   @override
   void dispose() {
@@ -39,10 +46,36 @@ class _SongsScreenState extends State<SongsScreen> {
     );
   }
 
+  void _openSet(Setlist setlist) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => SetlistDetailScreen(setlistId: setlist.id)),
+    );
+  }
+
   Future<void> _newSong() async {
     final controller = BetaScope.of(context);
     final project = await showNewSongFlow(context, controller);
     if (project != null && mounted) _open(project);
+  }
+
+  Future<void> _newSet() async {
+    final controller = BetaScope.of(context);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => const _NewSetDialog(),
+    );
+    final cleaned = NamePolicy.clean(name ?? '');
+    if (cleaned.isEmpty || !mounted) return;
+    try {
+      final setlist = await controller.createSetlist(cleaned);
+      // Straight into the set so the next thing is adding songs, rather than
+      // leaving an empty set sitting in a list.
+      if (mounted) _openSet(setlist);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
   }
 
   @override
@@ -51,10 +84,17 @@ class _SongsScreenState extends State<SongsScreen> {
     final rooms = controller.rooms;
     final searching = _query.trim().isNotEmpty;
 
+    final showingSongs = _view == _SongsView.songs;
+
     var results = searching ? searchSongs(rooms, _query) : allSongsByRecency(rooms);
     if (_roomFilterId != null) {
       results = results.where((r) => r.room.id == _roomFilterId).toList(growable: false);
     }
+    final sets = searching
+        ? controller.setlists
+            .where((s) => NamePolicy.normalized(s.name).contains(NamePolicy.normalized(_query)))
+            .toList(growable: false)
+        : controller.setlists;
 
     return CustomScrollView(
       slivers: <Widget>[
@@ -68,11 +108,37 @@ class _SongsScreenState extends State<SongsScreen> {
                 ),
                 FilledButton.icon(
                   key: const Key('songs_new_button'),
-                  onPressed: _newSong,
+                  onPressed: showingSongs ? _newSong : _newSet,
                   icon: const Icon(Icons.add_rounded, size: 20),
-                  label: const Text('New'),
+                  label: Text(showingSongs ? 'New song' : 'New set'),
                 ),
               ],
+            ),
+          ),
+        ),
+        // Sets are the same music, grouped for an occasion — Friday's
+        // practice, Saturday's show — so they belong beside the library
+        // rather than behind a tab of their own. They used to live under a
+        // toggle on the Rooms screen, which meant they disappeared entirely
+        // when Rooms stopped being a destination.
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+          sliver: SliverToBoxAdapter(
+            child: SegmentedButton<_SongsView>(
+              segments: const <ButtonSegment<_SongsView>>[
+                ButtonSegment<_SongsView>(
+                  value: _SongsView.songs,
+                  icon: Icon(Icons.library_music_rounded, size: 18),
+                  label: Text('All songs'),
+                ),
+                ButtonSegment<_SongsView>(
+                  value: _SongsView.sets,
+                  icon: Icon(Icons.queue_music_rounded, size: 18),
+                  label: Text('Sets'),
+                ),
+              ],
+              selected: <_SongsView>{_view},
+              onSelectionChanged: (selection) => setState(() => _view = selection.first),
             ),
           ),
         ),
@@ -85,7 +151,9 @@ class _SongsScreenState extends State<SongsScreen> {
               onChanged: (value) => setState(() => _query = value),
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                hintText: 'Search songs, rooms, or a lyric you remember',
+                hintText: showingSongs
+                    ? 'Search songs, rooms, or a lyric you remember'
+                    : 'Search sets',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: searching
                     ? IconButton(
@@ -101,7 +169,51 @@ class _SongsScreenState extends State<SongsScreen> {
             ),
           ),
         ),
-        if (rooms.length > 1)
+        if (!showingSongs)
+          if (sets.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(30, 20, 30, 60),
+                child: Center(
+                  child: Text(
+                    searching
+                        ? 'No sets match “${_query.trim()}”.'
+                        : 'No sets yet.\n\nA set is a running order for one occasion — '
+                            'Friday practice, Saturday’s show — built from songs you '
+                            'already have, in whatever order you’ll play them.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppColors.muted, height: 1.5),
+                  ),
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 30),
+              sliver: SliverLayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.crossAxisExtent;
+                  final count = width >= 980 ? 4 : width >= 620 ? 3 : 2;
+                  return SliverGrid(
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: count,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 10,
+                      mainAxisExtent: 158,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) => SetlistTile(
+                        setlist: sets[index],
+                        onTap: () => _openSet(sets[index]),
+                      ),
+                      childCount: sets.length,
+                    ),
+                  );
+                },
+              ),
+            )
+        else if (rooms.length > 1)
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
             sliver: SliverToBoxAdapter(
@@ -128,34 +240,80 @@ class _SongsScreenState extends State<SongsScreen> {
               ),
             ),
           ),
-        if (results.isEmpty)
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(30, 20, 30, 60),
-              child: Center(
-                child: Text(
-                  searching
-                      ? 'Nothing matches “${_query.trim()}”.'
-                      : 'No songs yet. Tap New to start one.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppColors.muted),
+        if (showingSongs)
+          if (results.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(30, 20, 30, 60),
+                child: Center(
+                  child: Text(
+                    searching
+                        ? 'Nothing matches “${_query.trim()}”.'
+                        : 'No songs yet. Tap New song to start one.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppColors.muted),
+                  ),
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 30),
+              sliver: SliverList.separated(
+                itemCount: results.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 9),
+                itemBuilder: (context, index) => _SongRow(
+                  result: results[index],
+                  onTap: () => _open(results[index].project),
                 ),
               ),
             ),
-          )
-        else
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 18, 30),
-            sliver: SliverList.separated(
-              itemCount: results.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 9),
-              itemBuilder: (context, index) => _SongRow(
-                result: results[index],
-                onTap: () => _open(results[index].project),
-              ),
-            ),
+      ],
+    );
+  }
+}
+
+class _NewSetDialog extends StatefulWidget {
+  const _NewSetDialog();
+
+  @override
+  State<_NewSetDialog> createState() => _NewSetDialogState();
+}
+
+class _NewSetDialogState extends State<_NewSetDialog> {
+  final _name = TextEditingController();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('New set'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: TextField(
+          controller: _name,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            labelText: 'Name this set',
+            hintText: 'Friday practice',
+            helperText: 'You’ll pick the songs and their order next.',
           ),
+          onSubmitted: (value) => Navigator.pop(context, value),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _name.text),
+          child: const Text('Create'),
+        ),
       ],
     );
   }

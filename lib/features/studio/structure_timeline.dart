@@ -5,23 +5,33 @@ import 'package:flutter/material.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/song_analysis_models.dart';
 
-/// Boundaries only, generic labels — never asserted as Verse/Chorus/Bridge
-/// (see StructureSection's doc comment). A same-label block always gets the
-/// same color so repeated sections read visually as "this shape again"
-/// without claiming to know what that shape actually is.
+/// The shape of the song: which parts it's built from and the order they
+/// come in.
+///
+/// Deliberately abstract — "Part A", never "Chorus". The analysis can tell
+/// that two stretches are the same musical idea; it cannot tell which one is
+/// the chorus, and guessing would be worse than staying honest.
+///
+/// Reads as a form ("A B A B C B") rather than a list of boundaries, because
+/// that is how a musician describes a song to another musician. Repeats share
+/// a colour and a letter, so the pattern is visible before a single word is
+/// read.
 class StructureTimeline extends StatelessWidget {
   const StructureTimeline({required this.sections, super.key});
 
   final List<StructureSection> sections;
 
   static const _palette = <Color>[
-    AppColors.gold,
     AppColors.cyan,
+    AppColors.gold,
     AppColors.green,
     Color(0xFFB993FF),
     Color(0xFFFF7A7A),
     Color(0xFF7C8CFF),
   ];
+
+  Color _colorFor(StructureSection section) =>
+      _palette[section.groupIndex % _palette.length];
 
   @override
   Widget build(BuildContext context) {
@@ -41,66 +51,140 @@ class StructureTimeline extends StatelessWidget {
       );
     }
 
-    final colorByLabel = <String, Color>{};
+    // One entry per distinct part, in order of first appearance, with how
+    // many times it comes round.
+    final playCounts = <int, int>{};
+    final firstSeen = <int, StructureSection>{};
     for (final section in sections) {
-      colorByLabel.putIfAbsent(
-        section.label,
-        () => _palette[colorByLabel.length % _palette.length],
-      );
+      playCounts.update(section.groupIndex, (value) => value + 1, ifAbsent: () => 1);
+      firstSeen.putIfAbsent(section.groupIndex, () => section);
     }
+    final parts = firstSeen.entries.toList()
+      ..sort((left, right) => left.key.compareTo(right.key));
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: SizedBox(
-            height: 34,
+            height: 40,
             child: Row(
               children: <Widget>[
-                for (final section in sections)
+                for (var i = 0; i < sections.length; i += 1) ...<Widget>[
+                  if (i > 0) const SizedBox(width: 2),
                   Expanded(
-                    flex: math.max(1, section.endMs - section.startMs),
+                    flex: math.max(1, sections[i].durationMs),
                     child: Container(
-                      color: colorByLabel[section.label]!.withValues(alpha: 0.32),
+                      color: _colorFor(sections[i]).withValues(alpha: 0.3),
                       alignment: Alignment.center,
-                      child: Text(
-                        section.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.clip,
-                        style: TextStyle(
-                          color: colorByLabel[section.label],
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
+                      // FittedBox rather than a fixed size: a short part still
+                      // shows its letter instead of a clipped fragment, which
+                      // is what made narrow blocks read as noise.
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 2),
+                          child: Text(
+                            sections[i].label,
+                            style: TextStyle(
+                              color: _colorFor(sections[i]),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
+                ],
               ],
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
+        // The form, spelled out. This is the line a musician would actually
+        // say out loud about the song.
         Wrap(
-          spacing: 12,
-          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 6,
+          runSpacing: 6,
           children: <Widget>[
+            const Text(
+              'Form',
+              style: TextStyle(color: AppColors.muted, fontSize: 11, fontWeight: FontWeight.w800),
+            ),
             for (final section in sections)
-              Text(
-                section.repeatsSectionLabel != null
-                    ? '${section.label} (${_formatMs(section.startMs)}) ↻ repeats ${section.repeatsSectionLabel}'
-                    : '${section.label} (${_formatMs(section.startMs)})',
-                style: const TextStyle(color: AppColors.muted, fontSize: 10.5),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: _colorFor(section).withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Text(
+                  section.label,
+                  style: TextStyle(
+                    color: _colorFor(section),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
               ),
           ],
         ),
+        const SizedBox(height: 12),
+        for (final entry in parts)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 7),
+            child: Row(
+              children: <Widget>[
+                Container(
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    color: _palette[entry.key % _palette.length],
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+                const SizedBox(width: 9),
+                Text(
+                  'Part ${entry.value.label}',
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${_duration(entry.value.durationMs)} · first at ${_clock(entry.value.startMs)}',
+                    style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
+                  ),
+                ),
+                Text(
+                  playCounts[entry.key] == 1
+                      ? 'once'
+                      : '${playCounts[entry.key]}×',
+                  style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }
 
-  String _formatMs(int ms) {
+  String _clock(int ms) {
     final totalSeconds = ms ~/ 1000;
-    final minutes = totalSeconds ~/ 60;
-    final seconds = totalSeconds % 60;
-    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+    return '${totalSeconds ~/ 60}:${(totalSeconds % 60).toString().padLeft(2, '0')}';
+  }
+
+  String _duration(int ms) {
+    final seconds = (ms / 1000).round();
+    if (seconds < 60) return '${seconds}s';
+    final minutes = seconds ~/ 60;
+    final rest = seconds % 60;
+    return rest == 0 ? '${minutes}m' : '${minutes}m ${rest}s';
   }
 }

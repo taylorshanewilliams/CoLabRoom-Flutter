@@ -184,18 +184,34 @@ def _detect_key(y: np.ndarray | None, sr: int | None) -> str | None:
         return None
 
 
+# A section shorter than this is a boundary artifact, not a part of the song.
+# Without it, chroma segmentation happily reports two-second "sections" at
+# every transient, which is how a four-minute song ended up described as eight
+# parts, four of them under three seconds long.
+MIN_SECTION_SECONDS = 10.0
+
+# Cosine similarity above which two segments are considered the same musical
+# idea, and so the same part.
+SECTION_REPEAT_SIMILARITY = 0.85
+
+
 def _detect_structure(y: np.ndarray | None, sr: int | None, target_sections: int = 8) -> list[dict]:
-    """Chroma self-similarity boundary detection — labels are purely
-    positional ("Section A" is whichever comes first in the timeline, not
-    "the chorus"), with a separate repeat hint pointing back to an earlier
-    section whose chroma closely matches. Never asserts Verse/Chorus/Bridge;
-    see StructureSection's doc comment on the Dart side for why.
+    """Chroma self-similarity segmentation, reported as a song *form*.
+
+    Segments that share a musical idea are grouped and given the same part
+    label, so the output reads as "A B A B C B" — the way a musician would
+    describe a song — rather than a chain of "E repeats C repeats B" that has
+    to be traced backwards to mean anything.
+
+    Labels stay deliberately abstract ("Part A", not "Chorus"): the chroma
+    tells us two stretches are the same, never which one is the chorus. See
+    StructureSection's doc comment on the Dart side.
     """
     if y is None:
         return []
     try:
         duration_s = float(librosa.get_duration(y=y, sr=sr))
-        if duration_s < 20:
+        if duration_s < 30:
             return []  # too short for a meaningful multi-section split
 
         chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
@@ -206,12 +222,24 @@ def _detect_structure(y: np.ndarray | None, sr: int | None, target_sections: int
         k = max(2, min(target_sections, frame_count // 200))
         boundary_frames = librosa.segment.agglomerative(chroma, k)
         boundary_times = sorted(float(t) for t in librosa.frames_to_time(boundary_frames, sr=sr))
-        bounds = sorted(set([0.0] + boundary_times + [duration_s]))
+
+        # Drop boundaries that would create a segment shorter than the
+        # minimum, keeping the earlier one — a boundary too close to the last
+        # accepted one is the artifact, not a new part.
+        bounds = [0.0]
+        for time in boundary_times:
+            if time - bounds[-1] >= MIN_SECTION_SECONDS:
+                bounds.append(time)
+        # The final stretch merges into the previous part rather than standing
+        # alone as a sliver at the end.
+        if duration_s - bounds[-1] >= MIN_SECTION_SECONDS:
+            bounds.append(duration_s)
+        else:
+            bounds[-1] = duration_s
         if len(bounds) < 3:
             return []  # fewer than 2 actual segments isn't a useful structure
 
-        vectors: list[np.ndarray] = []
-        sections: list[dict] = []
+        segments: list[tuple[float, float, np.ndarray]] = []
         for i in range(len(bounds) - 1):
             start_s, end_s = bounds[i], bounds[i + 1]
             start_frame = librosa.time_to_frames(start_s, sr=sr)
@@ -219,23 +247,35 @@ def _detect_structure(y: np.ndarray | None, sr: int | None, target_sections: int
             segment_chroma = chroma[:, start_frame:end_frame]
             vector = segment_chroma.mean(axis=1) if segment_chroma.size else np.zeros(chroma.shape[0])
             norm = float(np.linalg.norm(vector))
-            vectors.append(vector / norm if norm > 0 else vector)
+            segments.append((start_s, end_s, vector / norm if norm > 0 else vector))
 
-            label = f"Section {chr(ord('A') + i)}" if i < 26 else f"Section {i + 1}"
-            repeats_label = None
-            best_similarity = 0.85
-            for j in range(i):
-                similarity = float(np.dot(vectors[i], vectors[j]))
+        # Group by similarity to each group's first occurrence, so every
+        # instance of the same idea carries the same label rather than
+        # pointing at whichever instance happened to precede it.
+        group_vectors: list[np.ndarray] = []
+        sections: list[dict] = []
+        for start_s, end_s, vector in segments:
+            group_index = None
+            best_similarity = SECTION_REPEAT_SIMILARITY
+            for index, reference in enumerate(group_vectors):
+                similarity = float(np.dot(vector, reference))
                 if similarity >= best_similarity:
                     best_similarity = similarity
-                    repeats_label = sections[j]["label"]
+                    group_index = index
+            if group_index is None:
+                group_vectors.append(vector)
+                group_index = len(group_vectors) - 1
 
+            label = chr(ord("A") + group_index) if group_index < 26 else str(group_index + 1)
             sections.append(
                 {
                     "start_ms": round(start_s * 1000),
                     "end_ms": round(end_s * 1000),
                     "label": label,
-                    "repeats_section_label": repeats_label,
+                    "group_index": group_index,
+                    # Retained so an older app build still renders something
+                    # sensible; the label already carries the repeat.
+                    "repeats_section_label": None,
                 }
             )
         return sections

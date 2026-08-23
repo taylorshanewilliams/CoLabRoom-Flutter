@@ -78,18 +78,34 @@ class StructureSection {
     required this.startMs,
     required this.endMs,
     required this.label,
+    this.groupIndex = 0,
     this.repeatsSectionLabel,
   });
 
   final int startMs;
   final int endMs;
+
+  /// The part this stretch is — "A", "B". Every occurrence of the same
+  /// musical idea shares a label, so the sequence of labels reads as the
+  /// song's form.
   final String label;
+
+  /// Which distinct idea this is, in order of first appearance. Drives
+  /// colour so repeats are recognisable at a glance.
+  final int groupIndex;
+
+  /// Legacy: analyses written before parts were grouped pointed each repeat
+  /// at whichever earlier section it resembled, which had to be traced
+  /// backwards to be understood. Kept so old saved analyses still render.
   final String? repeatsSectionLabel;
+
+  int get durationMs => endMs - startMs;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
         'start_ms': startMs,
         'end_ms': endMs,
         'label': label,
+        'group_index': groupIndex,
         if (repeatsSectionLabel != null) 'repeats_section_label': repeatsSectionLabel,
       };
 
@@ -98,6 +114,7 @@ class StructureSection {
       startMs: (json['start_ms'] as num?)?.toInt() ?? 0,
       endMs: (json['end_ms'] as num?)?.toInt() ?? 0,
       label: json['label'] as String? ?? '',
+      groupIndex: (json['group_index'] as num?)?.toInt() ?? 0,
       repeatsSectionLabel: json['repeats_section_label'] as String?,
     );
   }
