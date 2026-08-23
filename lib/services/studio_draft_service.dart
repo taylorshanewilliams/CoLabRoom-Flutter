@@ -28,8 +28,12 @@ bool looksAutoNamed(String name) {
   final trimmed = name.trim();
   if (trimmed.isEmpty) return true;
   final withoutExtension = trimmed.replaceFirst(RegExp(r'\.[A-Za-z0-9]{1,5}$'), '');
+  // No \b after the keyword: underscore is a word character, so `audio\b`
+  // refuses to match "audio_2026_08_23" — one of the commonest shapes there
+  // is. The trailing character class does the work instead, which also keeps
+  // "Audiophile demo" from being treated as a placeholder.
   return RegExp(
-    r'^(new\s+)?(recording|voice\s*memo|audio|track|untitled|idea)\b[\s\d/:._-]*$',
+    r'^(new\s+)?(recording|voice\s*memo|audio|track|untitled|idea)[\s\d/:._-]*$',
     caseSensitive: false,
   ).hasMatch(withoutExtension);
 }

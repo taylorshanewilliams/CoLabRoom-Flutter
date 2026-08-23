@@ -28,6 +28,8 @@ void main() {
         'Chorus — faster',
         'Recording studio jam',
         'That riff Dave played',
+        // Starts with a placeholder keyword but keeps going — real title.
+        'Audiophile demo',
       ]) {
         expect(looksAutoNamed(name), isFalse, reason: '"$name" should be left alone');
       }
