@@ -88,8 +88,11 @@ class _InviteCollaboratorDialogState extends State<InviteCollaboratorDialog> {
   }
 }
 
-/// Shows the resulting invite code with copy-to-clipboard — the shared
-/// second half of the invite flow, after [InviteCollaboratorDialog].
+/// Shown only when [email] doesn't have a CoLabRoom account yet — the
+/// fallback half of the invite flow, after [InviteCollaboratorDialog]. When
+/// the email does match an account, the invitee is notified in-app instead
+/// and this dialog is skipped entirely (see the `matchedAccount` branch at
+/// each `InviteCollaboratorDialog` call site).
 Future<void> showInviteReadyDialog(
   BuildContext context, {
   required String email,
@@ -105,7 +108,11 @@ Future<void> showInviteReadyDialog(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text('Send this code to $email. It expires in seven days.'),
+            Text(
+              '$email doesn\'t have a CoLabRoom account yet. Share this code with '
+              'them — once they sign up, they can redeem it from Invites → Use Code. '
+              'It expires in seven days.',
+            ),
             const SizedBox(height: 16),
             SelectableText(
               code,

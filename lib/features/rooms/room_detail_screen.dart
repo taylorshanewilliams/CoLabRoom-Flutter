@@ -415,9 +415,15 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
       );
       if (draft == null) return;
       try {
-        final code = await controller.createInvite(room, draft.email, role: draft.role);
+        final result = await controller.createInvite(room, draft.email, role: draft.role);
         if (!context.mounted) return;
-        await showInviteReadyDialog(context, email: draft.email, code: code);
+        if (result.matchedAccount) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Invite sent — ${draft.email} will see it in their Invites tab.')),
+          );
+        } else {
+          await showInviteReadyDialog(context, email: draft.email, code: result.code);
+        }
       } catch (error) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));

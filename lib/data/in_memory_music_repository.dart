@@ -7,6 +7,17 @@ import 'music_repository.dart';
 class InMemoryMusicRepository implements MusicRepository {
   InMemoryMusicRepository._(this._rooms, this._invites, this._setlists);
 
+  final List<AppNotification> _notifications = <AppNotification>[
+    AppNotification(
+      id: 'notif-1',
+      type: NotificationType.projectUpdate,
+      title: 'Jess added to Midnight Signal',
+      body: 'Your frequency keeps calling out my name',
+      createdAt: DateTime.now().subtract(const Duration(hours: 2)),
+    ),
+  ];
+  NotificationPreferences _preferences = const NotificationPreferences();
+
   factory InMemoryMusicRepository.seeded() {
     final now = DateTime.now();
     const owner = RoomMember(
@@ -104,6 +115,34 @@ class InMemoryMusicRepository implements MusicRepository {
 
   @override
   Future<List<BetaInvite>> loadInvites() async => List<BetaInvite>.unmodifiable(_invites);
+
+  @override
+  Future<List<AppNotification>> loadNotifications() async =>
+      List<AppNotification>.unmodifiable(_notifications);
+
+  @override
+  Future<NotificationPreferences> loadNotificationPreferences() async => _preferences;
+
+  @override
+  Future<void> setNotificationPreferences(NotificationPreferences preferences) async {
+    _preferences = preferences;
+  }
+
+  @override
+  Future<void> markNotificationRead(AppNotification notification) async {
+    final index = _notifications.indexWhere((candidate) => candidate.id == notification.id);
+    if (index >= 0) _notifications[index] = _notifications[index].copyWith(readAt: DateTime.now());
+  }
+
+  @override
+  Future<void> markAllNotificationsRead() async {
+    final now = DateTime.now();
+    for (var index = 0; index < _notifications.length; index += 1) {
+      if (!_notifications[index].isRead) {
+        _notifications[index] = _notifications[index].copyWith(readAt: now);
+      }
+    }
+  }
 
   @override
   Future<List<Setlist>> loadSetlists() async => List<Setlist>.unmodifiable(_setlists);
@@ -521,25 +560,34 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<String> createInvite({
+  Future<InviteResult> createInvite({
     required MusicRoom room,
     required String email,
     RoomRole role = RoomRole.editor,
   }) async {
     final cleaned = email.trim().toLowerCase();
     if (!cleaned.contains('@')) throw const NameConflict('Enter a valid email address.');
-    return 'MUSIC-${room.id.toUpperCase()}';
+    // Preview convention: "jess@..." simulates an email that already has an
+    // account (so the code dialog is skipped), anything else simulates one
+    // that doesn't.
+    return InviteResult(
+      code: 'MUSIC-${room.id.toUpperCase()}',
+      matchedAccount: cleaned.startsWith('jess'),
+    );
   }
 
   @override
-  Future<String> createProjectInvite({
+  Future<InviteResult> createProjectInvite({
     required SongProject project,
     required String email,
     RoomRole role = RoomRole.editor,
   }) async {
     final cleaned = email.trim().toLowerCase();
     if (!cleaned.contains('@')) throw const NameConflict('Enter a valid email address.');
-    return 'SONG-${project.id.toUpperCase()}';
+    return InviteResult(
+      code: 'SONG-${project.id.toUpperCase()}',
+      matchedAccount: cleaned.startsWith('jess'),
+    );
   }
 
   @override

@@ -345,9 +345,14 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     );
     if (draft == null || !mounted) return;
     try {
-      final code = await BetaScope.of(context).createProjectInvite(project, draft.email, role: draft.role);
+      final result =
+          await BetaScope.of(context).createProjectInvite(project, draft.email, role: draft.role);
       if (!mounted) return;
-      await showInviteReadyDialog(context, email: draft.email, code: code);
+      if (result.matchedAccount) {
+        _showMessage('Invite sent — ${draft.email} will see it in their Invites tab.');
+      } else {
+        await showInviteReadyDialog(context, email: draft.email, code: result.code);
+      }
     } catch (error) {
       if (mounted) _showMessage(error.toString());
     }

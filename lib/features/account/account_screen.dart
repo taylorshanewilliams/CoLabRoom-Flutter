@@ -7,6 +7,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../widgets/app_surface.dart';
+import '../notifications/notification_settings_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({this.supabase, super.key});
@@ -169,6 +170,13 @@ class _AccountScreenState extends State<AccountScreen> {
                 icon: Icons.chat_bubble_outline_rounded,
                 label: 'Help & Beta Feedback',
                 onTap: () => _feedback(context),
+              ),
+              _AccountRow(
+                icon: Icons.notifications_outlined,
+                label: 'Notifications',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const NotificationSettingsScreen()),
+                ),
               ),
               _AccountRow(
                 icon: Icons.shield_outlined,

@@ -19,6 +19,8 @@ class MusicBetaController extends ChangeNotifier {
   List<MusicRoom> _rooms = const <MusicRoom>[];
   List<BetaInvite> _invites = const <BetaInvite>[];
   List<Setlist> _setlists = const <Setlist>[];
+  List<AppNotification> _notifications = const <AppNotification>[];
+  NotificationPreferences _notificationPreferences = const NotificationPreferences();
   bool _loading = false;
   String? _error;
   StreamSubscription<void>? _changesSubscription;
@@ -33,6 +35,9 @@ class MusicBetaController extends ChangeNotifier {
   List<MusicRoom> get rooms => List<MusicRoom>.unmodifiable(_rooms);
   List<BetaInvite> get invites => List<BetaInvite>.unmodifiable(_invites);
   List<Setlist> get setlists => List<Setlist>.unmodifiable(_setlists);
+  List<AppNotification> get notifications => List<AppNotification>.unmodifiable(_notifications);
+  NotificationPreferences get notificationPreferences => _notificationPreferences;
+  int get unreadNotificationCount => _notifications.where((n) => !n.isRead).length;
   Iterable<SongProject> get projects => _rooms.expand((room) => room.projects);
   bool get loading => _loading;
   String? get error => _error;
@@ -46,6 +51,8 @@ class MusicBetaController extends ChangeNotifier {
       _rooms = await repository.loadRooms();
       _invites = await repository.loadInvites();
       _setlists = await repository.loadSetlists();
+      _notifications = await repository.loadNotifications();
+      _notificationPreferences = await repository.loadNotificationPreferences();
     } catch (error) {
       _error = error.toString();
     } finally {
@@ -309,7 +316,7 @@ class MusicBetaController extends ChangeNotifier {
     await load();
   }
 
-  Future<String> createInvite(
+  Future<InviteResult> createInvite(
     MusicRoom room,
     String email, {
     RoomRole role = RoomRole.editor,
@@ -319,7 +326,7 @@ class MusicBetaController extends ChangeNotifier {
 
   /// Like [createInvite], but the resulting invite grants access to just
   /// [project] instead of its whole Room.
-  Future<String> createProjectInvite(
+  Future<InviteResult> createProjectInvite(
     SongProject project,
     String email, {
     RoomRole role = RoomRole.editor,
@@ -344,6 +351,22 @@ class MusicBetaController extends ChangeNotifier {
 
   Future<void> submitFeedback(FeedbackDraft feedback) {
     return repository.submitFeedback(feedback);
+  }
+
+  Future<void> markNotificationRead(AppNotification notification) async {
+    if (notification.isRead) return;
+    await repository.markNotificationRead(notification);
+    await load();
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    await repository.markAllNotificationsRead();
+    await load();
+  }
+
+  Future<void> updateNotificationPreferences(NotificationPreferences preferences) async {
+    await repository.setNotificationPreferences(preferences);
+    await load();
   }
 
   @override

@@ -9,6 +9,16 @@ abstract interface class MusicRepository {
 
   Future<List<BetaInvite>> loadInvites();
 
+  Future<List<AppNotification>> loadNotifications();
+
+  Future<NotificationPreferences> loadNotificationPreferences();
+
+  Future<void> setNotificationPreferences(NotificationPreferences preferences);
+
+  Future<void> markNotificationRead(AppNotification notification);
+
+  Future<void> markAllNotificationsRead();
+
   Future<List<Setlist>> loadSetlists();
 
   Future<MusicRoom> createRoom({required String name, required String icon});
@@ -104,7 +114,7 @@ abstract interface class MusicRepository {
 
   Future<void> moveProjects(Iterable<SongProject> projects, MusicRoom targetRoom);
 
-  Future<String> createInvite({
+  Future<InviteResult> createInvite({
     required MusicRoom room,
     required String email,
     RoomRole role = RoomRole.editor,
@@ -112,7 +122,7 @@ abstract interface class MusicRepository {
 
   /// Like [createInvite], but the resulting invite grants access to just
   /// [project] instead of its whole Room.
-  Future<String> createProjectInvite({
+  Future<InviteResult> createProjectInvite({
     required SongProject project,
     required String email,
     RoomRole role = RoomRole.editor,

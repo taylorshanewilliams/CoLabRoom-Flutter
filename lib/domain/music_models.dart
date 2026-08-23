@@ -279,6 +279,92 @@ class BetaInvite {
   bool get isProjectScoped => projectId != null;
 }
 
+/// Result of [MusicRepository.createInvite]/[createProjectInvite].
+///
+/// [matchedAccount] tells the caller whether the invited email already has a
+/// CoLabRoom account: if so, they were notified in-app and [code] only
+/// exists as a fallback; if not, [code] is the only way they can join, since
+/// there's no account yet to attach an in-app notification/invite row to.
+class InviteResult {
+  const InviteResult({required this.code, required this.matchedAccount});
+
+  final String code;
+  final bool matchedAccount;
+}
+
+enum NotificationType { inviteReceived, inviteAccepted, inviteDeclined, projectUpdate }
+
+class AppNotification {
+  const AppNotification({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.body,
+    required this.createdAt,
+    this.roomId,
+    this.projectId,
+    this.invitationId,
+    this.actorId,
+    this.readAt,
+  });
+
+  final String id;
+  final NotificationType type;
+  final String title;
+  final String body;
+  final DateTime createdAt;
+  final String? roomId;
+  final String? projectId;
+  final String? invitationId;
+  final String? actorId;
+  final DateTime? readAt;
+
+  bool get isRead => readAt != null;
+
+  AppNotification copyWith({DateTime? readAt}) {
+    return AppNotification(
+      id: id,
+      type: type,
+      title: title,
+      body: body,
+      createdAt: createdAt,
+      roomId: roomId,
+      projectId: projectId,
+      invitationId: invitationId,
+      actorId: actorId,
+      readAt: readAt ?? this.readAt,
+    );
+  }
+}
+
+/// Per-user toggles for which notification types generate an in-app
+/// notification. A missing row (nobody has changed a default yet) is
+/// treated as every field `true`, matching the SQL side's `coalesce(...,
+/// true)` defaults in `private.wants_*`.
+class NotificationPreferences {
+  const NotificationPreferences({
+    this.invites = true,
+    this.inviteResponses = true,
+    this.projectUpdates = true,
+  });
+
+  final bool invites;
+  final bool inviteResponses;
+  final bool projectUpdates;
+
+  NotificationPreferences copyWith({
+    bool? invites,
+    bool? inviteResponses,
+    bool? projectUpdates,
+  }) {
+    return NotificationPreferences(
+      invites: invites ?? this.invites,
+      inviteResponses: inviteResponses ?? this.inviteResponses,
+      projectUpdates: projectUpdates ?? this.projectUpdates,
+    );
+  }
+}
+
 class FeedbackDraft {
   const FeedbackDraft({
     required this.category,

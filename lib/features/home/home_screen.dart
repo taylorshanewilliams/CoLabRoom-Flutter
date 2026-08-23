@@ -16,6 +16,7 @@ class HomeScreen extends StatelessWidget {
     required this.onSeeRooms,
     required this.onJoinProject,
     required this.onOpenAccount,
+    required this.onOpenNotifications,
     super.key,
   });
 
@@ -23,6 +24,7 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onSeeRooms;
   final VoidCallback onJoinProject;
   final VoidCallback onOpenAccount;
+  final VoidCallback onOpenNotifications;
 
   @override
   Widget build(BuildContext context) {
@@ -57,6 +59,48 @@ class HomeScreen extends StatelessWidget {
               children: <Widget>[
                 const BrandMark(),
                 const Spacer(),
+                Semantics(
+                  button: true,
+                  label: 'Notifications',
+                  child: InkResponse(
+                    onTap: onOpenNotifications,
+                    radius: 24,
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: <Widget>[
+                          const Icon(Icons.notifications_outlined, color: AppColors.text, size: 26),
+                          if (controller.unreadNotificationCount > 0)
+                            Positioned(
+                              right: -2,
+                              top: -2,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.error,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  controller.unreadNotificationCount > 9
+                                      ? '9+'
+                                      : '${controller.unreadNotificationCount}',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Semantics(
                   button: true,
                   label: 'Account',

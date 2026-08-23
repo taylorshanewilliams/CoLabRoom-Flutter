@@ -59,6 +59,18 @@ class SupabaseMusicRepository implements MusicRepository {
           table: 'invitations',
           callback: (_) => _notifyChanged(),
         )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'notifications',
+          callback: (_) => _notifyChanged(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'notification_preferences',
+          callback: (_) => _notifyChanged(),
+        )
         .subscribe();
   }
 
@@ -127,6 +139,60 @@ class SupabaseMusicRepository implements MusicRepository {
         projectTitle: projectRow?['title'] as String?,
       );
     }).toList(growable: false);
+  }
+
+  @override
+  Future<List<AppNotification>> loadNotifications() async {
+    final rows = await client
+        .from('notifications')
+        .select()
+        .order('created_at', ascending: false)
+        .limit(50);
+    return (rows as List<dynamic>)
+        .map((row) => _notification(Map<String, dynamic>.from(row as Map)))
+        .toList(growable: false);
+  }
+
+  @override
+  Future<NotificationPreferences> loadNotificationPreferences() async {
+    final row = await client
+        .from('notification_preferences')
+        .select()
+        .eq('user_id', _userId)
+        .maybeSingle();
+    if (row == null) return const NotificationPreferences();
+    return NotificationPreferences(
+      invites: row['invites'] as bool? ?? true,
+      inviteResponses: row['invite_responses'] as bool? ?? true,
+      projectUpdates: row['project_updates'] as bool? ?? true,
+    );
+  }
+
+  @override
+  Future<void> setNotificationPreferences(NotificationPreferences preferences) async {
+    await client.from('notification_preferences').upsert(<String, dynamic>{
+      'user_id': _userId,
+      'invites': preferences.invites,
+      'invite_responses': preferences.inviteResponses,
+      'project_updates': preferences.projectUpdates,
+    });
+  }
+
+  @override
+  Future<void> markNotificationRead(AppNotification notification) async {
+    await client
+        .from('notifications')
+        .update(<String, dynamic>{'read_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', notification.id);
+  }
+
+  @override
+  Future<void> markAllNotificationsRead() async {
+    await client
+        .from('notifications')
+        .update(<String, dynamic>{'read_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('user_id', _userId)
+        .isFilter('read_at', null);
   }
 
   @override
@@ -607,14 +673,14 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<String> createInvite({
+  Future<InviteResult> createInvite({
     required MusicRoom room,
     required String email,
     RoomRole role = RoomRole.editor,
   }) async {
     final cleaned = email.trim().toLowerCase();
     if (!cleaned.contains('@')) throw const NameConflict('Enter a valid email address.');
-    final result = await client.rpc<String>(
+    final result = await client.rpc<Map<String, dynamic>>(
       'create_room_invitation',
       params: <String, dynamic>{
         'target_room': room.id,
@@ -622,18 +688,18 @@ class SupabaseMusicRepository implements MusicRepository {
         'invite_role': role.name,
       },
     );
-    return result;
+    return _inviteResult(result);
   }
 
   @override
-  Future<String> createProjectInvite({
+  Future<InviteResult> createProjectInvite({
     required SongProject project,
     required String email,
     RoomRole role = RoomRole.editor,
   }) async {
     final cleaned = email.trim().toLowerCase();
     if (!cleaned.contains('@')) throw const NameConflict('Enter a valid email address.');
-    final result = await client.rpc<String>(
+    final result = await client.rpc<Map<String, dynamic>>(
       'create_project_invitation',
       params: <String, dynamic>{
         'target_project': project.id,
@@ -641,7 +707,14 @@ class SupabaseMusicRepository implements MusicRepository {
         'invite_role': role.name,
       },
     );
-    return result;
+    return _inviteResult(result);
+  }
+
+  InviteResult _inviteResult(Map<String, dynamic> result) {
+    return InviteResult(
+      code: result['token'] as String,
+      matchedAccount: result['matched_account'] as bool? ?? false,
+    );
   }
 
   @override
@@ -792,6 +865,35 @@ class SupabaseMusicRepository implements MusicRepository {
       mimeType: row['mime_type'] as String? ?? 'audio/wav',
       createdAt: DateTime.parse(row['created_at'] as String),
     );
+  }
+
+  AppNotification _notification(Map<String, dynamic> row) {
+    return AppNotification(
+      id: row['id'] as String,
+      type: _notificationTypeFromSql(row['type'] as String),
+      title: row['title'] as String,
+      body: row['body'] as String? ?? '',
+      createdAt: DateTime.parse(row['created_at'] as String),
+      roomId: row['room_id'] as String?,
+      projectId: row['project_id'] as String?,
+      invitationId: row['invitation_id'] as String?,
+      actorId: row['actor_id'] as String?,
+      readAt: row['read_at'] == null ? null : DateTime.parse(row['read_at'] as String),
+    );
+  }
+
+  NotificationType _notificationTypeFromSql(String value) {
+    switch (value) {
+      case 'invite_received':
+        return NotificationType.inviteReceived;
+      case 'invite_accepted':
+        return NotificationType.inviteAccepted;
+      case 'invite_declined':
+        return NotificationType.inviteDeclined;
+      case 'project_update':
+        return NotificationType.projectUpdate;
+    }
+    throw ArgumentError('Unknown notification type: $value');
   }
 
   Map<String, dynamic> _memberJson(RoomMember member) => <String, dynamic>{

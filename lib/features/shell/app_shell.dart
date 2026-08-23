@@ -6,6 +6,7 @@ import '../../app/colabroom_theme.dart';
 import '../account/account_screen.dart';
 import '../home/home_screen.dart';
 import '../invites/invites_screen.dart';
+import '../notifications/notifications_screen.dart';
 import '../rooms/rooms_screen.dart';
 import '../studio/studio_home_screen.dart';
 import '../toolbox/toolbox_screen.dart';
@@ -37,6 +38,7 @@ class _AppShellState extends State<AppShell> {
         onSeeRooms: () => setState(() => _index = 1),
         onJoinProject: () => setState(() => _index = 2),
         onOpenAccount: _openAccount,
+        onOpenNotifications: _openNotifications,
       ),
       const RoomsScreen(),
       const InvitesScreen(),
@@ -51,6 +53,12 @@ class _AppShellState extends State<AppShell> {
   void _openAccount() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => AccountScreen(supabase: widget.supabase)),
+    );
+  }
+
+  void _openNotifications() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const NotificationsScreen()),
     );
   }
 
