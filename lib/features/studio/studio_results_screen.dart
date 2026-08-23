@@ -216,6 +216,7 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
               StemPlayerPanel(
                 stems: bundle.stems,
                 ensureLocalStem: _service.ensureLocalStem,
+                downbeatsMs: draft.downbeatsMs,
               ),
               const SizedBox(height: 22),
               const Text(

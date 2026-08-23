@@ -650,6 +650,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     StemPlayerPanel(
                       stems: bundle.stems,
                       ensureLocalStem: _service.ensureLocalStem,
+                      downbeatsMs: bundle.reference!.downbeatsMs,
                     ),
                     const SizedBox(height: 18),
                     Text(
