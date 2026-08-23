@@ -50,6 +50,7 @@ lyrics, which don't depend on any of them.
 """
 
 import base64
+import concurrent.futures
 import os
 import subprocess
 import tempfile
@@ -640,16 +641,31 @@ def handler(job):
         # Best-effort: a stem that fails to encode or upload is a missing
         # playback option, not a failed analysis. Chords and lyrics don't
         # depend on any of this succeeding.
-        uploaded_stems: list[str] = []
-        for stem, signed_url in stem_uploads.items():
+        #
+        # All six at once. Done one after another this was close to a minute
+        # of the job spent waiting — each stem is an ffmpeg process and then
+        # an HTTP PUT, and no stem needs anything from any other. Threads
+        # rather than processes because every step here blocks either in a
+        # subprocess or on the network, so the GIL is never the thing being
+        # waited on.
+        def encode_and_upload(entry: tuple[str, object]) -> str | None:
+            stem, signed_url = entry
             source = stem_paths.get(stem)
             if not source or not os.path.exists(source) or not isinstance(signed_url, str):
-                continue
+                return None
             encoded = os.path.join(tmp, f"{stem}.mp3")
             if not _encode_mp3(source, encoded):
-                continue
-            if _upload_stem(signed_url, encoded):
-                uploaded_stems.append(stem)
+                return None
+            return stem if _upload_stem(signed_url, encoded) else None
+
+        uploaded_stems: list[str] = []
+        if stem_uploads:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(stem_uploads)) as pool:
+                uploaded_stems = [
+                    stem
+                    for stem in pool.map(encode_and_upload, list(stem_uploads.items()))
+                    if stem is not None
+                ]
 
         # Preferred path: push the harmonic mix to Storage like the stems and
         # let the caller stream it straight into the chord service.
