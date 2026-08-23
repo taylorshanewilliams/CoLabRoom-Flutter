@@ -1,0 +1,32 @@
+name: Apply a Supabase migration
+
+# Runs one named file from supabase/migrations/ against the project, inside a
+# transaction, using the Management API token this repo already holds.
+#
+# Manual only, and one file at a time on purpose: this project's migrations
+# were applied by hand through the dashboard, so `supabase db push` would try
+# to replay the schema from 0001 and fail. Naming the file keeps the existing
+# workflow, minus the copy-paste step where mistakes actually happen.
+on:
+  workflow_dispatch:
+    inputs:
+      migration:
+        description: 'Filename in supabase/migrations/ (e.g. 0020_analysis_error_telemetry.sql)'
+        type: string
+        required: true
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply migration
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: python tools/apply_migration.py "${{ inputs.migration }}"
