@@ -1,12 +1,11 @@
 import 'package:colabroom/app/colabroom_app.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
-import 'package:colabroom/widgets/music_tiles.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('Rooms and song routes remain below the workspace scope', (tester) async {
+  testWidgets('a song is reachable from the Songs tab and opens its workspace', (tester) async {
     final controller = MusicBetaController(InMemoryMusicRepository.seeded());
     await controller.load();
     addTearDown(controller.dispose);
@@ -14,15 +13,16 @@ void main() {
     await tester.pumpWidget(CoLabRoomApp.preview(controller: controller));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Rooms').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byType(RoomTile).first);
+    // Songs are reachable directly now — the Songs tab lists every song
+    // across every Room, so getting to work no longer routes through a
+    // container first.
+    await tester.tap(find.text('Songs').last);
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('After Hours Studio'), findsOneWidget);
+    expect(find.text('Midnight Signal'), findsWidgets);
 
-    await tester.tap(find.byType(SongTile).first);
+    await tester.tap(find.text('Midnight Signal').last);
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -72,11 +72,9 @@ void main() {
 
     await tester.pumpWidget(CoLabRoomApp.preview(controller: controller));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Rooms').last);
+    await tester.tap(find.text('Songs').last);
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(RoomTile).first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byType(SongTile).first);
+    await tester.tap(find.text('Midnight Signal').last);
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);

@@ -8,31 +8,38 @@ import '../../widgets/brand_mark.dart';
 import '../../widgets/bloom_tap.dart';
 import '../../widgets/music_tiles.dart';
 import '../rooms/room_detail_screen.dart';
-import 'music_templates_screen.dart';
+import '../songs/song_search.dart';
+import '../workspace/song_workspace_screen.dart';
+import 'new_song_flow.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
     required this.displayName,
-    required this.onSeeRooms,
-    required this.onJoinProject,
+    required this.onSeeSongs,
     required this.onOpenAccount,
     required this.onOpenNotifications,
     super.key,
   });
 
   final String displayName;
-  final VoidCallback onSeeRooms;
-  final VoidCallback onJoinProject;
+  final VoidCallback onSeeSongs;
   final VoidCallback onOpenAccount;
   final VoidCallback onOpenNotifications;
 
   @override
   Widget build(BuildContext context) {
     final controller = BetaScope.of(context);
+    // Songs, not Rooms. Coming back to the app almost always means returning
+    // to something you were already writing, and a Room is a container you
+    // then have to open to get at the actual work.
+    final recentSongs = allSongsByRecency(controller.rooms).take(4).toList(growable: false);
     final recentRooms = (List<MusicRoom>.from(controller.rooms)
           ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt)))
         .take(4)
         .toList(growable: false);
+    // Pending invitations need action, so they count toward the badge
+    // alongside unread activity — both now live in the same inbox.
+    final inboxCount = controller.unreadNotificationCount + controller.invites.length;
     final words = displayName
         .trim()
         .split(RegExp(r'\s+'))
@@ -44,10 +51,13 @@ class HomeScreen extends StatelessWidget {
             ? words.first.substring(0, 1).toUpperCase()
             : '${words.first.substring(0, 1)}${words.last.substring(0, 1)}'.toUpperCase();
 
-    void openMusic() {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const MusicTemplatesScreen()),
-      );
+    Future<void> startSong() async {
+      final project = await showNewSongFlow(context, controller);
+      if (project != null && context.mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => SongWorkspaceScreen(projectId: project.id)),
+        );
+      }
     }
 
     return CustomScrollView(
@@ -71,7 +81,7 @@ class HomeScreen extends StatelessWidget {
                         clipBehavior: Clip.none,
                         children: <Widget>[
                           const Icon(Icons.notifications_outlined, color: AppColors.text, size: 26),
-                          if (controller.unreadNotificationCount > 0)
+                          if (inboxCount > 0)
                             Positioned(
                               right: -2,
                               top: -2,
@@ -83,9 +93,7 @@ class HomeScreen extends StatelessWidget {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  controller.unreadNotificationCount > 9
-                                      ? '9+'
-                                      : '${controller.unreadNotificationCount}',
+                                  inboxCount > 9 ? '9+' : '$inboxCount',
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
                                     color: Colors.white,
@@ -134,45 +142,44 @@ class HomeScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Text('Start a project', style: Theme.of(context).textTheme.headlineMedium),
-                const SizedBox(height: 4),
-                const Text('Choose what you’re working on', style: TextStyle(fontSize: 13)),
-                const SizedBox(height: 12),
+                // One action, straight to naming the song. This used to be a
+                // card labelled "Music" that opened a picker with exactly one
+                // option — a tap that taught nothing and delayed the thing
+                // the person came to do.
                 BloomTap(
-                  onTap: openMusic,
-                  semanticLabel: 'Open Music project options',
+                  key: const Key('home_new_song'),
+                  onTap: startSong,
+                  semanticLabel: 'Start a new song',
                   borderRadius: BorderRadius.circular(19),
-                  child: const SizedBox(
-                    height: 108,
+                  child: SizedBox(
+                    height: 84,
                     child: AppSurface(
                       child: Row(
                         children: <Widget>[
-                          _ProjectMark(icon: Icons.music_note_rounded),
-                          SizedBox(width: 14),
+                          const _ProjectMark(icon: Icons.music_note_rounded),
+                          const SizedBox(width: 14),
                           Expanded(
-                            child: Text(
-                              'Music',
-                              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                const Text(
+                                  'Start a song',
+                                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Write, record, and analyze',
+                                  style: TextStyle(
+                                    color: AppColors.muted,
+                                    fontSize: 12.5,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+                          const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
                         ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 9),
-                BloomTap(
-                  onTap: onJoinProject,
-                  borderRadius: BorderRadius.circular(17),
-                  child: SizedBox(
-                    height: 48,
-                    child: AppSurface(
-                      borderRadius: BorderRadius.circular(17),
-                      padding: EdgeInsets.zero,
-                      color: AppColors.raised,
-                      child: const Center(
-                        child: Text('Join Project', style: TextStyle(fontWeight: FontWeight.w800)),
                       ),
                     ),
                   ),
@@ -181,14 +188,48 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
         ),
+        if (recentSongs.isNotEmpty) ...<Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 26, 18, 10),
+            sliver: SliverToBoxAdapter(
+              child: Row(
+                children: <Widget>[
+                  Text('Jump back in', style: Theme.of(context).textTheme.titleLarge),
+                  const Spacer(),
+                  TextButton(onPressed: onSeeSongs, child: const Text('All songs  ›')),
+                ],
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
+            sliver: SliverList.separated(
+              itemCount: recentSongs.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final entry = recentSongs[index];
+                return _RecentSongRow(
+                  title: entry.project.title,
+                  subtitle: '${entry.room.icon}  ${entry.room.name}',
+                  hasRecording: entry.project.hasAudioReference,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => SongWorkspaceScreen(projectId: entry.project.id),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(18, 28, 18, 12),
           sliver: SliverToBoxAdapter(
             child: Row(
               children: <Widget>[
-                Text('Recent Rooms', style: Theme.of(context).textTheme.titleLarge),
+                Text('Your Rooms', style: Theme.of(context).textTheme.titleLarge),
                 const Spacer(),
-                TextButton(onPressed: onSeeRooms, child: const Text('See all  ›')),
+                TextButton(onPressed: onSeeSongs, child: const Text('See all  ›')),
               ],
             ),
           ),
@@ -234,6 +275,71 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _RecentSongRow extends StatelessWidget {
+  const _RecentSongRow({
+    required this.title,
+    required this.subtitle,
+    required this.hasRecording,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool hasRecording;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(17),
+      child: AppSurface(
+        borderRadius: BorderRadius.circular(17),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 34,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.raised,
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: const Icon(Icons.music_note_rounded, color: AppColors.cyan, size: 18),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5),
+                  ),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
+                  ),
+                ],
+              ),
+            ),
+            if (hasRecording)
+              const Icon(Icons.graphic_eq_rounded, size: 15, color: AppColors.gold),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.muted, size: 19),
+          ],
+        ),
+      ),
     );
   }
 }

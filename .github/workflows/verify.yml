@@ -9,15 +9,30 @@ name: Verify
 on:
   push:
     branches: [main]
-    paths:
-      - 'supabase/functions/**'
-      - 'inference/**'
-      - 'tools/**'
-      - '.github/workflows/verify.yml'
   pull_request:
   workflow_dispatch:
 
 jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # The APK build compiles the app but never ran the test suite, so the
+      # tests in test/ have been decorative. Analyze also catches the things
+      # a build tolerates — unused imports, dead code, missing awaits.
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
   edge-functions:
     runs-on: ubuntu-latest
     steps:

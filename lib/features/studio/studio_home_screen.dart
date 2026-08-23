@@ -323,12 +323,14 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
                 ButtonSegment<_StudioView>(
                   value: _StudioView.active,
                   icon: Icon(Icons.mic_rounded),
-                  label: Text('Recordings'),
+                  label: Text('Ideas'),
                 ),
+                // "Promoted" was the internal word for a draft that became a
+                // project, shipped straight to the user as a tab label.
                 ButtonSegment<_StudioView>(
                   value: _StudioView.promoted,
                   icon: Icon(Icons.check_circle_rounded),
-                  label: Text('Promoted'),
+                  label: Text('Used in a song'),
                 ),
               ],
               selected: <_StudioView>{_view},
@@ -441,7 +443,7 @@ class _DraftTile extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     draft.isPromoted
-                        ? 'Promoted to a song project'
+                        ? 'Already used in a song'
                         : draft.musicalKey != null
                             ? 'Key ${draft.musicalKey}${draft.bpm != null ? ' · ${draft.bpm!.round()} BPM' : ''}'
                             : _stateLabel(draft.state),

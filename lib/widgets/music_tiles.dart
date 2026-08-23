@@ -218,7 +218,10 @@ class SongTile extends StatelessWidget {
                     children: <Widget>[
                       Flexible(
                         child: Text(
-                          '${project.contributions.length} contributions',
+                          // "Contribution" is the database's word for a row
+                          // in the lyric document. What a musician sees is
+                          // lines.
+                          '${project.contributions.length} ${project.contributions.length == 1 ? 'line' : 'lines'}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 12),

@@ -5,9 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../app/colabroom_theme.dart';
 import '../account/account_screen.dart';
 import '../home/home_screen.dart';
-import '../invites/invites_screen.dart';
 import '../notifications/notifications_screen.dart';
-import '../rooms/rooms_screen.dart';
+import '../songs/songs_screen.dart';
 import '../studio/studio_home_screen.dart';
 import '../toolbox/toolbox_screen.dart';
 
@@ -35,15 +34,13 @@ class _AppShellState extends State<AppShell> {
     _screens = <Widget>[
       HomeScreen(
         displayName: widget.displayName,
-        onSeeRooms: () => setState(() => _index = 1),
-        onJoinProject: () => setState(() => _index = 2),
+        onSeeSongs: () => setState(() => _index = 1),
         onOpenAccount: _openAccount,
         onOpenNotifications: _openNotifications,
       ),
-      const RoomsScreen(),
-      const InvitesScreen(),
-      const ToolboxScreen(),
+      const SongsScreen(),
       const StudioHomeScreen(),
+      const ToolboxScreen(),
     ];
   }
 
@@ -62,12 +59,17 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  // Four destinations, each one a thing a musician does. Rooms moved inside
+  // Songs as a filter — they decide who can see what, which is an attribute
+  // of a song rather than somewhere you want to navigate to on the way to
+  // your work. Invites folded into the notification inbox: it was a
+  // permanent tab for something that happens a handful of times, and once
+  // notifications existed it was the same event in two places.
   static const _destinations = <_Destination>[
     _Destination('Home', Icons.home_rounded),
-    _Destination('Rooms', Icons.grid_view_rounded),
-    _Destination('Invites', Icons.mail_outline_rounded),
-    _Destination('Toolbox', Icons.construction_rounded),
+    _Destination('Songs', Icons.library_music_rounded),
     _Destination('Studio', Icons.auto_awesome_rounded),
+    _Destination('Toolbox', Icons.construction_rounded),
   ];
 
   @override
