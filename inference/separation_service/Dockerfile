@@ -11,12 +11,17 @@ RUN apt-get update \
 
 RUN pip install --no-cache-dir demucs runpod requests librosa
 
-# torchaudio pinned to match this image's torch 2.3.0, from PyTorch's own
-# cu121 index. beat_this depends on torchaudio, and letting pip resolve it
-# freely installs a build compiled against a newer torch — whose native
-# extension then refuses to load ("Could not load this library:
-# libtorchaudio.so"), taking the whole import down with it.
-RUN pip install --no-cache-dir torchaudio==2.3.0 --index-url https://download.pytorch.org/whl/cu121
+# The base image ships a conda-built torchaudio 2.3.0 whose native extension
+# will not load in this container ("Could not load this library:
+# libtorchaudio.so"). Nothing imported it before — demucs decodes through
+# ffmpeg — so it stayed broken and unnoticed until beat_this, which does.
+#
+# Force-reinstalling the official cu121 wheel over the top replaces the bad
+# native library. --no-deps so it can't drag torch itself along with it,
+# which would be a far bigger change than the one intended.
+RUN pip install --no-cache-dir --force-reinstall --no-deps \
+    torchaudio==2.3.0 --index-url https://download.pytorch.org/whl/cu121 \
+    && python -c "import torchaudio; print('torchaudio', torchaudio.__version__, 'loads')"
 
 RUN pip install --no-cache-dir https://github.com/CPJKU/beat_this/archive/main.zip
 
