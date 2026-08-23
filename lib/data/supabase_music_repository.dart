@@ -9,7 +9,19 @@ import 'music_repository.dart';
 
 class SupabaseMusicRepository implements MusicRepository {
   SupabaseMusicRepository(this.client) {
-    _channel = client
+    _channel = _openChannel();
+  }
+
+  /// Subscribes to everything the workspace shows, so a change made by anyone
+  /// in the band appears without a refresh.
+  ///
+  /// A websocket is the right shape while somebody is looking at the app and
+  /// exactly the wrong shape the moment they aren't: a socket keeping its
+  /// heartbeat going — and reconnecting, and reconnecting again as the radio
+  /// comes and goes — through a night of dozing is a phone that never gets to
+  /// sleep. See [pauseLiveUpdates].
+  RealtimeChannel _openChannel() {
+    return client
         .channel('music-beta-${client.auth.currentUser?.id ?? 'anonymous'}')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
@@ -76,10 +88,34 @@ class SupabaseMusicRepository implements MusicRepository {
 
   final SupabaseClient client;
   final StreamController<void> _changes = StreamController<void>.broadcast();
-  late final RealtimeChannel _channel;
+  late RealtimeChannel _channel;
+  bool _live = true;
 
   @override
   Stream<void> get changes => _changes.stream;
+
+  /// Closes the live connection while the app is in the background.
+  ///
+  /// Nothing is lost by doing this: [resumeLiveUpdates] reloads, which picks
+  /// up everything that happened in the meantime. What is gained is a phone
+  /// that can actually idle — this socket was the app's largest reason to
+  /// keep waking the radio, and it was doing it to watch for changes nobody
+  /// was there to see.
+  @override
+  void pauseLiveUpdates() {
+    if (!_live) return;
+    _live = false;
+    client.removeChannel(_channel);
+  }
+
+  @override
+  void resumeLiveUpdates() {
+    if (_live) return;
+    _live = true;
+    _channel = _openChannel();
+    // Whatever changed while the socket was closed is caught by the reload
+    // the controller runs on resume, not by replaying missed events.
+  }
 
   void _notifyChanged() {
     if (!_changes.isClosed) _changes.add(null);

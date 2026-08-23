@@ -1,16 +1,44 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../data/music_repository.dart';
 import '../domain/music_models.dart';
 
-class MusicBetaController extends ChangeNotifier {
+class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   MusicBetaController(this.repository) {
     _changesSubscription = repository.changes.listen((_) {
       _reloadDebounce?.cancel();
       _reloadDebounce = Timer(const Duration(milliseconds: 300), load);
     });
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  /// Live updates follow the app in and out of the foreground.
+  ///
+  /// Watching for other people's changes earns a held-open socket while
+  /// somebody is looking at the screen, and earns nothing at all while the
+  /// phone is in a pocket — where that same socket goes on heartbeating, and
+  /// reconnecting every time the radio flickers. That is what "CoLabRoom
+  /// keeps waking up frequently" was made of.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        repository.resumeLiveUpdates();
+        // Reload rather than replay: whatever happened while the socket was
+        // shut is simply read back now.
+        unawaited(load());
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        repository.pauseLiveUpdates();
+      case AppLifecycleState.inactive:
+        // Transient — the notification shade, an incoming call, the app
+        // switcher. Tearing the socket down and rebuilding it for those would
+        // cost more than it saves.
+        break;
+    }
   }
 
   final MusicRepository repository;
@@ -370,6 +398,7 @@ class MusicBetaController extends ChangeNotifier {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _reloadDebounce?.cancel();
     _changesSubscription?.cancel();
     repository.dispose();

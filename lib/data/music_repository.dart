@@ -140,5 +140,12 @@ abstract interface class MusicRepository {
 
   Future<void> submitFeedback(FeedbackDraft feedback);
 
+  /// Closes the live-updates connection while the app is in the background,
+  /// and opens it again on return. A socket held open through a night of
+  /// dozing is a phone that never idles, watching for changes nobody is
+  /// there to see.
+  void pauseLiveUpdates();
+  void resumeLiveUpdates();
+
   void dispose();
 }

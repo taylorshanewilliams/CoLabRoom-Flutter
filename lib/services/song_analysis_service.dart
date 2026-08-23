@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:audio_decoder/audio_decoder.dart';
@@ -69,29 +70,73 @@ String? lyricsPromptFor(SongProject project) {
   return text.length <= maxLyricsPromptChars ? text : text.substring(0, maxLyricsPromptChars);
 }
 
-/// How often the app asks whether separation has finished, and for how long.
+/// How long to keep waiting on separation before calling it.
 ///
 /// Ten minutes. It was six, which covered a cold GPU worker plus a long take —
 /// but the structure model runs a second source-separation pass of its own to
-/// name the sections, so the job it's waiting on is now roughly twice the
-/// work. Past this something is genuinely wrong, and saying so beats spinning
-/// forever.
-const Duration separationPollInterval = Duration(seconds: 4);
-const int separationMaxPolls = 150;
+/// name the sections, so the job is now roughly twice the work. Past this
+/// something is genuinely wrong, and saying so beats spinning forever.
+const Duration separationTimeout = Duration(minutes: 10);
+
+/// How long to wait before asking again.
+///
+/// Not a flat four seconds. At ten minutes that was 150 network round trips,
+/// most of them during a stretch where the answer certainly hadn't changed —
+/// and on a phone with its screen off, each one wakes the radio. That pattern
+/// is what Android's battery monitor flags, and it was right to.
+///
+/// Quick at the start because a cached analysis or a warm worker really can
+/// come back in seconds, then easing off once it's clear this is a long one.
+/// Same ceiling, roughly a third of the wakeups.
+Duration separationPollDelay(int attempt) {
+  if (attempt < 10) return const Duration(seconds: 4);
+  if (attempt < 25) return const Duration(seconds: 8);
+  return const Duration(seconds: 15);
+}
+
+/// How many polls in a row may fail before the analysis gives up.
+///
+/// A phone whose screen has been off loses DNS the moment it dozes, which
+/// surfaces as `SocketException: Failed host lookup` mid-job. One of those
+/// used to end a multi-minute analysis. They come back the instant anything
+/// wakes the radio, so the only correct response is to ask again.
+const int separationMaxConsecutiveFailures = 8;
 
 /// Progress while waiting on separation, spanning 0.15–0.50 so the bar keeps
 /// moving through the longest part of the job. The wording changes once the
 /// wait stops being typical, because a spinner that says the same thing for
 /// four minutes reads as broken even when it isn't.
-SongAnalysisProgress separationProgress(int attempt) {
-  final elapsed = separationPollInterval * (attempt + 1);
-  final fraction = (attempt + 1) / separationMaxPolls;
+SongAnalysisProgress separationProgress(Duration elapsed) {
+  final fraction = elapsed.inMilliseconds / separationTimeout.inMilliseconds;
   final label = elapsed < const Duration(seconds: 45)
       ? 'Separating the instruments'
       : elapsed < const Duration(minutes: 2)
           ? 'Still separating — waking up the GPU'
           : 'Still going. Long takes can take a few minutes';
   return SongAnalysisProgress(label, 0.15 + (0.35 * fraction.clamp(0, 1)));
+}
+
+/// Is this the network being unavailable, rather than the service saying no?
+///
+/// The distinction decides whether an analysis retries or gives up, and — more
+/// importantly — whether it falls back to the on-device chord detector. That
+/// fallback exists for a pipeline outage. Handing it a dropped connection
+/// instead means a phone that dozed for ten seconds quietly replaces a real
+/// analysis with a much worse one, which is exactly what happened.
+bool isConnectivityFailure(Object error) {
+  if (error is SocketException || error is TimeoutException) return true;
+  // http's ClientException and Supabase's own wrappers don't share a base
+  // class worth catching, and their messages are the only thing they have in
+  // common. Narrow deliberately: these are transport phrases, not the words a
+  // working server uses to refuse a request.
+  final text = error.toString().toLowerCase();
+  return text.contains('failed host lookup') ||
+      text.contains('no address associated with hostname') ||
+      text.contains('connection closed') ||
+      text.contains('connection refused') ||
+      text.contains('connection reset') ||
+      text.contains('network is unreachable') ||
+      text.contains('software caused connection abort');
 }
 
 /// Hands the band's own section names back to the parts they belong to after
@@ -613,13 +658,46 @@ class SongAnalysisService {
       throw StateError('The separation service did not start a job.');
     }
 
-    for (var attempt = 0; attempt < separationMaxPolls; attempt++) {
-      await Future<void>.delayed(separationPollInterval);
-      final poll = await _invokeAnalyze(
-        <String, dynamic>{...request, 'action': 'poll', 'jobId': jobId},
-      );
-      if (poll['status'] != 'pending') return poll;
-      onProgress?.call(separationProgress(attempt));
+    return _awaitSeparation(request, jobId, onProgress: onProgress);
+  }
+
+  /// Waits out the GPU job, forgiving the network for going away.
+  ///
+  /// The job itself is running on RunPod and does not care what the phone is
+  /// doing. All that's happening here is asking whether it's finished — so a
+  /// failed ask is not a failed analysis, it's a question that needs asking
+  /// again. Losing DNS the moment the screen goes off is normal Android
+  /// behaviour, not an error condition, and treating it as one threw away
+  /// minutes of finished GPU work.
+  Future<Map<String, dynamic>> _awaitSeparation(
+    Map<String, dynamic> request,
+    String jobId, {
+    ValueChanged<SongAnalysisProgress>? onProgress,
+  }) async {
+    var elapsed = Duration.zero;
+    var attempt = 0;
+    var consecutiveFailures = 0;
+    while (elapsed < separationTimeout) {
+      final delay = separationPollDelay(attempt);
+      await Future<void>.delayed(delay);
+      elapsed += delay;
+      attempt += 1;
+      try {
+        final poll = await _invokeAnalyze(
+          <String, dynamic>{...request, 'action': 'poll', 'jobId': jobId},
+        );
+        consecutiveFailures = 0;
+        if (poll['status'] != 'pending') return poll;
+      } on StateError {
+        // The service answered, and the answer was no. Asking again won't
+        // change it.
+        rethrow;
+      } catch (error) {
+        if (!isConnectivityFailure(error)) rethrow;
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= separationMaxConsecutiveFailures) rethrow;
+      }
+      onProgress?.call(separationProgress(elapsed));
     }
     throw StateError(
       'Separating this recording is taking longer than usual. It may still be '
@@ -655,6 +733,22 @@ class SongAnalysisService {
       try {
         chordResult = await _detectChordsViaCloud(reference, onProgress: onProgress);
       } catch (error) {
+        // The fallback is for the pipeline being down, not for the phone
+        // being off the network. Substituting a much worse analysis because
+        // a connection dropped means losing the good one you already paid
+        // for — and it happens silently, which is how a screen going to
+        // sleep replaced a real analysis with an on-device guess.
+        //
+        // Offline, stop and say so. Nothing is lost: the recording is still
+        // there, the cache means a retry costs almost nothing, and "you went
+        // offline" is a thing the musician can actually act on.
+        if (isConnectivityFailure(error)) {
+          throw StateError(
+            'Lost the connection while analyzing this recording. Nothing was '
+            'lost — try again once you have signal, and it will pick up much '
+            'faster the second time.',
+          );
+        }
         // An outage in the Demucs/ChordMini pipeline shouldn't turn "no
         // chords this time" into "no analysis at all". Falls back to the
         // on-device heuristic, which is worse but still functional — and

@@ -657,6 +657,14 @@ class InMemoryMusicRepository implements MusicRepository {
     _replaceRoom(room.copyWith(members: updatedMembers));
   }
 
+  // Nothing to pause: this repository is in memory, so there is no socket and
+  // no radio to keep awake.
+  @override
+  void pauseLiveUpdates() {}
+
+  @override
+  void resumeLiveUpdates() {}
+
   @override
   void dispose() {}
 

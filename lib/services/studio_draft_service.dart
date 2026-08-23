@@ -18,10 +18,12 @@ import 'song_analysis_service.dart'
     show
         carryCustomSectionNames,
         chordCoverage,
+        isConnectivityFailure,
         reusedAnalysisProgress,
-        separationMaxPolls,
-        separationPollInterval,
-        separationProgress;
+        separationMaxConsecutiveFailures,
+        separationPollDelay,
+        separationProgress,
+        separationTimeout;
 
 List<int> _msList(dynamic value) {
   if (value is! List) return const <int>[];
@@ -304,13 +306,31 @@ class StudioDraftService {
       throw StateError('The separation service did not start a job.');
     }
 
-    for (var attempt = 0; attempt < separationMaxPolls; attempt++) {
-      await Future<void>.delayed(separationPollInterval);
-      final poll = await _invokeAnalyze(
-        <String, dynamic>{...request, 'action': 'poll', 'jobId': jobId},
-      );
-      if (poll['status'] != 'pending') return poll;
-      onProgress?.call(separationProgress(attempt));
+    // See SongAnalysisService._awaitSeparation: the GPU job doesn't care what
+    // the phone is doing, so a failed poll is a question to ask again rather
+    // than a failed analysis.
+    var elapsed = Duration.zero;
+    var attempt = 0;
+    var consecutiveFailures = 0;
+    while (elapsed < separationTimeout) {
+      final delay = separationPollDelay(attempt);
+      await Future<void>.delayed(delay);
+      elapsed += delay;
+      attempt += 1;
+      try {
+        final poll = await _invokeAnalyze(
+          <String, dynamic>{...request, 'action': 'poll', 'jobId': jobId},
+        );
+        consecutiveFailures = 0;
+        if (poll['status'] != 'pending') return poll;
+      } on StateError {
+        rethrow;
+      } catch (error) {
+        if (!isConnectivityFailure(error)) rethrow;
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= separationMaxConsecutiveFailures) rethrow;
+      }
+      onProgress?.call(separationProgress(elapsed));
     }
     throw StateError(
       'Separating this recording is taking longer than usual. It may still be '
@@ -382,6 +402,16 @@ class StudioDraftService {
       try {
         chordResult = await _detectChordsViaCloud(draft, onProgress: onProgress);
       } catch (error) {
+        // See SongAnalysisService: the on-device fallback is for the pipeline
+        // being down, never for the phone being off the network. Substituting
+        // it because a connection dropped silently loses the better analysis.
+        if (isConnectivityFailure(error)) {
+          throw StateError(
+            'Lost the connection while analyzing this idea. Nothing was lost — '
+            'try again once you have signal, and it will pick up much faster '
+            'the second time.',
+          );
+        }
         usedFallback = true;
         final rawPcm = await AudioDecoder.convertToWavBytes(
           await File(localPath).readAsBytes(),
