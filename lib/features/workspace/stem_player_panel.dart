@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' show FontFeature;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
