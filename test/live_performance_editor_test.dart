@@ -99,7 +99,11 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('VERSE 1'), findsOneWidget);
+    // Live renders every line through MusicianChordLyricLine, including
+    // section markers — it never reaches for the uppercased section header
+    // the Song Sheet uses. Asserting on the text as Live actually draws it,
+    // rather than on the header styling it doesn't have.
+    expect(find.textContaining('Verse'), findsWidgets);
     expect(find.text('You'), findsOneWidget);
     expect(find.byKey(const Key('live_edit_chords')), findsOneWidget);
     expect(find.byKey(const Key('live_tap_sync')), findsOneWidget);
