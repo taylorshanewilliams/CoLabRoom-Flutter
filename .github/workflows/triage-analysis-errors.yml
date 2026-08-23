@@ -1,0 +1,52 @@
+name: Triage analysis errors
+
+# Reads the analysis_error_signatures view, asks Claude to diagnose each
+# signature nobody has looked at yet, and opens a GitHub issue per finding.
+#
+# Diagnosis only — this workflow never commits, pushes, or deploys. A fix
+# that silences an error is not the same as a fix that removes the problem,
+# and in this pipeline the difference is usually a silent accuracy
+# regression, so a human reads every diagnosis before anything changes.
+on:
+  schedule:
+    # Hourly. New signatures are rare; the run is a no-op and costs nothing
+    # when there's nothing fresh, so the cadence is about how fast you hear
+    # about a bad deploy, not about volume.
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print diagnoses instead of filing issues'
+        type: boolean
+        default: false
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The agent shows Claude recent commits so it can correlate a new
+          # failure with what shipped just before it — the single most useful
+          # signal for "this started an hour ago".
+          fetch-depth: 50
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r tools/triage_agent/requirements.txt
+
+      - name: Triage
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TRIAGE_DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+        run: python tools/triage_agent/triage.py

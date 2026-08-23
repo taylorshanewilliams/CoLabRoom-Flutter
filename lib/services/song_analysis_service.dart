@@ -9,13 +9,17 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/music_models.dart';
 import '../domain/song_analysis_models.dart';
 import 'audio_analysis_utils.dart';
+import 'error_reporter.dart';
 
 export 'audio_analysis_utils.dart' show SongAnalysisProgress;
 
 class SongAnalysisService {
-  SongAnalysisService({SupabaseClient? client}) : client = client ?? Supabase.instance.client;
+  SongAnalysisService({SupabaseClient? client, ErrorReporter? reporter})
+      : client = client ?? Supabase.instance.client,
+        _reporter = reporter ?? ErrorReporter(client: client);
 
   final SupabaseClient client;
+  final ErrorReporter _reporter;
 
   Future<SongAnalysisBundle> load(String projectId) async {
     final refs = await client
@@ -484,6 +488,15 @@ class SongAnalysisService {
         });
         lyricsWarning =
             'Cloud chord detection was unavailable, so a less accurate on-device fallback was used. Details: $error';
+        // The degradation that matters most: analysis will still "succeed"
+        // from here, just with materially worse chords and no stems, so this
+        // is invisible unless it's reported on its own.
+        await _reporter.reportWarning(
+          service: 'analysis',
+          stage: 'separation',
+          message: 'Cloud chord detection unavailable, used on-device fallback: $error',
+          projectId: project.id,
+        );
       }
 
       // The isolated vocal stem when separation produced one, the raw mix
@@ -546,6 +559,12 @@ class SongAnalysisService {
         final note = 'Could not transcribe this recording\'s speech, so only chords were '
             'detected. Details: $error';
         lyricsWarning = lyricsWarning == null ? note : '$lyricsWarning\n\n$note';
+        await _reporter.reportWarning(
+          service: 'analysis',
+          stage: 'lyrics',
+          message: 'Transcription failed: $error',
+          projectId: project.id,
+        );
       }
 
       onProgress?.call(const SongAnalysisProgress('Saving song map', 0.9));
@@ -633,6 +652,11 @@ class SongAnalysisService {
             'last_error': error.toString(),
           })
           .eq('project_id', project.id);
+      await _reporter.reportError(
+        service: 'analysis',
+        message: error.toString(),
+        projectId: project.id,
+      );
       rethrow;
     }
   }
