@@ -70,10 +70,14 @@ String? lyricsPromptFor(SongProject project) {
 }
 
 /// How often the app asks whether separation has finished, and for how long.
-/// Six minutes covers a cold GPU worker plus a long take; past that something
-/// is genuinely wrong and saying so beats spinning forever.
+///
+/// Ten minutes. It was six, which covered a cold GPU worker plus a long take —
+/// but the structure model runs a second source-separation pass of its own to
+/// name the sections, so the job it's waiting on is now roughly twice the
+/// work. Past this something is genuinely wrong, and saying so beats spinning
+/// forever.
 const Duration separationPollInterval = Duration(seconds: 4);
-const int separationMaxPolls = 90;
+const int separationMaxPolls = 150;
 
 /// Progress while waiting on separation, spanning 0.15–0.50 so the bar keeps
 /// moving through the longest part of the job. The wording changes once the

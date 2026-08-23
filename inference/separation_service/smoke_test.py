@@ -128,10 +128,36 @@ def main() -> int:
     bpm = result.get("bpm")
     if bpm is not None and not isinstance(bpm, (int, float)):
         failures.append(f"bpm should be numeric or None, got {type(bpm).__name__}")
-    if not isinstance(result.get("structure"), list):
+    structure = result.get("structure")
+    if not isinstance(structure, list):
         failures.append("structure should be a list")
+    else:
+        for section in structure:
+            if not {"start_ms", "end_ms", "label", "group_index"} <= set(section):
+                failures.append(f"structure entry missing keys: {sorted(section)}")
+                break
     if not isinstance(result.get("uploaded_stems"), list):
         failures.append("uploaded_stems should be a list")
+
+    # The structure model gets checked apart from the handler run above,
+    # because fifteen seconds of synthesised noise is shorter than any real
+    # section and the model correctly declines to find a form in it — so that
+    # run exercises the fallback, not the model.
+    #
+    # What can actually break is the model failing to import or load inside
+    # this process. A dependency resolution that works at build time and not
+    # at import time is exactly how the MKL/libgomp conflict took demucs down
+    # once already, so loading the checkpoint here — in the same interpreter
+    # that has already imported librosa, torch and demucs — is the check
+    # worth having.
+    print("Loading the structure model in-process…")
+    try:
+        from allin1_infer.models.loaders import load_pretrained_model
+
+        load_pretrained_model("harmonix-all", device="cpu")
+        print("  structure model: harmonix-all loaded")
+    except Exception as error:  # noqa: BLE001 - reporting the failure is the point
+        failures.append(f"structure model unavailable: {type(error).__name__}: {error}")
 
     if failures:
         for failure in failures:

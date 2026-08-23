@@ -62,7 +62,11 @@ type Stem = (typeof STEMS)[number];
 // existing cache row stops matching and is replaced by a real run. Not
 // bumping it after such a change is the one way this cache can serve a stale
 // answer, so it belongs next to the models it describes.
-const PIPELINE_VERSION = 'htdemucs_6s+chordmini+beat_this.1';
+// .2 adds the all-in-one structure model, which names sections instead of
+// lettering them. Every cached analysis from .1 carries the old "Part A, Part
+// B" structure, and no amount of re-opening the song would have replaced it —
+// bumping this is what makes the next analysis a real one.
+const PIPELINE_VERSION = 'htdemucs_6s+chordmini+beat_this+allin1.2';
 
 /// The SHA-256 of whatever the URL serves, hex-encoded, hashed as it streams
 /// rather than buffered.

@@ -38,9 +38,15 @@ makes per-instrument playback possible, and the harmonic mix fed to ChordMini
 is correspondingly the sum of bass+other+guitar+piano — with the 6-source
 model, bass+other alone would be *missing* most of the harmony.
 
+Song structure comes from the All-In-One analyzer (Kim & Nam, ISMIR 2023),
+which names sections — Intro, Verse, Chorus — rather than lettering them.
+That costs a second source-separation pass, since the model wants its own;
+see _detect_structure for why the trained model is the only thing that can
+answer the question at all.
+
 bpm/key/instruments/structure are all best-effort, each wrapped in its own
-try/except so a librosa failure on any one doesn't take down chord detection
-or lyrics, which don't depend on any of them.
+try/except so a failure in any one doesn't take down chord detection or
+lyrics, which don't depend on any of them.
 """
 
 import base64
@@ -258,18 +264,162 @@ MIN_SECTION_SECONDS = 10.0
 # idea, and so the same part.
 SECTION_REPEAT_SIMILARITY = 0.85
 
+# What the all-in-one model can call a section, mapped to what a musician
+# calls it. 'start' and 'end' bound the audio rather than naming parts of the
+# song, and are dropped.
+STRUCTURE_MARKER_LABELS = {"start", "end"}
+STRUCTURE_LABEL_NAMES = {
+    "intro": "Intro",
+    "verse": "Verse",
+    "chorus": "Chorus",
+    "bridge": "Bridge",
+    "inst": "Instrumental",
+    "solo": "Solo",
+    "break": "Break",
+    "outro": "Outro",
+}
 
-def _detect_structure(y: np.ndarray | None, sr: int | None, target_sections: int = 8) -> list[dict]:
-    """Chroma self-similarity segmentation, reported as a song *form*.
+# Shorter than this isn't a section, it's the model changing its mind
+# mid-phrase. Folded into the part before it rather than dropped, so the form
+# stays continuous.
+MIN_FUNCTIONAL_SECTION_MS = 4000
 
-    Segments that share a musical idea are grouped and given the same part
-    label, so the output reads as "A B A B C B" — the way a musician would
-    describe a song — rather than a chain of "E repeats C repeats B" that has
-    to be traced backwards to mean anything.
 
-    Labels stay deliberately abstract ("Part A", not "Chorus"): the chroma
-    tells us two stretches are the same, never which one is the chorus. See
-    StructureSection's doc comment on the Dart side.
+def _median_gap_ms(values_ms: list[int]) -> float:
+    if len(values_ms) < 2:
+        return 0.0
+    gaps = sorted(values_ms[i] - values_ms[i - 1] for i in range(1, len(values_ms)))
+    return float(gaps[len(gaps) // 2])
+
+
+def _snap_to_downbeats(time_ms: int, downbeats_ms: list[int], tolerance_ms: float) -> int:
+    """Sections start where bars start.
+
+    The structure model finds boundaries on its own beat grid; the app draws
+    everything else, chords included, on the grid Beat This! produced. A
+    section beginning 40ms before the bar it obviously begins on is the same
+    off-by-a-frame problem chord snapping solves, and the same fix applies.
+    """
+    if not downbeats_ms or tolerance_ms <= 0:
+        return time_ms
+    nearest = min(downbeats_ms, key=lambda downbeat: abs(downbeat - time_ms))
+    return nearest if abs(nearest - time_ms) <= tolerance_ms else time_ms
+
+
+def _detect_structure(audio_path: str, work_dir: str, beat_info: dict) -> list[dict]:
+    """Functional song structure — actual Intro/Verse/Chorus, not letters.
+
+    Runs the All-In-One music structure analyzer (Kim & Nam, ISMIR 2023),
+    whose segmentation head was trained on the Harmonix Set: around 900 pop
+    songs with human structure annotations. That training is the entire point.
+    Chroma self-similarity can tell that two stretches of a song are the same
+    musical idea; nothing in the audio itself says which of them is the
+    chorus. Only a model that has been shown what people *call* a chorus can
+    name one, which is why every letter-based attempt at this reads as
+    meaningless — it is meaningless, by construction.
+
+    It is still a guess, and the app says so. The shape is usually right; the
+    names are right in proportion to how much the song resembles the pop songs
+    it was trained on.
+
+    Returns [] on any failure, dropping the caller through to the chroma
+    fallback.
+    """
+    try:
+        import allin1_infer
+        import torch
+    except Exception:
+        return []
+    try:
+        # WAV, not the original file. The authors warn that MP3 decoders
+        # disagree with each other by 20-40ms, which is enough to shift every
+        # boundary the model reports.
+        wav_path = os.path.join(work_dir, "structure_input.wav")
+        convert = subprocess.run(
+            ["ffmpeg", "-y", "-i", audio_path, "-ac", "2", "-ar", "44100", wav_path],
+            capture_output=True,
+            text=True,
+        )
+        if convert.returncode != 0 or not os.path.exists(wav_path):
+            return []
+
+        result = allin1_infer.analyze(
+            wav_path,
+            device="cuda" if torch.cuda.is_available() else "cpu",
+            demix_dir=os.path.join(work_dir, "allin1_demix"),
+            spec_dir=os.path.join(work_dir, "allin1_spec"),
+            # A worker that has already initialised CUDA is not a place to
+            # fork more processes.
+            multiprocess=False,
+        )
+        segments = getattr(result, "segments", None) or []
+        if not segments:
+            return []
+
+        downbeats_ms = [int(v) for v in (beat_info.get("downbeats_ms") or [])]
+        tolerance_ms = _median_gap_ms([int(v) for v in (beat_info.get("beats_ms") or [])])
+
+        merged: list[list] = []
+        for segment in segments:
+            label = str(getattr(segment, "label", "")).strip().lower()
+            if not label or label in STRUCTURE_MARKER_LABELS:
+                continue
+            start_ms = _snap_to_downbeats(
+                round(float(segment.start) * 1000), downbeats_ms, tolerance_ms
+            )
+            end_ms = _snap_to_downbeats(
+                round(float(segment.end) * 1000), downbeats_ms, tolerance_ms
+            )
+            if end_ms <= start_ms:
+                continue
+            name = STRUCTURE_LABEL_NAMES.get(label, label.replace("_", " ").title())
+            # Two of the same name in a row is one section the model split,
+            # and a sliver is the model changing its mind. Both fold into what
+            # came before, which keeps the form continuous.
+            if merged and (
+                merged[-1][2] == name or end_ms - start_ms < MIN_FUNCTIONAL_SECTION_MS
+            ):
+                merged[-1][1] = end_ms
+                continue
+            merged.append([start_ms, end_ms, name])
+
+        if len(merged) < 2:
+            return []
+
+        # Colour follows the name, so every chorus looks like every other
+        # chorus at a glance.
+        group_indices: dict[str, int] = {}
+        sections: list[dict] = []
+        for start_ms, end_ms, name in merged:
+            if name not in group_indices:
+                group_indices[name] = len(group_indices)
+            sections.append(
+                {
+                    "start_ms": start_ms,
+                    "end_ms": end_ms,
+                    "label": name,
+                    "group_index": group_indices[name],
+                    "repeats_section_label": None,
+                }
+            )
+        return sections
+    except Exception:
+        return []
+
+
+def _detect_structure_chroma(
+    y: np.ndarray | None, sr: int | None, target_sections: int = 8
+) -> list[dict]:
+    """Fallback for when the structure model is unavailable or fails.
+
+    Chroma self-similarity segmentation, reported as a song *form*: segments
+    sharing a musical idea are grouped under one label, so the output reads as
+    "A B A B C B" rather than a chain of "E repeats C repeats B" that has to
+    be traced backwards to mean anything.
+
+    Labels here stay abstract, and that isn't modesty — mean chroma cannot
+    tell a verse from a chorus in the same key, which is exactly why this is
+    the fallback now rather than the answer.
     """
     if y is None:
         return []
@@ -342,6 +492,15 @@ def _detect_structure(y: np.ndarray | None, sr: int | None, target_sections: int
                     "repeats_section_label": None,
                 }
             )
+        # Every segment landed in one group, so the answer is "the whole song
+        # is Part A" — which is what a user saw and correctly called
+        # meaningless. It happens because mean chroma over thirty seconds is
+        # nearly identical everywhere in a song that stays in one key, so the
+        # similarity test passes against everything. Saying nothing is more
+        # honest than eight identical letters, and the UI already has a
+        # "structure not detected" state for exactly this.
+        if len(group_vectors) < 2:
+            return []
         return sections
     except Exception:
         return []
@@ -432,7 +591,11 @@ def handler(job):
             waveforms["drums"], sample_rates["drums"], y_mix, sr_mix
         )
         instruments = {stem: _stem_presence(waveforms[stem]) for stem in STEM_NAMES}
-        structure = _detect_structure(y_mix, sr_mix)
+        # Named sections first; letters only if the model couldn't run. Placed
+        # after the demucs subprocess has exited so its VRAM is already back.
+        structure = _detect_structure(in_path, tmp, beat_info) or _detect_structure_chroma(
+            y_mix, sr_mix
+        )
 
         # ffmpeg's amix sums the harmonic stems and re-encodes to MP3 in one
         # pass. amix always divides by the input count, which would leave the

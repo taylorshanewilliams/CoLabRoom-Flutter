@@ -25,6 +25,23 @@ RUN pip install --no-cache-dir --force-reinstall --no-deps \
 
 RUN pip install --no-cache-dir https://github.com/CPJKU/beat_this/archive/main.zip
 
+# Functional song structure — Intro/Verse/Chorus rather than A/B/C.
+#
+# The openmirlab fork rather than the original `allin1`: the original needs
+# NATTEN compiled against an exact torch+CUDA pair, and madmom installed from
+# a git branch because the released one doesn't build against modern numpy.
+# That's two fragile build-time dependencies for a feature nothing can verify
+# until a real song goes through it. This fork uses pure-PyTorch neighborhood
+# attention and madmom-infer, so it installs from PyPI with no compilation.
+#
+# It brings its own `demucs_infer` for its own separation pass. Deliberately a
+# distinct module from the `demucs` installed above rather than a replacement
+# for it — this image needs both, since htdemucs_6s is what gives us guitar
+# and piano as separate stems, and the structure model wants the four-stem
+# demix it was trained on.
+RUN pip install --no-cache-dir all-in-one-infer \
+    && python -c "import allin1_infer; print('allin1_infer', 'imports')"
+
 # librosa pulls in its own scipy/numpy resolution, which on this base image
 # ends up linking Intel MKL — MKL's own threading layer conflicts with the
 # libgomp (GNU OpenMP) that PyTorch/demucs already load in the same process,
@@ -44,6 +61,17 @@ RUN python -c "from demucs.pretrained import get_model; get_model('htdemucs_6s')
 # Same reasoning for the beat tracker's checkpoint — fetched at build time so
 # no cold worker pays a model download mid-job.
 RUN python -c "from beat_this.inference import File2Beats; File2Beats(checkpoint_path='final0', device='cpu', dbn=False)"
+
+# And for the structure model, which is an eight-fold ensemble — eight
+# checkpoints a cold worker would otherwise fetch before it could name a
+# single section. Downloaded without running inference, so a build failure
+# here means the package moved its loader rather than that a synthetic test
+# clip confused a beat tracker.
+RUN python -c "from allin1_infer.models.loaders import load_pretrained_model; load_pretrained_model('harmonix-all', device='cpu'); print('harmonix-all cached')"
+
+# The structure model's own separation pass uses demucs_infer's htdemucs,
+# which is a different checkpoint from the htdemucs_6s baked in above.
+RUN python -c "from demucs_infer.pretrained import get_model; get_model('htdemucs')"
 
 COPY handler.py /app/handler.py
 # Shipped in the image so CI can run the real handler inside the real

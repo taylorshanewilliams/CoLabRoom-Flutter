@@ -8,14 +8,15 @@ import '../../domain/song_analysis_models.dart';
 /// The shape of the song: which parts it's built from and the order they
 /// come in.
 ///
-/// Deliberately abstract — "Part A", never "Chorus". The analysis can tell
-/// that two stretches are the same musical idea; it cannot tell which one is
-/// the chorus, and guessing would be worse than staying honest.
+/// Reads as a form ("Intro Verse Chorus Verse Chorus Bridge Chorus") rather
+/// than a list of boundaries, because that is how a musician describes a song
+/// to another musician. Repeats share a colour and a name, so the pattern is
+/// visible before a single word is read.
 ///
-/// Reads as a form ("A B A B C B") rather than a list of boundaries, because
-/// that is how a musician describes a song to another musician. Repeats share
-/// a colour and a letter, so the pattern is visible before a single word is
-/// read.
+/// The names are a trained model's read, not a measurement, and the note
+/// under the timeline says so rather than letting confident typography imply
+/// otherwise. Analyses from before that model shipped carry letters here
+/// instead and render the same way.
 class StructureTimeline extends StatelessWidget {
   const StructureTimeline({required this.sections, super.key});
 
@@ -86,7 +87,7 @@ class StructureTimeline extends StatelessWidget {
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 2),
                           child: Text(
-                            sections[i].label,
+                            sections[i].shortLabel,
                             style: TextStyle(
                               color: _colorFor(sections[i]),
                               fontSize: 13,
@@ -148,7 +149,10 @@ class StructureTimeline extends StatelessWidget {
                 ),
                 const SizedBox(width: 9),
                 Text(
-                  'Part ${entry.value.label}',
+                  // Just the name. It used to read "Part A", which needed the
+                  // word "Part" to make a bare letter mean anything; "Part
+                  // Chorus" is not something anyone says.
+                  entry.value.label,
                   style: const TextStyle(
                     color: AppColors.text,
                     fontSize: 12.5,
@@ -171,6 +175,16 @@ class StructureTimeline extends StatelessWidget {
               ],
             ),
           ),
+        // Said plainly, once, under the thing it's about. The names are a
+        // model's read of a song's shape and they will sometimes be wrong —
+        // typography this confident owes the reader that much.
+        const SizedBox(height: 2),
+        const Text(
+          'Section names come from a model trained on thousands of annotated '
+          'songs. It reads the shape well and the names less so — treat them '
+          'as a starting point.',
+          style: TextStyle(color: AppColors.muted, fontSize: 10.5, height: 1.4),
+        ),
       ],
     );
   }

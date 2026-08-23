@@ -90,13 +90,18 @@ class ReferenceTrack {
   bool get hasTranscript => (transcriptText?.trim().isNotEmpty ?? false);
 }
 
-/// A suggested song-structure boundary (e.g. "where the chorus probably
-/// starts") — [label] is always a generic placeholder ("Section A", "Section
-/// B", ...), never asserted as Verse/Chorus/Bridge. The musician relabels
-/// sections themselves; this only claims to know where the music changes,
-/// not what to call the result. [repeatsSectionLabel] is a soft hint (this
-/// section's chroma closely matches an earlier one) worth surfacing as
-/// "repeats Section B" but not treated as certain.
+/// One named part of the song — "Verse", "Chorus", "Bridge" — and where it
+/// runs.
+///
+/// The names are real now. They come from a model trained on around 900 pop
+/// songs that people annotated by hand (see handler.py's _detect_structure),
+/// which is the only way anything can name a chorus: nothing in the audio
+/// itself says which repeated idea is the chorus and which is the verse.
+/// Earlier analyses lettered their sections "A", "B", "C" instead, and those
+/// still load and render — the label is just a string.
+///
+/// It is a good guess rather than a fact, and the UI says so where it's
+/// shown. [repeatsSectionLabel] is a legacy hint from the lettered era.
 class StructureSection {
   const StructureSection({
     required this.startMs,
@@ -109,10 +114,38 @@ class StructureSection {
   final int startMs;
   final int endMs;
 
-  /// The part this stretch is — "A", "B". Every occurrence of the same
-  /// musical idea shares a label, so the sequence of labels reads as the
-  /// song's form.
+  /// What this part is called — "Intro", "Verse", "Chorus". Every occurrence
+  /// of the same part shares a label, so the sequence reads as the song's
+  /// form. Older analyses carry a letter here instead.
   final String label;
+
+  /// [label] shortened to fit inside a narrow block on the timeline, where a
+  /// four-minute song's intro is a few millimetres wide and "Instrumental"
+  /// scaled down to fit is a grey smudge. Two letters keep a shape you can
+  /// recognise; the full word is still right there in the form and the key
+  /// below it.
+  String get shortLabel {
+    if (label.length <= 2) return label;
+    switch (label) {
+      case 'Intro':
+        return 'In';
+      case 'Verse':
+        return 'V';
+      case 'Chorus':
+        return 'Ch';
+      case 'Bridge':
+        return 'Br';
+      case 'Instrumental':
+        return 'Inst';
+      case 'Solo':
+        return 'Solo';
+      case 'Break':
+        return 'Bk';
+      case 'Outro':
+        return 'Out';
+    }
+    return label.substring(0, 2);
+  }
 
   /// Which distinct idea this is, in order of first appearance. Drives
   /// colour so repeats are recognisable at a glance.
