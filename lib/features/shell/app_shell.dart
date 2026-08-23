@@ -72,6 +72,21 @@ class _AppShellState extends State<AppShell> {
     _Destination('Toolbox', Icons.construction_rounded),
   ];
 
+  /// The tab contents, but each one only constructed once it has actually
+  /// been opened.
+  ///
+  /// IndexedStack keeps every child alive, which is what preserves scroll
+  /// position and typed state when switching tabs — but it also *builds*
+  /// them all immediately. That meant launching the app constructed Studio
+  /// (which fetches drafts over the network) and Toolbox (which reads stored
+  /// ordering) before the user had looked at either, paying for work nobody
+  /// asked for on the slowest frame there is. Once a tab has been visited it
+  /// stays built, so the state-preserving behaviour is unchanged.
+  List<Widget> get _lazyScreens => <Widget>[
+        for (var i = 0; i < _screens.length; i += 1)
+          _LazyTab(active: _index == i, child: _screens[i]),
+      ];
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -90,7 +105,7 @@ class _AppShellState extends State<AppShell> {
                       onSelect: (value) => setState(() => _index = value),
                     ),
                   ),
-                  Expanded(child: IndexedStack(index: _index, children: _screens)),
+                  Expanded(child: IndexedStack(index: _index, children: _lazyScreens)),
                 ],
               ),
             ),
@@ -98,7 +113,7 @@ class _AppShellState extends State<AppShell> {
         }
 
         return Scaffold(
-          body: SafeArea(bottom: false, child: IndexedStack(index: _index, children: _screens)),
+          body: SafeArea(bottom: false, child: IndexedStack(index: _index, children: _lazyScreens)),
           bottomNavigationBar: SafeArea(
             top: false,
             child: _BottomNavigation(
@@ -110,6 +125,29 @@ class _AppShellState extends State<AppShell> {
         );
       },
     );
+  }
+}
+
+/// Renders [child] only after this tab has been selected at least once,
+/// then keeps it. Deferring construction is the point; discarding it again
+/// afterwards would throw away exactly the state IndexedStack is here for.
+class _LazyTab extends StatefulWidget {
+  const _LazyTab({required this.active, required this.child});
+
+  final bool active;
+  final Widget child;
+
+  @override
+  State<_LazyTab> createState() => _LazyTabState();
+}
+
+class _LazyTabState extends State<_LazyTab> {
+  bool _opened = false;
+
+  @override
+  Widget build(BuildContext context) {
+    _opened = _opened || widget.active;
+    return _opened ? widget.child : const SizedBox.shrink();
   }
 }
 

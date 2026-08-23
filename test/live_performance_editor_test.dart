@@ -27,7 +27,11 @@ void main() {
           projectId: 'song-live',
           authorId: 'user-1',
           authorName: 'Taylor',
-          body: 'Verse 1:',
+          // Sections are explicit now — a `[Bracketed]` body with
+          // ContributionKind.section — rather than inferred from a trailing
+          // colon, which is what this fixture still used.
+          body: '[Verse 1]',
+          kind: ContributionKind.section,
           colorValue: 0xFFFF8A4C,
           createdAt: now,
           position: 1,
