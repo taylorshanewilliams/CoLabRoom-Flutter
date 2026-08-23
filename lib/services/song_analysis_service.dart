@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:audio_decoder/audio_decoder.dart';
 import 'package:flutter/foundation.dart';
@@ -12,6 +11,35 @@ import 'audio_analysis_utils.dart';
 import 'error_reporter.dart';
 
 export 'audio_analysis_utils.dart' show SongAnalysisProgress;
+
+/// Splits timed transcript words into lines, breaking on a real pause rather
+/// than a fixed word count so the lines land where the singer breathed.
+///
+/// Top-level rather than a method because it needs nothing from the service
+/// — and because [SongAnalysisService] resolves a Supabase client in its
+/// constructor, which makes the class impossible to instantiate in a unit
+/// test. Pure logic shouldn't be locked behind that.
+List<List<TranscriptWord>> groupTranscriptWordsIntoLines(List<TranscriptWord> words) {
+  if (words.isEmpty) return const <List<TranscriptWord>>[];
+  const pauseGapMs = 650;
+  const maxWordsPerLine = 12;
+  const maxLineDurationMs = 9000;
+  final lines = <List<TranscriptWord>>[];
+  var current = <TranscriptWord>[];
+  for (final word in words) {
+    if (current.isNotEmpty) {
+      final gap = word.startMs - current.last.endMs;
+      final duration = word.endMs - current.first.startMs;
+      if (gap >= pauseGapMs || current.length >= maxWordsPerLine || duration >= maxLineDurationMs) {
+        lines.add(current);
+        current = <TranscriptWord>[];
+      }
+    }
+    current.add(word);
+  }
+  if (current.isNotEmpty) lines.add(current);
+  return lines;
+}
 
 class SongAnalysisService {
   SongAnalysisService({SupabaseClient? client, ErrorReporter? reporter})
@@ -239,7 +267,9 @@ class SongAnalysisService {
       // makes the old ones wrong, not just stale.
       await _clearStems(project.id);
     } catch (_) {
-      if (fileRow != null) await client.from('files').delete().eq('id', fileRow['id']);
+      if (fileRow != null) {
+        await client.from('files').delete().eq('id', fileRow['id'] as Object);
+      }
       await client.storage.from('room-files').remove(<String>[storagePath]);
       rethrow;
     }
@@ -338,25 +368,7 @@ class SongAnalysisService {
   /// shared by the explicit "Replace project lyrics with this" action and
   /// the lyric review screen. Pure/no DB access.
   List<List<TranscriptWord>> groupTranscriptWords(List<TranscriptWord> words) {
-    if (words.isEmpty) return const <List<TranscriptWord>>[];
-    const pauseGapMs = 650;
-    const maxWordsPerLine = 12;
-    const maxLineDurationMs = 9000;
-    final lines = <List<TranscriptWord>>[];
-    var current = <TranscriptWord>[];
-    for (final word in words) {
-      if (current.isNotEmpty) {
-        final gap = word.startMs - current.last.endMs;
-        final duration = word.endMs - current.first.startMs;
-        if (gap >= pauseGapMs || current.length >= maxWordsPerLine || duration >= maxLineDurationMs) {
-          lines.add(current);
-          current = <TranscriptWord>[];
-        }
-      }
-      current.add(word);
-    }
-    if (current.isNotEmpty) lines.add(current);
-    return lines;
+    return groupTranscriptWordsIntoLines(words);
   }
 
   /// Text form of [groupTranscriptWords], for the explicit "Replace project
@@ -643,7 +655,10 @@ class SongAnalysisService {
           })
           .eq('project_id', project.id);
       onProgress?.call(const SongAnalysisProgress('Ready', 1));
-      return load(project.id);
+      // Awaited so a failure reloading the saved bundle still lands in the
+      // catch below and marks the analysis failed, rather than escaping as
+      // an unhandled future while the row claims 'ready'.
+      return await load(project.id);
     } catch (error) {
       await client
           .from('project_audio_references')

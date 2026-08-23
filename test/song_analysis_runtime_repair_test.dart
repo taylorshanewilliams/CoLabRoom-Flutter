@@ -3,16 +3,26 @@ import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('recognized vocal text is split into editable lyric-sized lines', () {
-    final lines = splitTranscriptIntoLyricLines(
-      'We drove all night through the rain. '
-      'Nobody said where the highway would end but we kept going.',
-      maxWordsPerLine: 6,
-    );
+  // Was written against splitTranscriptIntoLyricLines(String), which no
+  // longer exists — grouping moved onto SongAnalysisService and works from
+  // timed words so it can break lines on real pauses rather than word count.
+  // The test never failed during that change because nothing in CI ran it.
+  test('transcript words are grouped into lines on pauses', () {
+    // A clear gap after "rain" — larger than the 650ms pause threshold —
+    // should start a new line; the words either side of it should not.
+    final lines = groupTranscriptWordsIntoLines(const <TranscriptWord>[
+      TranscriptWord(word: 'We', startMs: 0, endMs: 200),
+      TranscriptWord(word: 'drove', startMs: 210, endMs: 420),
+      TranscriptWord(word: 'through', startMs: 430, endMs: 640),
+      TranscriptWord(word: 'the', startMs: 650, endMs: 760),
+      TranscriptWord(word: 'rain', startMs: 770, endMs: 1000),
+      TranscriptWord(word: 'nobody', startMs: 2000, endMs: 2300),
+      TranscriptWord(word: 'said', startMs: 2310, endMs: 2500),
+    ]);
 
-    expect(lines, isNotEmpty);
-    expect(lines.every((line) => line.split(' ').length <= 6), isTrue);
-    expect(lines.join(' '), contains('highway'));
+    expect(lines, hasLength(2));
+    expect(lines.first.map((w) => w.word).join(' '), 'We drove through the rain');
+    expect(lines.last.map((w) => w.word).join(' '), 'nobody said');
   });
 
   test('analysis can be ready from a vocal draft before lyrics are synced', () {

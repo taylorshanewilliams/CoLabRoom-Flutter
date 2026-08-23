@@ -131,7 +131,11 @@ Map<String, dynamic> analyzeChordsOnDevice(Map<String, dynamic> input) {
         (cue['startMs'] as int) - (merged.last['endMs'] as int) < 700) {
       final oldConfidence = merged.last['confidence'] as double;
       merged.last['endMs'] = cue['endMs'];
-      merged.last['confidence'] = (oldConfidence + cue['confidence'] as double) / 2;
+      // The cast belongs to the map lookup, not to the sum: `as` binds
+      // looser than `+` in Dart, so this previously read as
+      // `(oldConfidence + dynamic) as double` and only worked because the
+      // dynamic happened to hold a double at runtime.
+      merged.last['confidence'] = (oldConfidence + (cue['confidence'] as double)) / 2;
     } else {
       merged.add(Map<String, dynamic>.from(cue));
     }

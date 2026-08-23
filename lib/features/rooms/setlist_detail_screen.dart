@@ -48,8 +48,11 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
       if (project != null) projects.add(project);
     }
 
+    // Called via onReorderItem rather than the deprecated onReorder, which
+    // means newIndex already accounts for the item being lifted out at
+    // oldIndex — the classic `if (newIndex > oldIndex) newIndex -= 1` fixup
+    // is not just unnecessary here, it would move the item one slot short.
     void reorder(int oldIndex, int newIndex) {
-      if (newIndex > oldIndex) newIndex -= 1;
       final updated = List<String>.from(order);
       final movedId = updated.removeAt(oldIndex);
       updated.insert(newIndex, movedId);
@@ -154,7 +157,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
               padding: const EdgeInsets.fromLTRB(18, 14, 18, 30),
               buildDefaultDragHandles: false,
               itemCount: projects.length,
-              onReorder: reorder,
+              onReorderItem: reorder,
               itemBuilder: (context, index) {
                 final project = projects[index];
                 return ReorderableDragStartListener(

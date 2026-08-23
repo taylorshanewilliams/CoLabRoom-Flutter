@@ -306,7 +306,9 @@ class StudioDraftService {
         'last_error': null,
       }).eq('id', draft.id);
       onProgress?.call(const SongAnalysisProgress('Ready', 1));
-      return load(draft.id);
+      // Awaited so a failure here is caught below and marks the draft
+      // failed, instead of escaping while the row claims 'ready'.
+      return await load(draft.id);
     } catch (error) {
       await client.from('studio_drafts').update(<String, dynamic>{
         'analysis_state': 'failed',
@@ -434,7 +436,9 @@ class StudioDraftService {
             );
       }
     } catch (_) {
-      if (fileRow != null) await client.from('files').delete().eq('id', fileRow['id']);
+      if (fileRow != null) {
+        await client.from('files').delete().eq('id', fileRow['id'] as Object);
+      }
       await client.storage.from('room-files').remove(<String>[storagePath]);
       rethrow;
     }

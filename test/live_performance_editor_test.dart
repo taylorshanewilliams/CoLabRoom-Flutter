@@ -78,10 +78,13 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData.dark(),
+        // `initialAnalysis`/`startSynced` were renamed away — the screen takes
+        // `analysis` and works out for itself whether it has real per-line
+        // timing to sync to. This kept referencing the old names because
+        // nothing in CI ever ran the suite.
         home: LivePerformanceScreen(
           project: project,
-          initialAnalysis: analysis,
-          startSynced: true,
+          analysis: analysis,
         ),
       ),
     );

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cross_file/cross_file.dart';
@@ -62,7 +61,6 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   String? _loadingVoiceContributionId;
   String? _playingContributionId;
   DateTime? _voiceStartedAt;
-  Duration _recordingElapsed = Duration.zero;
   int _lastContributionCount = -1;
   SongAnalysisBundle? _analysisBundle;
 
@@ -645,15 +643,14 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       );
       if (!mounted) return;
       _voiceStartedAt = DateTime.now();
-      setState(() {
-        _recordingContributionId = contribution.id;
-        _recordingElapsed = Duration.zero;
-      });
+      setState(() => _recordingContributionId = contribution.id);
       _recordingTimer?.cancel();
+      // The timer exists solely for the three-minute auto-stop below. It
+      // used to also setState an elapsed-time field on every tick that
+      // nothing ever rendered — a rebuild per second for no visible change.
       _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (!mounted || _voiceStartedAt == null) return;
         final elapsed = DateTime.now().difference(_voiceStartedAt!);
-        setState(() => _recordingElapsed = elapsed);
         if (elapsed >= const Duration(minutes: 3)) {
           final controller = BetaScope.of(context);
           final project = controller.projectById(widget.projectId);
@@ -685,7 +682,6 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     setState(() {
       _recordingContributionId = null;
       _savingContributionId = contribution.id;
-      _recordingElapsed = Duration.zero;
     });
     try {
       final path = await recorder.stop();
@@ -1206,7 +1202,6 @@ class _ToolPill extends StatelessWidget {
     required this.label,
     required this.active,
     required this.onTap,
-    this.iconColor,
     this.activeColor = AppColors.cyan,
     super.key,
   });
@@ -1215,12 +1210,11 @@ class _ToolPill extends StatelessWidget {
   final String label;
   final bool active;
   final VoidCallback? onTap;
-  final Color? iconColor;
   final Color activeColor;
 
   @override
   Widget build(BuildContext context) {
-    final color = iconColor ?? (active ? activeColor : AppColors.muted);
+    final color = active ? activeColor : AppColors.muted;
     return DecoratedBox(
       decoration: BoxDecoration(
         boxShadow: active
