@@ -12,6 +12,25 @@ import 'error_reporter.dart';
 
 export 'audio_analysis_utils.dart' show SongAnalysisProgress;
 
+/// What fraction of the recording the model actually named a chord over.
+///
+/// The honest answer to "how well did this go". ChordMini reports labels
+/// without confidence, so the pipeline used to stamp a constant on every cue
+/// and average it — a number that read the same on every song. Coverage is
+/// measured: stretches ChordMini marks "N" (no chord) don't count, so a
+/// recording it mostly couldn't parse reports low, which is the point.
+double chordCoverage(List<ChordCue> cues, int durationMs) {
+  if (durationMs <= 0 || cues.isEmpty) return 0;
+  var covered = 0;
+  for (final cue in cues) {
+    if (cue.chord.isEmpty || cue.chord == 'N') continue;
+    final start = cue.startMs.clamp(0, durationMs);
+    final end = cue.endMs.clamp(0, durationMs);
+    if (end > start) covered += end - start;
+  }
+  return (covered / durationMs).clamp(0.0, 1.0);
+}
+
 /// Whisper accepts roughly 224 tokens of prompt; past that it's discarded.
 /// 800 characters stays comfortably inside that with room for the framing
 /// sentence the Edge Function prepends.
@@ -128,6 +147,7 @@ class SongAnalysisService {
         musicalKey: row['musical_key'] as String?,
         lyricConfidence: (row['lyric_confidence'] as num?)?.toDouble(),
         chordConfidence: (row['chord_confidence'] as num?)?.toDouble(),
+        chordCoverage: (row['chord_coverage'] as num?)?.toDouble(),
         transcriptText: row['transcript_text'] as String?,
         transcriptWords: (row['transcript_words'] as List<dynamic>? ?? const <dynamic>[])
             .map((value) => TranscriptWord.fromJson(Map<String, dynamic>.from(value as Map)))
@@ -703,9 +723,10 @@ class SongAnalysisService {
             );
       }
 
-      final chordConfidence = chordCues.isEmpty
-          ? 0.0
-          : chordCues.map((cue) => cue.confidence).reduce((a, b) => a + b) / chordCues.length;
+      // Averaging per-cue confidence produced a constant, because every cue
+      // carries the same placeholder. Coverage is measured from the cues that
+      // actually name a chord.
+      final coverage = chordCoverage(chordCues, durationMs);
       // The on-device fallback only ever computes {cues, key} — bpm/structure/
       // instruments come exclusively from the cloud pipeline, so they're left
       // unavailable rather than guessed whenever the fallback ran.
@@ -733,7 +754,11 @@ class SongAnalysisService {
             // now that lyrics are always transcribed fresh rather than
             // aligned to something else — nothing to compare against.
             'lyric_confidence': null,
-            'chord_confidence': chordConfidence,
+            // Deliberately null: the number this column used to hold was a
+            // placeholder averaged into a percentage, and stale 0.8s are
+            // worse than an honest blank.
+            'chord_confidence': null,
+            'chord_coverage': coverage,
             'transcript_text': transcriptText,
             'transcript_words': transcriptWords.map((word) => word.toJson()).toList(growable: false),
             'structure_sections': structureSections.map((s) => s.toJson()).toList(growable: false),

@@ -342,16 +342,17 @@ class StudioDraftService {
             );
       }
 
-      final chordConfidence = chordCues.isEmpty
-          ? 0.0
-          : chordCues.map((cue) => cue.confidence).reduce((a, b) => a + b) / chordCues.length;
+      // See SongAnalysisService: averaging per-cue confidence produced a
+      // constant, because every cue carries the same placeholder.
+      final coverage = chordCoverage(chordCues, durationMs);
       await client.from('studio_drafts').update(<String, dynamic>{
         'analysis_state': 'ready',
         'duration_ms': durationMs,
         'bpm': bpm,
         'musical_key': chordResult['key'],
-        'analyzer_version': 'colabroom-cloud-0.1',
-        'chord_confidence': chordConfidence,
+        'analyzer_version': 'colabroom-cloud-0.2',
+        'chord_confidence': null,
+        'chord_coverage': coverage,
         'transcript_text': transcriptText,
         'transcript_words': transcriptWords.map((word) => word.toJson()).toList(growable: false),
         'structure_sections': structureSections.map((s) => s.toJson()).toList(growable: false),
@@ -467,6 +468,7 @@ class StudioDraftService {
           'musical_key': draft.musicalKey,
           'analyzer_version': draft.analyzerVersion,
           'chord_confidence': draft.chordConfidence,
+          'chord_coverage': draft.chordCoverage,
           'transcript_text': draft.transcriptText,
           'transcript_words': draft.transcriptWords.map((w) => w.toJson()).toList(growable: false),
           'structure_sections':
@@ -528,6 +530,7 @@ class StudioDraftService {
       musicalKey: row['musical_key'] as String?,
       analyzerVersion: row['analyzer_version'] as String?,
       chordConfidence: (row['chord_confidence'] as num?)?.toDouble(),
+      chordCoverage: (row['chord_coverage'] as num?)?.toDouble(),
       transcriptText: row['transcript_text'] as String?,
       transcriptWords: (row['transcript_words'] as List<dynamic>? ?? const <dynamic>[])
           .map((value) => TranscriptWord.fromJson(Map<String, dynamic>.from(value as Map)))

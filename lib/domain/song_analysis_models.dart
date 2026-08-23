@@ -37,6 +37,7 @@ class ReferenceTrack {
     this.musicalKey,
     this.lyricConfidence,
     this.chordConfidence,
+    this.chordCoverage,
     this.transcriptText,
     this.transcriptWords = const <TranscriptWord>[],
     this.analysisWarning,
@@ -54,7 +55,13 @@ class ReferenceTrack {
   final int? durationMs;
   final String? musicalKey;
   final double? lyricConfidence;
+  /// Legacy. Held a placeholder averaged into a percentage that read the same
+  /// on every song; no longer written. Prefer [chordCoverage].
   final double? chordConfidence;
+
+  /// Fraction of the recording the model actually named a chord over — the
+  /// measured answer to "how well did this go".
+  final double? chordCoverage;
   final String? transcriptText;
   final List<TranscriptWord> transcriptWords;
   final String? analysisWarning;

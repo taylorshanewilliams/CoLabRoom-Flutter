@@ -697,7 +697,10 @@ class _AnalysisSummary extends StatelessWidget {
           _Metric(label: 'Timed lines', value: '${bundle.lyricCues.length}'),
           _Metric(label: 'Chord changes', value: '${bundle.chordCues.length}'),
           _Metric(label: 'Lyric match', value: _percent(ref.lyricConfidence)),
-          _Metric(label: 'Chord confidence', value: _percent(ref.chordConfidence)),
+          // Coverage, not confidence: how much of the recording the model
+          // actually named a chord over. The old percentage was a constant
+          // dressed up as a measurement.
+          _Metric(label: 'Chords cover', value: _percent(ref.chordCoverage)),
         ],
       ),
     );

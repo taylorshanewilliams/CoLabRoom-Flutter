@@ -19,6 +19,7 @@ class StudioDraft {
     this.musicalKey,
     this.analyzerVersion,
     this.chordConfidence,
+    this.chordCoverage,
     this.transcriptText,
     this.transcriptWords = const <TranscriptWord>[],
     this.structureSections = const <StructureSection>[],
@@ -40,7 +41,11 @@ class StudioDraft {
   final double? bpm;
   final String? musicalKey;
   final String? analyzerVersion;
+  /// Legacy placeholder metric, no longer written. See [chordCoverage].
   final double? chordConfidence;
+
+  /// Fraction of the recording covered by a named chord.
+  final double? chordCoverage;
   final String? transcriptText;
   final List<TranscriptWord> transcriptWords;
   final List<StructureSection> structureSections;

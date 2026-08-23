@@ -176,9 +176,11 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
                   _Metric('Key', draft.musicalKey ?? '—'),
                   _Metric('BPM', draft.bpm != null ? draft.bpm!.round().toString() : 'Not available yet'),
                   _Metric('Time signature', 'Not available yet'),
+                  // Coverage, not confidence — see chordCoverage(). The old
+                  // percentage was a constant, identical on every recording.
                   _Metric(
-                    'Chord confidence',
-                    draft.chordConfidence != null ? '${(draft.chordConfidence! * 100).round()}%' : '—',
+                    'Chords cover',
+                    draft.chordCoverage != null ? '${(draft.chordCoverage! * 100).round()}%' : '—',
                   ),
                 ],
               ),
