@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/music_models.dart';
 import '../domain/song_analysis_models.dart';
 import 'audio_analysis_utils.dart';
+import 'chord_beat_grid.dart';
 import 'error_reporter.dart';
 
 export 'audio_analysis_utils.dart' show SongAnalysisProgress;
@@ -727,7 +728,7 @@ class SongAnalysisService {
       // doesn't keep stale, now-orphaned cues around.
       await client.from('lyric_sync_cues').delete().eq('project_id', project.id);
       await client.from('chord_cues').delete().eq('project_id', project.id);
-      final chordCues = (chordResult['cues'] as List<dynamic>)
+      final detectedCues = (chordResult['cues'] as List<dynamic>)
           .map((value) {
             final row = Map<String, dynamic>.from(value as Map);
             return ChordCue(
@@ -738,18 +739,25 @@ class SongAnalysisService {
             );
           })
           .toList(growable: false);
+      // Put the chords on the song's grid before storing them. The model
+      // reports boundaries to the analysis frame; the song happens in beats.
+      // The on-device fallback produces no beat grid, so its chords stay
+      // exactly where it heard them.
+      final beatsMs = usedFallback ? const <int>[] : _msList(chordResult['beatsMs']);
+      final chordCues = snapChordsToBeatGrid(detectedCues, beatsMs);
       if (chordCues.isNotEmpty) {
         await client.from('chord_cues').insert(
               chordCues
-                  .asMap()
-                  .entries
-                  .map((entry) => <String, dynamic>{
+                  .map((cue) => <String, dynamic>{
                         'project_id': project.id,
-                        'start_ms': entry.value.startMs,
-                        'end_ms': entry.value.endMs,
-                        'chord': entry.value.chord,
-                        'confidence': entry.value.confidence,
-                        'beat_index': entry.key,
+                        'start_ms': cue.startMs,
+                        'end_ms': cue.endMs,
+                        'chord': cue.chord,
+                        'confidence': cue.confidence,
+                        // Which beat of the song the chord lands on. This
+                        // column has been holding the cue's position in the
+                        // list, which was never a beat index at all.
+                        'beat_index': beatIndexAt(cue.startMs, beatsMs),
                         'source': 'automatic',
                       })
                   .toList(growable: false),

@@ -91,6 +91,15 @@ class MusicianChordLyricLine extends StatelessWidget {
         runSpacing: liveMode ? 9 : 7,
         crossAxisAlignment: WrapCrossAlignment.end,
         children: <Widget>[
+          // The bar this line starts on, in the gutter where it sits on
+          // paper. Only ever present when the recording gave a real beat
+          // grid and the line's timing is measured — see MusicianSheetLine.bar.
+          if (line.bar != null && showChords)
+            _BarMarker(
+              number: line.bar!,
+              fontScale: fontScale,
+              liveMode: liveMode,
+            ),
           for (var index = 0; index < words.length; index += 1)
             _ChordWord(
               key: ValueKey<String>(
@@ -110,6 +119,39 @@ class MusicianChordLyricLine extends StatelessWidget {
               onAddChord: onAddChord,
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// The bar number, set quietly beside the line rather than in it — a
+/// reference point you look for when you need it, not something competing
+/// with the words for attention while you're singing.
+class _BarMarker extends StatelessWidget {
+  const _BarMarker({
+    required this.number,
+    required this.fontScale,
+    required this.liveMode,
+  });
+
+  final int number;
+  final double fontScale;
+  final bool liveMode;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      // Sits on the chord row, not the lyric row: it's information about the
+      // music, and it lines up with the chords above the words.
+      padding: EdgeInsets.only(bottom: liveMode ? 2 : 1, right: 2),
+      child: Text(
+        '$number',
+        style: TextStyle(
+          color: const Color(0xFF7A6C5A),
+          fontSize: (liveMode ? 10 : 9) * fontScale,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.4,
+        ),
       ),
     );
   }

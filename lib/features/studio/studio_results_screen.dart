@@ -230,6 +230,7 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
                   transcriptText: draft.transcriptText,
                   chordCues: bundle.chordCues,
                   durationMs: draft.durationMs ?? 0,
+                  downbeatsMs: draft.downbeatsMs,
                 ),
                 musicalKey: draft.musicalKey,
                 transpose: 0,

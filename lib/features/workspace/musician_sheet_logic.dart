@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/continuous_song_editor.dart';
+import 'package:colabroom/services/chord_beat_grid.dart';
 
 class MusicianSheetLine {
   const MusicianSheetLine({
@@ -14,6 +15,7 @@ class MusicianSheetLine {
     required this.chords,
     required this.approximateTiming,
     this.wordStartsMs,
+    this.bar,
   });
 
   final String? contributionId;
@@ -31,6 +33,15 @@ class MusicianSheetLine {
   /// actually sounding when it changes, instead of assuming every word
   /// in the line takes the same amount of time to sing.
   final List<int>? wordStartsMs;
+
+  /// The bar this line starts in, 1-indexed, or null when the recording has
+  /// no beat grid (and for anything before the first downbeat — a pickup
+  /// isn't in bar 1 and shouldn't be labelled as if it were).
+  ///
+  /// This is what "come in on 17" is written next to on paper, and the
+  /// reason beat tracking was worth building: it turns a line that happens
+  /// at 48.2 seconds into a line a band can find.
+  final int? bar;
 }
 
 List<Contribution> visibleMusicianLyrics(SongProject project) {
@@ -254,6 +265,7 @@ List<MusicianSheetLine> buildMusicianSheetLines(
       transcriptText: bundle.reference?.transcriptText,
       chordCues: bundle.chordCues,
       durationMs: duration,
+      downbeatsMs: bundle.reference?.downbeatsMs ?? const <int>[],
     );
   }
 
@@ -269,6 +281,7 @@ List<MusicianSheetLine> buildMusicianSheetLines(
       transcriptText: bundle.reference?.transcriptText,
       chordCues: bundle.chordCues,
       durationMs: duration,
+      downbeatsMs: bundle.reference?.downbeatsMs ?? const <int>[],
     );
   }
 
@@ -309,6 +322,11 @@ List<MusicianSheetLine> buildMusicianSheetLines(
           .where((chord) => chord.isManual || chord.confidence >= 0.18)
           .toList(growable: false),
       approximateTiming: exact == null,
+      // Only when the timing is real. An interpolated position doesn't know
+      // what bar it's in, and a bar number is a promise that it does.
+      bar: exact == null
+          ? null
+          : barNumberAt(range.$1, bundle.reference?.downbeatsMs ?? const <int>[]),
     );
   }).toList(growable: false);
 }
@@ -456,11 +474,16 @@ String cleanSheetSection(String value) => value
 /// so both the per-project Song Sheet (via [buildMusicianSheetLines]) and
 /// The Studio's pre-project drafts (which have no project to wrap this in)
 /// can share the exact same line-building logic instead of duplicating it.
+///
+/// [downbeatsMs] is optional because not every recording has a beat grid —
+/// an older analysis, or one the tracker wasn't confident about. Without it
+/// the lines come out exactly as before, just without bar numbers.
 List<MusicianSheetLine> transcriptSheetLines({
   required List<TranscriptWord> transcriptWords,
   required String? transcriptText,
   required List<ChordCue> chordCues,
   required int durationMs,
+  List<int> downbeatsMs = const <int>[],
 }) {
   List<ChordCue> chordsForRange(int startMs, int endMs) => chordCues
       .where((cue) => cue.endMs >= startMs && cue.startMs <= endMs)
@@ -505,11 +528,12 @@ List<MusicianSheetLine> transcriptSheetLines({
               approximateTiming: false,
               wordStartsMs:
                   slice.map((word) => word.startMs).toList(growable: false),
+              bar: barNumberAt(slice.first.startMs, downbeatsMs),
             ))
         .toList(growable: false);
   }
   final text = transcriptText?.trim() ?? '';
-  if (text.isEmpty) return _chordOnlyLines(chordCues);
+  if (text.isEmpty) return _chordOnlyLines(chordCues, downbeatsMs);
   final wordsOnly = text.replaceAll(RegExp(r'\s+'), ' ').split(' ');
   final chunks = <String>[];
   for (var start = 0; start < wordsOnly.length; start += 7) {
@@ -530,6 +554,10 @@ List<MusicianSheetLine> transcriptSheetLines({
       endMs: range.$2,
       chords: chordsForRange(range.$1, range.$2),
       approximateTiming: true,
+      // Deliberately no bar: these lines are spread evenly across the
+      // recording because there was no word timing to place them by. A bar
+      // number on a guessed position would read as precision that isn't
+      // there.
     );
   }).toList(growable: false);
 }
@@ -541,8 +569,30 @@ List<MusicianSheetLine> transcriptSheetLines({
 /// gives each chord a small placeholder marker to sit above instead of a
 /// real lyric word — the same visual shape as a chord-only instrumental
 /// section on a normal chord chart.
-List<MusicianSheetLine> _chordOnlyLines(List<ChordCue> chords) {
+/// With a beat grid, the lines are bars — the chart breaks where the music
+/// does instead of every four changes, and each line says which bar it is.
+/// Without one it falls back to fixed groups, which is what this always did.
+List<MusicianSheetLine> _chordOnlyLines(
+  List<ChordCue> chords,
+  List<int> downbeatsMs,
+) {
   if (chords.isEmpty) return const <MusicianSheetLine>[];
+  final bars = groupChordsIntoBars(chords, downbeatsMs);
+  if (bars.isNotEmpty) {
+    return <MusicianSheetLine>[
+      for (final bar in bars)
+        MusicianSheetLine(
+          contributionId: null,
+          body: List<String>.filled(bar.chords.length, '·').join('   '),
+          section: false,
+          startMs: bar.startMs,
+          endMs: bar.endMs,
+          chords: bar.chords,
+          approximateTiming: false,
+          bar: bar.number,
+        ),
+    ];
+  }
   const chordsPerLine = 4;
   final lines = <MusicianSheetLine>[];
   for (var start = 0; start < chords.length; start += chordsPerLine) {
