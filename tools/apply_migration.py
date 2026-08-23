@@ -35,6 +35,12 @@ def run_sql(project_ref: str, token: str, sql: str) -> tuple[bool, str]:
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
+            "Accept": "application/json",
+            # The Management API sits behind Cloudflare, which rejects
+            # urllib's default agent outright with a 403 (error 1010) before
+            # the request ever reaches Supabase. Any ordinary agent string
+            # gets through; the token is what actually authorizes this.
+            "User-Agent": "colabroom-migration-runner/1.0",
         },
         method="POST",
     )
