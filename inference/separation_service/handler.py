@@ -404,4 +404,10 @@ def handler(job):
         return result
 
 
-runpod.serverless.start({"handler": handler})
+if __name__ == "__main__":
+    # Guarded so the module can be imported without booting a worker — the
+    # smoke test calls handler() directly, and an unguarded start() here
+    # meant importing this file launched the RunPod loop, which immediately
+    # exited looking for test_input.json. The Dockerfile's CMD runs this file
+    # as __main__, so the deployed path is unchanged.
+    runpod.serverless.start({"handler": handler})
