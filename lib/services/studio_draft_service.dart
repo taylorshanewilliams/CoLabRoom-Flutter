@@ -14,7 +14,7 @@ import '../features/home/new_song_flow.dart';
 import 'audio_analysis_utils.dart';
 import 'error_reporter.dart';
 import 'song_analysis_service.dart'
-    show separationMaxPolls, separationPollInterval, separationProgress;
+    show chordCoverage, separationMaxPolls, separationPollInterval, separationProgress;
 
 /// The Studio's pre-project counterpart to [SongAnalysisService] — same
 /// analysis pipeline (same Edge Functions, same on-device fallback), but
