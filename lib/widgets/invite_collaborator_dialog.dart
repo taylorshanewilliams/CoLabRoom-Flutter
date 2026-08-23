@@ -88,11 +88,17 @@ class _InviteCollaboratorDialogState extends State<InviteCollaboratorDialog> {
   }
 }
 
-/// Shown only when [email] doesn't have a CoLabRoom account yet — the
-/// fallback half of the invite flow, after [InviteCollaboratorDialog]. When
-/// the email does match an account, the invitee is notified in-app instead
-/// and this dialog is skipped entirely (see the `matchedAccount` branch at
-/// each `InviteCollaboratorDialog` call site).
+/// Shown when no account matches [email] — the fallback half of the invite
+/// flow, after [InviteCollaboratorDialog]. When the email does match, the
+/// invitee is notified in-app instead and this dialog is skipped entirely
+/// (see the `matchedAccount` branch at each call site).
+///
+/// The copy is careful about what the lookup actually established. It used to
+/// say the person "doesn't have a CoLabRoom account yet", which is a claim
+/// about them — all that was checked is that nothing matches *this address*.
+/// The first time it mattered, someone had signed up an hour earlier with
+/// their Gmail and was being invited at their Yahoo address, and the
+/// confident wording sent the search in entirely the wrong direction.
 Future<void> showInviteReadyDialog(
   BuildContext context, {
   required String email,
@@ -109,9 +115,20 @@ Future<void> showInviteReadyDialog(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Text(
-              '$email doesn\'t have a CoLabRoom account yet. Share this code with '
-              'them — once they sign up, they can redeem it from Invites → Use Code. '
-              'It expires in seven days.',
+              'No CoLabRoom account matches $email.',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'If they have already signed up, check which address they used — '
+              'people often join with a different one than you have for them, '
+              'and inviting that address instead will reach them straight away.',
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Otherwise the invite is waiting for them: sign up with this exact '
+              'address and it arrives automatically. This code works too, from '
+              'Invites → Use Code. Either way it expires in seven days.',
             ),
             const SizedBox(height: 16),
             SelectableText(
