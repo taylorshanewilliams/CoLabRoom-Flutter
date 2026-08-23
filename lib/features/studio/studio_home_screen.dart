@@ -9,6 +9,7 @@ import '../../domain/song_analysis_models.dart';
 import '../../domain/studio_draft_models.dart';
 import '../../services/studio_draft_service.dart';
 import '../workspace/reference_recorder_sheet.dart';
+import 'draft_search.dart';
 import 'studio_results_screen.dart';
 
 enum _UploadSource { record, file }
@@ -33,6 +34,7 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
   bool _working = false;
   String? _error;
   String _query = '';
+  String? _keyFilter;
   _StudioView _view = _StudioView.active;
 
   @override
@@ -321,10 +323,21 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
     final allDrafts = _drafts;
     final showingActive = _view == _StudioView.active;
     final query = NamePolicy.normalized(_query);
-    final visibleDrafts = allDrafts
+    final inView = allDrafts
         ?.where((draft) => draft.isPromoted != showingActive)
-        .where((draft) => query.isEmpty || NamePolicy.normalized(draft.displayName).contains(query))
         .toList(growable: false);
+    final keys = inView == null ? const <String>[] : availableKeys(inView);
+    // A key filter that survives switching views only if that key still
+    // exists there — otherwise the list silently reads as empty.
+    final activeKey = keys.contains(_keyFilter) ? _keyFilter : null;
+    final results = inView == null
+        ? null
+        : searchDrafts(
+            activeKey == null
+                ? inView
+                : inView.where((draft) => draft.musicalKey == activeKey).toList(growable: false),
+            _query,
+          );
 
     return CustomScrollView(
       slivers: <Widget>[
@@ -387,14 +400,48 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
           padding: const EdgeInsets.fromLTRB(18, 8, 18, 4),
           sliver: SliverToBoxAdapter(
             child: TextField(
+              key: const Key('studio_search_field'),
               onChanged: (value) => setState(() => _query = value),
               decoration: const InputDecoration(
-                hintText: 'Search recordings',
+                // Searching the words is what makes a pile of takes usable —
+                // audio can't be skimmed, but a half-remembered line is
+                // enough to find the recording it came from.
+                hintText: 'Search by name or a line you sang',
                 prefixIcon: Icon(Icons.search_rounded),
               ),
             ),
           ),
         ),
+        // Only keys that actually occur are offered. "Something in A minor
+        // for the bridge" is a real question a writer has, and nothing else
+        // can answer it — but a chip for a key you have nothing in is noise.
+        if (keys.length > 1)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+            sliver: SliverToBoxAdapter(
+              child: SizedBox(
+                height: 34,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: <Widget>[
+                    _KeyChip(
+                      label: 'Any key',
+                      selected: activeKey == null,
+                      onTap: () => setState(() => _keyFilter = null),
+                    ),
+                    for (final key in keys)
+                      _KeyChip(
+                        label: key,
+                        selected: activeKey == key,
+                        onTap: () => setState(
+                          () => _keyFilter = activeKey == key ? null : key,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         if (_error != null)
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
@@ -402,12 +449,12 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
               child: Text(_error!, style: const TextStyle(color: Color(0xFFFFA0B0), fontSize: 12)),
             ),
           ),
-        if (visibleDrafts == null)
+        if (results == null)
           const SliverFillRemaining(
             hasScrollBody: false,
             child: Center(child: CircularProgressIndicator()),
           )
-        else if (visibleDrafts.isEmpty)
+        else if (results.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
             child: Center(
@@ -425,13 +472,14 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(18, 6, 18, 24),
             sliver: SliverList.separated(
-              itemCount: visibleDrafts.length,
+              itemCount: results.length,
               separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (context, index) => _DraftTile(
-                draft: visibleDrafts[index],
-                onTap: () => _openDraft(visibleDrafts[index]),
-                onRename: () => _renameDraft(visibleDrafts[index]),
-                onDelete: () => _deleteDraft(visibleDrafts[index]),
+                draft: results[index].draft,
+                lyricSnippet: results[index].lyricSnippet,
+                onTap: () => _openDraft(results[index].draft),
+                onRename: () => _renameDraft(results[index].draft),
+                onDelete: () => _deleteDraft(results[index].draft),
               ),
             ),
           ),
@@ -448,15 +496,75 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
   }
 }
 
+/// Key · tempo · length, skipping whatever isn't known yet rather than
+/// printing a row of dashes. Falls back to the analysis state so a draft
+/// that hasn't been analyzed still says something true about itself.
+String _draftSummary(StudioDraft draft) {
+  final parts = <String>[
+    if ((draft.musicalKey ?? '').isNotEmpty) draft.musicalKey!,
+    if (draft.bpm != null) '${draft.bpm!.round()} BPM',
+    if (draft.durationMs != null && draft.durationMs! > 0) _clock(draft.durationMs!),
+  ];
+  if (parts.isEmpty) return _stateLabel(draft.state);
+  if (draft.isPromoted) parts.add('used in a song');
+  return parts.join(' · ');
+}
+
+String _clock(int ms) {
+  final totalSeconds = ms ~/ 1000;
+  return '${totalSeconds ~/ 60}:${(totalSeconds % 60).toString().padLeft(2, '0')}';
+}
+
+class _KeyChip extends StatelessWidget {
+  const _KeyChip({required this.label, required this.selected, required this.onTap});
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(17),
+        child: Container(
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.gold.withValues(alpha: 0.16) : AppColors.surface,
+            borderRadius: BorderRadius.circular(17),
+            border: Border.all(color: selected ? AppColors.gold : AppColors.line),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? AppColors.gold : AppColors.muted,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _DraftTile extends StatelessWidget {
   const _DraftTile({
     required this.draft,
     required this.onTap,
     required this.onRename,
     required this.onDelete,
+    this.lyricSnippet,
   });
 
   final StudioDraft draft;
+
+  /// Set when this row matched on the words rather than the title — shown so
+  /// the result explains why it's here.
+  final String? lyricSnippet;
   final VoidCallback onTap;
   final VoidCallback onRename;
   final VoidCallback onDelete;
@@ -486,14 +594,42 @@ class _DraftTile extends StatelessWidget {
                     style: const TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 4),
+                  // Key, tempo and length on every row, so eighty ideas can
+                  // be scanned with your eyes instead of played one by one.
+                  // That skim is the difference between a library and a pile.
                   Text(
-                    draft.isPromoted
-                        ? 'Already used in a song'
-                        : draft.musicalKey != null
-                            ? 'Key ${draft.musicalKey}${draft.bpm != null ? ' · ${draft.bpm!.round()} BPM' : ''}'
-                            : _stateLabel(draft.state),
+                    _draftSummary(draft),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
                   ),
+                  if (lyricSnippet != null) ...<Widget>[
+                    const SizedBox(height: 4),
+                    Text(
+                      '“$lyricSnippet”',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.gold,
+                        fontSize: 11.5,
+                        fontStyle: FontStyle.italic,
+                        height: 1.35,
+                      ),
+                    ),
+                  ] else if (draft.transcriptText != null &&
+                      draft.transcriptText!.trim().isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 4),
+                    Text(
+                      draft.transcriptText!.trim(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 11.5,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
