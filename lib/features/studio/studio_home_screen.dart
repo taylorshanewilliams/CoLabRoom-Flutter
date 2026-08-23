@@ -515,6 +515,14 @@ String _clock(int ms) {
   return '${totalSeconds ~/ 60}:${(totalSeconds % 60).toString().padLeft(2, '0')}';
 }
 
+String _stateLabel(SongAnalysisState state) => switch (state) {
+      SongAnalysisState.uploaded => 'Uploaded',
+      SongAnalysisState.queued => 'Queued',
+      SongAnalysisState.processing => 'Analyzing…',
+      SongAnalysisState.ready => 'Ready',
+      SongAnalysisState.failed => 'Analysis failed',
+    };
+
 class _KeyChip extends StatelessWidget {
   const _KeyChip({required this.label, required this.selected, required this.onTap});
 
@@ -664,13 +672,6 @@ class _DraftTile extends StatelessWidget {
     );
   }
 
-  String _stateLabel(SongAnalysisState state) => switch (state) {
-        SongAnalysisState.uploaded => 'Uploaded',
-        SongAnalysisState.queued => 'Queued',
-        SongAnalysisState.processing => 'Analyzing…',
-        SongAnalysisState.ready => 'Ready',
-        SongAnalysisState.failed => 'Analysis failed',
-      };
 }
 
 class _StateChip extends StatelessWidget {
