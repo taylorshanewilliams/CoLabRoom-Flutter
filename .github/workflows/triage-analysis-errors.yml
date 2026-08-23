@@ -43,7 +43,10 @@ jobs:
 
       - name: Triage
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          # SUPABASE_URL is derived from the project ref the deploy workflow
+          # already uses, so enabling this needs only the two new secrets
+          # below rather than re-specifying the project.
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

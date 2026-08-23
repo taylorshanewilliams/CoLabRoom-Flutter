@@ -9,7 +9,9 @@ anything — the whole point is that a human reads the diagnosis and decides.
 See the system prompt below for why that boundary matters here specifically.
 
 Environment:
-  SUPABASE_URL                 project URL
+  SUPABASE_URL                 project URL — optional, derived from
+                               SUPABASE_PROJECT_REF when unset
+  SUPABASE_PROJECT_REF         project ref (already used by the deploy workflow)
   SUPABASE_SERVICE_ROLE_KEY    service role key (reads errors, writes triage)
   ANTHROPIC_API_KEY            for the diagnosis call
   GITHUB_TOKEN                 to open issues
@@ -31,11 +33,26 @@ import requests
 
 MODEL = "claude-opus-5"
 
-SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
-SERVICE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "")
-DRY_RUN = os.environ.get("TRIAGE_DRY_RUN") == "1"
+
+def _env(name: str) -> str:
+    """Treats blank as absent — Actions supplies "" for an unset secret, and
+    an empty string produces a far more confusing failure downstream than a
+    missing one does.
+    """
+    return (os.environ.get(name) or "").strip()
+
+
+# Derived from the project ref when not given outright, so the workflow can
+# reuse the SUPABASE_PROJECT_REF secret the deploy workflow already has
+# rather than requiring the same project be configured twice.
+SUPABASE_URL = _env("SUPABASE_URL").rstrip("/")
+if not SUPABASE_URL and _env("SUPABASE_PROJECT_REF"):
+    SUPABASE_URL = f"https://{_env('SUPABASE_PROJECT_REF')}.supabase.co"
+
+SERVICE_KEY = _env("SUPABASE_SERVICE_ROLE_KEY")
+GITHUB_TOKEN = _env("GITHUB_TOKEN")
+GITHUB_REPOSITORY = _env("GITHUB_REPOSITORY")
+DRY_RUN = _env("TRIAGE_DRY_RUN") == "1"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -318,7 +335,31 @@ def open_issue(signature: dict, diagnosis: dict) -> tuple[int | None, str | None
     return created.get("number"), created.get("html_url")
 
 
+def missing_configuration() -> list[str]:
+    missing = []
+    if not SUPABASE_URL:
+        missing.append("SUPABASE_URL (or SUPABASE_PROJECT_REF)")
+    if not SERVICE_KEY:
+        missing.append("SUPABASE_SERVICE_ROLE_KEY")
+    if not _env("ANTHROPIC_API_KEY"):
+        missing.append("ANTHROPIC_API_KEY")
+    if not DRY_RUN and not GITHUB_TOKEN:
+        missing.append("GITHUB_TOKEN")
+    return missing
+
+
 def main() -> int:
+    missing = missing_configuration()
+    if missing:
+        # Exits clean rather than red. This runs hourly, and a permanently
+        # failing scheduled workflow is one people mute — at which point it
+        # stops being a monitor. The message has to carry the signal instead.
+        print("Triage agent is not configured yet; skipping this run.")
+        print("Add these repository secrets to enable it:")
+        for name in missing:
+            print(f"  - {name}")
+        return 0
+
     fresh = untriaged_signatures()
     if not fresh:
         print("No new error signatures.")
