@@ -43,11 +43,16 @@ List<List<TranscriptWord>> groupTranscriptWordsIntoLines(List<TranscriptWord> wo
 
 class SongAnalysisService {
   SongAnalysisService({SupabaseClient? client, ErrorReporter? reporter})
-      : client = client ?? Supabase.instance.client,
+      : _clientOverride = client,
         _reporter = reporter ?? ErrorReporter(client: client);
 
-  final SupabaseClient client;
+  final SupabaseClient? _clientOverride;
   final ErrorReporter _reporter;
+
+  /// Resolved on use rather than at construction, so building this service
+  /// somewhere Supabase isn't initialized (previews, widget tests) doesn't
+  /// throw before a single call has been made.
+  SupabaseClient get client => _clientOverride ?? Supabase.instance.client;
 
   Future<SongAnalysisBundle> load(String projectId) async {
     final refs = await client

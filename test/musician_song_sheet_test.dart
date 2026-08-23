@@ -165,7 +165,12 @@ void main() {
           body: SingleChildScrollView(
             child: MusicianSongSheet(
               title: project.title,
-              lines: buildMusicianSheetLines(project, bundle, ignoreWorkspaceLyrics: true),
+              // This test is about the project's *saved* lyrics carrying
+              // chords. `ignoreWorkspaceLyrics: true` selects the Song Sheet
+              // source, which renders the analysis transcript and ignores
+              // typed lyrics by design — with no transcript on this fixture
+              // that produced no lines at all.
+              lines: buildMusicianSheetLines(project, bundle),
               musicalKey: bundle.reference?.musicalKey,
               transpose: 0,
               fontScale: 1,

@@ -13,9 +13,14 @@ import '../app/beta_config.dart';
 /// one. Those runs are invisible in any success/failure metric, which is
 /// exactly why they need their own signal.
 class ErrorReporter {
-  ErrorReporter({SupabaseClient? client}) : _client = client ?? Supabase.instance.client;
+  ErrorReporter({SupabaseClient? client}) : _clientOverride = client;
 
-  final SupabaseClient _client;
+  final SupabaseClient? _clientOverride;
+
+  /// Resolved on use so constructing a reporter never depends on Supabase
+  /// being initialized — telemetry must not be the thing that breaks a
+  /// screen it was only ever meant to observe.
+  SupabaseClient get _client => _clientOverride ?? Supabase.instance.client;
 
   Future<void> reportError({
     required String service,

@@ -19,9 +19,16 @@ import 'audio_analysis_utils.dart';
 /// draft has no room/project to hang off yet. See studio_draft_models.dart
 /// and supabase/migrations/0017_studio_drafts.sql for the parallel schema.
 class StudioDraftService {
-  StudioDraftService({SupabaseClient? client}) : client = client ?? Supabase.instance.client;
+  StudioDraftService({SupabaseClient? client}) : _clientOverride = client;
 
-  final SupabaseClient client;
+  final SupabaseClient? _clientOverride;
+
+  /// Resolved on use, not at construction. StudioHomeScreen builds this in a
+  /// state field, and IndexedStack instantiates every tab whether or not
+  /// it's the visible one — so an eager `Supabase.instance` here threw on
+  /// the very first frame in the preview/test configuration, before anyone
+  /// had asked the service to do anything.
+  SupabaseClient get client => _clientOverride ?? Supabase.instance.client;
 
   Future<List<StudioDraft>> listDrafts() async {
     final accountId = client.auth.currentUser!.id;

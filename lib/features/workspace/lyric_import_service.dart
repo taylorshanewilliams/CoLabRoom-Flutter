@@ -182,6 +182,21 @@ abstract final class LyricImportService {
     }
   }
 
+  /// The index of a header cell that names a section column, or null when
+  /// the first row doesn't look like a header at all.
+  ///
+  /// Requires a *second* column to exist: a single-column sheet headed
+  /// "Section" is far likelier to be a list of lyrics under a stray title
+  /// than a section column with nothing to label.
+  static int? _sectionColumnIndex(List<dynamic> header) {
+    if (header.length < 2) return null;
+    for (var i = 0; i < header.length; i += 1) {
+      final value = (header[i]?.toString() ?? '').trim().toLowerCase();
+      if (value == 'section' || value == 'part') return i;
+    }
+    return null;
+  }
+
   static List<String> _csvLines(String source) {
     try {
       final normalized = source.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
@@ -189,23 +204,42 @@ abstract final class LyricImportService {
         shouldParseNumbers: false,
         eol: '\n',
       ).convert(normalized);
+      if (rows.isEmpty) return const <String>[];
+
+      // When the sheet has a header naming a section column, that structure
+      // is worth keeping: the writer already told us where the verses and
+      // choruses are, and the longest-cell heuristic below would silently
+      // throw it away.
+      final sectionColumn = _sectionColumnIndex(rows.first);
+      final body = sectionColumn == null ? rows : rows.skip(1);
+
       // One spreadsheet row becomes one line — using that row's single
       // longest cell, not every non-empty cell joined together. A sheet
       // built for songwriting usually has more than a lyrics column (chord,
       // section, timing, notes); those are reliably shorter than the actual
       // lyric text in the same row, so picking the longest cell isolates
       // the lyrics column without needing the user to say which one it is.
-      return rows
-          .map((row) {
-            var longest = '';
-            for (final cell in row) {
-              final value = cell?.toString().trim() ?? '';
-              if (value.length > longest.length) longest = value;
-            }
-            return longest;
-          })
-          .where((line) => line.isNotEmpty)
-          .toList(growable: false);
+      final lines = <String>[];
+      var currentSection = '';
+      for (final row in body) {
+        if (sectionColumn != null && sectionColumn < row.length) {
+          final section = row[sectionColumn]?.toString().trim() ?? '';
+          // Only on change — a section column repeats its label on every
+          // line of that section, and one marker per verse is the point.
+          if (section.isNotEmpty && section != currentSection) {
+            currentSection = section;
+            lines.add('[$section]');
+          }
+        }
+        var longest = '';
+        for (var i = 0; i < row.length; i += 1) {
+          if (i == sectionColumn) continue;
+          final value = row[i]?.toString().trim() ?? '';
+          if (value.length > longest.length) longest = value;
+        }
+        if (longest.isNotEmpty) lines.add(longest);
+      }
+      return List<String>.unmodifiable(lines);
     } catch (error) {
       throw LyricImportException('Could not read that CSV: $error');
     }
