@@ -1,0 +1,76 @@
+name: Ask the database a question
+
+# Runs one read-only SQL query against the project and prints the result.
+#
+# Manual only. Read-only is enforced by Postgres — the statement runs in a
+# transaction marked READ ONLY, so any write fails and rolls back — rather
+# than by inspecting the query text.
+#
+# Results land in this log. Ask for facts, not personal data: counts,
+# booleans, masked identifiers. The `invite-lookup` preset below is the
+# shape to copy.
+on:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: 'A saved diagnostic, or "custom" to use the sql input'
+        type: choice
+        required: true
+        default: invite-lookup
+        options:
+          - invite-lookup
+          - custom
+      sql:
+        description: 'SQL to run when preset is "custom" (single statement, read-only)'
+        type: string
+        required: false
+
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run the query
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          PRESET: ${{ inputs.preset }}
+          CUSTOM_SQL: ${{ inputs.sql }}
+        run: |
+          if [ "$PRESET" = "invite-lookup" ]; then
+            # Why every pending invite reported "no account yet". Emails are
+            # masked to first two characters plus domain — enough to tell one
+            # invite from another, not enough to be a mailing list.
+            cat > /tmp/query.sql <<'SQL'
+          select
+            left(i.email, 2) || '***@' || split_part(i.email, '@', 2) as invited,
+            i.status,
+            i.created_at,
+            exists (
+              select 1 from auth.users u where lower(u.email) = lower(i.email)
+            ) as exact_match,
+            exists (
+              select 1 from auth.users u where lower(trim(u.email)) = lower(trim(i.email))
+            ) as trimmed_match,
+            (
+              select count(*) from auth.users u
+              where lower(split_part(u.email, '@', 2)) = lower(split_part(i.email, '@', 2))
+            ) as accounts_on_that_domain,
+            (select count(*) from auth.users) as total_accounts,
+            (
+              select count(*) from public.notifications n
+              where n.invitation_id = i.id
+            ) as notifications_sent
+          from public.invitations i
+          order by i.created_at desc
+          limit 20;
+          SQL
+          else
+            printf '%s' "$CUSTOM_SQL" > /tmp/query.sql
+          fi
+          python tools/run_query.py "$(cat /tmp/query.sql)"
