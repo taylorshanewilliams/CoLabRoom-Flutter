@@ -28,5 +28,9 @@ ENV MKL_THREADING_LAYER=GNU
 RUN python -c "from demucs.pretrained import get_model; get_model('htdemucs_6s')"
 
 COPY handler.py /app/handler.py
+# Shipped in the image so CI can run the real handler inside the real
+# container before the image is published — the environment differences
+# (ffmpeg build, installed codecs) are exactly what has broken in the past.
+COPY smoke_test.py /app/smoke_test.py
 
 CMD ["python3", "-u", "handler.py"]

@@ -34,14 +34,28 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      # Built locally first and only pushed after the smoke test passes.
+      # Publishing an image that can't complete a job means RunPod rolls onto
+      # it and every analysis silently falls back to the on-device heuristic
+      # — which is how a broken ffmpeg filter reached real users.
+      - name: Build
         uses: docker/build-push-action@v6
         with:
           context: inference/separation_service
-          push: true
-          tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ github.sha }}
+          load: true
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+
+      - name: Smoke test the image
+        run: |
+          docker run --rm --network host \
+            ${{ env.IMAGE }}:${{ github.sha }} \
+            python -u /app/smoke_test.py
+
+      - name: Push
+        run: |
+          docker tag ${{ env.IMAGE }}:${{ github.sha }} ${{ env.IMAGE }}:latest
+          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.IMAGE }}:latest
 
       - name: Roll RunPod workers onto the new image
         env:

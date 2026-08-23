@@ -1,0 +1,60 @@
+name: Verify
+
+# Static checks for the parts of this repo the Flutter build never touches.
+#
+# The Android build already type-checks every line of Dart, but the Edge
+# Functions and the Python services were only ever validated by deploying
+# them and seeing what happened. Both of the last two production failures
+# lived in that gap.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/**'
+      - 'inference/**'
+      - 'tools/**'
+      - '.github/workflows/verify.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  edge-functions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # Supabase bundles functions with esbuild, which strips types without
+      # checking them — a type error deploys perfectly happily and only shows
+      # up at runtime. This is the check that deploy doesn't do.
+      - name: Type-check Edge Functions
+        run: deno check supabase/functions/*/index.ts
+
+  python-services:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile-check Python
+        run: |
+          python -m compileall -q \
+            inference/separation_service/handler.py \
+            inference/separation_service/smoke_test.py \
+            inference/chord_service/app.py \
+            tools/apply_migration.py \
+            tools/triage_agent/triage.py
+
+      - name: Lint
+        run: |
+          pip install --quiet ruff
+          # Errors and undefined names only. A style opinion failing the build
+          # would just train people to ignore this job.
+          ruff check --select E9,F63,F7,F82,F821 \
+            inference tools
