@@ -16,6 +16,7 @@ import 'chord_beat_grid.dart';
 import 'error_reporter.dart';
 import 'song_analysis_service.dart'
     show
+        carryCustomSectionNames,
         chordCoverage,
         reusedAnalysisProgress,
         separationMaxPolls,
@@ -201,6 +202,29 @@ class StudioDraftService {
         .from('studio_drafts')
         .update(<String, dynamic>{'display_name': displayName})
         .eq('id', draft.id);
+  }
+
+  /// Renames a part of the idea — every occurrence of it. See
+  /// SongAnalysisService.renameSection; a blank name restores the model's own
+  /// word.
+  Future<void> renameSection({
+    required StudioDraft draft,
+    required String label,
+    required String? name,
+  }) async {
+    final trimmed = name?.trim() ?? '';
+    final updated = <StructureSection>[
+      for (final section in draft.structureSections)
+        section.label == label
+            ? section.copyWith(
+                customLabel: trimmed.isEmpty ? null : trimmed,
+                clearCustomLabel: trimmed.isEmpty,
+              )
+            : section,
+    ];
+    await client.from('studio_drafts').update(<String, dynamic>{
+      'structure_sections': updated.map((s) => s.toJson()).toList(growable: false),
+    }).eq('id', draft.id);
   }
 
   Future<String> ensureLocalDraftFile(StudioDraft draft) async {
@@ -391,11 +415,16 @@ class StudioDraftService {
       // unavailable (shown as such in the UI) rather than guessed whenever the
       // fallback ran.
       final bpm = usedFallback ? null : (chordResult['bpm'] as num?)?.toDouble();
-      final structureSections = usedFallback
-          ? const <StructureSection>[]
-          : (chordResult['structure'] as List<dynamic>? ?? const <dynamic>[])
-              .map((value) => StructureSection.fromJson(Map<String, dynamic>.from(value as Map)))
-              .toList(growable: false);
+      // See SongAnalysisService: names you gave the parts outlive a
+      // re-analysis.
+      final structureSections = carryCustomSectionNames(
+        draft.structureSections,
+        usedFallback
+            ? const <StructureSection>[]
+            : (chordResult['structure'] as List<dynamic>? ?? const <dynamic>[])
+                .map((value) => StructureSection.fromJson(Map<String, dynamic>.from(value as Map)))
+                .toList(growable: false),
+      );
       final instruments = usedFallback || chordResult['instruments'] is! Map
           ? null
           : InstrumentSummary.fromJson(Map<String, dynamic>.from(chordResult['instruments'] as Map));

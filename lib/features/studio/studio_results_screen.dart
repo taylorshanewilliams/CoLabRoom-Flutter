@@ -50,6 +50,18 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
     unawaited(widget.draft.state == SongAnalysisState.ready ? _refresh() : _runAnalysis());
   }
 
+  Future<void> _renameSection(StudioDraft draft, String label, String? name) async {
+    try {
+      await _service.renameSection(draft: draft, label: label, name: name);
+      await _refresh();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('Could not rename that part: $error')));
+    }
+  }
+
   Future<void> _refresh() async {
     try {
       final bundle = await _service.load(widget.draft.id);
@@ -201,7 +213,10 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
                 style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 10),
-              StructureTimeline(sections: draft.structureSections),
+              StructureTimeline(
+                sections: draft.structureSections,
+                onRename: (label, name) => unawaited(_renameSection(draft, label, name)),
+              ),
               const SizedBox(height: 22),
               const Text(
                 'Instruments',

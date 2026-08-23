@@ -4,11 +4,17 @@ import 'dart:math' as math;
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
+import 'package:colabroom/features/workspace/chord_chart_view.dart';
 import 'package:colabroom/features/workspace/chord_editor_sheet.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/musician_song_sheet.dart';
+import 'package:colabroom/services/chord_chart.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:flutter/material.dart';
+
+/// Two ways of reading the same song. The sheet is what you sing from; the
+/// chart is what you play from.
+enum SongSheetView { sheet, chart }
 
 class SongSheetPanel extends StatefulWidget {
   const SongSheetPanel({
@@ -34,6 +40,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   final SongAnalysisService _service = SongAnalysisService();
 
   late SongAnalysisBundle _bundle;
+  SongSheetView _view = SongSheetView.sheet;
   int _transpose = 0;
   double _fontScale = 1;
   bool _showChords = true;
@@ -232,23 +239,33 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
               const SizedBox(height: 3),
               Row(
                 children: <Widget>[
-                  TextButton.icon(
-                    onPressed: () => setState(
-                      () => _showChords = !_showChords,
-                    ),
-                    icon: Icon(
-                      _showChords
-                          ? Icons.music_note_rounded
-                          : Icons.music_off_rounded,
-                      size: 17,
-                      color:
-                          _showChords ? AppColors.gold : AppColors.muted,
-                    ),
-                    label: Text(
-                      _showChords ? 'Chords on' : 'Chords off',
-                      style: const TextStyle(fontSize: 10),
-                    ),
+                  _ViewToggle(
+                    view: _view,
+                    // Editing chords is a lyric-sheet gesture (tap a word,
+                    // tap a chord), so switching views mid-edit would strand
+                    // you. Finish first.
+                    onChanged: _editingChords
+                        ? null
+                        : (next) => setState(() => _view = next),
                   ),
+                  if (_view == SongSheetView.sheet)
+                    TextButton.icon(
+                      onPressed: () => setState(
+                        () => _showChords = !_showChords,
+                      ),
+                      icon: Icon(
+                        _showChords
+                            ? Icons.music_note_rounded
+                            : Icons.music_off_rounded,
+                        size: 17,
+                        color:
+                            _showChords ? AppColors.gold : AppColors.muted,
+                      ),
+                      label: Text(
+                        _showChords ? 'Chords on' : 'Chords off',
+                        style: const TextStyle(fontSize: 10),
+                      ),
+                    ),
                   const Spacer(),
                   IconButton(
                     tooltip: 'Smaller text',
@@ -314,21 +331,35 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
           ),
         ],
         const SizedBox(height: 10),
-        MusicianSongSheet(
-          title: widget.project.title,
-          lines: buildMusicianSheetLines(widget.project, _bundle, ignoreWorkspaceLyrics: true),
-          musicalKey: _bundle.reference?.musicalKey,
-          transpose: _transpose,
-          fontScale: _fontScale,
-          showChords: _showChords,
-          editableChords: _editingChords && !_savingChord,
-          onEditChord: (line, chord, wordIndex) {
-            unawaited(_editChord(line, chord, wordIndex));
-          },
-          onAddChord: (line, wordIndex) {
-            unawaited(_addChord(line, wordIndex));
-          },
-        ),
+        if (_view == SongSheetView.chart)
+          ChordChartView(
+            rows: buildChartRows(
+              buildChartBars(
+                cues: _bundle.chordCues,
+                beatsMs: _bundle.reference?.beatsMs ?? const <int>[],
+                downbeatsMs: _bundle.reference?.downbeatsMs ?? const <int>[],
+                sections: _bundle.reference?.structureSections ?? const <StructureSection>[],
+              ),
+            ),
+            transpose: _transpose,
+            fontScale: _fontScale,
+          )
+        else
+          MusicianSongSheet(
+            title: widget.project.title,
+            lines: buildMusicianSheetLines(widget.project, _bundle, ignoreWorkspaceLyrics: true),
+            musicalKey: _bundle.reference?.musicalKey,
+            transpose: _transpose,
+            fontScale: _fontScale,
+            showChords: _showChords,
+            editableChords: _editingChords && !_savingChord,
+            onEditChord: (line, chord, wordIndex) {
+              unawaited(_editChord(line, chord, wordIndex));
+            },
+            onAddChord: (line, wordIndex) {
+              unawaited(_addChord(line, wordIndex));
+            },
+          ),
         const SizedBox(height: 14),
         Row(
           children: <Widget>[
@@ -358,6 +389,66 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// Sheet or chart, as a pair of small segments rather than a Material
+/// SegmentedButton — that control is built for full-width choices and would
+/// dominate a row it's sharing with four other things.
+class _ViewToggle extends StatelessWidget {
+  const _ViewToggle({required this.view, required this.onChanged});
+
+  final SongSheetView view;
+  final ValueChanged<SongSheetView>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          _segment(SongSheetView.sheet, 'Sheet'),
+          _segment(SongSheetView.chart, 'Chart'),
+        ],
+      ),
+    );
+  }
+
+  Widget _segment(SongSheetView value, String label) {
+    final selected = view == value;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        onTap: onChanged == null || selected ? null : () => onChanged!(value),
+        borderRadius: BorderRadius.circular(7),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.gold.withValues(alpha: 0.18) : Colors.transparent,
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: onChanged == null
+                  ? AppColors.muted
+                  : selected
+                      ? AppColors.gold
+                      : AppColors.text,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

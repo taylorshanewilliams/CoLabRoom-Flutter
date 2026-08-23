@@ -18,9 +18,14 @@ import '../../domain/song_analysis_models.dart';
 /// otherwise. Analyses from before that model shipped carry letters here
 /// instead and render the same way.
 class StructureTimeline extends StatelessWidget {
-  const StructureTimeline({required this.sections, super.key});
+  const StructureTimeline({required this.sections, this.onRename, super.key});
 
   final List<StructureSection> sections;
+
+  /// Called with the model's label for the part and the name the band chose,
+  /// or null to go back to the model's word. Omitted where renaming has
+  /// nowhere to be saved, in which case the legend is just a legend.
+  final void Function(String label, String? name)? onRename;
 
   static const _palette = <Color>[
     AppColors.cyan,
@@ -123,7 +128,7 @@ class StructureTimeline extends StatelessWidget {
                   borderRadius: BorderRadius.circular(7),
                 ),
                 child: Text(
-                  section.label,
+                  section.displayLabel,
                   style: TextStyle(
                     color: _colorFor(section),
                     fontSize: 11.5,
@@ -134,45 +139,75 @@ class StructureTimeline extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
+        // The legend doubles as where you rename a part. Renaming from here
+        // rather than from a block on the timeline is deliberate: one row is
+        // one *part*, and the name belongs to the part, not to the third
+        // minute of the recording.
         for (final entry in parts)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 7),
-            child: Row(
-              children: <Widget>[
-                Container(
-                  width: 9,
-                  height: 9,
-                  decoration: BoxDecoration(
-                    color: _palette[entry.key % _palette.length],
-                    borderRadius: BorderRadius.circular(3),
+          InkWell(
+            onTap: onRename == null
+                ? null
+                : () => _promptForName(context, entry.value),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: Row(
+                children: <Widget>[
+                  Container(
+                    width: 9,
+                    height: 9,
+                    decoration: BoxDecoration(
+                      color: _palette[entry.key % _palette.length],
+                      borderRadius: BorderRadius.circular(3),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 9),
-                Text(
-                  // Just the name. It used to read "Part A", which needed the
-                  // word "Part" to make a bare letter mean anything; "Part
-                  // Chorus" is not something anyone says.
-                  entry.value.label,
-                  style: const TextStyle(
-                    color: AppColors.text,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w800,
+                  const SizedBox(width: 9),
+                  Flexible(
+                    child: Text(
+                      // Just the name. It used to read "Part A", which needed
+                      // the word "Part" to make a bare letter mean anything;
+                      // "Part Chorus" is not something anyone says.
+                      entry.value.displayLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '${_duration(entry.value.durationMs)} · first at ${_clock(entry.value.startMs)}',
+                  if (entry.value.isRenamed) ...<Widget>[
+                    const SizedBox(width: 5),
+                    // What the model called it, kept visible. A part renamed
+                    // to "the big one" is easier to trust when you can still
+                    // see it was the chorus.
+                    Text(
+                      entry.value.label,
+                      style: const TextStyle(color: AppColors.muted, fontSize: 10.5),
+                    ),
+                  ],
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${_duration(entry.value.durationMs)} · first at ${_clock(entry.value.startMs)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
+                    ),
+                  ),
+                  Text(
+                    playCounts[entry.key] == 1
+                        ? 'once'
+                        : '${playCounts[entry.key]}×',
                     style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
                   ),
-                ),
-                Text(
-                  playCounts[entry.key] == 1
-                      ? 'once'
-                      : '${playCounts[entry.key]}×',
-                  style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
-                ),
-              ],
+                  if (onRename != null) ...<Widget>[
+                    const SizedBox(width: 6),
+                    const Icon(Icons.edit_rounded, size: 13, color: AppColors.muted),
+                  ],
+                ],
+              ),
             ),
           ),
         // Said plainly, once, under the thing it's about. The names are a
@@ -187,6 +222,59 @@ class StructureTimeline extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Future<void> _promptForName(BuildContext context, StructureSection section) async {
+    final rename = onRename;
+    if (rename == null) return;
+    final controller = TextEditingController(text: section.customLabel ?? '');
+    final chosen = await showDialog<String?>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Rename ${section.label}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              'Every ${section.label.toLowerCase()} in this song gets this name.',
+              style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
+                labelText: 'Your name for it',
+                hintText: section.label,
+              ),
+              onSubmitted: (value) => Navigator.pop(dialogContext, value),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          // Only offered once there's something to undo, so the common case
+          // is a two-button dialog rather than a three-button one.
+          if (section.isRenamed)
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, ''),
+              child: Text('Use “${section.label}”'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (chosen == null) return;
+    rename(section.label, chosen.trim().isEmpty ? null : chosen.trim());
   }
 
   String _clock(int ms) {

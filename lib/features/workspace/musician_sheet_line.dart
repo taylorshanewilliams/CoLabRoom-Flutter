@@ -1,6 +1,7 @@
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
+import 'package:colabroom/services/chord_names.dart';
 import 'package:flutter/material.dart';
 
 typedef MusicianChordTap = void Function(
@@ -198,8 +199,10 @@ class _ChordWord extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // chordDisplay spells the label the way it goes on paper: ChordMini
+    // stores Harte notation, so without this the sheet reads "C:maj".
     final chordText =
-        chord == null ? '' : transposeChord(chord!.chord, transpose);
+        chord == null ? '' : chordDisplay(transposeChord(chord!.chord, transpose));
     final chordWidget = chord == null
         ? const SizedBox.shrink()
         : InkWell(

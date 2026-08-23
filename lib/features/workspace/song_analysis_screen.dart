@@ -297,6 +297,22 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     );
   }
 
+  Future<void> _renameSection(String label, String? name) async {
+    try {
+      final updated = await _service.renameSection(
+        projectId: widget.project.id,
+        label: label,
+        name: name,
+      );
+      if (mounted) setState(() => _bundle = updated);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('Could not rename that part: $error')));
+    }
+  }
+
   Future<void> _reviewLyrics() async {
     final reference = _bundle?.reference;
     if (reference == null) return;
@@ -646,7 +662,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     ),
                     const SizedBox(height: 12),
                     _AnalysisSummary(bundle: bundle!),
-                    _SongUnderstanding(reference: bundle.reference!),
+                    _SongUnderstanding(
+                      reference: bundle.reference!,
+                      onRename: _renameSection,
+                    ),
                     StemPlayerPanel(
                       stems: bundle.stems,
                       ensureLocalStem: _service.ensureLocalStem,
@@ -728,9 +747,10 @@ class _AnalysisSummary extends StatelessWidget {
 /// onto this same reference the moment analysis completes, there's nothing
 /// left to "put into" the song — it's already in it.
 class _SongUnderstanding extends StatelessWidget {
-  const _SongUnderstanding({required this.reference});
+  const _SongUnderstanding({required this.reference, this.onRename});
 
   final ReferenceTrack reference;
+  final void Function(String label, String? name)? onRename;
 
   @override
   Widget build(BuildContext context) {
@@ -746,7 +766,7 @@ class _SongUnderstanding extends StatelessWidget {
           style: TextStyle(color: AppColors.text, fontSize: 15, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 10),
-        StructureTimeline(sections: reference.structureSections),
+        StructureTimeline(sections: reference.structureSections, onRename: onRename),
         const SizedBox(height: 18),
         const Text(
           'Instruments',

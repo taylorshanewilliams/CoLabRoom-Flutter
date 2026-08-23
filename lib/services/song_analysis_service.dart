@@ -94,6 +94,38 @@ SongAnalysisProgress separationProgress(int attempt) {
   return SongAnalysisProgress(label, 0.15 + (0.35 * fraction.clamp(0, 1)));
 }
 
+/// Hands the band's own section names back to the parts they belong to after
+/// a re-analysis.
+///
+/// Names are matched on the model's label, not on position or timing. Rename
+/// "Chorus" to "the big one" and *every* chorus becomes the big one — which
+/// is right, because you renamed the part, not the third minute of the song.
+/// It also survives the boundaries moving, a section being found that wasn't
+/// before, or the count changing entirely, none of which a time-based match
+/// would.
+///
+/// The cost of that choice: if the model decides on a later run that what it
+/// used to call a Verse is a Chorus, your name follows the word rather than
+/// the music. That's rare, it's visible, and it's undoable — where a silent
+/// mismatch from time-matching would be none of those things.
+List<StructureSection> carryCustomSectionNames(
+  List<StructureSection> previous,
+  List<StructureSection> next,
+) {
+  if (previous.isEmpty || next.isEmpty) return next;
+  final namesByLabel = <String, String>{};
+  for (final section in previous) {
+    if (section.isRenamed) namesByLabel[section.label] = section.customLabel!.trim();
+  }
+  if (namesByLabel.isEmpty) return next;
+  return <StructureSection>[
+    for (final section in next)
+      namesByLabel.containsKey(section.label)
+          ? section.copyWith(customLabel: namesByLabel[section.label])
+          : section,
+  ];
+}
+
 /// Shown in place of separation progress when the Edge Function recognizes
 /// the recording and hands back an analysis it already had (see migration
 /// 0024). There is no GPU job to wait on, so the bar lands where separation
@@ -776,11 +808,17 @@ class SongAnalysisService {
       // instruments come exclusively from the cloud pipeline, so they're left
       // unavailable rather than guessed whenever the fallback ran.
       final bpm = usedFallback ? null : (chordResult['bpm'] as num?)?.toDouble();
-      final structureSections = usedFallback
-          ? const <StructureSection>[]
-          : (chordResult['structure'] as List<dynamic>? ?? const <dynamic>[])
-              .map((value) => StructureSection.fromJson(Map<String, dynamic>.from(value as Map)))
-              .toList(growable: false);
+      // Whatever the band called these parts last time survives the
+      // re-analysis. Read from the row rather than carried through the method,
+      // so it works no matter how the analysis got here.
+      final structureSections = carryCustomSectionNames(
+        await _savedStructureSections(project.id),
+        usedFallback
+            ? const <StructureSection>[]
+            : (chordResult['structure'] as List<dynamic>? ?? const <dynamic>[])
+                .map((value) => StructureSection.fromJson(Map<String, dynamic>.from(value as Map)))
+                .toList(growable: false),
+      );
       final instruments = usedFallback || chordResult['instruments'] is! Map
           ? null
           : InstrumentSummary.fromJson(Map<String, dynamic>.from(chordResult['instruments'] as Map));
@@ -835,6 +873,52 @@ class SongAnalysisService {
       );
       rethrow;
     }
+  }
+
+  /// The structure currently stored for a project, custom names and all.
+  Future<List<StructureSection>> _savedStructureSections(String projectId) async {
+    try {
+      final row = await client
+          .from('project_audio_references')
+          .select('structure_sections')
+          .eq('project_id', projectId)
+          .maybeSingle();
+      final saved = row?['structure_sections'] as List<dynamic>? ?? const <dynamic>[];
+      return saved
+          .map((value) => StructureSection.fromJson(Map<String, dynamic>.from(value as Map)))
+          .toList(growable: false);
+    } catch (_) {
+      // Losing a custom name is a nuisance; failing the analysis that
+      // produced everything else would be worse.
+      return const <StructureSection>[];
+    }
+  }
+
+  /// Renames a part of the song — every occurrence of it.
+  ///
+  /// You rename the *part*, not one stretch of the recording: call the chorus
+  /// "the big one" and all of them are the big one. Passing a blank name puts
+  /// the model's own word back.
+  Future<SongAnalysisBundle> renameSection({
+    required String projectId,
+    required String label,
+    required String? name,
+  }) async {
+    final saved = await _savedStructureSections(projectId);
+    final trimmed = name?.trim() ?? '';
+    final updated = <StructureSection>[
+      for (final section in saved)
+        section.label == label
+            ? section.copyWith(
+                customLabel: trimmed.isEmpty ? null : trimmed,
+                clearCustomLabel: trimmed.isEmpty,
+              )
+            : section,
+    ];
+    await client.from('project_audio_references').update(<String, dynamic>{
+      'structure_sections': updated.map((s) => s.toJson()).toList(growable: false),
+    }).eq('project_id', projectId);
+    return load(projectId);
   }
 
   Future<void> _setState(String projectId, SongAnalysisState state) async {

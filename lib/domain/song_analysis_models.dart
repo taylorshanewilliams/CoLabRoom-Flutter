@@ -109,6 +109,7 @@ class StructureSection {
     required this.label,
     this.groupIndex = 0,
     this.repeatsSectionLabel,
+    this.customLabel,
   });
 
   final int startMs;
@@ -125,6 +126,7 @@ class StructureSection {
   /// recognise; the full word is still right there in the form and the key
   /// below it.
   String get shortLabel {
+    final label = displayLabel;
     if (label.length <= 2) return label;
     switch (label) {
       case 'Intro':
@@ -156,7 +158,31 @@ class StructureSection {
   /// backwards to be understood. Kept so old saved analyses still render.
   final String? repeatsSectionLabel;
 
+  /// What the band calls this part, when they've said.
+  ///
+  /// The model's word is "Chorus". Yours might be "the big one", or "Kate's
+  /// bit", or "Verse 2 (fast)". Kept beside the model's label rather than
+  /// overwriting it, so re-analysis can hand the name back to the part it
+  /// belongs to — see carryCustomSectionNames.
+  final String? customLabel;
+
+  /// What to show. A name someone chose beats a name a model guessed.
+  String get displayLabel => (customLabel?.trim().isNotEmpty ?? false) ? customLabel!.trim() : label;
+
+  bool get isRenamed => customLabel?.trim().isNotEmpty ?? false;
+
   int get durationMs => endMs - startMs;
+
+  StructureSection copyWith({String? customLabel, bool clearCustomLabel = false}) {
+    return StructureSection(
+      startMs: startMs,
+      endMs: endMs,
+      label: label,
+      groupIndex: groupIndex,
+      repeatsSectionLabel: repeatsSectionLabel,
+      customLabel: clearCustomLabel ? null : (customLabel ?? this.customLabel),
+    );
+  }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
         'start_ms': startMs,
@@ -164,6 +190,7 @@ class StructureSection {
         'label': label,
         'group_index': groupIndex,
         if (repeatsSectionLabel != null) 'repeats_section_label': repeatsSectionLabel,
+        if (customLabel != null) 'custom_label': customLabel,
       };
 
   factory StructureSection.fromJson(Map<String, dynamic> json) {
@@ -173,6 +200,7 @@ class StructureSection {
       label: json['label'] as String? ?? '',
       groupIndex: (json['group_index'] as num?)?.toInt() ?? 0,
       repeatsSectionLabel: json['repeats_section_label'] as String?,
+      customLabel: json['custom_label'] as String?,
     );
   }
 }
