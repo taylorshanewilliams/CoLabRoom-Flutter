@@ -9,8 +9,16 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir demucs runpod requests librosa \
-    && pip install --no-cache-dir https://github.com/CPJKU/beat_this/archive/main.zip
+RUN pip install --no-cache-dir demucs runpod requests librosa
+
+# torchaudio pinned to match this image's torch 2.3.0, from PyTorch's own
+# cu121 index. beat_this depends on torchaudio, and letting pip resolve it
+# freely installs a build compiled against a newer torch — whose native
+# extension then refuses to load ("Could not load this library:
+# libtorchaudio.so"), taking the whole import down with it.
+RUN pip install --no-cache-dir torchaudio==2.3.0 --index-url https://download.pytorch.org/whl/cu121
+
+RUN pip install --no-cache-dir https://github.com/CPJKU/beat_this/archive/main.zip
 
 # librosa pulls in its own scipy/numpy resolution, which on this base image
 # ends up linking Intel MKL — MKL's own threading layer conflicts with the
