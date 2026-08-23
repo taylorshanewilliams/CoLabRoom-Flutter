@@ -64,27 +64,25 @@ class RoomTile extends StatelessWidget {
                   const Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.muted),
               ],
             ),
+            // The Spacer above takes whatever room is left over, and the two
+            // lines below take exactly what they need. Wrapping them in a
+            // Flexible instead made them a second flex child competing with
+            // that Spacer for the same slack, so they were handed half of it
+            // whether or not the text fitted in half — which is how a set
+            // called "Friday Night Set" overflowed its card by five pixels.
             const Spacer(),
-            Flexible(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    room.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    '${room.projects.length} ${room.projects.length == 1 ? 'project' : 'projects'}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ],
-              ),
+            Text(
+              room.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 3),
+            Text(
+              '${room.projects.length} ${room.projects.length == 1 ? 'project' : 'projects'}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12),
             ),
           ],
         ),
@@ -201,44 +199,36 @@ class SongTile extends StatelessWidget {
                   const Icon(Icons.arrow_outward_rounded, color: AppColors.muted, size: 19),
               ],
             ),
+            // See RoomTile: the slack belongs to the Spacer, not to the text.
             const Spacer(),
-            Flexible(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    project.title,
+            Text(
+              project.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 2),
+            Row(
+              children: <Widget>[
+                Flexible(
+                  child: Text(
+                    // "Contribution" is the database's word for a row in the
+                    // lyric document. What a musician sees is lines.
+                    '${project.contributions.length} ${project.contributions.length == 1 ? 'line' : 'lines'}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium,
+                    style: const TextStyle(fontSize: 12),
                   ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: <Widget>[
-                      Flexible(
-                        child: Text(
-                          // "Contribution" is the database's word for a row
-                          // in the lyric document. What a musician sees is
-                          // lines.
-                          '${project.contributions.length} ${project.contributions.length == 1 ? 'line' : 'lines'}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                      if (project.hasAudioReference) ...<Widget>[
-                        const SizedBox(width: 5),
-                        const Icon(Icons.graphic_eq_rounded, size: 13, color: AppColors.muted),
-                      ],
-                      if (project.status == SongStatus.completed) ...<Widget>[
-                        const SizedBox(width: 4),
-                        const Icon(Icons.check_circle_rounded, size: 13, color: AppColors.cyan),
-                      ],
-                    ],
-                  ),
+                ),
+                if (project.hasAudioReference) ...<Widget>[
+                  const SizedBox(width: 5),
+                  const Icon(Icons.graphic_eq_rounded, size: 13, color: AppColors.muted),
                 ],
-              ),
+                if (project.status == SongStatus.completed) ...<Widget>[
+                  const SizedBox(width: 4),
+                  const Icon(Icons.check_circle_rounded, size: 13, color: AppColors.cyan),
+                ],
+              ],
             ),
           ],
         ),
@@ -278,25 +268,21 @@ class SetlistTile extends StatelessWidget {
               ],
             ),
             const Spacer(),
-            Flexible(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    setlist.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${setlist.projectIds.length} ${setlist.projectIds.length == 1 ? 'song' : 'songs'}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
+            Text(
+              setlist.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 3),
+            Text(
+              '${setlist.projectIds.length} ${setlist.projectIds.length == 1 ? 'song' : 'songs'}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              // Matches its sibling tiles. Left at the default body size this
+              // line was two points larger than the same line on every other
+              // card, which is where the five pixels came from.
+              style: const TextStyle(fontSize: 12),
             ),
           ],
         ),
