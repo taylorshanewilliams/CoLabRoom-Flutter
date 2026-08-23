@@ -647,7 +647,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     const SizedBox(height: 12),
                     _AnalysisSummary(bundle: bundle!),
                     _SongUnderstanding(reference: bundle.reference!),
-                    StemPlayerPanel(stems: bundle.stems, service: _service),
+                    StemPlayerPanel(
+                      stems: bundle.stems,
+                      ensureLocalStem: _service.ensureLocalStem,
+                    ),
                     const SizedBox(height: 18),
                     Text(
                       'Chord sheet',

@@ -16,6 +16,40 @@ import 'error_reporter.dart';
 import 'song_analysis_service.dart'
     show chordCoverage, separationMaxPolls, separationPollInterval, separationProgress;
 
+/// Does this name carry any information, or is it just when the file
+/// happened to be created?
+///
+/// "Recording 8/23 11:40", "New Recording 12", "audio_2026_08_23.m4a" — the
+/// universal failure mode of idea capture is a library of eighty files named
+/// like this, none of which anyone can identify without playing them. A name
+/// matching one of these shapes is safe to replace with something the
+/// recording actually says.
+bool looksAutoNamed(String name) {
+  final trimmed = name.trim();
+  if (trimmed.isEmpty) return true;
+  final withoutExtension = trimmed.replaceFirst(RegExp(r'\.[A-Za-z0-9]{1,5}$'), '');
+  return RegExp(
+    r'^(new\s+)?(recording|voice\s*memo|audio|track|untitled|idea)\b[\s\d/:._-]*$',
+    caseSensitive: false,
+  ).hasMatch(withoutExtension);
+}
+
+/// A name for an idea, taken from the first words actually sung in it.
+///
+/// Returns null when there's nothing usable, so the caller keeps whatever
+/// name it already had rather than replacing a real title with a fragment.
+String? nameFromTranscript(String? transcript, {int maxWords = 6, int maxChars = 48}) {
+  final cleaned = (transcript ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (cleaned.length < 3) return null;
+  final words = cleaned.split(' ').where((word) => word.isNotEmpty).toList();
+  if (words.isEmpty) return null;
+  var title = words.take(maxWords).join(' ');
+  if (title.length > maxChars) title = title.substring(0, maxChars).trimRight();
+  // Strip trailing punctuation so a title doesn't end mid-sentence on a comma.
+  title = title.replaceFirst(RegExp(r'[,;:.\-—]+$'), '').trim();
+  return title.isEmpty ? null : title;
+}
+
 /// The Studio's pre-project counterpart to [SongAnalysisService] — same
 /// analysis pipeline (same Edge Functions, same on-device fallback), but
 /// keyed by an account-scoped draft instead of an existing project, since a
@@ -55,8 +89,25 @@ class StudioDraftService {
         .select('start_ms, end_ms, chord, confidence, source')
         .eq('draft_id', draftId)
         .order('start_ms');
+    final stemRows = await client
+        .from('studio_draft_stems')
+        .select('stem, storage_path, byte_size')
+        .eq('draft_id', draftId);
+
     return StudioDraftBundle(
       draft: _draftFromRow(Map<String, dynamic>.from(row)),
+      stems: (stemRows as List<dynamic>)
+          .map((value) {
+            final stemRow = Map<String, dynamic>.from(value as Map);
+            return SongStem(
+              projectId: draftId,
+              kind: StemKind.values.byName(stemRow['stem'] as String),
+              storagePath: stemRow['storage_path'] as String,
+              byteSize: stemRow['byte_size'] as int?,
+            );
+          })
+          .toList(growable: false)
+        ..sort((left, right) => left.kind.index.compareTo(right.kind.index)),
       chordCues: (chordRows as List<dynamic>)
           .map((value) {
             final row = Map<String, dynamic>.from(value as Map);
@@ -149,6 +200,19 @@ class StudioDraftService {
     return path;
   }
 
+  /// Caches a separated stem locally so it can be played by path. Mirrors
+  /// SongAnalysisService.ensureLocalStem, against the drafts bucket.
+  Future<String> ensureLocalStem(SongStem stem) async {
+    if (kIsWeb) throw UnsupportedError('Stem playback is not available on web yet.');
+    final directory = await getTemporaryDirectory();
+    final path = '${directory.path}/colabroom_draft_stem_${stem.projectId}_${stem.kind.name}.mp3';
+    final file = File(path);
+    if (await file.exists() && await file.length() > 0) return path;
+    final bytes = await client.storage.from('studio-drafts').download(stem.storagePath);
+    await file.writeAsBytes(bytes, flush: true);
+    return path;
+  }
+
   Future<Map<String, dynamic>> _transcribeViaCloud(StudioDraft draft) async {
     final response = await client.functions.invoke(
       'transcribe-audio',
@@ -182,6 +246,7 @@ class StudioDraftService {
     ValueChanged<SongAnalysisProgress>? onProgress,
   }) async {
     final request = <String, dynamic>{
+      'draftId': draft.id,
       'storagePath': draft.storagePath,
       'bucket': 'studio-drafts',
     };
@@ -345,8 +410,19 @@ class StudioDraftService {
       // See SongAnalysisService: averaging per-cue confidence produced a
       // constant, because every cue carries the same placeholder.
       final coverage = chordCoverage(chordCues, durationMs);
+
+      // Name the idea after what's in it. A library of "Recording 8/23
+      // 11:40" is the single most common reason captured ideas are never
+      // revisited — you can't skim audio, so an un-named take is one you
+      // have to play to identify, and eighty of them is a pile nobody digs
+      // through. Only ever replaces a placeholder name, never one the
+      // musician typed themselves.
+      final suggestedName = nameFromTranscript(transcriptText);
+      final rename = suggestedName != null && looksAutoNamed(draft.displayName);
+
       await client.from('studio_drafts').update(<String, dynamic>{
         'analysis_state': 'ready',
+        if (rename) 'display_name': suggestedName,
         'duration_ms': durationMs,
         'bpm': bpm,
         'musical_key': chordResult['key'],

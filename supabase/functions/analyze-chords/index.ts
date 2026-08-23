@@ -206,6 +206,10 @@ Deno.serve(async (req) => {
   let storagePath: string;
   let bucket: string;
   let projectId: string | null;
+  // A Studio idea rather than a project. Mutually exclusive with projectId;
+  // both mean "somewhere to keep the stems", they just belong to different
+  // owners.
+  let draftId: string | null;
   let action: string;
   let jobId: string | null;
   try {
@@ -213,6 +217,7 @@ Deno.serve(async (req) => {
     storagePath = body.storagePath;
     bucket = body.bucket ?? 'room-files';
     projectId = typeof body.projectId === 'string' && body.projectId.length > 0 ? body.projectId : null;
+    draftId = typeof body.draftId === 'string' && body.draftId.length > 0 ? body.draftId : null;
     action = typeof body.action === 'string' ? body.action : 'start';
     jobId = typeof body.jobId === 'string' && body.jobId.length > 0 ? body.jobId : null;
     if (typeof storagePath !== 'string' || storagePath.length === 0) {
@@ -302,7 +307,7 @@ Deno.serve(async (req) => {
     const mixUpload = mixUploadData?.signedUrl ?? null;
 
     const stemUploads: Record<string, string> = {};
-    if (projectId) {
+    if (projectId || draftId) {
       // Re-analysis reuses the same object names; clear them first so a fresh
       // signed upload URL can't collide with a stale object.
       await adminClient.storage.from(bucket).remove(STEMS.map(stemPathFor));
@@ -358,20 +363,34 @@ Deno.serve(async (req) => {
 
     let stems: { stem: string; storagePath: string }[] = [];
     const analyzedProjectId = projectId;
-    if (analyzedProjectId) {
+    const analyzedDraftId = draftId;
+    if (analyzedProjectId || analyzedDraftId) {
       stems = separation.uploadedStems
         .filter((stem): stem is Stem => (STEMS as readonly string[]).includes(stem))
         .map((stem) => ({ stem, storagePath: stemPathFor(stem) }));
-      // Clear first: a re-analysis where some stem failed to upload this time
-      // would otherwise leave a row pointing at an object that was deleted
-      // before the job started, i.e. a playback entry that 404s.
-      // Service role throughout — project_stems has no insert policy for
-      // `authenticated` on purpose, same trust model as notifications.
+    }
+    // Clear first in both cases: a re-analysis where some stem failed to
+    // upload this time would otherwise leave a row pointing at an object
+    // deleted before the job started, i.e. a playback entry that 404s.
+    // Service role throughout — neither stem table has an insert policy for
+    // `authenticated` on purpose, same trust model as notifications.
+    if (analyzedProjectId) {
       await adminClient.from('project_stems').delete().eq('project_id', analyzedProjectId);
       if (stems.length > 0) {
         await adminClient.from('project_stems').insert(
           stems.map((entry) => ({
             project_id: analyzedProjectId,
+            stem: entry.stem,
+            storage_path: entry.storagePath,
+          })),
+        );
+      }
+    } else if (analyzedDraftId) {
+      await adminClient.from('studio_draft_stems').delete().eq('draft_id', analyzedDraftId);
+      if (stems.length > 0) {
+        await adminClient.from('studio_draft_stems').insert(
+          stems.map((entry) => ({
+            draft_id: analyzedDraftId,
             stem: entry.stem,
             storage_path: entry.storagePath,
           })),

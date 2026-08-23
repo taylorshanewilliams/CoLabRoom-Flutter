@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../domain/song_analysis_models.dart';
-import '../../services/song_analysis_service.dart';
 
 /// Plays the separated instrument stems Demucs produced during analysis —
 /// one at a time, deliberately.
@@ -16,10 +15,19 @@ import '../../services/song_analysis_service.dart';
 /// case — isolate the guitar to learn the part, mute yourself to sing over
 /// the band — and the one that's honestly achievable with one player.
 class StemPlayerPanel extends StatefulWidget {
-  const StemPlayerPanel({required this.stems, required this.service, super.key});
+  const StemPlayerPanel({
+    required this.stems,
+    required this.ensureLocalStem,
+    super.key,
+  });
 
   final List<SongStem> stems;
-  final SongAnalysisService service;
+
+  /// Downloads (and caches) a stem, returning a local file path. Passed in
+  /// rather than taking a service, because project stems and Studio stems
+  /// live in different buckets and the player has no business knowing which
+  /// it's looking at.
+  final Future<String> Function(SongStem) ensureLocalStem;
 
   @override
   State<StemPlayerPanel> createState() => _StemPlayerPanelState();
@@ -62,7 +70,7 @@ class _StemPlayerPanelState extends State<StemPlayerPanel> {
       // Cached to a local file on first play — a stem is a few MB, and
       // scrubbing between stems while learning a part would otherwise
       // re-download every time.
-      final path = await widget.service.ensureLocalStem(stem);
+      final path = await widget.ensureLocalStem(stem);
       await player.play(DeviceFileSource(path));
       if (mounted) {
         setState(() {

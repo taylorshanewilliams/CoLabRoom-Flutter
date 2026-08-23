@@ -59,13 +59,22 @@ class StudioDraft {
 }
 
 class StudioDraftBundle {
-  const StudioDraftBundle({required this.draft, required this.chordCues});
+  const StudioDraftBundle({
+    required this.draft,
+    required this.chordCues,
+    this.stems = const <SongStem>[],
+  });
 
   final StudioDraft draft;
 
   /// Reuses [ChordCue] as-is — it carries no projectId field, scoping happens
   /// purely at the query layer (studio_chord_cues.draft_id vs chord_cues.project_id).
   final List<ChordCue> chordCues;
+
+  /// Separated instrument tracks for this idea. Reuses [SongStem]; its
+  /// `projectId` carries the draft id here, since the only thing the player
+  /// does with that field is name the local cache file.
+  final List<SongStem> stems;
 
   bool get ready {
     if (draft.state != SongAnalysisState.ready) return false;

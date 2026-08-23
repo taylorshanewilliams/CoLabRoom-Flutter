@@ -12,6 +12,7 @@ import '../../services/studio_draft_service.dart';
 import '../workspace/musician_sheet_logic.dart';
 import '../workspace/musician_song_sheet.dart';
 import '../workspace/song_workspace_screen.dart';
+import '../workspace/stem_player_panel.dart';
 import 'instrument_chips.dart';
 import 'structure_timeline.dart';
 
@@ -198,6 +199,14 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
               ),
               const SizedBox(height: 10),
               InstrumentChips(instruments: draft.instruments),
+              // Pulling an idea apart is most useful on a rough take: what
+              // exactly did I play under that vocal, and what was the bass
+              // doing. Projects have had this since stems were kept; Studio
+              // was throwing its stems away.
+              StemPlayerPanel(
+                stems: bundle.stems,
+                ensureLocalStem: _service.ensureLocalStem,
+              ),
               const SizedBox(height: 22),
               const Text(
                 'Song Sheet',
