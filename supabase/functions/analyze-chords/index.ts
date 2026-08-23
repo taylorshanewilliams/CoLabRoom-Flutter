@@ -9,6 +9,12 @@
 // path. This function verifies the caller, downloads the audio
 // server-side, and keeps both inference services' keys out of the app.
 //
+// It also now persists the separated stems. The worker uploads each one
+// directly to Storage through short-lived signed upload URLs minted here,
+// so the RunPod side never needs Supabase credentials of its own and the
+// stems never travel through RunPod's job-result payload (which silently
+// drops large outputs — see handler.py's notes).
+//
 // Required secrets (set via `supabase secrets set` or the dashboard):
 //   RUNPOD_API_KEY        - from runpod.io Settings -> API Keys
 //   RUNPOD_ENDPOINT_ID     - the separation service's endpoint id
@@ -32,6 +38,11 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const RUNPOD_POLL_INTERVAL_MS = 4000;
 const RUNPOD_MAX_POLLS = 45; // ~3 minutes
 
+// htdemucs_6s sources. Order matters only for display; `vocals` is called out
+// separately below because the lyrics pass reads it.
+const STEMS = ['vocals', 'drums', 'bass', 'guitar', 'piano', 'other'] as const;
+type Stem = (typeof STEMS)[number];
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -49,11 +60,17 @@ function base64ToBytes(base64: string): Uint8Array {
 interface SeparationResult {
   harmonicMix: Uint8Array;
   bpm: number | null;
+  key: string | null;
   instruments: unknown;
   structure: unknown;
+  uploadedStems: string[];
 }
 
-async function separateAudio(audioUrl: string, filename: string): Promise<SeparationResult> {
+async function separateAudio(
+  audioUrl: string,
+  filename: string,
+  stemUploads: Record<string, string>,
+): Promise<SeparationResult> {
   const runResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`, {
     method: 'POST',
     headers: {
@@ -63,9 +80,10 @@ async function separateAudio(audioUrl: string, filename: string): Promise<Separa
     // A signed URL, not the audio itself — RunPod's /run endpoint caps
     // request bodies at 10MiB, which a base64-encoded full song blows
     // past easily. The separation_service worker downloads the file
-    // itself from this URL instead of receiving it inline.
+    // itself from this URL instead of receiving it inline, and pushes the
+    // finished stems back out through stem_uploads the same way.
     body: JSON.stringify({
-      input: { audio_url: audioUrl, filename },
+      input: { audio_url: audioUrl, filename, stem_uploads: stemUploads },
     }),
   });
   if (!runResponse.ok) {
@@ -86,12 +104,16 @@ async function separateAudio(audioUrl: string, filename: string): Promise<Separa
       return {
         harmonicMix: base64ToBytes(mixB64),
         // Best-effort fields the separation_service computes alongside the
-        // mix (BPM, instrument presence, structure boundaries) — absent or
-        // null here just means that detector didn't run/failed, not an
+        // mix (BPM, key, instrument presence, structure boundaries) — absent
+        // or null here just means that detector didn't run/failed, not an
         // error worth failing the whole job over.
         bpm: typeof statusBody.output?.bpm === 'number' ? statusBody.output.bpm : null,
+        key: typeof statusBody.output?.key === 'string' ? statusBody.output.key : null,
         instruments: statusBody.output?.instruments ?? null,
         structure: statusBody.output?.structure ?? [],
+        uploadedStems: Array.isArray(statusBody.output?.uploaded_stems)
+          ? statusBody.output.uploaded_stems.filter((s: unknown) => typeof s === 'string')
+          : [],
       };
     }
     if (statusBody.status === 'FAILED') {
@@ -120,13 +142,12 @@ async function detectChords(
 
 const PITCH_CLASSES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
-// ChordMini's .lab output doesn't carry a song-wide key estimate, only
-// per-segment chords — this derives a simple duration-weighted "which
-// root shows up most" guess. Real key detection would weigh scale
-// membership too, not just raw root duration; this is intentionally the
-// cheap version, good enough for the UI's "Key / center" field without
-// standing up a third model just for it.
-function estimateKey(chords: { start: number; end: number; chord: string }[]): string | null {
+// Fallback only. The separation worker now runs proper Krumhansl-Schmuckler
+// key-profile correlation over the harmonic stems and returns a key with a
+// mode ("A minor"); this duration-weighted "which root shows up most" guess
+// is kept purely for the case where that detector failed and returned null,
+// so the Key field degrades to a rough answer rather than going blank.
+function estimateKeyFallback(chords: { start: number; end: number; chord: string }[]): string | null {
   if (chords.length === 0) return null;
   const durationByRoot = new Map<string, number>();
   for (const { start, end, chord } of chords) {
@@ -161,10 +182,12 @@ Deno.serve(async (req) => {
 
   let storagePath: string;
   let bucket: string;
+  let projectId: string | null;
   try {
     const body = await req.json();
     storagePath = body.storagePath;
     bucket = body.bucket ?? 'room-files';
+    projectId = typeof body.projectId === 'string' && body.projectId.length > 0 ? body.projectId : null;
     if (typeof storagePath !== 'string' || storagePath.length === 0) {
       return json({ error: 'storagePath is required' }, 400);
     }
@@ -178,6 +201,25 @@ Deno.serve(async (req) => {
   const { data: userData, error: userError } = await callerClient.auth.getUser();
   if (userError || !userData?.user) return json({ error: 'Unauthorized' }, 401);
 
+  // When the client identifies the project, confirm through the *caller's*
+  // RLS-scoped client that they can actually see that project's reference
+  // recording, and that storagePath is that recording rather than an
+  // arbitrary object. Without this, an authenticated user could hand any
+  // storage path to a service-role signed-URL mint. Older app builds don't
+  // send projectId; those keep the previous behaviour minus stem persistence
+  // rather than breaking mid-beta.
+  if (projectId) {
+    const { data: reference } = await callerClient
+      .from('project_audio_references')
+      .select('project_id, files(storage_path)')
+      .eq('project_id', projectId)
+      .maybeSingle();
+    const referencePath = (reference as { files?: { storage_path?: string } } | null)?.files?.storage_path;
+    if (!reference || referencePath !== storagePath) {
+      return json({ error: 'That recording does not belong to this project.' }, 403);
+    }
+  }
+
   const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   // No need to pull the file into the function's own memory at all — the
   // separation_service worker downloads it directly from this signed URL,
@@ -185,16 +227,59 @@ Deno.serve(async (req) => {
   // than trying to squeeze under it.
   const { data: signedUrlData, error: signedUrlError } = await adminClient.storage
     .from(bucket)
-    .createSignedUrl(storagePath, 300);
+    .createSignedUrl(storagePath, 900);
   if (signedUrlError || !signedUrlData) {
     return json({ error: `Could not create signed URL: ${signedUrlError?.message ?? 'not found'}` }, 404);
   }
   const filename = storagePath.split('/').pop() ?? 'audio.mp3';
 
+  // Stems live beside the reference recording: <room>/<project>/analysis/stems/<stem>.mp3.
+  // That keeps the first two path segments intact, which is what the
+  // room-files storage policies match on for room and project membership.
+  const analysisDir = storagePath.split('/').slice(0, -1).join('/');
+  const stemPathFor = (stem: Stem) => `${analysisDir}/stems/${stem}.mp3`;
+
+  const stemUploads: Record<string, string> = {};
+  if (projectId) {
+    // Re-analysis reuses the same object names; clear them first so a fresh
+    // signed upload URL can't collide with a stale object.
+    await adminClient.storage.from(bucket).remove(STEMS.map(stemPathFor));
+    for (const stem of STEMS) {
+      const { data: upload } = await adminClient.storage
+        .from(bucket)
+        .createSignedUploadUrl(stemPathFor(stem));
+      if (upload?.signedUrl) stemUploads[stem] = upload.signedUrl;
+    }
+  }
+
   try {
-    const separation = await separateAudio(signedUrlData.signedUrl, filename);
+    const separation = await separateAudio(signedUrlData.signedUrl, filename, stemUploads);
     const chords = await detectChords(separation.harmonicMix);
-    const key = estimateKey(chords);
+    const key = separation.key ?? estimateKeyFallback(chords);
+
+    let stems: { stem: string; storagePath: string }[] = [];
+    const analyzedProjectId = projectId;
+    if (analyzedProjectId) {
+      stems = separation.uploadedStems
+        .filter((stem): stem is Stem => (STEMS as readonly string[]).includes(stem))
+        .map((stem) => ({ stem, storagePath: stemPathFor(stem) }));
+      // Clear first: a re-analysis where some stem failed to upload this time
+      // would otherwise leave a row pointing at an object that was deleted
+      // before the job started, i.e. a playback entry that 404s.
+      // Service role throughout — project_stems has no insert policy for
+      // `authenticated` on purpose, same trust model as notifications.
+      await adminClient.from('project_stems').delete().eq('project_id', analyzedProjectId);
+      if (stems.length > 0) {
+        await adminClient.from('project_stems').insert(
+          stems.map((entry) => ({
+            project_id: analyzedProjectId,
+            stem: entry.stem,
+            storage_path: entry.storagePath,
+          })),
+        );
+      }
+    }
+
     // ChordMini's .lab output doesn't expose per-segment confidence, only
     // the chord label itself — flat placeholder rather than fabricating
     // false precision. Worth revisiting if chord_service is ever extended
@@ -211,6 +296,9 @@ Deno.serve(async (req) => {
       bpm: separation.bpm,
       instruments: separation.instruments,
       structure: separation.structure,
+      stems,
+      // The lyrics pass transcribes this instead of the raw mix when present.
+      vocalStemPath: stems.find((entry) => entry.stem === 'vocals')?.storagePath ?? null,
     });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : String(error) }, 502);

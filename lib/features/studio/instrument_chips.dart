@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/song_analysis_models.dart';
 
-/// "Guitar/Keys" rather than "Guitar" — Demucs' "other" stem can't tell
-/// those apart (see InstrumentSummary's doc comment), so the label says so.
-/// Shared between The Studio's results screen and the existing per-project
-/// Analyze Song screen, since both read the same InstrumentSummary shape.
+/// Guitar and piano are named separately now that separation runs
+/// `htdemucs_6s`, which gives each its own source instead of folding both
+/// into "other" (see InstrumentSummary's doc comment). Shared between The
+/// Studio's results screen and the per-project Analyze Song screen, since
+/// both read the same InstrumentSummary shape.
 class InstrumentChips extends StatelessWidget {
   const InstrumentChips({required this.instruments, super.key});
 
@@ -20,9 +21,11 @@ class InstrumentChips extends StatelessWidget {
     }
     final entries = <(String, InstrumentPresence?)>[
       ('Vocals', summary.vocals),
-      ('Guitar/Keys', summary.guitar),
+      ('Guitar', summary.guitar),
+      ('Piano', summary.piano),
       ('Bass', summary.bass),
       ('Drums', summary.drums),
+      ('Other', summary.other),
     ];
     final present = entries.where((entry) => entry.$2?.present ?? false).toList(growable: false);
     if (present.isEmpty) {

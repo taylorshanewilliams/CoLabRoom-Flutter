@@ -70,7 +70,24 @@ class SongAnalysisService {
         .eq('project_id', projectId)
         .order('start_ms');
 
+    final stemRows = await client
+        .from('project_stems')
+        .select('stem, storage_path, byte_size')
+        .eq('project_id', projectId);
+
     return SongAnalysisBundle(
+      stems: (stemRows as List<dynamic>)
+          .map((value) {
+            final row = Map<String, dynamic>.from(value as Map);
+            return SongStem(
+              projectId: projectId,
+              kind: StemKind.values.byName(row['stem'] as String),
+              storagePath: row['storage_path'] as String,
+              byteSize: row['byte_size'] as int?,
+            );
+          })
+          .toList(growable: false)
+        ..sort((left, right) => left.kind.index.compareTo(right.kind.index)),
       reference: reference,
       lyricCues: (lyricRows as List<dynamic>)
           .map((value) {
@@ -214,6 +231,9 @@ class SongAnalysisService {
       );
       await client.from('lyric_sync_cues').delete().eq('project_id', project.id);
       await client.from('chord_cues').delete().eq('project_id', project.id);
+      // Stems belong to the recording that produced them — a new reference
+      // makes the old ones wrong, not just stale.
+      await _clearStems(project.id);
     } catch (_) {
       if (fileRow != null) await client.from('files').delete().eq('id', fileRow['id']);
       await client.storage.from('room-files').remove(<String>[storagePath]);
@@ -244,6 +264,7 @@ class SongAnalysisService {
   Future<void> removeReference(ReferenceTrack reference) async {
     await client.from('lyric_sync_cues').delete().eq('project_id', reference.projectId);
     await client.from('chord_cues').delete().eq('project_id', reference.projectId);
+    await _clearStems(reference.projectId);
     await client.from('project_audio_references').delete().eq('project_id', reference.projectId);
     try {
       await client.from('files').delete().eq('id', reference.fileId);
@@ -271,6 +292,42 @@ class SongAnalysisService {
 
   Future<Uint8List> downloadReferenceBytes(ReferenceTrack reference) {
     return client.storage.from('room-files').download(reference.storagePath);
+  }
+
+  /// Caches a separated stem to a local file so it can be handed to the
+  /// audio player by path, mirroring [ensureLocalReference]. Stems are
+  /// always MP3 (the worker encodes them before upload).
+  Future<String> ensureLocalStem(SongStem stem) async {
+    if (kIsWeb) throw UnsupportedError('Stem playback is not available on web yet.');
+    final directory = await getTemporaryDirectory();
+    final path = '${directory.path}/colabroom_stem_${stem.projectId}_${stem.kind.name}.mp3';
+    final file = File(path);
+    if (await file.exists() && await file.length() > 0) return path;
+    final bytes = await client.storage.from('room-files').download(stem.storagePath);
+    await file.writeAsBytes(bytes, flush: true);
+    return path;
+  }
+
+  /// Drops a project's stem rows and their storage objects. Re-analysis
+  /// replaces them through the Edge Function instead, so this is only for
+  /// the paths that genuinely discard them.
+  Future<void> _clearStems(String projectId) async {
+    try {
+      final rows = await client
+          .from('project_stems')
+          .select('storage_path')
+          .eq('project_id', projectId);
+      final paths = (rows as List<dynamic>)
+          .map((value) => (value as Map)['storage_path'] as String)
+          .toList(growable: false);
+      if (paths.isNotEmpty) {
+        await client.storage.from('room-files').remove(paths);
+      }
+      await client.from('project_stems').delete().eq('project_id', projectId);
+    } catch (_) {
+      // Non-fatal: orphaned stems cost storage but don't affect correctness,
+      // and the next analysis clears the rows anyway.
+    }
   }
 
   /// Groups a transcript's words back into line-sized chunks by pause gaps —
@@ -325,15 +382,21 @@ class SongAnalysisService {
   }
 
   /// Calls the `transcribe-audio` Supabase Edge Function, which forwards
-  /// [reference]'s already-uploaded recording to OpenAI's Whisper API and
-  /// returns word-level timestamps. The OpenAI API key lives only in that
+  /// an already-uploaded recording to OpenAI's Whisper API and returns
+  /// word-level timestamps. The OpenAI API key lives only in that
   /// function's server-side secrets — never in the app — so this is a
   /// network call, not a local model.
-  Future<Map<String, dynamic>> _transcribeViaCloud(ReferenceTrack reference) async {
+  ///
+  /// [storagePath] is the isolated vocal stem when separation produced one,
+  /// and only falls back to the full mix otherwise. Transcribing the
+  /// separated vocal rather than the raw mix measurably cuts word errors:
+  /// most of Whisper's mistakes on singing come from backing instrumentation
+  /// bleeding into the signal, not from the words being unclear.
+  Future<Map<String, dynamic>> _transcribeViaCloud(String storagePath) async {
     final response = await client.functions.invoke(
       'transcribe-audio',
       body: <String, dynamic>{
-        'storagePath': reference.storagePath,
+        'storagePath': storagePath,
         'bucket': 'room-files',
       },
     );
@@ -357,6 +420,7 @@ class SongAnalysisService {
     final response = await client.functions.invoke(
       'analyze-chords',
       body: <String, dynamic>{
+        'projectId': reference.projectId,
         'storagePath': reference.storagePath,
         'bucket': 'room-files',
       },
@@ -384,19 +448,57 @@ class SongAnalysisService {
       final info = await AudioDecoder.getAudioInfo(localPath);
       final durationMs = info.duration.inMilliseconds;
 
-      // Chords don't need singing at all (they come from the raw audio via
-      // FFT/chroma, independent of speech), so a lyrics/transcription
-      // failure of any kind — instrumental audio, empty transcription, the
-      // transcription request itself failing — should never block chord
-      // detection. Every failure mode below sets lyricsWarning and falls
-      // through to chord analysis instead of throwing, surfaced as a
-      // non-fatal analysis_warning rather than a hard error.
+      // Separation runs first now, because the lyrics pass depends on it:
+      // the isolated vocal stem it produces is what Whisper transcribes.
+      //
+      // Chords don't need singing at all (they come from the harmonic stems,
+      // independent of speech), so a lyrics failure of any kind —
+      // instrumental audio, empty transcription, the request itself failing —
+      // must never block chord detection. Every failure mode below adds to
+      // lyricsWarning and falls through, surfaced as a non-fatal
+      // analysis_warning rather than a hard error.
       String? lyricsWarning;
+      onProgress?.call(const SongAnalysisProgress('Separating the instruments', 0.15));
+      Map<String, dynamic> chordResult;
+      var usedFallback = false;
+      try {
+        chordResult = await _detectChordsViaCloud(reference);
+      } catch (error) {
+        // An outage in the Demucs/ChordMini pipeline shouldn't turn "no
+        // chords this time" into "no analysis at all". Falls back to the
+        // on-device heuristic, which is worse but still functional — and
+        // produces no stems, so lyrics fall back to the full mix below.
+        usedFallback = true;
+        final rawPcm = await AudioDecoder.convertToWavBytes(
+          await File(localPath).readAsBytes(),
+          formatHint: audioFileExtension(localPath),
+          sampleRate: 11025,
+          channels: 1,
+          bitDepth: 16,
+          includeHeader: false,
+        );
+        chordResult = await compute(analyzeChordsOnDevice, <String, dynamic>{
+          'pcm': rawPcm,
+          'sampleRate': 11025,
+          'durationMs': durationMs,
+        });
+        lyricsWarning =
+            'Cloud chord detection was unavailable, so a less accurate on-device fallback was used. Details: $error';
+      }
+
+      // The isolated vocal stem when separation produced one, the raw mix
+      // otherwise. This is the single biggest lyric-accuracy lever in the
+      // pipeline and it costs nothing extra — separation already produced
+      // this stem, it was just being discarded before.
+      final vocalStemPath = chordResult['vocalStemPath'] as String?;
       List<TranscriptWord> transcriptWords = const <TranscriptWord>[];
       String? transcriptText;
       try {
-        onProgress?.call(const SongAnalysisProgress('Listening for the words', 0.2));
-        final cloudResult = await _transcribeViaCloud(reference);
+        onProgress?.call(SongAnalysisProgress(
+          vocalStemPath == null ? 'Listening for the words' : 'Listening to the isolated vocal',
+          0.55,
+        ));
+        final cloudResult = await _transcribeViaCloud(vocalStemPath ?? reference.storagePath);
         // Whisper (cloud, same as on-device) emits literal "♪" placeholder
         // tokens as "words" for non-lexical/instrumental stretches instead
         // of just leaving them out — filter those out here so they don't
@@ -414,16 +516,16 @@ class SongAnalysisService {
           final heardSnippet = heard.isEmpty
               ? ''
               : ' Whisper heard: "${heard.length > 80 ? '${heard.substring(0, 80)}…' : heard}"';
-          if (heard.isNotEmpty && !looksLikeSpeech(heard)) {
-            lyricsWarning = 'This recording sounds instrumental — chords were detected, but '
-                'there are no words to sync lyrics to.$heardSnippet';
-          } else {
-            lyricsWarning =
-                'Not enough sung words were heard to sync lyrics, but chords were still detected.'
-                '$heardSnippet';
-          }
+          final note = heard.isNotEmpty && !looksLikeSpeech(heard)
+              ? 'This recording sounds instrumental — chords were detected, but '
+                  'there are no words to sync lyrics to.$heardSnippet'
+              : 'Not enough sung words were heard to sync lyrics, but chords were still detected.'
+                  '$heardSnippet';
+          // Append rather than assign: the chord stage runs first now, so a
+          // separation outage may already have left a note here worth keeping.
+          lyricsWarning = lyricsWarning == null ? note : '$lyricsWarning\n\n$note';
         } else {
-          onProgress?.call(const SongAnalysisProgress('Writing down the lyrics', 0.5));
+          onProgress?.call(const SongAnalysisProgress('Writing down the lyrics', 0.75));
           // Analysis always transcribes fresh from the recording — it never
           // reads from or writes to `contributions` (the collaborative
           // lyric-editing document). The two are deliberately independent:
@@ -441,37 +543,9 @@ class SongAnalysisService {
           transcriptText = transcriptWords.map((word) => word.word).join(' ');
         }
       } catch (error) {
-        lyricsWarning = 'Could not transcribe this recording\'s speech, so only chords were '
+        final note = 'Could not transcribe this recording\'s speech, so only chords were '
             'detected. Details: $error';
-      }
-
-      onProgress?.call(const SongAnalysisProgress('Finding chord changes', 0.62));
-      Map<String, dynamic> chordResult;
-      var usedFallback = false;
-      try {
-        chordResult = await _detectChordsViaCloud(reference);
-      } catch (error) {
-        // Same resilience shape as the lyrics path above — an outage in
-        // the new Demucs/ChordMini pipeline shouldn't turn "no chords
-        // this time" into "no analysis at all". Falls back to the
-        // on-device heuristic, which is worse but still functional.
-        usedFallback = true;
-        final rawPcm = await AudioDecoder.convertToWavBytes(
-          await File(localPath).readAsBytes(),
-          formatHint: audioFileExtension(localPath),
-          sampleRate: 11025,
-          channels: 1,
-          bitDepth: 16,
-          includeHeader: false,
-        );
-        chordResult = await compute(analyzeChordsOnDevice, <String, dynamic>{
-          'pcm': rawPcm,
-          'sampleRate': 11025,
-          'durationMs': durationMs,
-        });
-        final fallbackNote =
-            'Cloud chord detection was unavailable, so a less accurate on-device fallback was used. Details: $error';
-        lyricsWarning = lyricsWarning == null ? fallbackNote : '$lyricsWarning\n\n$fallbackNote';
+        lyricsWarning = lyricsWarning == null ? note : '$lyricsWarning\n\n$note';
       }
 
       onProgress?.call(const SongAnalysisProgress('Saving song map', 0.9));
@@ -532,7 +606,10 @@ class SongAnalysisService {
             'duration_ms': durationMs,
             'bpm': bpm,
             'musical_key': chordResult['key'],
-            'analyzer_version': 'colabroom-cloud-0.1',
+            // 0.2: htdemucs_6s separation, Whisper reads the isolated vocal
+            // stem, Krumhansl-Schmuckler key. Worth distinguishing from 0.1
+            // results, which were produced by a materially different pipeline.
+            'analyzer_version': 'colabroom-cloud-0.2',
             // No longer a meaningful "match against existing text" score
             // now that lyrics are always transcribed fresh rather than
             // aligned to something else — nothing to compare against.

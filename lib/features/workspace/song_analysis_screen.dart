@@ -18,6 +18,7 @@ import 'lyric_review_screen.dart';
 import 'musician_sheet_logic.dart';
 import 'reference_recorder_sheet.dart';
 import 'song_sheet_panel.dart';
+import 'stem_player_panel.dart';
 
 enum _ReferenceSource { record, file }
 
@@ -646,6 +647,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     const SizedBox(height: 12),
                     _AnalysisSummary(bundle: bundle!),
                     _SongUnderstanding(reference: bundle.reference!),
+                    StemPlayerPanel(stems: bundle.stems, service: _service),
                     const SizedBox(height: 18),
                     Text(
                       'Chord sheet',

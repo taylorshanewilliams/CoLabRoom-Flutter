@@ -123,22 +123,34 @@ class InstrumentPresence {
   }
 }
 
-/// [guitar] actually covers Demucs' "other" stem — guitar, keys, and synths
-/// are indistinguishable at this stage, so the UI should label it something
-/// like "Guitar/Keys" rather than claim guitar specifically was detected.
+/// Since the separation worker moved to `htdemucs_6s`, [guitar] and [piano]
+/// are genuinely separate sources rather than one lumped "other" stem, so
+/// the UI can name them honestly. [other] is what's left after all five
+/// named sources — synths, strings, horns — and stays deliberately vague.
 class InstrumentSummary {
-  const InstrumentSummary({this.vocals, this.guitar, this.bass, this.drums});
+  const InstrumentSummary({
+    this.vocals,
+    this.guitar,
+    this.piano,
+    this.bass,
+    this.drums,
+    this.other,
+  });
 
   final InstrumentPresence? vocals;
   final InstrumentPresence? guitar;
+  final InstrumentPresence? piano;
   final InstrumentPresence? bass;
   final InstrumentPresence? drums;
+  final InstrumentPresence? other;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
         if (vocals != null) 'vocals': vocals!.toJson(),
         if (guitar != null) 'guitar': guitar!.toJson(),
+        if (piano != null) 'piano': piano!.toJson(),
         if (bass != null) 'bass': bass!.toJson(),
         if (drums != null) 'drums': drums!.toJson(),
+        if (other != null) 'other': other!.toJson(),
       };
 
   factory InstrumentSummary.fromJson(Map<String, dynamic> json) {
@@ -152,10 +164,50 @@ class InstrumentSummary {
     return InstrumentSummary(
       vocals: read('vocals'),
       guitar: read('guitar'),
+      piano: read('piano'),
       bass: read('bass'),
       drums: read('drums'),
+      other: read('other'),
     );
   }
+}
+
+/// One separated instrument track, kept in Storage after analysis rather
+/// than discarded. Playable on its own — isolating the guitar to learn a
+/// part is the whole point.
+enum StemKind { vocals, drums, bass, guitar, piano, other }
+
+extension StemKindLabel on StemKind {
+  String get label {
+    switch (this) {
+      case StemKind.vocals:
+        return 'Vocals';
+      case StemKind.drums:
+        return 'Drums';
+      case StemKind.bass:
+        return 'Bass';
+      case StemKind.guitar:
+        return 'Guitar';
+      case StemKind.piano:
+        return 'Piano';
+      case StemKind.other:
+        return 'Other';
+    }
+  }
+}
+
+class SongStem {
+  const SongStem({
+    required this.projectId,
+    required this.kind,
+    required this.storagePath,
+    this.byteSize,
+  });
+
+  final String projectId;
+  final StemKind kind;
+  final String storagePath;
+  final int? byteSize;
 }
 
 class LyricSyncCue {
@@ -235,11 +287,13 @@ class SongAnalysisBundle {
     required this.reference,
     required this.lyricCues,
     required this.chordCues,
+    this.stems = const <SongStem>[],
   });
 
   final ReferenceTrack? reference;
   final List<LyricSyncCue> lyricCues;
   final List<ChordCue> chordCues;
+  final List<SongStem> stems;
 
   bool get ready {
     final track = reference;
@@ -266,11 +320,13 @@ class SongAnalysisBundle {
     ReferenceTrack? reference,
     List<LyricSyncCue>? lyricCues,
     List<ChordCue>? chordCues,
+    List<SongStem>? stems,
   }) {
     return SongAnalysisBundle(
       reference: reference ?? this.reference,
       lyricCues: lyricCues ?? this.lyricCues,
       chordCues: chordCues ?? this.chordCues,
+      stems: stems ?? this.stems,
     );
   }
 }

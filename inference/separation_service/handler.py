@@ -1,13 +1,19 @@
-"""RunPod Serverless handler wrapping Demucs (htdemucs) source separation,
-plus lightweight librosa-based BPM, instrument-presence, and song-structure
-detection that ride along on the same stems before they're discarded.
+"""RunPod Serverless handler wrapping Demucs (htdemucs_6s) source separation,
+plus librosa-based BPM, key, instrument-presence, and song-structure detection
+that ride along on the same stems.
 
-Input:  {"input": {"audio_url": "<signed URL>", "filename": "song.mp3"}}
+Input:  {"input": {
+          "audio_url": "<signed URL>",
+          "filename": "song.mp3",
+          "stem_uploads": {"vocals": "<signed PUT url>", ...}   # optional
+        }}
 Output: {
   "harmonic_mix_b64": "<base64 mp3>",
   "bpm": <float | null>,
-  "instruments": {"vocals": {...}, "guitar": {...}, "bass": {...}, "drums": {...}},
-  "structure": [{"start_ms", "end_ms", "label", "repeats_section_label"}, ...]
+  "key": "<e.g. 'A minor'> | null",
+  "instruments": {"vocals": {...}, "guitar": {...}, "piano": {...}, "bass": {...}, "drums": {...}},
+  "structure": [{"start_ms", "end_ms", "label", "repeats_section_label"}, ...],
+  "uploaded_stems": ["vocals", "bass", ...]
 } or {"error": "..."} on failure.
 
 Takes a URL rather than the audio inline — RunPod's own /run endpoint
@@ -16,20 +22,23 @@ past easily (the failure mode of an earlier version of this pipeline).
 The caller (analyze-chords Edge Function) hands this a short-lived
 Supabase Storage signed URL; this handler downloads the file itself.
 
-Returns only the bass+other mix (the harmonic content ChordMini reads —
-see the Phase 0.5 validation notes) as compressed MP3, not all four raw
-WAV stems. An earlier version returned all four uncompressed — RunPod's
-job-result response silently dropped the output entirely once it got
-that large (no error, the "output" field just never appeared). Mixing
-down to one track and compressing it were both necessary, not just nice
-to have.
+Stems go back the same way, in reverse: the Edge Function mints one signed
+*upload* URL per stem and this handler PUTs each compressed stem straight to
+Supabase Storage. Deliberately not returned inline — an earlier version tried
+returning all four raw WAV stems in the job result and RunPod silently dropped
+the entire "output" field once it got that large (no error, the field just
+never appeared). Only the harmonic mix still travels inline, because the chord
+service needs it immediately and it is one compressed file.
 
-bpm/instruments/structure are all best-effort: htdemucs' vocals.wav and
-drums.wav stems are computed as a normal byproduct of separation and were
-previously thrown away entirely once the harmonic mix was built — reading
-them for this before discarding them is close to free. Each detector is
-wrapped in its own try/except so a librosa failure on any one doesn't take
-down chord detection or lyrics, which don't depend on any of this.
+htdemucs_6s rather than htdemucs: the 6-source model splits guitar and piano
+into their own stems instead of folding them into "other". That split is what
+makes per-instrument playback possible, and the harmonic mix fed to ChordMini
+is correspondingly the sum of bass+other+guitar+piano — with the 6-source
+model, bass+other alone would be *missing* most of the harmony.
+
+bpm/key/instruments/structure are all best-effort, each wrapped in its own
+try/except so a librosa failure on any one doesn't take down chord detection
+or lyrics, which don't depend on any of them.
 """
 
 import base64
@@ -46,6 +55,23 @@ import runpod
 # song_analysis_service.dart (`rms < 0.008`) — same convention, so "present"
 # means roughly the same thing whether the cloud or on-device path decided it.
 SILENCE_RMS_THRESHOLD = 0.008
+
+# htdemucs_6s source names, as demucs writes them into its output directory.
+STEM_NAMES = ("vocals", "drums", "bass", "guitar", "piano", "other")
+
+# Stems whose sum is the harmonic content ChordMini reads.
+HARMONIC_STEMS = ("bass", "other", "guitar", "piano")
+
+PITCH_CLASSES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+
+# Krumhansl-Schmuckler key profiles: the perceived stability of each scale
+# degree relative to the tonic, from Krumhansl's probe-tone experiments.
+# Correlating a piece's pitch-class distribution against all 24 rotations of
+# these is the standard key-finding method — it actually weighs scale
+# membership, unlike counting which chord root appears most, which is what
+# the Edge Function used to do.
+KS_MAJOR = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+KS_MINOR = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
 
 
 def _load_audio(path: str) -> tuple[np.ndarray | None, int | None]:
@@ -100,6 +126,60 @@ def _detect_bpm(
         except Exception:
             continue
     return None
+
+
+def _sum_waveforms(
+    waveforms: dict[str, np.ndarray | None], stems: tuple[str, ...]
+) -> np.ndarray | None:
+    """Sums the given stems into one waveform, zero-padding to the longest.
+
+    All stems come from the same source file at the same sample rate, so
+    lengths should already match — the padding is defensive against demucs
+    rounding a stem a frame short rather than an expected case.
+    """
+    present = [waveforms[s] for s in stems if waveforms.get(s) is not None and waveforms[s].size > 0]
+    if not present:
+        return None
+    length = max(y.size for y in present)
+    total = np.zeros(length, dtype=np.float32)
+    for y in present:
+        total[: y.size] += y
+    return total
+
+
+def _detect_key(y: np.ndarray | None, sr: int | None) -> str | None:
+    """Krumhansl-Schmuckler key estimation over the harmonic stems.
+
+    Runs on the harmonic mix rather than the full song on purpose: drums
+    contribute broadband noise to every chroma bin and vocals wander in
+    pitch, both of which blur the pitch-class distribution this depends on.
+    """
+    if y is None or y.size == 0:
+        return None
+    try:
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+        if chroma.size == 0:
+            return None
+        profile = chroma.mean(axis=1)
+        if not np.any(profile):
+            return None
+
+        best_name: str | None = None
+        best_score = -2.0
+        for tonic in range(12):
+            # Rotate so the candidate tonic sits at index 0, matching how the
+            # KS profiles are written (index 0 = tonic).
+            rotated = np.roll(profile, -tonic)
+            for mode, reference in (("major", KS_MAJOR), ("minor", KS_MINOR)):
+                score = float(np.corrcoef(rotated, reference)[0, 1])
+                if np.isnan(score):
+                    continue
+                if score > best_score:
+                    best_score = score
+                    best_name = f"{PITCH_CLASSES[tonic]} {mode}"
+        return best_name
+    except Exception:
+        return None
 
 
 def _detect_structure(y: np.ndarray | None, sr: int | None, target_sections: int = 8) -> list[dict]:
@@ -161,10 +241,44 @@ def _detect_structure(y: np.ndarray | None, sr: int | None, target_sections: int
         return []
 
 
+def _encode_mp3(source_path: str, target_path: str) -> bool:
+    """Demucs writes WAV; stems ship as MP3. A 4-minute stereo WAV is ~40MB
+    and the same audio at V4 is ~4MB, which matters both for the upload here
+    and for every playback stream the app serves later.
+    """
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", source_path, "-codec:a", "libmp3lame", "-qscale:a", "4", target_path],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and os.path.exists(target_path)
+
+
+def _upload_stem(signed_url: str, file_path: str) -> bool:
+    """PUTs one encoded stem to a Supabase Storage signed upload URL.
+
+    Signed upload URLs are minted by the Edge Function with the service role,
+    so this worker never needs Supabase credentials of its own — the same
+    reason the download side takes a signed URL rather than a key.
+    """
+    try:
+        with open(file_path, "rb") as f:
+            response = requests.put(
+                signed_url,
+                data=f,
+                headers={"content-type": "audio/mpeg", "x-upsert": "true"},
+                timeout=120,
+            )
+        return response.status_code in (200, 201)
+    except requests.RequestException:
+        return False
+
+
 def handler(job):
     job_input = job.get("input", {})
     audio_url = job_input.get("audio_url")
     filename = job_input.get("filename", "input.mp3")
+    stem_uploads = job_input.get("stem_uploads") or {}
     if not audio_url:
         return {"error": "Missing 'audio_url' in input."}
 
@@ -180,7 +294,7 @@ def handler(job):
 
         out_dir = os.path.join(tmp, "separated")
         result = subprocess.run(
-            ["python", "-m", "demucs", "-n", "htdemucs", "-o", out_dir, in_path],
+            ["python", "-m", "demucs", "-n", "htdemucs_6s", "-o", out_dir, in_path],
             capture_output=True,
             text=True,
         )
@@ -188,46 +302,41 @@ def handler(job):
             return {"error": f"demucs failed: {result.stderr[-2000:]}"}
 
         name = os.path.splitext(os.path.basename(filename))[0]
-        base = os.path.join(out_dir, "htdemucs", name)
-        vocals_path = os.path.join(base, "vocals.wav")
-        drums_path = os.path.join(base, "drums.wav")
-        bass_path = os.path.join(base, "bass.wav")
-        other_path = os.path.join(base, "other.wav")
-        if not os.path.exists(bass_path) or not os.path.exists(other_path):
-            return {"error": f"Expected stems not found under {base}"}
+        base = os.path.join(out_dir, "htdemucs_6s", name)
+        stem_paths = {stem: os.path.join(base, f"{stem}.wav") for stem in STEM_NAMES}
 
-        y_vocals, _ = _load_audio(vocals_path)
-        y_drums, sr_drums = _load_audio(drums_path)
-        y_bass, _ = _load_audio(bass_path)
-        y_other, _ = _load_audio(other_path)
+        missing = [s for s in HARMONIC_STEMS if not os.path.exists(stem_paths[s])]
+        if missing:
+            return {"error": f"Expected stems {missing} not found under {base}"}
+
+        waveforms: dict[str, np.ndarray | None] = {}
+        sample_rates: dict[str, int | None] = {}
+        for stem, path in stem_paths.items():
+            y, sr = _load_audio(path) if os.path.exists(path) else (None, None)
+            waveforms[stem] = y
+            sample_rates[stem] = sr
         y_mix, sr_mix = _load_audio(in_path)
 
-        bpm = _detect_bpm(y_drums, sr_drums, y_mix, sr_mix)
-        instruments = {
-            "vocals": _stem_presence(y_vocals),
-            "drums": _stem_presence(y_drums),
-            "bass": _stem_presence(y_bass),
-            # "other" covers guitar/keys/synth indiscriminately at this
-            # stage — labeled "guitar" on the wire for the app's existing
-            # "Guitar/Keys" chip, not a claim it's specifically a guitar.
-            "guitar": _stem_presence(y_other),
-        }
+        bpm = _detect_bpm(waveforms["drums"], sample_rates["drums"], y_mix, sr_mix)
+        instruments = {stem: _stem_presence(waveforms[stem]) for stem in STEM_NAMES}
         structure = _detect_structure(y_mix, sr_mix)
 
-        # ffmpeg's amix mixes the two stems and re-encodes to MP3 in one
-        # pass, instead of a separate numpy/soundfile mixing step plus a
-        # second encode call.
+        # ffmpeg's amix sums the harmonic stems and re-encodes to MP3 in one
+        # pass. normalize=0 keeps the summed level rather than dividing by the
+        # input count — these stems are complementary parts of one original
+        # mix, so summing them reconstructs that mix's harmonic content at
+        # roughly its original level instead of a quarter of it.
         mix_path = os.path.join(tmp, "harmonic_mix.mp3")
+        mix_inputs: list[str] = []
+        for stem in HARMONIC_STEMS:
+            mix_inputs.extend(["-i", stem_paths[stem]])
         mix_result = subprocess.run(
             [
                 "ffmpeg",
                 "-y",
-                "-i",
-                bass_path,
-                "-i",
-                other_path,
+                *mix_inputs,
                 "-filter_complex",
-                "amix=inputs=2:duration=longest",
+                f"amix=inputs={len(HARMONIC_STEMS)}:duration=longest:normalize=0",
                 "-codec:a",
                 "libmp3lame",
                 "-qscale:a",
@@ -240,14 +349,35 @@ def handler(job):
         if mix_result.returncode != 0 or not os.path.exists(mix_path):
             return {"error": f"ffmpeg mix failed: {mix_result.stderr[-2000:]}"}
 
+        # Key runs on the summed harmonic waveforms already in memory rather
+        # than on the encoded mix — one less decode, and no lossy-compression
+        # artifacts smearing the chroma bins this depends on.
+        musical_key = _detect_key(_sum_waveforms(waveforms, HARMONIC_STEMS), 22050)
+
+        # Best-effort: a stem that fails to encode or upload is a missing
+        # playback option, not a failed analysis. Chords and lyrics don't
+        # depend on any of this succeeding.
+        uploaded_stems: list[str] = []
+        for stem, signed_url in stem_uploads.items():
+            source = stem_paths.get(stem)
+            if not source or not os.path.exists(source) or not isinstance(signed_url, str):
+                continue
+            encoded = os.path.join(tmp, f"{stem}.mp3")
+            if not _encode_mp3(source, encoded):
+                continue
+            if _upload_stem(signed_url, encoded):
+                uploaded_stems.append(stem)
+
         with open(mix_path, "rb") as f:
             harmonic_mix_b64 = base64.b64encode(f.read()).decode("ascii")
 
         return {
             "harmonic_mix_b64": harmonic_mix_b64,
             "bpm": bpm,
+            "key": musical_key,
             "instruments": instruments,
             "structure": structure,
+            "uploaded_stems": uploaded_stems,
         }
 
 

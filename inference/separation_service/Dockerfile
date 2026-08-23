@@ -20,6 +20,13 @@ RUN pip install --no-cache-dir demucs runpod requests librosa
 # since nothing pulled in an MKL-linked scipy/numpy until then.
 ENV MKL_THREADING_LAYER=GNU
 
+# Bake the separation weights into the image instead of letting the first job
+# fetch them. Demucs downloads checkpoints to the torch hub cache on first
+# use, so without this every cold worker pays a model download before it can
+# start separating — a meaningful slice of the ~57s cold starts this endpoint
+# has shown, and a network dependency at inference time for no reason.
+RUN python -c "from demucs.pretrained import get_model; get_model('htdemucs_6s')"
+
 COPY handler.py /app/handler.py
 
 CMD ["python3", "-u", "handler.py"]
