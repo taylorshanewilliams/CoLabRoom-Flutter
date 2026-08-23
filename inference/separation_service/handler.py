@@ -322,21 +322,28 @@ def handler(job):
         structure = _detect_structure(y_mix, sr_mix)
 
         # ffmpeg's amix sums the harmonic stems and re-encodes to MP3 in one
-        # pass. normalize=0 keeps the summed level rather than dividing by the
-        # input count — these stems are complementary parts of one original
-        # mix, so summing them reconstructs that mix's harmonic content at
-        # roughly its original level instead of a quarter of it.
+        # pass. amix always divides by the input count, which would leave the
+        # mix at a quarter of its natural level — these stems are
+        # complementary parts of one original mix, so their plain sum is what
+        # reconstructs that mix's harmonic content.
+        #
+        # Multiplying the level back up with `volume` rather than passing
+        # `amix=...:normalize=0`: that option only exists in ffmpeg 5+, and
+        # this image ships 4.4 (the conda ffmpeg from the pytorch base), where
+        # it fails the whole filter graph with "Option 'normalize' not found".
+        # volume= is equivalent here and works on every ffmpeg version.
         mix_path = os.path.join(tmp, "harmonic_mix.mp3")
         mix_inputs: list[str] = []
         for stem in HARMONIC_STEMS:
             mix_inputs.extend(["-i", stem_paths[stem]])
+        stem_count = len(HARMONIC_STEMS)
         mix_result = subprocess.run(
             [
                 "ffmpeg",
                 "-y",
                 *mix_inputs,
                 "-filter_complex",
-                f"amix=inputs={len(HARMONIC_STEMS)}:duration=longest:normalize=0",
+                f"amix=inputs={stem_count}:duration=longest,volume={stem_count}",
                 "-codec:a",
                 "libmp3lame",
                 "-qscale:a",
