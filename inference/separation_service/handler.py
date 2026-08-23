@@ -5,10 +5,12 @@ that ride along on the same stems.
 Input:  {"input": {
           "audio_url": "<signed URL>",
           "filename": "song.mp3",
-          "stem_uploads": {"vocals": "<signed PUT url>", ...}   # optional
+          "stem_uploads": {"vocals": "<signed PUT url>", ...},  # optional
+          "mix_upload": "<signed PUT url>"                      # optional
         }}
 Output: {
-  "harmonic_mix_b64": "<base64 mp3>",
+  "harmonic_mix_uploaded": true,
+  "harmonic_mix_b64": "<base64 mp3>",   # only when mix_upload was absent
   "bpm": <float | null>,
   "key": "<e.g. 'A minor'> | null",
   "instruments": {"vocals": {...}, "guitar": {...}, "piano": {...}, "bass": {...}, "drums": {...}},
@@ -279,6 +281,7 @@ def handler(job):
     audio_url = job_input.get("audio_url")
     filename = job_input.get("filename", "input.mp3")
     stem_uploads = job_input.get("stem_uploads") or {}
+    mix_upload = job_input.get("mix_upload")
     if not audio_url:
         return {"error": "Missing 'audio_url' in input."}
 
@@ -375,17 +378,30 @@ def handler(job):
             if _upload_stem(signed_url, encoded):
                 uploaded_stems.append(stem)
 
-        with open(mix_path, "rb") as f:
-            harmonic_mix_b64 = base64.b64encode(f.read()).decode("ascii")
+        # Preferred path: push the harmonic mix to Storage like the stems and
+        # let the caller stream it straight into the chord service.
+        #
+        # The base64 fallback below is genuinely expensive on the caller's
+        # side — the encoded string, the decoded binary string, and the byte
+        # array all coexist in the Edge Function's memory, which is how a
+        # 5 MB mix became a WORKER_RESOURCE_LIMIT. Only fall back when the
+        # caller didn't offer somewhere to put the file.
+        mix_uploaded = False
+        if isinstance(mix_upload, str) and mix_upload:
+            mix_uploaded = _upload_stem(mix_upload, mix_path)
 
-        return {
-            "harmonic_mix_b64": harmonic_mix_b64,
+        result = {
+            "harmonic_mix_uploaded": mix_uploaded,
             "bpm": bpm,
             "key": musical_key,
             "instruments": instruments,
             "structure": structure,
             "uploaded_stems": uploaded_stems,
         }
+        if not mix_uploaded:
+            with open(mix_path, "rb") as f:
+                result["harmonic_mix_b64"] = base64.b64encode(f.read()).decode("ascii")
+        return result
 
 
 runpod.serverless.start({"handler": handler})

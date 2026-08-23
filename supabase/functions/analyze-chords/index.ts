@@ -58,7 +58,10 @@ function base64ToBytes(base64: string): Uint8Array {
 }
 
 interface SeparationResult {
-  harmonicMix: Uint8Array;
+  // Present only on the legacy path, where the worker had nowhere to upload
+  // the mix and had to inline it. Prefer mixUploaded.
+  harmonicMixB64: string | null;
+  mixUploaded: boolean;
   bpm: number | null;
   key: string | null;
   instruments: unknown;
@@ -70,6 +73,7 @@ async function separateAudio(
   audioUrl: string,
   filename: string,
   stemUploads: Record<string, string>,
+  mixUpload: string | null,
 ): Promise<SeparationResult> {
   const runResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`, {
     method: 'POST',
@@ -83,7 +87,12 @@ async function separateAudio(
     // itself from this URL instead of receiving it inline, and pushes the
     // finished stems back out through stem_uploads the same way.
     body: JSON.stringify({
-      input: { audio_url: audioUrl, filename, stem_uploads: stemUploads },
+      input: {
+        audio_url: audioUrl,
+        filename,
+        stem_uploads: stemUploads,
+        mix_upload: mixUpload,
+      },
     }),
   });
   if (!runResponse.ok) {
@@ -99,10 +108,14 @@ async function separateAudio(
     if (!statusResponse.ok) continue;
     const statusBody = await statusResponse.json();
     if (statusBody.status === 'COMPLETED') {
-      const mixB64 = statusBody.output?.harmonic_mix_b64;
-      if (!mixB64) throw new Error('RunPod job completed but returned no harmonic_mix_b64.');
+      const mixUploaded = statusBody.output?.harmonic_mix_uploaded === true;
+      const mixB64 = statusBody.output?.harmonic_mix_b64 ?? null;
+      if (!mixUploaded && !mixB64) {
+        throw new Error('RunPod job completed but returned no harmonic mix.');
+      }
       return {
-        harmonicMix: base64ToBytes(mixB64),
+        harmonicMixB64: mixB64,
+        mixUploaded,
         // Best-effort fields the separation_service computes alongside the
         // mix (BPM, key, instrument presence, structure boundaries) — absent
         // or null here just means that detector didn't run/failed, not an
@@ -124,10 +137,10 @@ async function separateAudio(
 }
 
 async function detectChords(
-  audioBytes: Uint8Array,
+  audio: Blob,
 ): Promise<{ start: number; end: number; chord: string }[]> {
   const form = new FormData();
-  form.append('file', new Blob([audioBytes]), 'harmonic_mix.mp3');
+  form.append('file', audio, 'harmonic_mix.mp3');
   const response = await fetch(`${CHORD_SERVICE_URL}/analyze`, {
     method: 'POST',
     headers: { 'X-API-Key': CHORD_SERVICE_API_KEY ?? '' },
@@ -239,6 +252,20 @@ Deno.serve(async (req) => {
   const analysisDir = storagePath.split('/').slice(0, -1).join('/');
   const stemPathFor = (stem: Stem) => `${analysisDir}/stems/${stem}.mp3`;
 
+  // The harmonic mix goes through Storage rather than the job payload, for
+  // every caller including ones without a projectId. Inlining it as base64
+  // meant this function held the encoded string, the decoded binary string
+  // and the byte array simultaneously — roughly 4x the file — which is what
+  // produced WORKER_RESOURCE_LIMIT on a four-minute song. Not persisted in
+  // project_stems: it's an intermediate for the chord service, not a stem
+  // anyone plays.
+  const mixPath = `${analysisDir}/stems/_harmonic_mix.mp3`;
+  await adminClient.storage.from(bucket).remove([mixPath]);
+  const { data: mixUploadData } = await adminClient.storage
+    .from(bucket)
+    .createSignedUploadUrl(mixPath);
+  const mixUpload = mixUploadData?.signedUrl ?? null;
+
   const stemUploads: Record<string, string> = {};
   if (projectId) {
     // Re-analysis reuses the same object names; clear them first so a fresh
@@ -253,8 +280,32 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const separation = await separateAudio(signedUrlData.signedUrl, filename, stemUploads);
-    const chords = await detectChords(separation.harmonicMix);
+    const separation = await separateAudio(
+      signedUrlData.signedUrl,
+      filename,
+      stemUploads,
+      mixUpload,
+    );
+
+    let mixBlob: Blob;
+    if (separation.mixUploaded) {
+      const { data: mixDownload, error: mixError } = await adminClient.storage
+        .from(bucket)
+        .download(mixPath);
+      if (mixError || !mixDownload) {
+        throw new Error(`Could not read the harmonic mix back: ${mixError?.message ?? 'missing'}`);
+      }
+      mixBlob = mixDownload;
+    } else {
+      // Legacy inline path — only reachable against a worker image that
+      // predates mix_upload support.
+      mixBlob = new Blob([base64ToBytes(separation.harmonicMixB64 ?? '')]);
+    }
+
+    const chords = await detectChords(mixBlob);
+    // Reclaim the intermediate as soon as the chord service has read it;
+    // nothing downstream needs it and it is the largest object in the job.
+    await adminClient.storage.from(bucket).remove([mixPath]);
     const key = separation.key ?? estimateKeyFallback(chords);
 
     let stems: { stem: string; storagePath: string }[] = [];
