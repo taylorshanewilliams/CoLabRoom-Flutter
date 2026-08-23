@@ -36,10 +36,12 @@ Deno.serve(async (req) => {
 
   let storagePath: string;
   let bucket: string;
+  let lyricsHint: string;
   try {
     const body = await req.json();
     storagePath = body.storagePath;
     bucket = body.bucket ?? 'room-files';
+    lyricsHint = typeof body.lyricsHint === 'string' ? body.lyricsHint.trim() : '';
     if (typeof storagePath !== 'string' || storagePath.length === 0) {
       return json({ error: 'storagePath is required' }, 400);
     }
@@ -75,7 +77,22 @@ Deno.serve(async (req) => {
   // Nudges Whisper toward expecting sung vocals rather than defaulting to
   // "no speech" on recordings with unusual vocal timbre (e.g. AI-generated
   // singers), reverb-heavy mixes, or ambiguous instrumental intros.
-  openAiForm.append('prompt', 'Song lyrics, sung vocals.');
+  //
+  // When the song already has typed lyrics they're appended: Whisper resolves
+  // ambiguous audio toward words it has been primed with, and what the writer
+  // actually wrote is the strongest available prior for what they sang. On a
+  // live take — room reverb, crowd, an off-mic vocal — this does more for
+  // accuracy than swapping the model would.
+  //
+  // The trade is real and worth knowing: priming also makes Whisper likelier
+  // to *agree* with the hint. A verse rewritten since the recording may come
+  // back as the old words. That's why the hint is only the song's own lyrics
+  // and never a generic phrase list, and why the transcript stays separate
+  // from the typed lyrics rather than overwriting them.
+  const prompt = lyricsHint.length > 0
+    ? `Song lyrics, sung vocals. ${lyricsHint}`.slice(0, 900)
+    : 'Song lyrics, sung vocals.';
+  openAiForm.append('prompt', prompt);
 
   let openAiResponse: Response;
   try {

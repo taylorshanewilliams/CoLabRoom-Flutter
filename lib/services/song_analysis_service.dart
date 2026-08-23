@@ -12,6 +12,33 @@ import 'error_reporter.dart';
 
 export 'audio_analysis_utils.dart' show SongAnalysisProgress;
 
+/// Whisper accepts roughly 224 tokens of prompt; past that it's discarded.
+/// 800 characters stays comfortably inside that with room for the framing
+/// sentence the Edge Function prepends.
+const int maxLyricsPromptChars = 800;
+
+/// The song's own typed lyrics, as a hint for transcription.
+///
+/// Whisper decodes ambiguous audio toward words it has been primed with, and
+/// the words a writer has already typed are the best possible prior for what
+/// they sang. On a live recording — room reverb, crowd, an off-mic vocal —
+/// this matters far more than any model change.
+///
+/// Returns null when the song has no typed lyrics, so the caller falls back
+/// to the neutral prompt rather than sending an empty one. Sections and
+/// notes are excluded: "[Chorus]" and a reminder to fix the bridge are not
+/// things anyone sang.
+String? lyricsPromptFor(SongProject project) {
+  final lines = project.contributions
+      .where((line) => line.kind == ContributionKind.lyric)
+      .map((line) => line.body.trim())
+      .where((body) => body.isNotEmpty);
+  if (lines.isEmpty) return null;
+  final text = lines.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (text.isEmpty) return null;
+  return text.length <= maxLyricsPromptChars ? text : text.substring(0, maxLyricsPromptChars);
+}
+
 /// How often the app asks whether separation has finished, and for how long.
 /// Six minutes covers a cold GPU worker plus a long take; past that something
 /// is genuinely wrong and saying so beats spinning forever.
@@ -434,12 +461,16 @@ class SongAnalysisService {
   /// separated vocal rather than the raw mix measurably cuts word errors:
   /// most of Whisper's mistakes on singing come from backing instrumentation
   /// bleeding into the signal, not from the words being unclear.
-  Future<Map<String, dynamic>> _transcribeViaCloud(String storagePath) async {
+  Future<Map<String, dynamic>> _transcribeViaCloud(
+    String storagePath, {
+    String? lyricsHint,
+  }) async {
     final response = await client.functions.invoke(
       'transcribe-audio',
       body: <String, dynamic>{
         'storagePath': storagePath,
         'bucket': 'room-files',
+        if (lyricsHint != null) 'lyricsHint': lyricsHint,
       },
     );
     final data = response.data;
@@ -577,7 +608,10 @@ class SongAnalysisService {
           vocalStemPath == null ? 'Listening for the words' : 'Listening to the isolated vocal',
           0.55,
         ));
-        final cloudResult = await _transcribeViaCloud(vocalStemPath ?? reference.storagePath);
+        final cloudResult = await _transcribeViaCloud(
+          vocalStemPath ?? reference.storagePath,
+          lyricsHint: lyricsPromptFor(project),
+        );
         // Whisper (cloud, same as on-device) emits literal "♪" placeholder
         // tokens as "words" for non-lexical/instrumental stretches instead
         // of just leaving them out — filter those out here so they don't

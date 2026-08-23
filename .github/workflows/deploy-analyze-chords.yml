@@ -1,9 +1,9 @@
-name: Deploy analyze-chords Edge Function
+name: Deploy Edge Functions
 
-# Manual only. Deploys supabase/functions/analyze-chords and pushes its
-# runtime secrets (the RunPod + chord service credentials) into Supabase
-# — those live in Supabase's own secret store, separate from GitHub's,
-# since that's what the deployed function actually reads at runtime.
+# Manual only. Deploys both Supabase Edge Functions and pushes
+# analyze-chords' runtime secrets (the RunPod + chord service credentials)
+# into Supabase — those live in Supabase's own secret store, separate from
+# GitHub's, since that's what the deployed function actually reads.
 on:
   workflow_dispatch:
 
@@ -37,7 +37,16 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
-      - name: Deploy function
+      - name: Deploy analyze-chords
         run: supabase functions deploy analyze-chords --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      # transcribe-audio had no deploy path at all — it was pushed by hand at
+      # some point, which meant a change to it could sit in main looking
+      # shipped while production ran something else. Its OPENAI_API_KEY is set
+      # directly in Supabase and isn't touched here.
+      - name: Deploy transcribe-audio
+        run: supabase functions deploy transcribe-audio --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
