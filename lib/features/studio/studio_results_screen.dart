@@ -176,7 +176,17 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
                   _Metric('Length', _formatDuration(draft.durationMs)),
                   _Metric('Key', draft.musicalKey ?? '—'),
                   _Metric('BPM', draft.bpm != null ? draft.bpm!.round().toString() : 'Not available yet'),
-                  _Metric('Time signature', 'Not available yet'),
+                  // Counted from the gaps between detected downbeats. Shown
+                  // as x/4 because a beat tracker knows how many beats are in
+                  // a bar but not what note value gets the beat — 6/8 and 6/4
+                  // are indistinguishable from timing alone, so claiming the
+                  // denominator would be inventing it.
+                  _Metric(
+                    'Time signature',
+                    draft.beatsPerBar != null ? '${draft.beatsPerBar}/4' : 'Not available yet',
+                  ),
+                  if (draft.downbeatsMs.isNotEmpty)
+                    _Metric('Bars', '${draft.downbeatsMs.length}'),
                   // Coverage, not confidence — see chordCoverage(). The old
                   // percentage was a constant, identical on every recording.
                   _Metric(

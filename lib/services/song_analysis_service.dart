@@ -12,6 +12,16 @@ import 'error_reporter.dart';
 
 export 'audio_analysis_utils.dart' show SongAnalysisProgress;
 
+/// Millisecond timestamps out of a jsonb column, tolerating the doubles
+/// Postgres may hand back for a numeric array.
+List<int> _msList(dynamic value) {
+  if (value is! List) return const <int>[];
+  return value
+      .whereType<num>()
+      .map((n) => n.round())
+      .toList(growable: false);
+}
+
 /// What fraction of the recording the model actually named a chord over.
 ///
 /// The honest answer to "how well did this go". ChordMini reports labels
@@ -148,6 +158,9 @@ class SongAnalysisService {
         lyricConfidence: (row['lyric_confidence'] as num?)?.toDouble(),
         chordConfidence: (row['chord_confidence'] as num?)?.toDouble(),
         chordCoverage: (row['chord_coverage'] as num?)?.toDouble(),
+        beatsMs: _msList(row['beats_ms']),
+        downbeatsMs: _msList(row['downbeats_ms']),
+        beatsPerBar: (row['beats_per_bar'] as num?)?.toInt(),
         transcriptText: row['transcript_text'] as String?,
         transcriptWords: (row['transcript_words'] as List<dynamic>? ?? const <dynamic>[])
             .map((value) => TranscriptWord.fromJson(Map<String, dynamic>.from(value as Map)))
@@ -759,6 +772,9 @@ class SongAnalysisService {
             // worse than an honest blank.
             'chord_confidence': null,
             'chord_coverage': coverage,
+            'beats_ms': usedFallback ? null : chordResult['beatsMs'],
+            'downbeats_ms': usedFallback ? null : chordResult['downbeatsMs'],
+            'beats_per_bar': usedFallback ? null : chordResult['beatsPerBar'],
             'transcript_text': transcriptText,
             'transcript_words': transcriptWords.map((word) => word.toJson()).toList(growable: false),
             'structure_sections': structureSections.map((s) => s.toJson()).toList(growable: false),

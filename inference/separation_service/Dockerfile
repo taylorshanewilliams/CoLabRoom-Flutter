@@ -9,7 +9,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir demucs runpod requests librosa
+RUN pip install --no-cache-dir demucs runpod requests librosa \
+    && pip install --no-cache-dir https://github.com/CPJKU/beat_this/archive/main.zip
 
 # librosa pulls in its own scipy/numpy resolution, which on this base image
 # ends up linking Intel MKL — MKL's own threading layer conflicts with the
@@ -26,6 +27,10 @@ ENV MKL_THREADING_LAYER=GNU
 # start separating — a meaningful slice of the ~57s cold starts this endpoint
 # has shown, and a network dependency at inference time for no reason.
 RUN python -c "from demucs.pretrained import get_model; get_model('htdemucs_6s')"
+
+# Same reasoning for the beat tracker's checkpoint — fetched at build time so
+# no cold worker pays a model download mid-job.
+RUN python -c "from beat_this.inference import File2Beats; File2Beats(checkpoint_path='final0', device='cpu', dbn=False)"
 
 COPY handler.py /app/handler.py
 # Shipped in the image so CI can run the real handler inside the real

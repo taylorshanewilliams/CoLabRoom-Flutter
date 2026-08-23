@@ -697,6 +697,17 @@ class _AnalysisSummary extends StatelessWidget {
           _Metric(label: 'Length', value: _clockMs(ref.durationMs ?? 0)),
           _Metric(label: 'Key / center', value: ref.musicalKey ?? '—'),
           _Metric(label: 'BPM', value: ref.bpm != null ? ref.bpm!.round().toString() : '—'),
+          // Shown as x/4: a beat tracker knows how many beats are in a bar,
+          // not what note value gets the beat, so 6/8 and 6/4 are
+          // indistinguishable from timing alone.
+          _Metric(
+            label: 'Time signature',
+            value: ref.beatsPerBar != null ? '${ref.beatsPerBar}/4' : '—',
+          ),
+          _Metric(
+            label: 'Bars',
+            value: ref.barCount != null ? '${ref.barCount}' : '—',
+          ),
           _Metric(label: 'Timed lines', value: '${bundle.lyricCues.length}'),
           _Metric(label: 'Chord changes', value: '${bundle.chordCues.length}'),
           _Metric(label: 'Lyric match', value: _percent(ref.lyricConfidence)),

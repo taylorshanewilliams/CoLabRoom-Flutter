@@ -104,6 +104,70 @@ def _stem_presence(y: np.ndarray | None) -> dict | None:
     return {"present": rms > SILENCE_RMS_THRESHOLD, "confidence": round(confidence, 3)}
 
 
+def _detect_beats(path: str) -> dict:
+    """Beat and downbeat times, via Beat This! (ISMIR 2024, MIT licensed).
+
+    librosa's beat_track gives a tempo number and nothing else. Downbeats —
+    where each bar starts — are what actually make the analysis musical: they
+    are the difference between a chord that begins "at 1.847 seconds" and one
+    that begins "on beat 3 of bar 12". Bar lines, a count-in, and any future
+    notation all need them, and no amount of tempo estimation produces them.
+
+    Runs on the original mix rather than a stem: the model was trained on
+    full mixes, and drums alone lose the harmonic cues it uses when a track
+    has no clear kick pattern.
+
+    Best-effort like every other detector here — a failure returns empties
+    rather than taking down chords and lyrics, which don't depend on it.
+    """
+    empty = {"beats_ms": [], "downbeats_ms": [], "bpm": None, "beats_per_bar": None}
+    try:
+        import torch
+        from beat_this.inference import File2Beats
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # dbn=False is the paper's headline result: the postprocessing DBN it
+        # replaces imposes a constant meter and tempo, which is wrong for
+        # anything with a time-signature change or real rubato.
+        file2beats = File2Beats(checkpoint_path="final0", device=device, dbn=False)
+        beats, downbeats = file2beats(path)
+
+        beats_ms = [round(float(t) * 1000) for t in beats]
+        downbeats_ms = [round(float(t) * 1000) for t in downbeats]
+        if len(beats_ms) < 2:
+            return empty
+
+        intervals = np.diff(np.asarray(beats_ms, dtype=float))
+        intervals = intervals[intervals > 0]
+        bpm = round(60000.0 / float(np.median(intervals)), 1) if intervals.size else None
+
+        # Beats per bar, counted rather than assumed: how many beats fall
+        # between one downbeat and the next. The median survives a pickup bar
+        # or a dropped beat, where a mean would not.
+        beats_per_bar = None
+        if len(downbeats_ms) >= 2:
+            counts = []
+            for start, end in zip(downbeats_ms, downbeats_ms[1:]):
+                counts.append(sum(1 for b in beats_ms if start <= b < end))
+            counts = [c for c in counts if c > 0]
+            if counts:
+                candidate = int(round(float(np.median(counts))))
+                # Anything outside this is far likelier to be a detection
+                # artifact than a genuine 13/8, and asserting it would be
+                # worse than saying nothing.
+                if 2 <= candidate <= 12:
+                    beats_per_bar = candidate
+
+        return {
+            "beats_ms": beats_ms,
+            "downbeats_ms": downbeats_ms,
+            "bpm": bpm,
+            "beats_per_bar": beats_per_bar,
+        }
+    except Exception:
+        return empty
+
+
 def _detect_bpm(
     y_drums: np.ndarray | None,
     sr_drums: int | None,
@@ -360,7 +424,13 @@ def handler(job):
             sample_rates[stem] = sr
         y_mix, sr_mix = _load_audio(in_path)
 
-        bpm = _detect_bpm(waveforms["drums"], sample_rates["drums"], y_mix, sr_mix)
+        # Beat This! first; the librosa beat-tracker stays as a fallback for
+        # when it can't find a pulse at all, since a tempo with no downbeats
+        # is still better than nothing.
+        beat_info = _detect_beats(in_path)
+        bpm = beat_info["bpm"] or _detect_bpm(
+            waveforms["drums"], sample_rates["drums"], y_mix, sr_mix
+        )
         instruments = {stem: _stem_presence(waveforms[stem]) for stem in STEM_NAMES}
         structure = _detect_structure(y_mix, sr_mix)
 
@@ -434,6 +504,9 @@ def handler(job):
             "harmonic_mix_uploaded": mix_uploaded,
             "bpm": bpm,
             "key": musical_key,
+            "beats_ms": beat_info["beats_ms"],
+            "downbeats_ms": beat_info["downbeats_ms"],
+            "beats_per_bar": beat_info["beats_per_bar"],
             "instruments": instruments,
             "structure": structure,
             "uploaded_stems": uploaded_stems,

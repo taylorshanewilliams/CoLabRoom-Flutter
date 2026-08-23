@@ -20,6 +20,9 @@ class StudioDraft {
     this.analyzerVersion,
     this.chordConfidence,
     this.chordCoverage,
+    this.beatsMs = const <int>[],
+    this.downbeatsMs = const <int>[],
+    this.beatsPerBar,
     this.transcriptText,
     this.transcriptWords = const <TranscriptWord>[],
     this.structureSections = const <StructureSection>[],
@@ -46,6 +49,13 @@ class StudioDraft {
 
   /// Fraction of the recording covered by a named chord.
   final double? chordCoverage;
+
+  /// Every beat, and the first beat of each bar, in milliseconds.
+  final List<int> beatsMs;
+  final List<int> downbeatsMs;
+
+  /// Counted from the downbeat gaps rather than assumed to be four.
+  final int? beatsPerBar;
   final String? transcriptText;
   final List<TranscriptWord> transcriptWords;
   final List<StructureSection> structureSections;

@@ -104,7 +104,24 @@ def main() -> int:
     # Detectors are best-effort by design and legitimately return None on odd
     # input, so absence isn't a failure — but a wrong *shape* is, and that is
     # what would break the app's parsing.
-    print(f"  key: {result.get('key')!r}   bpm: {result.get('bpm')!r}")
+    beats = result.get("beats_ms")
+    downbeats = result.get("downbeats_ms")
+    print(
+        f"  key: {result.get('key')!r}   bpm: {result.get('bpm')!r}   "
+        f"beats: {len(beats) if isinstance(beats, list) else 'n/a'}   "
+        f"downbeats: {len(downbeats) if isinstance(downbeats, list) else 'n/a'}   "
+        f"beats/bar: {result.get('beats_per_bar')!r}"
+    )
+    # Shape only, not musicality — the clip is synthesised, so how *well* the
+    # tracker did on it means nothing. What this catches is the beat tracker
+    # failing to import, load its checkpoint, or return the agreed shape,
+    # which is exactly how a dependency change breaks production silently.
+    if not isinstance(beats, list):
+        failures.append('beats_ms should be a list')
+    if not isinstance(downbeats, list):
+        failures.append('downbeats_ms should be a list')
+    if any(not isinstance(t, int) for t in (beats or [])):
+        failures.append('beats_ms should contain integer milliseconds')
     key = result.get("key")
     if key is not None and not isinstance(key, str):
         failures.append(f"key should be a string or None, got {type(key).__name__}")

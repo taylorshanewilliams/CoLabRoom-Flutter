@@ -67,9 +67,16 @@ interface SeparationResult {
   mixUploaded: boolean;
   bpm: number | null;
   key: string | null;
+  beatsMs: number[];
+  downbeatsMs: number[];
+  beatsPerBar: number | null;
   instruments: unknown;
   structure: unknown;
   uploadedStems: string[];
+}
+
+function numberArray(value: unknown): number[] {
+  return Array.isArray(value) ? value.filter((n): n is number => typeof n === 'number') : [];
 }
 
 async function submitSeparation(
@@ -138,6 +145,10 @@ async function readSeparation(jobId: string): Promise<SeparationResult | null> {
     // error worth failing the whole job over.
     bpm: typeof statusBody.output?.bpm === 'number' ? statusBody.output.bpm : null,
     key: typeof statusBody.output?.key === 'string' ? statusBody.output.key : null,
+    beatsMs: numberArray(statusBody.output?.beats_ms),
+    downbeatsMs: numberArray(statusBody.output?.downbeats_ms),
+    beatsPerBar:
+      typeof statusBody.output?.beats_per_bar === 'number' ? statusBody.output.beats_per_bar : null,
     instruments: statusBody.output?.instruments ?? null,
     structure: statusBody.output?.structure ?? [],
     uploadedStems: Array.isArray(statusBody.output?.uploaded_stems)
@@ -413,6 +424,9 @@ Deno.serve(async (req) => {
       cues,
       key,
       bpm: separation.bpm,
+      beatsMs: separation.beatsMs,
+      downbeatsMs: separation.downbeatsMs,
+      beatsPerBar: separation.beatsPerBar,
       instruments: separation.instruments,
       structure: separation.structure,
       stems,

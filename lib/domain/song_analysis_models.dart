@@ -38,6 +38,9 @@ class ReferenceTrack {
     this.lyricConfidence,
     this.chordConfidence,
     this.chordCoverage,
+    this.beatsMs = const <int>[],
+    this.downbeatsMs = const <int>[],
+    this.beatsPerBar,
     this.transcriptText,
     this.transcriptWords = const <TranscriptWord>[],
     this.analysisWarning,
@@ -62,6 +65,20 @@ class ReferenceTrack {
   /// Fraction of the recording the model actually named a chord over — the
   /// measured answer to "how well did this go".
   final double? chordCoverage;
+
+  /// Every beat in the recording, in milliseconds.
+  final List<int> beatsMs;
+
+  /// The first beat of each bar. What turns "at 1.847 seconds" into "bar 12",
+  /// and the prerequisite for bar lines and a count-in.
+  final List<int> downbeatsMs;
+
+  /// Counted from the gaps between downbeats, not assumed to be four. Null
+  /// when the recording gave no confident answer.
+  final int? beatsPerBar;
+
+  /// How many bars the recording runs to, or null without downbeats.
+  int? get barCount => downbeatsMs.isEmpty ? null : downbeatsMs.length;
   final String? transcriptText;
   final List<TranscriptWord> transcriptWords;
   final String? analysisWarning;
