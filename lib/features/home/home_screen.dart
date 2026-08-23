@@ -225,20 +225,62 @@ class HomeScreen extends StatelessWidget {
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(18, 28, 18, 12),
           sliver: SliverToBoxAdapter(
+            // Making a Room used to be reachable only by starting a song and
+            // answering "where should this live" — so a Room you wanted for
+            // its own sake, a band or a set of people, could only be created
+            // as a side effect of writing something. There *was* a button for
+            // it, on a Rooms screen that stopped being a destination and took
+            // the button down with it.
+            //
+            // This is the Rooms surface now, so the action belongs here.
+            // Expanded on the title rather than a Spacer so a long heading
+            // ellipsizes instead of shoving the button off the edge.
             child: Row(
               children: <Widget>[
-                Text('Your Rooms', style: Theme.of(context).textTheme.titleLarge),
-                const Spacer(),
+                Expanded(
+                  child: Text(
+                    'Your Rooms',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
                 TextButton(onPressed: onSeeSongs, child: const Text('See all  ›')),
+                const SizedBox(width: 4),
+                FilledButton.tonalIcon(
+                  onPressed: () => showCreateRoomDialog(context, controller),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('New Room'),
+                ),
               ],
             ),
           ),
         ),
         if (recentRooms.isEmpty)
-          const SliverPadding(
-            padding: EdgeInsets.fromLTRB(18, 12, 18, 30),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 4, 18, 30),
             sliver: SliverToBoxAdapter(
-              child: Text('Your Rooms will appear here.'),
+              // "Your Rooms will appear here" was a dead end. The one screen
+              // where somebody new is certain to be looking for Rooms told
+              // them to wait for one to turn up.
+              child: AppSurface(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Text(
+                      'A Room is a band, a project, or just the people you write '
+                      'with. Songs live in one, and it decides who can see them.',
+                      style: TextStyle(color: AppColors.muted, height: 1.45, fontSize: 12.5),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: () => showCreateRoomDialog(context, controller),
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      label: const Text('Create your first Room'),
+                    ),
+                  ],
+                ),
+              ),
             ),
           )
         else
