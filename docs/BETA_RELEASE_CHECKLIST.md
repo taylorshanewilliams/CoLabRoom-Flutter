@@ -54,7 +54,10 @@
       `MicrophoneAccess.ensureGranted` gates both recording paths — reference
       takes and voice notes — and is shown again if the permission is later
       revoked. iOS usage strings are set in the TestFlight build.
-- [ ] Google Play Data Safety and Apple privacy declarations.
+- [ ] Google Play Data Safety and Apple privacy declarations. Every answer
+      is mapped in `docs/STORE_PRIVACY_DECLARATIONS.md`, traced to the actual
+      code — filling either console form should be copy-in. Unticked because
+      only an enrolled developer account can actually submit either form.
 - [ ] Accessibility, keyboard, screen-size, and low-connectivity testing.
 
 ## Distribution
