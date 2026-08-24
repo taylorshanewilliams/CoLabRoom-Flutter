@@ -63,7 +63,12 @@ def main() -> int:
         print("SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF must both be set.")
         return 1
 
-    wrapped = f"begin;\nset transaction read only;\n{query}\ncommit;"
+    # A hand-typed query rarely ends in a semicolon, and without one the
+    # trailing commit lands on the same statement — so Postgres rejects the
+    # whole thing with a syntax error pointing at the wrapper rather than at
+    # anything the caller wrote.
+    statement = query if query.endswith(";") else query + ";"
+    wrapped = f"begin;\nset transaction read only;\n{statement}\ncommit;"
     ok, body = run_sql(project_ref, token, wrapped)
     if not ok:
         print("Query failed (nothing was changed — the transaction rolled back).")
