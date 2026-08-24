@@ -103,15 +103,15 @@ jobs:
               100.0 * count(*) filter (where service = 'separation' and cached)
               / nullif(count(*) filter (where service = 'separation'), 0), 1
             ) as cache_hit_percent,
-            round(percentile_cont(0.5) within group (
+            round((percentile_cont(0.5) within group (
               order by compute_ms
-            ) filter (where service = 'separation' and not cached) / 1000.0, 1) as median_gpu_seconds,
-            round(percentile_cont(0.5) within group (
+            ) filter (where service = 'separation' and not cached))::numeric / 1000.0, 1) as median_gpu_seconds,
+            round((percentile_cont(0.5) within group (
               order by audio_ms
-            ) filter (where service = 'separation') / 60000.0, 2) as median_song_minutes,
-            round(percentile_cont(0.5) within group (
+            ) filter (where service = 'separation'))::numeric / 60000.0, 2) as median_song_minutes,
+            round((percentile_cont(0.5) within group (
               order by bytes
-            ) filter (where service = 'storage') / 1048576.0, 1) as median_mb_per_song,
+            ) filter (where service = 'storage'))::numeric / 1048576.0, 1) as median_mb_per_song,
             round(sum(bytes) filter (where service = 'storage') / 1073741824.0, 3) as total_gb_stored
           from public.usage_events;
           SQL
