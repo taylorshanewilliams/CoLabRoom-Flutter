@@ -184,6 +184,20 @@ def main() -> int:
         timings["total_seconds"] = time.monotonic() - started
         if output is None:
             print(f"FAIL: the job did not finish within {JOB_TIMEOUT_SECONDS}s.")
+            # A job stuck IN_QUEUE never got a worker, which is a completely
+            # different problem from a job that ran and produced nothing — and
+            # the endpoint's own health says which. Worth printing here rather
+            # than making somebody go and ask RunPod by hand.
+            try:
+                health = json.loads(
+                    request(
+                        f"https://api.runpod.ai/v2/{endpoint_id}/health",
+                        headers={"Authorization": f"Bearer {runpod_key}"},
+                    )
+                )
+                print(f"  endpoint health: {json.dumps(health)}")
+            except Exception as error:
+                print(f"  (could not read endpoint health: {error})")
             return 1
 
         if output.get("error"):
