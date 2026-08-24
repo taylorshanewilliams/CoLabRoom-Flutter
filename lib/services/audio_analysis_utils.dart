@@ -15,6 +15,34 @@ class SongAnalysisProgress {
   final double fraction;
 }
 
+/// The longest recording analysis will take on.
+///
+/// Not a technical ceiling — a promise about what the wait will be. Every
+/// stage scales with length: separation runs twice on the GPU, Whisper bills
+/// by the minute, six stems get stored. A forty-minute upload doesn't fail so
+/// much as take long enough that the app looks broken, and cost enough that
+/// one careless upload can outweigh a month of what somebody is paying.
+///
+/// Twelve minutes is well past any song — the longest thing most bands play
+/// is eight — and short enough to catch the mistake this actually prevents,
+/// which is handing it a podcast or an hour of rehearsal tape.
+const Duration maxAnalyzableDuration = Duration(minutes: 12);
+
+/// Refuses a recording that is too long to analyze, before it is uploaded.
+///
+/// A zero or negative duration means the decoder couldn't tell, and that is
+/// deliberately allowed through: blocking a real recording over a metadata
+/// quirk would be worse than the long-file case this exists to prevent.
+void requireAnalyzableDuration(Duration duration) {
+  if (duration <= Duration.zero || duration <= maxAnalyzableDuration) return;
+  throw StateError(
+    'That recording is ${duration.inMinutes} minutes long, and analysis '
+    'handles up to ${maxAnalyzableDuration.inMinutes}. Trim it to the song '
+    'and try again — a shorter recording also gives a better analysis, since '
+    'key, tempo and structure are all measured across the whole file.',
+  );
+}
+
 /// True if [text] contains a letter/digit outside of Whisper's non-speech
 /// placeholder markers (bracketed annotations like "[Music]"/"(applause)",
 /// and musical note glyphs like "♪♪♪") — those show up instead of real

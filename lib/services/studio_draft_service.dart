@@ -153,6 +153,17 @@ class StudioDraftService {
     if (byteSize > 80 * 1024 * 1024) {
       throw StateError('For this beta, use a recording smaller than 80 MB.');
     }
+    // See SongAnalysisService.attachReference: length is the limit that
+    // matters, and checking it before the upload is what stops somebody
+    // watching a progress bar for a job that could never finish.
+    try {
+      requireAnalyzableDuration((await AudioDecoder.getAudioInfo(localPath)).duration);
+    } on StateError {
+      rethrow;
+    } catch (_) {
+      // Couldn't read the length. Let it through rather than refuse a real
+      // recording over a metadata quirk.
+    }
     final accountId = client.auth.currentUser!.id;
     final ext = audioFileExtension(localPath);
 

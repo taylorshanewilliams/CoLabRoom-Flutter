@@ -411,6 +411,12 @@ class SongAnalysisService {
     if (byteSize > 80 * 1024 * 1024) {
       throw StateError('For this beta, use a reference recording smaller than 80 MB.');
     }
+    // Length matters more than size and was only being checked after the
+    // upload, at analysis time — so an hour of rehearsal tape uploaded in
+    // full, started a job nothing could finish, and left somebody watching a
+    // progress bar that was never going to complete. Checked here it costs a
+    // second and refuses before anything is spent.
+    await _requireAnalyzableLength(localPath);
 
     final previous = await load(project.id);
     final ext = audioFileExtension(localPath);
@@ -691,6 +697,21 @@ class SongAnalysisService {
     // than paying for the whole thing again.
     await _rememberJob(reference.projectId, jobId);
     return _awaitSeparation(request, jobId, onProgress: onProgress);
+  }
+
+  /// Reads the file's length and refuses it if it's too long to analyze.
+  ///
+  /// A decode failure here is not treated as a rejection: the file may still
+  /// be perfectly analyzable, and refusing it because one decoder couldn't
+  /// read its metadata would be a worse bug than the one this prevents.
+  Future<void> _requireAnalyzableLength(String localPath) async {
+    Duration duration;
+    try {
+      duration = (await AudioDecoder.getAudioInfo(localPath)).duration;
+    } catch (_) {
+      return;
+    }
+    requireAnalyzableDuration(duration);
   }
 
   Future<void> _rememberJob(String projectId, String? jobId) async {
