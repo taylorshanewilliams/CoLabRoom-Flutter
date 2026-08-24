@@ -90,7 +90,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
               .rooms
               .expand((room) => room.members)
               .firstWhere(
-                (member) => member.userId == Supabase.instance.client.auth.currentUser?.id,
+                (member) => member.userId == currentUserIdOrNull(),
                 orElse: () => const RoomMember(
                   userId: '',
                   displayName: 'Someone',
