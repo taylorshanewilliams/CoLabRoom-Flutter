@@ -1,0 +1,62 @@
+name: Build web
+
+# Manual trigger, plus automatic builds on pushes to main so a fresh web
+# build always exists to check against. Mirrors build-android-debug.yml.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'web/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/build-web.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm web/ has been bootstrapped
+        run: |
+          if [ ! -d web ]; then
+            echo "::error::web/ doesn't exist. Run the 'Bootstrap web/ folder' workflow once first."
+            exit 1
+          fi
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # No --dart-define here, deliberately: SUPABASE_URL/SUPABASE_ANON_KEY
+      # aren't repo secrets (checked before writing this), and dart-define
+      # with an empty value overrides beta_config.dart's default rather than
+      # falling back to it — passing them empty would build a web app that
+      # can't reach Supabase at all. Same as build-android-debug.yml, this
+      # rides the checked-in defaults, which already point at the real beta
+      # project.
+      - name: Build web
+        run: flutter build web --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: colabroom-web
+          path: build/web
+          retention-days: 14
+
+# ---------------------------------------------------------------------------
+# After the run finishes: download the colabroom-web artifact, unzip it, and
+# serve it locally to check the build — `python3 -m http.server` from inside
+# the unzipped folder, or any static file server. It won't run correctly
+# straight off the filesystem (file://) because of how Flutter web loads its
+# assets.
+#
+# This build has not been checked for correctness beyond compiling — see
+# the checklist note about email/password auth and whether the deep-link
+# authRedirectUrl (a mobile-only URI scheme) needs a real https:// variant
+# for the web build before sign-in actually works in a browser.
+# ---------------------------------------------------------------------------

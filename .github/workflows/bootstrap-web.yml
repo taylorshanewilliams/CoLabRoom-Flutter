@@ -1,0 +1,64 @@
+name: Bootstrap web/ folder
+
+# One-time (re-runnable) manual job: scaffolds web/, sets the real app name
+# and theme color in the generated manifest, then commits web/ back to the
+# repo so it stops being regenerated from scratch on every build. Mirrors
+# bootstrap-android.yml's pattern. No-ops if web/ already exists.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Scaffold and patch
+        run: |
+          if [ -d web ]; then
+            echo "web/ already exists — nothing to bootstrap."
+            echo "SHOULD_COMMIT=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "SHOULD_COMMIT=true" >> "$GITHUB_ENV"
+
+          flutter create --platforms=web --org com.colabroom --project-name colabroom .
+
+          # flutter create's default manifest.json says "colabroom" / a
+          # placeholder description. Set the real name so a browser tab,
+          # install prompt, or home-screen icon says CoLabRoom rather than
+          # the project's package name.
+          python3 - <<'PY'
+          import json
+          path = "web/manifest.json"
+          with open(path) as f:
+              data = json.load(f)
+          data["name"] = "CoLabRoom"
+          data["short_name"] = "CoLabRoom"
+          data["description"] = "Songwriting for bands — lyrics, chords, and voice notes in one room."
+          data["theme_color"] = "#050B16"
+          data["background_color"] = "#050B16"
+          with open(path, "w") as f:
+              json.dump(data, f, indent=4)
+              f.write("\n")
+          PY
+
+          sed -i 's/<title>colabroom<\/title>/<title>CoLabRoom<\/title>/' web/index.html
+          sed -i 's/A new Flutter project\./Songwriting for bands./' web/index.html
+
+      - name: Commit and push web/
+        if: env.SHOULD_COMMIT == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add web/
+          git commit -m "Bootstrap web/ with the real app name and theme color"
+          git push
