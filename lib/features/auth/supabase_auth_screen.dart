@@ -168,6 +168,7 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
                             decoration: InputDecoration(
                               labelText: 'Password',
                               suffixIcon: IconButton(
+                                tooltip: _hidePassword ? 'Show password' : 'Hide password',
                                 onPressed: () => setState(() => _hidePassword = !_hidePassword),
                                 icon: Icon(
                                   _hidePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,

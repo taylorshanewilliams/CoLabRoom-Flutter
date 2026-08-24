@@ -427,6 +427,7 @@ class _AudioPreviewPlayerState extends State<_AudioPreviewPlayer> {
         children: <Widget>[
           IconButton(
             key: const Key('studio_preview_play'),
+            tooltip: _loading ? 'Loading' : (_playing ? 'Pause' : 'Play'),
             onPressed: _loading ? null : _togglePlay,
             icon: _loading
                 ? const SizedBox(

@@ -59,6 +59,21 @@
       code — filling either console form should be copy-in. Unticked because
       only an enrolled developer account can actually submit either form.
 - [ ] Accessibility, keyboard, screen-size, and low-connectivity testing.
+      A code-level screen-reader audit is done — every icon-only button and
+      tappable region checked, not sampled. 3 real gaps found and fixed
+      (password-visibility toggle, Studio preview play/pause, cowork send —
+      all missing a `tooltip`). One real gap found and deliberately *not*
+      quick-fixed: the voice-note bullet rail
+      (`continuous_song_editor.dart`) is a `CustomPaint` with no semantic
+      content at all — tapping a line's dot to add a voice note is
+      currently invisible to a screen reader, and fixing it properly means
+      generating per-line semantic nodes matched to dynamic hit-test
+      positions, not a one-line patch. Two more small refinements, not
+      gaps: the tap-to-rename song/room titles and tap-to-place-a-chord
+      targets read their visible text fine, but don't announce *what*
+      double-tapping does. None of this substitutes for an actual pass with
+      VoiceOver/TalkBack, a keyboard, a small screen, and a bad connection —
+      that still needs a real device.
 
 ## Distribution
 
