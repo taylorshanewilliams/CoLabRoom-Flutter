@@ -14,9 +14,11 @@ import '../../app/supabase_access.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/project_export_service.dart';
+import '../../services/cowork_service.dart';
 import '../../services/song_analysis_service.dart';
 import '../../widgets/invite_collaborator_dialog.dart';
 import 'continuous_song_editor.dart';
+import 'cowork_panel.dart';
 import 'live_performance_screen.dart';
 import 'lyric_import_flow.dart';
 import 'song_analysis_screen.dart';
@@ -64,11 +66,47 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   int _lastContributionCount = -1;
   SongAnalysisBundle? _analysisBundle;
 
+  /// The shared stream for this song. Joined when the workspace opens and
+  /// left when it closes — presence is scoped to the song rather than the
+  /// app, which is both the only window in which "Jess is here" means
+  /// anything and the reason this doesn't reintroduce the always-on socket
+  /// that was draining batteries.
+  final CoworkService _cowork = CoworkService();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  StreamSubscription<List<CoworkPresence>>? _presenceSub;
+  bool _othersHere = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadAnalysisBundle());
+    unawaited(_joinCowork());
+  }
+
+  Future<void> _joinCowork() async {
+    try {
+      final name = BetaScope.of(context, listen: false)
+              .rooms
+              .expand((room) => room.members)
+              .firstWhere(
+                (member) => member.userId == Supabase.instance.client.auth.currentUser?.id,
+                orElse: () => const RoomMember(
+                  userId: '',
+                  displayName: 'Someone',
+                  role: RoomRole.viewer,
+                  colorValue: 0,
+                ),
+              )
+              .displayName;
+      _presenceSub = _cowork.presence.listen((here) {
+        if (mounted) setState(() => _othersHere = here.length > 1);
+      });
+      await _cowork.join(projectId: widget.projectId, displayName: name);
+    } catch (_) {
+      // The song still works without the stream. Failing to open a panel is
+      // not a reason to fail opening the song.
+    }
   }
 
   /// Best-effort, non-blocking — lets the toolbar show whether this project
@@ -88,6 +126,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_presenceSub?.cancel());
+    unawaited(_cowork.dispose());
     _recordingTimer?.cancel();
     _playerCompleteSubscription?.cancel();
     _speech.stop();
@@ -777,6 +817,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     );
 
     return Scaffold(
+      key: _scaffoldKey,
       resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: landscape
@@ -812,11 +853,22 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     onAnalyze: () => _openAnalysis(project),
                     onRecord: () => _openAnalysis(project, autoRecord: true),
                     hasRecording: _analysisBundle?.reference != null,
+                    onOpenCowork: () => _scaffoldKey.currentState?.openEndDrawer(),
+                    othersHere: _othersHere,
                   ),
                   const Divider(height: 1),
                   Expanded(child: editor),
                 ],
               ),
+      ),
+      // A drawer rather than a literal half-screen. On a phone, splitting the
+      // screen means neither half works — the stream lives one tap away and
+      // announces itself when somebody else is in here with you.
+      endDrawer: Drawer(
+        backgroundColor: AppColors.deepNavy,
+        child: SafeArea(
+          child: CoworkPanel(projectId: widget.projectId, service: _cowork),
+        ),
       ),
       floatingActionButton: FloatingActionButton(
         key: const Key('talk_to_text_button'),
@@ -1138,12 +1190,19 @@ class _WorkspaceToolbar extends StatelessWidget {
     required this.hasRecording,
     required this.onAnalyze,
     required this.onRecord,
+    required this.onOpenCowork,
+    required this.othersHere,
   });
 
   final VoidCallback onOpenLive;
   final bool hasRecording;
   final VoidCallback onAnalyze;
   final VoidCallback onRecord;
+  final VoidCallback onOpenCowork;
+
+  /// Somebody else has this song open. Colours the pill so it reads as an
+  /// invitation rather than a menu item.
+  final bool othersHere;
 
   @override
   Widget build(BuildContext context) {
@@ -1174,6 +1233,17 @@ class _WorkspaceToolbar extends StatelessWidget {
         label: 'Perform',
         active: false,
         onTap: onOpenLive,
+      ),
+      // Sits with the verbs rather than in the overflow: the whole point of
+      // the stream is that you notice somebody is in here with you, and a
+      // thing you have to go looking for is a thing you don't notice.
+      _ToolPill(
+        key: const Key('workspace_cowork_button'),
+        icon: Icons.forum_outlined,
+        label: 'Room',
+        active: othersHere,
+        activeColor: AppColors.green,
+        onTap: onOpenCowork,
       ),
     ];
     return SizedBox(
