@@ -219,6 +219,12 @@ def main() -> int:
         instruments = output.get("instruments") or {}
         if not instruments:
             failures.append("no instrument presence")
+        # The structure model is the one component whose dependencies fight
+        # the pinned torch, and a crash inside it used to be indistinguishable
+        # from a song that simply has no form. This is that distinction.
+        if output.get("structure_error"):
+            failures.append(f"the structure model raised: {output['structure_error']}")
+        print(f"  structure: {len(output.get('structure') or [])} sections")
 
         if mix_b64:
             print("Sending the mix to the chord service…")

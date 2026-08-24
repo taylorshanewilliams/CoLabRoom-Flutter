@@ -404,8 +404,21 @@ def _detect_structure(audio_path: str, work_dir: str, beat_info: dict) -> list[d
                 }
             )
         return sections
-    except Exception:
+    except Exception as error:
+        # Distinguished from "found no form", which is a legitimate answer for
+        # a short or formless recording. A crash here used to be indis-
+        # tinguishable from that: both produced an empty list, so a structure
+        # model that had stopped working looked exactly like a song with no
+        # structure. The caller surfaces this so the health check can see it.
+        _structure_failure.append(f"{type(error).__name__}: {error}")
         return []
+
+
+# Set by _detect_structure when the model raised rather than declined. Read
+# once per job in handler(); a module-level list because the detector's
+# contract is a list of sections and widening it would ripple through every
+# caller for one diagnostic.
+_structure_failure: list[str] = []
 
 
 def _detect_structure_chroma(
@@ -594,6 +607,7 @@ def handler(job):
         instruments = {stem: _stem_presence(waveforms[stem]) for stem in STEM_NAMES}
         # Named sections first; letters only if the model couldn't run. Placed
         # after the demucs subprocess has exited so its VRAM is already back.
+        _structure_failure.clear()
         structure = _detect_structure(in_path, tmp, beat_info) or _detect_structure_chroma(
             y_mix, sr_mix
         )
@@ -688,6 +702,9 @@ def handler(job):
             "beats_per_bar": beat_info["beats_per_bar"],
             "instruments": instruments,
             "structure": structure,
+            # Present only when the structure model raised, as opposed to
+            # declining to find a form. Those two used to look identical.
+            "structure_error": _structure_failure[0] if _structure_failure else None,
             "uploaded_stems": uploaded_stems,
         }
         if not mix_uploaded:
