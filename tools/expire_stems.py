@@ -40,6 +40,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
@@ -91,6 +92,11 @@ def main() -> int:
         "Content-Type": "application/json",
     }
     cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+    # PostgREST reads this out of a query string, where "+" means space —
+    # an unescaped "+00:00" UTC offset arrives at Postgres as " 00:00" and
+    # fails to parse as a timestamp at all. Every value built into a URL
+    # below goes through quote() for the same reason, not just this one.
+    cutoff_q = urllib.parse.quote(cutoff, safe="")
 
     print(f"Retention: {retention_days} days (cutoff {cutoff})")
     print(f"Mode: {'DRY RUN — nothing will be deleted' if dry_run else 'LIVE — deleting for real'}")
@@ -105,12 +111,12 @@ def main() -> int:
         if dry_run:
             rows = request(
                 f"{supabase_url}/rest/v1/{table}?select={id_column},stem,storage_path,byte_size,created_at"
-                f"&created_at=lt.{cutoff}",
+                f"&created_at=lt.{cutoff_q}",
                 headers=rest_headers,
             )
         else:
             rows = request(
-                f"{supabase_url}/rest/v1/{table}?created_at=lt.{cutoff}",
+                f"{supabase_url}/rest/v1/{table}?created_at=lt.{cutoff_q}",
                 method="DELETE",
                 headers=select_headers,
             )
@@ -125,7 +131,8 @@ def main() -> int:
             if not dry_run:
                 try:
                     request(
-                        f"{supabase_url}/storage/v1/object/{bucket}/{storage_path}",
+                        f"{supabase_url}/storage/v1/object/{bucket}/"
+                        f"{urllib.parse.quote(storage_path, safe='/')}",
                         method="DELETE",
                         headers=rest_headers,
                     )
@@ -146,17 +153,19 @@ def main() -> int:
     print(f"Checking {len(touched_dirs)} analysis_cache pointer(s) for dangling references...")
     invalidated = 0
     for bucket, stem_dir in touched_dirs:
+        bucket_q = urllib.parse.quote(bucket, safe="")
+        stem_dir_q = urllib.parse.quote(stem_dir, safe="")
         if dry_run:
             matches = request(
                 f"{supabase_url}/rest/v1/analysis_cache?select=audio_sha256"
-                f"&stem_bucket=eq.{bucket}&stem_dir=eq.{stem_dir}",
+                f"&stem_bucket=eq.{bucket_q}&stem_dir=eq.{stem_dir_q}",
                 headers=rest_headers,
             )
             if matches:
                 invalidated += len(matches)
         else:
             cleared = request(
-                f"{supabase_url}/rest/v1/analysis_cache?stem_bucket=eq.{bucket}&stem_dir=eq.{stem_dir}",
+                f"{supabase_url}/rest/v1/analysis_cache?stem_bucket=eq.{bucket_q}&stem_dir=eq.{stem_dir_q}",
                 method="PATCH",
                 headers={**rest_headers, "Prefer": "return=representation"},
                 data=json.dumps({"stem_bucket": None, "stem_dir": None, "stems": None}).encode("utf-8"),
