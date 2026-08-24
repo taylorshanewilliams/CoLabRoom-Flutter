@@ -22,6 +22,7 @@ on:
           - usage-by-month
           - usage-per-analysis
           - storage-footprint
+          - who-pays-per-room
           - custom
       sql:
         description: 'SQL to run when preset is "custom" (single statement, read-only)'
@@ -140,6 +141,41 @@ jobs:
           from storage.objects o
           group by o.bucket_id, 2
           order by total_mb desc;
+          SQL
+          elif [ "$PRESET" = "who-pays-per-room" ]; then
+            # Individual plans or a band plan? The question turns on how many
+            # people in a room actually run analyses that cost money, as
+            # opposed to reading results, which costs nothing.
+            #
+            # If it is reliably one, individual plans capture nearly all the
+            # value and a band plan is a discount nobody asked for. If it is
+            # three or four, a band plan is money left on the table. This
+            # answers it with data instead of instinct.
+            cat > /tmp/query.sql <<'SQL'
+          with paid_work as (
+            select distinct p.room_id, e.account_id
+            from public.usage_events e
+            join public.projects p on p.id = e.project_id
+            where e.service = 'separation' and not e.cached
+          )
+          select
+            left(r.id::text, 8) as room,
+            r.name,
+            (select count(*) from public.room_members m where m.room_id = r.id) as members,
+            (select count(*) from paid_work w where w.room_id = r.id) as members_who_analyze,
+            (
+              select count(*) from public.usage_events e2
+              join public.projects p2 on p2.id = e2.project_id
+              where p2.room_id = r.id and e2.service = 'separation' and not e2.cached
+            ) as analyses_paid_for,
+            (
+              select count(*) from public.usage_events e3
+              join public.projects p3 on p3.id = e3.project_id
+              where p3.room_id = r.id and e3.service = 'separation' and e3.cached
+            ) as analyses_from_cache
+          from public.rooms r
+          order by analyses_paid_for desc
+          limit 30;
           SQL
           else
             printf '%s' "$CUSTOM_SQL" > /tmp/query.sql
