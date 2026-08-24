@@ -92,10 +92,8 @@ def main() -> int:
     # Alternates by day of the month, so both depths get checked regularly
     # without doubling the daily GPU cost. A depth nothing exercises is a
     # depth that can break unnoticed, which is the whole point of this file.
-    skip_structure = os.environ.get("HEALTH_CHECK_DEPTH", "").strip() == "quick" or (
-        os.environ.get("HEALTH_CHECK_DEPTH", "").strip() == ""
-        and time.gmtime().tm_mday % 2 == 0
-    )
+    forced = os.environ.get("HEALTH_CHECK_DEPTH", "").strip()
+    skip_structure = forced == "quick" or (forced == "" and time.gmtime().tm_mday % 2 == 0)
     print(f"Checking the {'chords-and-lyrics' if skip_structure else 'full'} pass.")
 
     project_ref = env("SUPABASE_PROJECT_REF")
