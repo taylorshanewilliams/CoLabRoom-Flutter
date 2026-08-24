@@ -39,8 +39,23 @@ RUN pip install --no-cache-dir https://github.com/CPJKU/beat_this/archive/main.z
 # for it — this image needs both, since htdemucs_6s is what gives us guitar
 # and piano as separate stems, and the structure model wants the four-stem
 # demix it was trained on.
-RUN pip install --no-cache-dir all-in-one-infer \
-    && python -c "import allin1_infer; print('allin1_infer', 'imports')"
+#
+# Constrained to the torch already in this image. Unconstrained, pip resolves
+# all-in-one-infer's `torch>=2.0` to the newest release and downloads a
+# complete second PyTorch and CUDA stack next to the one the base image
+# ships — torch 2.13 (527MB) plus cudnn (366MB), cublas (423MB), nccl
+# (206MB), cusparselt (170MB) and the rest. Around 2.7GB of duplicate,
+# unused CUDA, which is why a *cached* image took four and a half minutes to
+# load on a cold worker and why every first analysis of the day paid for it.
+#
+# It also quietly replaced the torchaudio wheel pinned above, undoing a fix
+# that exists because the base image's own copy will not load. The constraint
+# protects that too.
+RUN printf 'torch==2.3.0\ntorchaudio==2.3.0\n' > /tmp/torch-constraints.txt \
+    && pip install --no-cache-dir -c /tmp/torch-constraints.txt all-in-one-infer \
+    && python -c "import allin1_infer; print('allin1_infer imports')" \
+    && python -c "import torch, torchaudio; print('torch', torch.__version__, 'torchaudio', torchaudio.__version__)" \
+    && python -c "import torch; assert torch.__version__.startswith('2.3.'), torch.__version__"
 
 # librosa pulls in its own scipy/numpy resolution, which on this base image
 # ends up linking Intel MKL — MKL's own threading layer conflicts with the
