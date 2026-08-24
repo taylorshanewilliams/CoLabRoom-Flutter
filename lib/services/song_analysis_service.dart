@@ -116,6 +116,22 @@ SongAnalysisProgress separationProgress(Duration elapsed) {
   return SongAnalysisProgress(label, 0.15 + (0.35 * fraction.clamp(0, 1)));
 }
 
+/// The app stopped waiting; the job did not stop running.
+///
+/// Distinct from every other failure because it isn't one. The separation is
+/// still on a GPU somewhere, the recording is untouched, and the job id is
+/// still recorded — so the analysis must stay `processing` rather than being
+/// marked failed, and the breadcrumb must survive so reopening the song
+/// rejoins the job instead of paying for it again.
+class AnalysisStillRunning implements Exception {
+  const AnalysisStillRunning(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// Is this the network being unavailable, rather than the service saying no?
 ///
 /// The distinction decides whether an analysis retries or gives up, and — more
@@ -749,9 +765,18 @@ class SongAnalysisService {
       }
       onProgress?.call(separationProgress(elapsed));
     }
-    throw StateError(
-      'Separating this recording is taking longer than usual. It may still be '
-      'running — try analyzing again in a minute.',
+    // Giving up waiting is not the same as the job failing, and that
+    // distinction is the difference between a bug and a delay. The GPU job is
+    // still running, the recording is untouched, and the job id is still on
+    // the row — reopening the song rejoins it (see resumableJobId), so
+    // nothing is lost and nothing is paid for twice.
+    //
+    // Its own type, because the caller has to treat it differently: this must
+    // not mark the analysis failed, and must not clear the job id.
+    throw const AnalysisStillRunning(
+      'This is taking longer than usual — the first analysis after a quiet '
+      'spell has to wake the server up. It is still running: come back to this '
+      'song in a few minutes and it will carry on where it left off.',
     );
   }
 
@@ -1013,6 +1038,11 @@ class SongAnalysisService {
       // catch below and marks the analysis failed, rather than escaping as
       // an unhandled future while the row claims 'ready'.
       return await load(project.id);
+    } on AnalysisStillRunning {
+      // The one case that must not be recorded as a failure: the job is still
+      // running and the breadcrumb has to survive so reopening the song
+      // rejoins it. Leaves the state as `processing`, which is the truth.
+      rethrow;
     } catch (error) {
       // A job id left behind here would be resumed forever against a job
       // that already failed.

@@ -87,9 +87,11 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
     });
     try {
       final localPath = widget.localPath ?? await _service.ensureLocalDraftFile(widget.draft);
+      final resumeJobId = await _service.resumableJobId(widget.draft.id);
       final bundle = await _service.analyze(
         draft: widget.draft,
         localPath: localPath,
+        resumeJobId: resumeJobId,
         onProgress: (progress) {
           if (mounted) setState(() => _progress = progress);
         },

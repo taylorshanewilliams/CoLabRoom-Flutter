@@ -16,6 +16,7 @@ import 'chord_beat_grid.dart';
 import 'error_reporter.dart';
 import 'song_analysis_service.dart'
     show
+        AnalysisStillRunning,
         carryCustomSectionNames,
         chordCoverage,
         isConnectivityFailure,
@@ -199,6 +200,39 @@ class StudioDraftService {
     }
   }
 
+  /// See SongAnalysisService._rememberJob — same breadcrumb, same reasons.
+  Future<void> _rememberJob(String draftId, String? jobId) async {
+    try {
+      await client.from('studio_drafts').update(<String, dynamic>{
+        'analysis_job_id': jobId,
+        'analysis_started_at': jobId == null ? null : DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', draftId);
+    } catch (_) {
+      // Losing the breadcrumb costs a re-run in the rare case the app dies
+      // mid-analysis. Failing the analysis over it would cost one every time.
+    }
+  }
+
+  /// A separation job this idea started and never collected, if it's recent
+  /// enough that RunPod still remembers it.
+  Future<String?> resumableJobId(String draftId) async {
+    try {
+      final row = await client
+          .from('studio_drafts')
+          .select('analysis_job_id, analysis_started_at')
+          .eq('id', draftId)
+          .maybeSingle();
+      final jobId = row?['analysis_job_id'] as String?;
+      final startedAt = DateTime.tryParse(row?['analysis_started_at'] as String? ?? '');
+      if (jobId == null || startedAt == null) return null;
+      return DateTime.now().toUtc().difference(startedAt) < const Duration(hours: 1)
+          ? jobId
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> renameDraft(StudioDraft draft, String displayName) async {
     await client
         .from('studio_drafts')
@@ -285,6 +319,7 @@ class StudioDraftService {
   Future<Map<String, dynamic>> _detectChordsViaCloud(
     StudioDraft draft, {
     required int durationMs,
+    String? resumeJobId,
     ValueChanged<SongAnalysisProgress>? onProgress,
   }) async {
     final request = <String, dynamic>{
@@ -297,6 +332,13 @@ class StudioDraftService {
       // See SongAnalysisService: for the usage log only.
       'durationMs': durationMs,
     };
+    // A job this idea already started and never collected — rejoining costs
+    // one poll, starting over costs another few minutes on a GPU.
+    if (resumeJobId != null) {
+      onProgress?.call(const SongAnalysisProgress('Picking up where this left off', 0.15));
+      return _awaitDraftSeparation(request, resumeJobId, onProgress: onProgress);
+    }
+
     final started = await _invokeAnalyze(<String, dynamic>{...request, 'action': 'start'});
     // Recognized from an earlier run — the idea you already analyzed, or the
     // same take sitting in a project. Finished before the first poll.
@@ -309,9 +351,20 @@ class StudioDraftService {
       throw StateError('The separation service did not start a job.');
     }
 
-    // See SongAnalysisService._awaitSeparation: the GPU job doesn't care what
-    // the phone is doing, so a failed poll is a question to ask again rather
-    // than a failed analysis.
+    // Written down before the wait, so the app being killed doesn't strand a
+    // job that is still running. See SongAnalysisService._rememberJob.
+    await _rememberJob(draft.id, jobId);
+    return _awaitDraftSeparation(request, jobId, onProgress: onProgress);
+  }
+
+  /// See SongAnalysisService._awaitSeparation: the GPU job doesn't care what
+  /// the phone is doing, so a failed poll is a question to ask again rather
+  /// than a failed analysis.
+  Future<Map<String, dynamic>> _awaitDraftSeparation(
+    Map<String, dynamic> request,
+    String jobId, {
+    ValueChanged<SongAnalysisProgress>? onProgress,
+  }) async {
     var elapsed = Duration.zero;
     var attempt = 0;
     var consecutiveFailures = 0;
@@ -335,15 +388,20 @@ class StudioDraftService {
       }
       onProgress?.call(separationProgress(elapsed));
     }
-    throw StateError(
-      'Separating this recording is taking longer than usual. It may still be '
-      'running — try analyzing again in a minute.',
+    // Not a failure — see SongAnalysisService. The job is still running and
+    // the id is still on the row, so reopening the idea rejoins it.
+    throw const AnalysisStillRunning(
+      'This is taking longer than usual — the first analysis after a quiet '
+      'spell has to wake the server up. It is still running: come back to this '
+      'idea in a few minutes and it will carry on where it left off.',
     );
   }
 
   Future<StudioDraftBundle> analyze({
     required StudioDraft draft,
     required String localPath,
+    /// A job this idea started and never collected — see resumableJobId.
+    String? resumeJobId,
     ValueChanged<SongAnalysisProgress>? onProgress,
   }) async {
     await client.from('studio_drafts').update(<String, dynamic>{
@@ -406,6 +464,7 @@ class StudioDraftService {
         chordResult = await _detectChordsViaCloud(
           draft,
           durationMs: durationMs,
+          resumeJobId: resumeJobId,
           onProgress: onProgress,
         );
       } catch (error) {
@@ -534,8 +593,14 @@ class StudioDraftService {
       onProgress?.call(const SongAnalysisProgress('Ready', 1));
       // Awaited so a failure here is caught below and marks the draft
       // failed, instead of escaping while the row claims 'ready'.
+      await _rememberJob(draft.id, null);
       return await load(draft.id);
+    } on AnalysisStillRunning {
+      // Still running, so it must not be recorded as failed and the job id
+      // has to survive for the resume.
+      rethrow;
     } catch (error) {
+      await _rememberJob(draft.id, null);
       await client.from('studio_drafts').update(<String, dynamic>{
         'analysis_state': 'failed',
         'last_error': error.toString(),
