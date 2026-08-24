@@ -25,8 +25,36 @@ String displayContributionBody(String body) => body == blankStoredLine ? '' : bo
 /// Such a line is a blank line as far as the writer is concerned, so it is
 /// stored as one. The alternative is a save that can never succeed, retried
 /// forever, over a space nobody can see.
-String storedLineFor(String line) =>
-    line.trim().isEmpty ? blankStoredLine : line;
+///
+/// The result is trimmed because the repository trims before it writes, so an
+/// untrimmed line is never what ends up in the row. Returning it unchanged
+/// made the editor compare "Hello " against the stored "Hello", conclude the
+/// line had changed, and rewrite it on every single save for as long as the
+/// trailing space existed.
+String storedLineFor(String line) {
+  final trimmed = line.trim();
+  return trimmed.isEmpty ? blankStoredLine : trimmed;
+}
+
+/// Why a save failed, and whether another attempt could possibly do better.
+///
+/// The editor cannot tell those apart on its own — it only sees that the save
+/// threw — and treating them alike is what made this unreadable. A dropped
+/// connection succeeds as soon as the radio is back. A row the server refuses
+/// is refused identically every time, so retrying it five times only delays
+/// telling the writer the one thing they need to hear.
+class SongSaveFailure implements Exception {
+  const SongSaveFailure(this.message, {required this.permanent});
+
+  /// Written for the person who is trying to save, not for a log.
+  final String message;
+
+  /// True when the next attempt would fail in exactly the same way.
+  final bool permanent;
+
+  @override
+  String toString() => message;
+}
 
 class ContinuousSongEditorController {
   ContinuousSongEditorController()
@@ -162,6 +190,14 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
   /// person can see and act on.
   int _consecutiveFailures = 0;
   static const int _maxSaveAttempts = 5;
+
+  /// The reason the last attempt failed, kept so the chip can say something
+  /// truer than "Save failed". Discarding this — which is what `catch (_)`
+  /// did — meant the one fact that explains the failure was thrown away at
+  /// the moment it was learned, leaving nobody, writer or developer, able to
+  /// find out why a song would not save.
+  String? _failureMessage;
+  bool _failurePermanent = false;
   bool _internalSync = false;
   Future<void>? _activeSave;
 
@@ -197,7 +233,8 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
 
   /// Retrying has stopped. Distinct from [_saveFailed], which is the ordinary
   /// "that attempt missed, another is coming" state.
-  bool get _saveStalled => _saveFailed && _consecutiveFailures >= _maxSaveAttempts;
+  bool get _saveStalled =>
+      _saveFailed && (_failurePermanent || _consecutiveFailures >= _maxSaveAttempts);
 
   /// How long to wait before attempt n+1. Doubling from the debounce interval
   /// so a transient outage is not hammered, capped so a save that recovers
@@ -215,6 +252,8 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
     // An edit is the writer's answer to a stalled save — possibly deleting
     // the very thing that could not be stored — so it earns a fresh budget.
     _consecutiveFailures = 0;
+    _failureMessage = null;
+    _failurePermanent = false;
     _saveDebounce?.cancel();
     _saveDebounce = Timer(const Duration(milliseconds: 700), () => unawaited(_flush()));
     if (mounted) setState(() {});
@@ -246,10 +285,16 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
       widget.controller.markSaved();
       _consecutiveFailures = 0;
       success = true;
-    } catch (_) {
+    } catch (error) {
       _dirty = true;
       _saveFailed = true;
       _consecutiveFailures += 1;
+      _failureMessage =
+          error is SongSaveFailure ? error.message : 'Could not save: $error';
+      // A permanent refusal skips the budget entirely. Five identical
+      // rejections spread over eight seconds tell the writer nothing that the
+      // first one did not.
+      _failurePermanent = error is SongSaveFailure && error.permanent;
     } finally {
       _activeSave = null;
       if (!completer.isCompleted) completer.complete();
@@ -263,6 +308,20 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
       }
     }
     return success;
+  }
+
+  /// Puts the reason in front of the writer. The chip has room for two words
+  /// and the reason is a sentence, so the sentence lives one tap away rather
+  /// than nowhere.
+  void _explainFailure() {
+    final message = _failureMessage;
+    if (message == null) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 8),
+      ));
   }
 
   Future<void> _voiceTap(int index) async {
@@ -373,37 +432,43 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
               Positioned(
                 top: 8,
                 right: 12,
-                child: AnimatedOpacity(
-                  opacity: 0.86,
-                  duration: const Duration(milliseconds: 150),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      if (_saving)
-                        const SizedBox(
-                          width: 10,
-                          height: 10,
-                          child: CircularProgressIndicator(strokeWidth: 1.5),
-                        )
-                      else
-                        Icon(
-                          _saveFailed ? Icons.error_outline_rounded : Icons.circle,
-                          size: _saveFailed ? 13 : 7,
-                          color: _saveFailed ? const Color(0xFFFF718B) : AppColors.muted,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _saveStalled && _failureMessage != null ? _explainFailure : null,
+                  child: AnimatedOpacity(
+                    opacity: 0.86,
+                    duration: const Duration(milliseconds: 150),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        if (_saving)
+                          const SizedBox(
+                            width: 10,
+                            height: 10,
+                            child: CircularProgressIndicator(strokeWidth: 1.5),
+                          )
+                        else
+                          Icon(
+                            _saveFailed ? Icons.error_outline_rounded : Icons.circle,
+                            size: _saveFailed ? 13 : 7,
+                            color: _saveFailed ? const Color(0xFFFF718B) : AppColors.muted,
+                          ),
+                        const SizedBox(width: 5),
+                        Text(
+                          _saving
+                              ? 'Saving'
+                              : _saveFailed
+                                  ? (_saveStalled
+                                      ? (_failureMessage != null ? 'Not saved — why?' : 'Not saved')
+                                      : 'Save retrying')
+                                  : 'Editing',
+                          style: TextStyle(
+                            color: _saveFailed ? const Color(0xFFFF9AA9) : AppColors.muted,
+                            fontSize: 9.5,
+                          ),
                         ),
-                      const SizedBox(width: 5),
-                      Text(
-                        _saving
-                            ? 'Saving'
-                            : _saveFailed
-                                ? (_saveStalled ? 'Not saved' : 'Save retrying')
-                                : 'Editing',
-                        style: TextStyle(
-                          color: _saveFailed ? const Color(0xFFFF9AA9) : AppColors.muted,
-                          fontSize: 9.5,
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),

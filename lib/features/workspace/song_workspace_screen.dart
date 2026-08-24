@@ -7,12 +7,15 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../app/supabase_access.dart';
 import '../../domain/music_models.dart';
+import '../../domain/name_policy.dart';
 import '../../domain/song_analysis_models.dart';
+import '../../services/error_reporter.dart';
 import '../../services/project_export_service.dart';
 import '../../services/cowork_service.dart';
 import '../../services/song_analysis_service.dart';
@@ -288,9 +291,61 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           await controller.repository.deleteContribution(contributions[i]);
         }
       }
+    } catch (error) {
+      // Whether another attempt can possibly work is the only thing the
+      // editor needs back, and it cannot work that out itself: the network
+      // being down and the server saying no arrive as the same thrown object.
+      final transient = isConnectivityFailure(error);
+      if (!transient) {
+        // A refusal is a fact about the app, not about this phone's signal,
+        // so it is worth counting. Unawaited on purpose — a save must not
+        // wait on telemetry, and must not fail because telemetry did.
+        unawaited(ErrorReporter().reportError(
+          service: 'song_editor',
+          stage: 'save_document',
+          projectId: project.id,
+          message: error.toString(),
+        ));
+      }
+      throw SongSaveFailure(
+        _saveFailureMessage(error, transient: transient),
+        permanent: !transient,
+      );
     } finally {
-      await controller.load();
+      // The reload is a refresh, not part of the save. Letting it throw from
+      // a finally would replace the exception explaining why the save failed
+      // with one about the reload that followed it.
+      try {
+        await controller.load();
+      } catch (_) {}
     }
+  }
+
+  /// The sentence the writer sees. Each of these is a different thing to do
+  /// next — wait, sign in, ask for access, reopen the song — which is the
+  /// whole reason a single "Save failed" was not good enough.
+  String _saveFailureMessage(Object error, {required bool transient}) {
+    if (transient) {
+      return 'No connection. Your words are still here and will save once you are back online.';
+    }
+    if (error is NameConflict) return error.message;
+    if (error is AuthException) {
+      return 'Your session expired. Sign in again to keep writing — do not close this screen first.';
+    }
+    if (error is PostgrestException) {
+      final code = error.code ?? '';
+      if (code == '42501') {
+        return 'You do not have permission to edit this song. Ask the room owner for editor access.';
+      }
+      if (code == 'PGRST116') {
+        return 'Someone else changed this song while you were writing. Reopen it to get their version.';
+      }
+      if (code.startsWith('23')) {
+        return 'The server refused a line in this song: ${error.message}';
+      }
+      return 'The server refused the save: ${error.message}';
+    }
+    return 'Could not save: $error';
   }
 
   Future<void> _openLivePerformance(SongProject project) async {

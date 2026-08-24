@@ -56,16 +56,49 @@ void main() {
       });
     });
 
-    test('a line with real words is passed through untouched', () {
-      expect(
-        storedLineFor('  and I thought about you  '),
-        '  and I thought about you  ',
-      );
+    test('a line with real words keeps its words', () {
       expect(storedLineFor('I went down to the river'), 'I went down to the river');
     });
 
     test('the blank marker is already blank and stays itself', () {
       expect(storedLineFor(blankStoredLine), blankStoredLine);
+    });
+  });
+
+  group('what the editor compares against', () {
+    // The editor decides a line needs writing by comparing what it would
+    // store against the body already in the row. The repository trims before
+    // it writes, so an untrimmed candidate never equals the stored body and
+    // the line is rewritten on every save, forever, for one trailing space.
+    test('a padded line matches what the repository actually stored', () async {
+      final repository = InMemoryMusicRepository.seeded();
+      final rooms = await repository.loadRooms();
+      final project = await repository.createSong(
+        room: rooms.first,
+        title: 'Round trip',
+      );
+
+      const typed = '  and I thought about you  ';
+      final saved = await repository.addContribution(
+        project: project,
+        body: storedLineFor(typed),
+      );
+
+      expect(saved.body, storedLineFor(typed));
+    });
+  });
+
+  group('a failure the writer can act on', () {
+    test('a permanent refusal says so', () {
+      const failure = SongSaveFailure('You do not have permission.', permanent: true);
+      expect(failure.permanent, isTrue);
+      expect(failure.message, 'You do not have permission.');
+      expect('$failure', 'You do not have permission.');
+    });
+
+    test('a dropped connection is not permanent', () {
+      const failure = SongSaveFailure('No connection.', permanent: false);
+      expect(failure.permanent, isFalse);
     });
   });
 }
