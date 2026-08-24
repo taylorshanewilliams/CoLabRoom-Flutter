@@ -46,6 +46,18 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
   SongAnalysisProgress? _progress;
   String? _error;
 
+  /// What the cached room list currently believes about this song having
+  /// audio, seeded from the project this screen was opened with.
+  ///
+  /// The rooms the controller loaded are what the room and home screens draw
+  /// their "has audio" marker from. This screen is the only place a
+  /// project_audio_references row is created or removed, and it talks to
+  /// Supabase directly rather than through the repository — so attaching a
+  /// recording changed the database and nothing else. The marker stayed dark
+  /// until something unrelated reloaded the rooms, which in practice meant
+  /// restarting the app.
+  late bool _roomsBelieveAudio = widget.project.hasAudioReference;
+
   @override
   void initState() {
     super.initState();
@@ -57,6 +69,21 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     }));
   }
 
+  /// Reloads the rooms when this screen has learned something they contradict.
+  ///
+  /// Deliberately compares against what the room list believes rather than
+  /// firing on every bundle change: re-fetching every room because somebody
+  /// renamed a section would be a lot of work to change nothing on screen.
+  void _syncRoomsWithReference() {
+    if (!mounted) return;
+    final has = _bundle?.reference != null;
+    if (has == _roomsBelieveAudio) return;
+    _roomsBelieveAudio = has;
+    // Unawaited: the marker is on a screen behind this one, and nothing here
+    // should wait on a room reload to finish.
+    unawaited(BetaScope.of(context).load());
+  }
+
   Future<void> _refresh() async {
     try {
       final bundle = await _service.load(widget.project.id);
@@ -66,6 +93,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         _loading = false;
         _error = null;
       });
+      _syncRoomsWithReference();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -177,6 +205,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         );
         _progress = null;
       });
+      _syncRoomsWithReference();
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
     } finally {
@@ -218,6 +247,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         _localPath = localPath;
         _progress = null;
       });
+      _syncRoomsWithReference();
     } catch (error) {
       // Reset _working here, immediately, rather than only in `finally` —
       // the refresh below is a network call, and while it's in flight
@@ -231,7 +261,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
       if (mounted) setState(() => _working = false);
       try {
         final bundle = await _service.load(widget.project.id);
-        if (mounted) setState(() => _bundle = bundle);
+        if (mounted) {
+          setState(() => _bundle = bundle);
+          _syncRoomsWithReference();
+        }
       } catch (_) {
         // Non-fatal: we already have a bundle and an error message to show.
       }
@@ -292,6 +325,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         );
         _localPath = null;
       });
+      _syncRoomsWithReference();
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
     } finally {

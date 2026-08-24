@@ -643,6 +643,11 @@ class StudioDraftService {
     await client.from('studio_drafts').update(<String, dynamic>{
       'promoted_project_id': project.id,
     }).eq('id', draft.id);
+    // The new-song flow put this project into the controller's cached rooms
+    // before it had any audio; the reference was written straight to Supabase
+    // a moment ago. Without this the song arrives in the room list marked as
+    // having no recording, which is the one thing everybody knows it has.
+    await controller.load();
     return project;
   }
 
