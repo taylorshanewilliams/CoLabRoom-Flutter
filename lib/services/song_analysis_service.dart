@@ -628,6 +628,7 @@ class SongAnalysisService {
   Future<Map<String, dynamic>> _detectChordsViaCloud(
     ReferenceTrack reference, {
     required int durationMs,
+    String? resumeJobId,
     ValueChanged<SongAnalysisProgress>? onProgress,
   }) async {
     final request = <String, dynamic>{
@@ -644,6 +645,13 @@ class SongAnalysisService {
       // Edge Function has no way to know it.
       'durationMs': durationMs,
     };
+
+    // A job this project already started and never collected. Rejoining it
+    // costs one poll; starting over costs another few minutes on a GPU.
+    if (resumeJobId != null) {
+      onProgress?.call(const SongAnalysisProgress('Picking up where this left off', 0.15));
+      return _awaitSeparation(request, resumeJobId, onProgress: onProgress);
+    }
 
     // The Edge Function starts the separation job and hands back its id
     // rather than waiting for it. Supabase kills a function that goes 150s
@@ -662,7 +670,45 @@ class SongAnalysisService {
       throw StateError('The separation service did not start a job.');
     }
 
+    // Written down before the wait begins, so if the app never comes back
+    // from here the job isn't lost — reopening the song picks it up rather
+    // than paying for the whole thing again.
+    await _rememberJob(reference.projectId, jobId);
     return _awaitSeparation(request, jobId, onProgress: onProgress);
+  }
+
+  Future<void> _rememberJob(String projectId, String? jobId) async {
+    try {
+      await client.from('project_audio_references').update(<String, dynamic>{
+        'analysis_job_id': jobId,
+        'analysis_started_at': jobId == null ? null : DateTime.now().toUtc().toIso8601String(),
+      }).eq('project_id', projectId);
+    } catch (_) {
+      // Losing the breadcrumb costs a re-run in the rare case the app dies
+      // mid-analysis. Failing the analysis over it would cost one every time.
+    }
+  }
+
+  /// A separation job this project started and never collected.
+  ///
+  /// Null when there isn't one, or when it's old enough that RunPod will have
+  /// forgotten it — resuming that is just a slower way to fail.
+  Future<String?> resumableJobId(String projectId) async {
+    try {
+      final row = await client
+          .from('project_audio_references')
+          .select('analysis_job_id, analysis_started_at')
+          .eq('project_id', projectId)
+          .maybeSingle();
+      final jobId = row?['analysis_job_id'] as String?;
+      final startedAt = DateTime.tryParse(row?['analysis_started_at'] as String? ?? '');
+      if (jobId == null || startedAt == null) return null;
+      return DateTime.now().toUtc().difference(startedAt) < const Duration(hours: 1)
+          ? jobId
+          : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Waits out the GPU job, forgiving the network for going away.
@@ -713,6 +759,10 @@ class SongAnalysisService {
     required SongProject project,
     required ReferenceTrack reference,
     required String localPath,
+    /// A separation job this project started and never collected — see
+    /// resumableJobId. Rejoining it costs one poll; starting over costs
+    /// another few minutes of GPU time the user already paid for.
+    String? resumeJobId,
     ValueChanged<SongAnalysisProgress>? onProgress,
   }) async {
     await _setState(project.id, SongAnalysisState.processing);
@@ -738,6 +788,7 @@ class SongAnalysisService {
         chordResult = await _detectChordsViaCloud(
           reference,
           durationMs: durationMs,
+          resumeJobId: resumeJobId,
           onProgress: onProgress,
         );
       } catch (error) {
@@ -955,12 +1006,17 @@ class SongAnalysisService {
             'last_error': null,
           })
           .eq('project_id', project.id);
+      // Collected. Nothing left to resume.
+      await _rememberJob(project.id, null);
       onProgress?.call(const SongAnalysisProgress('Ready', 1));
       // Awaited so a failure reloading the saved bundle still lands in the
       // catch below and marks the analysis failed, rather than escaping as
       // an unhandled future while the row claims 'ready'.
       return await load(project.id);
     } catch (error) {
+      // A job id left behind here would be resumed forever against a job
+      // that already failed.
+      await _rememberJob(project.id, null);
       await client
           .from('project_audio_references')
           .update(<String, dynamic>{

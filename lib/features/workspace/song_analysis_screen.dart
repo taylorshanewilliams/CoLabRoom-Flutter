@@ -192,11 +192,16 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
       _progress = const SongAnalysisProgress('Preparing analysis', 0.01);
     });
     try {
+      // If a previous run started a separation job that nobody collected —
+      // the app was killed, the phone rebooted — rejoin it instead of paying
+      // for the same GPU minutes twice.
+      final resumeJobId = await _service.resumableJobId(widget.project.id);
       final localPath = _localPath ?? await _service.ensureLocalReference(reference);
       final bundle = await _service.analyze(
         project: widget.project,
         reference: reference,
         localPath: localPath,
+        resumeJobId: resumeJobId,
         onProgress: (progress) {
           if (mounted) setState(() => _progress = progress);
         },
