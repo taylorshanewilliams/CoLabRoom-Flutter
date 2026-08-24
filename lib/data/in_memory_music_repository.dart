@@ -657,6 +657,29 @@ class InMemoryMusicRepository implements MusicRepository {
     _replaceRoom(room.copyWith(members: updatedMembers));
   }
 
+  String? _avatarPath;
+
+  @override
+  Future<String?> loadAvatarPath() async => _avatarPath;
+
+  @override
+  Future<String> setAvatar(Uint8List bytes) async {
+    _avatarBytes = bytes;
+    return _avatarPath = 'preview/avatar.png';
+  }
+
+  @override
+  Future<void> clearAvatar() async {
+    _avatarPath = null;
+    _avatarBytes = null;
+  }
+
+  @override
+  Future<Uint8List> loadAvatar(String path) async =>
+      _avatarBytes ?? (throw StateError('No avatar set.'));
+
+  Uint8List? _avatarBytes;
+
   // Nothing to pause: this repository is in memory, so there is no socket and
   // no radio to keep awake.
   @override

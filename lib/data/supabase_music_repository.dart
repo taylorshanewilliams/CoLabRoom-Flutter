@@ -328,6 +328,58 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<String?> loadAvatarPath() async {
+    final id = client.auth.currentUser?.id;
+    if (id == null) return null;
+    final row = await client.from('profiles').select('avatar_path').eq('id', id).maybeSingle();
+    return row?['avatar_path'] as String?;
+  }
+
+  @override
+  Future<String> setAvatar(Uint8List bytes) async {
+    // '<user id>/avatar.png' — the first path segment is what the bucket's
+    // policies check to decide this is yours to write (migration 0027).
+    //
+    // A cache-busting suffix rather than a fixed name: the path is stored on
+    // the profile and read by other people's devices, and an upsert to the
+    // same object leaves everyone else looking at the old picture until
+    // something clears a cache nobody controls.
+    final path = '$_userId/avatar-${DateTime.now().millisecondsSinceEpoch}.png';
+    final previous = await loadAvatarPath();
+    await client.storage.from('avatars').uploadBinary(
+          path,
+          bytes,
+          fileOptions: const FileOptions(upsert: true, contentType: 'image/png'),
+        );
+    await client.from('profiles').update(<String, dynamic>{'avatar_path': path}).eq('id', _userId);
+    if (previous != null && previous != path) {
+      // Best effort. An orphaned image costs a few kilobytes; failing the
+      // change because the old one wouldn't delete costs the user their new
+      // picture.
+      try {
+        await client.storage.from('avatars').remove(<String>[previous]);
+      } catch (_) {}
+    }
+    return path;
+  }
+
+  @override
+  Future<void> clearAvatar() async {
+    final previous = await loadAvatarPath();
+    await client.from('profiles').update(<String, dynamic>{'avatar_path': null}).eq('id', _userId);
+    if (previous != null) {
+      try {
+        await client.storage.from('avatars').remove(<String>[previous]);
+      } catch (_) {}
+    }
+  }
+
+  @override
+  Future<Uint8List> loadAvatar(String path) {
+    return client.storage.from('avatars').download(path);
+  }
+
+  @override
   Future<MusicRoom> clearRoomLogo(MusicRoom room) async {
     if (room.logoPath != null) {
       await client.storage.from('room-files').remove(<String>[room.logoPath!]);

@@ -178,6 +178,46 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     await load();
   }
 
+  String? _avatarPath;
+
+  /// The signed-in user's profile picture, or null while it's still being
+  /// fetched — or if they haven't set one. Same shape as [roomLogoBytes]:
+  /// asking triggers the fetch and [notifyListeners] fires when it lands.
+  Uint8List? get avatarBytes => _avatarPath == null ? null : _imageCache[_avatarPath];
+
+  bool get hasAvatar => _avatarPath != null;
+
+  Future<void> loadAvatar() async {
+    final path = await repository.loadAvatarPath();
+    if (path == _avatarPath && (path == null || _imageCache.containsKey(path))) return;
+    _avatarPath = path;
+    if (path != null && !_imageCache.containsKey(path)) {
+      try {
+        _imageCache[path] = await repository.loadAvatar(path);
+      } catch (_) {
+        // A picture that won't download is a missing picture, not an error
+        // worth showing on the account screen.
+        _avatarPath = null;
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<void> setAvatar(Uint8List bytes) async {
+    final path = await repository.setAvatar(bytes);
+    if (_avatarPath != null) _imageCache.remove(_avatarPath);
+    _avatarPath = path;
+    _imageCache[path] = bytes;
+    notifyListeners();
+  }
+
+  Future<void> clearAvatar() async {
+    await repository.clearAvatar();
+    if (_avatarPath != null) _imageCache.remove(_avatarPath);
+    _avatarPath = null;
+    notifyListeners();
+  }
+
   Uint8List? _imageBytes(String? path) {
     if (path == null) return null;
     final cached = _imageCache[path];

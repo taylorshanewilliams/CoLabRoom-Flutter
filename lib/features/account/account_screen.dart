@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -19,6 +22,55 @@ class AccountScreen extends StatefulWidget {
 }
 
 class _AccountScreenState extends State<AccountScreen> {
+  bool _savingAvatar = false;
+
+  bool _requestedAvatar = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Fetched when this screen opens rather than on every app load — for now
+    // this is the only place a profile picture is looked at. Here rather than
+    // in initState because the scope isn't reachable that early.
+    if (_requestedAvatar) return;
+    _requestedAvatar = true;
+    unawaited(BetaScope.of(context, listen: false).loadAvatar());
+  }
+
+  Future<void> _changeAvatar(BuildContext context) async {
+    final controller = BetaScope.of(context, listen: false);
+    final file = await FilePicker.pickFile(type: FileType.image);
+    if (file == null || !context.mounted) return;
+    setState(() => _savingAvatar = true);
+    try {
+      await controller.setAvatar(await file.readAsBytes());
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text('Could not save that picture: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => _savingAvatar = false);
+    }
+  }
+
+  Future<void> _removeAvatar(BuildContext context) async {
+    final controller = BetaScope.of(context, listen: false);
+    setState(() => _savingAvatar = true);
+    try {
+      await controller.clearAvatar();
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text('Could not remove that picture: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => _savingAvatar = false);
+    }
+  }
+
   Future<void> _editProfile(BuildContext context, String currentName) async {
     final value = await showDialog<String>(
       context: context,
@@ -125,6 +177,9 @@ class _AccountScreenState extends State<AccountScreen> {
     final displayName = user?.userMetadata?['display_name'] as String? ?? 'Taylor Williams';
     final email = user?.email ?? 'Local preview';
     final initials = _initials(displayName);
+    // Listening, so the picture appears the moment the fetch or the upload
+    // lands rather than on the next rebuild that happens for another reason.
+    final avatar = BetaScope.of(context).avatarBytes;
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 20, 18, 30),
       children: <Widget>[
@@ -133,15 +188,45 @@ class _AccountScreenState extends State<AccountScreen> {
         AppSurface(
           child: Row(
             children: <Widget>[
-              Container(
-                width: 60,
-                height: 60,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(colors: <Color>[AppColors.blue, Color(0xFF124A80)]),
+              Semantics(
+                button: user != null,
+                label: avatar == null ? 'Add a profile picture' : 'Change your profile picture',
+                child: InkWell(
+                  onTap: user == null || _savingAvatar ? null : () => _changeAvatar(context),
+                  customBorder: const CircleBorder(),
+                  child: Container(
+                    width: 60,
+                    height: 60,
+                    alignment: Alignment.center,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      // The initials gradient stays as the ground rather than
+                      // becoming a grey placeholder: with no picture set it
+                      // still reads as a person, not as a missing image.
+                      gradient: avatar == null
+                          ? const LinearGradient(
+                              colors: <Color>[AppColors.blue, Color(0xFF124A80)],
+                            )
+                          : null,
+                      image: avatar == null
+                          ? null
+                          : DecorationImage(image: MemoryImage(avatar), fit: BoxFit.cover),
+                    ),
+                    child: _savingAvatar
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.text),
+                          )
+                        : avatar == null
+                            ? Text(
+                                initials,
+                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                              )
+                            : null,
+                  ),
                 ),
-                child: Text(initials, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -151,9 +236,23 @@ class _AccountScreenState extends State<AccountScreen> {
                     Text(displayName, style: Theme.of(context).textTheme.titleLarge),
                     Text(email),
                     if (user != null)
-                      TextButton(
-                        onPressed: () => _editProfile(context, displayName),
-                        child: const Text('Edit profile  ›'),
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: <Widget>[
+                          TextButton(
+                            onPressed: () => _editProfile(context, displayName),
+                            child: const Text('Edit profile  ›'),
+                          ),
+                          TextButton(
+                            onPressed: _savingAvatar ? null : () => _changeAvatar(context),
+                            child: Text(avatar == null ? 'Add photo' : 'Change photo'),
+                          ),
+                          if (avatar != null)
+                            TextButton(
+                              onPressed: _savingAvatar ? null : () => _removeAvatar(context),
+                              child: const Text('Remove'),
+                            ),
+                        ],
                       ),
                   ],
                 ),
