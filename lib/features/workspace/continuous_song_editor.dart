@@ -14,6 +14,20 @@ const String blankStoredLine = '\u200B';
 
 String displayContributionBody(String body) => body == blankStoredLine ? '' : body;
 
+/// How a visual line is persisted.
+///
+/// The repository trims before it checks for emptiness, so any line made only
+/// of whitespace — a stray space, a tab, a `\r` from a CRLF paste, the
+/// non-breaking spaces a website puts between verses — arrives at the check
+/// as '' and is rejected. `isEmpty` alone does not catch those: the string
+/// has characters in it, they just do not survive the trim.
+///
+/// Such a line is a blank line as far as the writer is concerned, so it is
+/// stored as one. The alternative is a save that can never succeed, retried
+/// forever, over a space nobody can see.
+String storedLineFor(String line) =>
+    line.trim().isEmpty ? blankStoredLine : line;
+
 class ContinuousSongEditorController {
   ContinuousSongEditorController()
       : text = _LyricsTextController(),
@@ -138,6 +152,16 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
   bool _dirty = false;
   bool _saving = false;
   bool _saveFailed = false;
+
+  /// Consecutive failed save attempts, and the ceiling past which retrying
+  /// stops. A save that fails because the network dropped succeeds on the
+  /// next attempt; a save that fails because the document itself is
+  /// unacceptable fails identically every time, and retrying it on a 700ms
+  /// timer is an infinite loop that reports itself to the writer as ordinary
+  /// progress. Backing off and then stopping turns that into something a
+  /// person can see and act on.
+  int _consecutiveFailures = 0;
+  static const int _maxSaveAttempts = 5;
   bool _internalSync = false;
   Future<void>? _activeSave;
 
@@ -171,10 +195,26 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
     super.dispose();
   }
 
+  /// Retrying has stopped. Distinct from [_saveFailed], which is the ordinary
+  /// "that attempt missed, another is coming" state.
+  bool get _saveStalled => _saveFailed && _consecutiveFailures >= _maxSaveAttempts;
+
+  /// How long to wait before attempt n+1. Doubling from the debounce interval
+  /// so a transient outage is not hammered, capped so a save that recovers
+  /// does not sit idle for a minute afterwards.
+  Duration _retryDelay() {
+    if (_consecutiveFailures <= 0) return const Duration(milliseconds: 700);
+    final ms = 700 * (1 << (_consecutiveFailures - 1));
+    return Duration(milliseconds: ms > 8000 ? 8000 : ms);
+  }
+
   void _changed() {
     if (_internalSync) return;
     _dirty = true;
     _saveFailed = false;
+    // An edit is the writer's answer to a stalled save — possibly deleting
+    // the very thing that could not be stored — so it earns a fresh budget.
+    _consecutiveFailures = 0;
     _saveDebounce?.cancel();
     _saveDebounce = Timer(const Duration(milliseconds: 700), () => unawaited(_flush()));
     if (mounted) setState(() {});
@@ -185,7 +225,7 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
     final active = _activeSave;
     if (active != null) {
       await active;
-      if (_dirty) return _flush();
+      if (_dirty && !_saveStalled) return _flush();
       return !_saveFailed;
     }
     if (!_dirty) return !_saveFailed;
@@ -204,16 +244,22 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
     try {
       await widget.onSaveDocument(lines);
       widget.controller.markSaved();
+      _consecutiveFailures = 0;
       success = true;
     } catch (_) {
       _dirty = true;
       _saveFailed = true;
+      _consecutiveFailures += 1;
     } finally {
       _activeSave = null;
       if (!completer.isCompleted) completer.complete();
       if (mounted) setState(() => _saving = false);
-      if (_dirty) {
-        _saveDebounce = Timer(const Duration(milliseconds: 700), () => unawaited(_flush()));
+      // Not rescheduled once the budget is spent. The work is not lost — the
+      // text is still on screen and still dirty — but the chip stops claiming
+      // a retry is coming when the same attempt has already failed five times
+      // and would fail the same way a sixth.
+      if (_dirty && !_saveStalled) {
+        _saveDebounce = Timer(_retryDelay(), () => unawaited(_flush()));
       }
     }
     return success;
@@ -350,7 +396,7 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
                         _saving
                             ? 'Saving'
                             : _saveFailed
-                                ? 'Save retrying'
+                                ? (_saveStalled ? 'Not saved' : 'Save retrying')
                                 : 'Editing',
                         style: TextStyle(
                           color: _saveFailed ? const Color(0xFFFF9AA9) : AppColors.muted,

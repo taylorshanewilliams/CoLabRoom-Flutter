@@ -268,7 +268,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         final hasLine = i < lines.length;
         final hasContribution = i < contributions.length;
         if (hasLine && hasContribution) {
-          final stored = lines[i].isEmpty ? blankStoredLine : lines[i];
+          final stored = storedLineFor(lines[i]);
           if (stored != contributions[i].body) {
             await controller.repository.updateContribution(
               contribution: contributions[i],
@@ -276,7 +276,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
             );
           }
         } else if (hasLine) {
-          final stored = lines[i].isEmpty ? blankStoredLine : lines[i];
+          final stored = storedLineFor(lines[i]);
           final basePosition = contributions.isEmpty ? 0.0 : contributions.last.position;
           await controller.repository.addContribution(
             project: project,
