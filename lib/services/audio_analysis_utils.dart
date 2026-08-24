@@ -15,6 +15,39 @@ class SongAnalysisProgress {
   final double fraction;
 }
 
+/// How much of the analysis to run.
+///
+/// Both depths separate the recording, because chords are read off the
+/// harmonic stems and lyrics off the isolated vocal — neither is reachable
+/// without it. What [chordsAndLyrics] skips is section naming, which is the
+/// only stage that runs a *second* separation, and the five stems nobody
+/// needs to play back yet. That is roughly half the work.
+///
+/// Named for what you get rather than how fast it is. "Quick" tells somebody
+/// the trade-off but not the outcome, and the outcome is the thing they're
+/// choosing between.
+enum AnalysisDepth {
+  /// Chords, lyrics, key, tempo, the beat grid, named sections, every stem.
+  full,
+
+  /// Chords, lyrics, key, tempo and the beat grid. No sections, and only the
+  /// vocal stem is kept.
+  chordsAndLyrics;
+
+  /// What the Edge Function calls it.
+  String get wireName => this == AnalysisDepth.full ? 'full' : 'quick';
+
+  String get label =>
+      this == AnalysisDepth.full ? 'Full analysis' : 'Chords & lyrics';
+
+  String get description => this == AnalysisDepth.full
+      ? 'Everything: chords, lyrics, key, tempo, bar grid, named sections, and '
+          'every instrument separated for playback.'
+      : 'Chords, lyrics, key, tempo and the bar grid — about half the wait. '
+          'No section names, and only the vocal is kept for playback. You can '
+          'run the full analysis later without losing this.';
+}
+
 /// The longest recording analysis will take on.
 ///
 /// Not a technical ceiling — a promise about what the wait will be. Every

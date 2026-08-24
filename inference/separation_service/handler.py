@@ -559,6 +559,10 @@ def handler(job):
     filename = job_input.get("filename", "input.mp3")
     stem_uploads = job_input.get("stem_uploads") or {}
     mix_upload = job_input.get("mix_upload")
+    # The chords-and-lyrics pass skips section naming, which is the only part
+    # of this job that runs a *second* source separation. That is roughly half
+    # the GPU time, spent on the one result somebody in a hurry doesn't need.
+    skip_structure = job_input.get("skip_structure") is True
     if not audio_url:
         return {"error": "Missing 'audio_url' in input."}
 
@@ -608,8 +612,11 @@ def handler(job):
         # Named sections first; letters only if the model couldn't run. Placed
         # after the demucs subprocess has exited so its VRAM is already back.
         _structure_failure.clear()
-        structure = _detect_structure(in_path, tmp, beat_info) or _detect_structure_chroma(
-            y_mix, sr_mix
+        structure = (
+            []
+            if skip_structure
+            else _detect_structure(in_path, tmp, beat_info)
+            or _detect_structure_chroma(y_mix, sr_mix)
         )
 
         # ffmpeg's amix sums the harmonic stems and re-encodes to MP3 in one

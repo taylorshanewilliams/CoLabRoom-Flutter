@@ -68,6 +68,27 @@ type Stem = (typeof STEMS)[number];
 // bumping this is what makes the next analysis a real one.
 const PIPELINE_VERSION = 'htdemucs_6s+chordmini+beat_this+allin1.2';
 
+// The chords-and-lyrics pass. Skips section naming — the only stage that runs
+// a second source separation — and keeps just the vocal stem, which the
+// lyrics pass needs and which is the largest single lever on lyric accuracy.
+//
+// It gets its own cache key, and that is not a detail. Sharing one would let
+// a quick result silently satisfy a later request for the full thing: you'd
+// ask for sections, get an instant answer with none, and have no way to tell
+// the difference between "cached" and "this song has no structure".
+const QUICK_PIPELINE_VERSION = `${PIPELINE_VERSION}+chords-only`;
+
+// Full is a superset of quick, so a cached full analysis is a perfectly good
+// answer to a quick request — the same chords, the same beats, the same
+// lyrics, plus sections nobody asked for. Worth checking first: it turns
+// "analyze this quickly" into nothing at all for a song already analyzed
+// properly.
+function cacheVersionsFor(depth: 'full' | 'quick'): string[] {
+  return depth === 'quick'
+    ? [PIPELINE_VERSION, QUICK_PIPELINE_VERSION]
+    : [PIPELINE_VERSION];
+}
+
 /// The SHA-256 of whatever the URL serves, hex-encoded, hashed as it streams
 /// rather than buffered.
 ///
@@ -133,6 +154,7 @@ async function submitSeparation(
   filename: string,
   stemUploads: Record<string, string>,
   mixUpload: string | null,
+  skipStructure: boolean,
 ): Promise<string> {
   const runResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`, {
     method: 'POST',
@@ -151,6 +173,7 @@ async function submitSeparation(
         filename,
         stem_uploads: stemUploads,
         mix_upload: mixUpload,
+        skip_structure: skipStructure,
       },
     }),
   });
@@ -283,6 +306,8 @@ Deno.serve(async (req) => {
   // log, so a missing or nonsense value costs a slightly incomplete figure
   // and nothing else.
   let audioMs: number | null;
+  // 'quick' is chords and lyrics only. See QUICK_PIPELINE_VERSION.
+  let depth: 'full' | 'quick';
   try {
     const body = await req.json();
     storagePath = body.storagePath;
@@ -295,6 +320,9 @@ Deno.serve(async (req) => {
     audioMs = typeof body.durationMs === 'number' && body.durationMs > 0
       ? Math.round(body.durationMs)
       : null;
+    // Anything unrecognised means full. A build that doesn't know about
+    // depths should get the whole analysis, not the abbreviated one.
+    depth = body.depth === 'quick' ? 'quick' : 'full';
     if (typeof storagePath !== 'string' || storagePath.length === 0) {
       return json({ error: 'storagePath is required' }, 400);
     }
@@ -487,13 +515,20 @@ Deno.serve(async (req) => {
   /// A finished analyze-chords response for a recording that has been through
   /// the pipeline before, or null to say "run it for real".
   async function reuseCachedAnalysis(sha: string): Promise<Record<string, unknown> | null> {
-    const { data: cached, error } = await adminClient
+    // Ordered best-first: a full analysis answers a quick request, but never
+    // the other way round.
+    const { data: rows, error } = await adminClient
       .from('analysis_cache')
       .select('*')
       .eq('audio_sha256', sha)
-      .eq('pipeline_version', PIPELINE_VERSION)
-      .maybeSingle();
-    if (error || !cached) return null;
+      .in('pipeline_version', cacheVersionsFor(depth));
+    if (error || !rows || rows.length === 0) return null;
+    const preferred = cacheVersionsFor(depth);
+    const cached = rows.sort(
+      (left, right) =>
+        preferred.indexOf(left.pipeline_version as string) -
+        preferred.indexOf(right.pipeline_version as string),
+    )[0];
 
     let stems: { stem: string; storagePath: string }[] = [];
     if (projectId || draftId) {
@@ -591,6 +626,12 @@ Deno.serve(async (req) => {
       .createSignedUploadUrl(mixPath);
     const mixUpload = mixUploadData?.signedUrl ?? null;
 
+    // Quick keeps the vocal stem and nothing else. Not an oversight: the
+    // lyrics pass transcribes that stem rather than the full mix, and doing
+    // so is the single largest lever on lyric accuracy in the whole pipeline.
+    // Dropping it to save an upload would make the fast option the inaccurate
+    // one, which is not the trade being offered.
+    const wantedStems: readonly Stem[] = depth === 'quick' ? (['vocals'] as const) : STEMS;
     const stemUploads: Record<string, string> = {};
     if (projectId || draftId) {
       // Re-analysis reuses the same object names; clear them first so a fresh
@@ -604,7 +645,9 @@ Deno.serve(async (req) => {
         ...STEMS.map((stem) => stemPathIn(legacyStemDir, stem)),
         `${legacyStemDir}/_harmonic_mix.mp3`,
       ]);
-      for (const stem of STEMS) {
+      // Only mint URLs for the stems this depth keeps — the worker uploads
+      // exactly what it's given somewhere to put.
+      for (const stem of wantedStems) {
         const { data: upload } = await adminClient.storage
           .from(bucket)
           .createSignedUploadUrl(stemPathIn(stemDir, stem));
@@ -618,6 +661,7 @@ Deno.serve(async (req) => {
         filename,
         stemUploads,
         mixUpload,
+        depth === 'quick',
       );
       return json({ status: 'started', jobId: startedJobId });
     } catch (error) {
@@ -706,7 +750,9 @@ Deno.serve(async (req) => {
       await adminClient.from('analysis_cache').upsert(
         {
           audio_sha256: audioSha256,
-          pipeline_version: PIPELINE_VERSION,
+          // Written under this depth's own key, so a quick run can never be
+          // handed back as a full one.
+          pipeline_version: depth === 'quick' ? QUICK_PIPELINE_VERSION : PIPELINE_VERSION,
           cues,
           musical_key: key,
           bpm: separation.bpm,
@@ -720,7 +766,7 @@ Deno.serve(async (req) => {
           stems: stems.map((entry) => entry.stem),
           last_used_at: new Date().toISOString(),
         },
-        { onConflict: 'audio_sha256' },
+        { onConflict: 'audio_sha256,pipeline_version' },
       );
     }
 

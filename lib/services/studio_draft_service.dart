@@ -330,6 +330,7 @@ class StudioDraftService {
   Future<Map<String, dynamic>> _detectChordsViaCloud(
     StudioDraft draft, {
     required int durationMs,
+    required AnalysisDepth depth,
     String? resumeJobId,
     ValueChanged<SongAnalysisProgress>? onProgress,
   }) async {
@@ -342,6 +343,7 @@ class StudioDraftService {
       'acceptsCachedAnalysis': true,
       // See SongAnalysisService: for the usage log only.
       'durationMs': durationMs,
+      'depth': depth.wireName,
     };
     // A job this idea already started and never collected — rejoining costs
     // one poll, starting over costs another few minutes on a GPU.
@@ -411,6 +413,7 @@ class StudioDraftService {
   Future<StudioDraftBundle> analyze({
     required StudioDraft draft,
     required String localPath,
+    AnalysisDepth depth = AnalysisDepth.full,
     /// A job this idea started and never collected — see resumableJobId.
     String? resumeJobId,
     ValueChanged<SongAnalysisProgress>? onProgress,
@@ -475,6 +478,7 @@ class StudioDraftService {
         chordResult = await _detectChordsViaCloud(
           draft,
           durationMs: durationMs,
+          depth: depth,
           resumeJobId: resumeJobId,
           onProgress: onProgress,
         );

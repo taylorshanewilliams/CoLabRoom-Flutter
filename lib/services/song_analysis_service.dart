@@ -650,6 +650,7 @@ class SongAnalysisService {
   Future<Map<String, dynamic>> _detectChordsViaCloud(
     ReferenceTrack reference, {
     required int durationMs,
+    required AnalysisDepth depth,
     String? resumeJobId,
     ValueChanged<SongAnalysisProgress>? onProgress,
   }) async {
@@ -666,6 +667,7 @@ class SongAnalysisService {
       // Only for the usage log — this is what the vendors bill on, and the
       // Edge Function has no way to know it.
       'durationMs': durationMs,
+      'depth': depth.wireName,
     };
 
     // A job this project already started and never collected. Rejoining it
@@ -805,6 +807,7 @@ class SongAnalysisService {
     required SongProject project,
     required ReferenceTrack reference,
     required String localPath,
+    AnalysisDepth depth = AnalysisDepth.full,
     /// A separation job this project started and never collected — see
     /// resumableJobId. Rejoining it costs one poll; starting over costs
     /// another few minutes of GPU time the user already paid for.
@@ -834,6 +837,7 @@ class SongAnalysisService {
         chordResult = await _detectChordsViaCloud(
           reference,
           durationMs: durationMs,
+          depth: depth,
           resumeJobId: resumeJobId,
           onProgress: onProgress,
         );

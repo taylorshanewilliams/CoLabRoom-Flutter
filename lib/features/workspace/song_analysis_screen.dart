@@ -10,6 +10,7 @@ import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
+import '../../widgets/analysis_depth_sheet.dart';
 import '../studio/instrument_chips.dart';
 import '../studio/structure_timeline.dart';
 import 'continuous_song_editor.dart';
@@ -186,6 +187,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
   Future<void> _analyze() async {
     final reference = _bundle?.reference;
     if (_working || reference == null) return;
+    // Asked before anything starts, because the answer changes how long the
+    // next few minutes take. Dismissing means don't analyze.
+    final depth = await showAnalysisDepthSheet(context, title: 'Analyze this recording');
+    if (depth == null || !mounted) return;
     setState(() {
       _working = true;
       _error = null;
@@ -201,6 +206,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         project: widget.project,
         reference: reference,
         localPath: localPath,
+        depth: depth,
         resumeJobId: resumeJobId,
         onProgress: (progress) {
           if (mounted) setState(() => _progress = progress);

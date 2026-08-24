@@ -9,6 +9,7 @@ import '../../domain/song_analysis_models.dart';
 import '../../domain/studio_draft_models.dart';
 import '../../services/audio_analysis_utils.dart';
 import '../../services/studio_draft_service.dart';
+import '../../widgets/analysis_depth_sheet.dart';
 import '../workspace/musician_sheet_logic.dart';
 import '../workspace/musician_song_sheet.dart';
 import '../workspace/song_workspace_screen.dart';
@@ -80,6 +81,13 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
   }
 
   Future<void> _runAnalysis() async {
+    // Asked before anything starts — see showAnalysisDepthSheet. Dismissing
+    // leaves the idea unanalyzed rather than quietly picking one.
+    final depth = await showAnalysisDepthSheet(context, title: 'Analyze this idea');
+    if (depth == null || !mounted) {
+      setState(() => _working = false);
+      return;
+    }
     setState(() {
       _working = true;
       _error = null;
@@ -91,6 +99,7 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
       final bundle = await _service.analyze(
         draft: widget.draft,
         localPath: localPath,
+        depth: depth,
         resumeJobId: resumeJobId,
         onProgress: (progress) {
           if (mounted) setState(() => _progress = progress);

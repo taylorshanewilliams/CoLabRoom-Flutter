@@ -89,6 +89,15 @@ def make_clip(path: str) -> None:
 
 
 def main() -> int:
+    # Alternates by day of the month, so both depths get checked regularly
+    # without doubling the daily GPU cost. A depth nothing exercises is a
+    # depth that can break unnoticed, which is the whole point of this file.
+    skip_structure = os.environ.get("HEALTH_CHECK_DEPTH", "").strip() == "quick" or (
+        os.environ.get("HEALTH_CHECK_DEPTH", "").strip() == ""
+        and time.gmtime().tm_mday % 2 == 0
+    )
+    print(f"Checking the {'chords-and-lyrics' if skip_structure else 'full'} pass.")
+
     project_ref = env("SUPABASE_PROJECT_REF")
     service_key = env("SUPABASE_SERVICE_ROLE_KEY")
     runpod_key = env("RUNPOD_API_KEY")
@@ -148,8 +157,17 @@ def main() -> int:
                     # seconds of audio that is small, and it keeps this check
                     # to the models rather than the upload plumbing that every
                     # real analysis already exercises.
+                    # skip_structure follows the depth being checked, so both
+                    # the full pass and the chords-and-lyrics pass get
+                    # exercised across a week rather than one silently rotting.
                     data=json.dumps(
-                        {"input": {"audio_url": audio_url, "filename": "health-check.wav"}}
+                        {
+                            "input": {
+                                "audio_url": audio_url,
+                                "filename": "health-check.wav",
+                                "skip_structure": skip_structure,
+                            }
+                        }
                     ).encode(),
                 )
             )
