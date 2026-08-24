@@ -1,0 +1,41 @@
+name: Chord mix experiment
+
+# Does ChordMini need separated audio, or is the full mix good enough?
+#
+# Answering it decides whether every analysis has to run a GPU separation job
+# or only the ones where somebody actually wants stems. Costs two chord
+# service calls and no GPU — the stems are already in Storage, so the
+# harmonic mix is rebuilt with ffmpeg rather than re-separated.
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Which project to test (blank = first with a full set of stems)'
+        type: string
+        required: false
+        default: ''
+
+env:
+  CHORD_SERVICE_URL: https://colabroom-chord-service-7nvccxceca-uc.a.run.app
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Compare full mix against harmonic mix
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CHORD_SERVICE_URL: ${{ env.CHORD_SERVICE_URL }}
+          CHORD_SERVICE_API_KEY: ${{ secrets.CHORD_SERVICE_API_KEY }}
+          PROJECT_ID: ${{ inputs.project_id }}
+        run: python tools/chord_mix_experiment.py
