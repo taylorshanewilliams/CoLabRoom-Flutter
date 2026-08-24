@@ -1,0 +1,36 @@
+name: Expire old separated stems
+
+# Manual only, for now — deliberately not on a schedule yet. This is a new
+# deletion path; run it by hand a few times (dry run first) before trusting
+# it to a cron. Once it's been watched succeed a few times, add a `schedule:`
+# trigger here (weekly is plenty, given the economics — see expire_stems.py).
+on:
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: 'Stems older than this many days expire'
+        type: string
+        default: '90'
+      dry_run:
+        description: 'true = report only, false = actually delete'
+        type: choice
+        options: ['true', 'false']
+        default: 'true'
+
+jobs:
+  expire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Expire stems
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RETENTION_DAYS: ${{ inputs.retention_days }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python tools/expire_stems.py

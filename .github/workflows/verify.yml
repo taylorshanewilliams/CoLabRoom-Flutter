@@ -125,6 +125,7 @@ jobs:
             tools/run_query.py \
             tools/health_check.py \
             tools/load_test.py \
+            tools/expire_stems.py \
             tools/triage_agent/triage.py
 
       - name: Lint
