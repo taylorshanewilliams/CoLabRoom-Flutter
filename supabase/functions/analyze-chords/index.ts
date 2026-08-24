@@ -89,6 +89,16 @@ function cacheVersionsFor(depth: 'full' | 'quick'): string[] {
     : [PIPELINE_VERSION];
 }
 
+// How many separations one account may actually run in a calendar month
+// before this refuses. Overridable per account in account_limits.
+//
+// Not a pricing tier — there is no pricing yet. This is the safety valve that
+// should have existed from the first GPU job: nothing has ever stopped one
+// person running three hundred analyses, and the bill for that arrives well
+// before any signal that it's happening. Set high enough that a working
+// musician never meets it and a runaway does.
+const DEFAULT_MONTHLY_ANALYSES = 100;
+
 /// The SHA-256 of whatever the URL serves, hex-encoded, hashed as it streams
 /// rather than buffered.
 ///
@@ -479,6 +489,49 @@ Deno.serve(async (req) => {
     }
   }
 
+  /// Why this account can't start another analysis this month, or null when
+  /// it can.
+  ///
+  /// Fails open. If the count can't be read the analysis proceeds: a limit
+  /// that can't be checked is not a reason to stop somebody working, and the
+  /// usage log still records what happened either way. A safety valve that
+  /// blocks the product when its own bookkeeping hiccups is worse than the
+  /// runaway it guards against.
+  async function monthlyLimitRefusal(): Promise<string | null> {
+    try {
+      const { data: override } = await adminClient
+        .from('account_limits')
+        .select('monthly_analyses')
+        .eq('account_id', userData.user!.id)
+        .maybeSingle();
+      const limit = (override?.monthly_analyses as number | null) ?? DEFAULT_MONTHLY_ANALYSES;
+
+      // Counted here rather than through an RPC: the helper would have to
+      // live in a schema PostgREST exposes, and a security-definer function
+      // taking an account id in a schema anyone can call is a way to ask how
+      // much somebody else has used.
+      const now = new Date();
+      const monthStart = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+      ).toISOString();
+      const { count, error } = await adminClient
+        .from('usage_events')
+        .select('id', { count: 'exact', head: true })
+        .eq('account_id', userData.user!.id)
+        .eq('service', 'separation')
+        .eq('cached', false)
+        .gte('created_at', monthStart);
+      if (error || count == null || count < limit) return null;
+
+      return `That's ${limit} analyses this month, which is the ceiling for now. ` +
+        'It resets on the 1st. Everything you have already analysed still opens ' +
+        'normally, and re-analysing those costs nothing — get in touch if you ' +
+        'need the ceiling raised.';
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Moves a previous analysis's stems into the directory this caller needs
   /// them in. True when all of them are in place afterwards.
   ///
@@ -619,6 +672,14 @@ Deno.serve(async (req) => {
         if (reused) return json(reused);
       }
     }
+
+    // Checked only after the cache has had its chance, and only for work that
+    // is actually going to run. A cache hit costs nothing, so spending quota
+    // on one would penalise the exact behaviour that saves the money —
+    // analysing a song a bandmate already analysed should be free in every
+    // sense of the word.
+    const refusal = await monthlyLimitRefusal();
+    if (refusal) return json({ error: refusal }, 429);
 
     await adminClient.storage.from(bucket).remove([mixPath]);
     const { data: mixUploadData } = await adminClient.storage
