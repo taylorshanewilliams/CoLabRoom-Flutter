@@ -1,0 +1,46 @@
+name: Load test the pipeline
+
+# Fires several analyses at the live endpoint at once and reports what
+# happens to them.
+#
+# Manual only, and never on a schedule: every run spends real GPU money, in
+# proportion to the number you pick. Run it when you want the answer.
+#
+# What it tells you that nothing else does: whether the queue serves people
+# or holds them. The average is not the interesting number — the *last* job
+# to finish is, because that is the person having the worst experience.
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: 'How many analyses to fire at once'
+        type: string
+        required: true
+        default: '5'
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Fire them
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          RUNPOD_ENDPOINT_ID: ${{ secrets.RUNPOD_ENDPOINT_ID }}
+          LOAD_TEST_JOBS: ${{ inputs.jobs }}
+        # Same lesson as the health check: without pipefail the exit status is
+        # tee's, and a crashed run reports success.
+        shell: bash
+        run: |
+          set -o pipefail
+          python tools/load_test.py 2>&1 | tee /tmp/load.log

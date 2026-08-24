@@ -66,6 +66,7 @@ jobs:
             tools/apply_migration.py \
             tools/run_query.py \
             tools/health_check.py \
+            tools/load_test.py \
             tools/triage_agent/triage.py
 
       - name: Lint
