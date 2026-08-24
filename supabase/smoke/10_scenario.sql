@@ -41,9 +41,13 @@ update public.profiles set display_name = 'The Writer' where id = :'writer';
 
 insert into public.rooms (id, account_id, name) values (:'room', :'writer', 'Smoke Room');
 
-insert into public.room_members (room_id, user_id, display_name, role) values
-  (:'room', :'writer',   'The Writer', 'owner'),
-  (:'room', :'bandmate', 'Bandmate',   'editor');
+-- Distinct colours on purpose: a room's members are uniquely coloured
+-- (room_members_room_color_unique, 0006) so that the bullet rail can tell
+-- who wrote which line at a glance. Two members sharing the default is not
+-- a state the app can produce.
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  (:'room', :'writer',   'The Writer', 'owner',  4294937164),
+  (:'room', :'bandmate', 'Bandmate',   'editor', 4283215696);
 
 update public.rooms set name = 'Smoke Room, renamed' where id = :'room';
 
