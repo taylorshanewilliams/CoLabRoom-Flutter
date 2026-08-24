@@ -6,7 +6,12 @@
 - [x] Own and configure a CoLabRoom domain and support email. `colabroom.com`
       is live on GitHub Pages with HTTPS enforced; `support@` and `beta@`
       forward to a real inbox.
-- [ ] Create isolated beta and production backend projects.
+- [ ] Create isolated beta and production backend projects. Deliberately
+      deferred — no real tester data exists yet to protect, and the
+      migration-safety half of this risk is now covered by the `database`
+      CI job instead. The exact cutover steps are written down in
+      `docs/BACKEND_CUTOVER.md` so it's a checklist at the actual moment
+      Play/TestFlight testers first onboard, not an improvised scramble.
 - [ ] Move private signing material into managed secrets.
       iOS is done — `build-ios-testflight.yml` signs via fastlane match with
       `APPLE_API_KEY_ID`/`APPLE_TEAM_ID`/`MATCH_PASSWORD` as repo secrets.
