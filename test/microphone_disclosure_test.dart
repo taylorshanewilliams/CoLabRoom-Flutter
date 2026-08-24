@@ -6,7 +6,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   /// Drives one call to [MicrophoneAccess.ensureGranted] from a real widget
   /// tree, since the disclosure is a dialog and needs somewhere to open.
-  Future<({bool? result, bool Function() wasAsked})> run(
+  /// Both fields are closures, not values: the call is still in flight while
+  /// the disclosure sits on screen, so a snapshot taken here would record the
+  /// answer as null every time the dialog actually appears.
+  Future<({bool? Function() result, bool Function() wasAsked})> run(
     WidgetTester tester, {
     required Future<bool> Function() request,
   }) async {
@@ -35,7 +38,7 @@ void main() {
 
     await tester.tap(find.text('start'));
     await tester.pumpAndSettle();
-    return (result: result, wasAsked: () => asked);
+    return (result: () => result, wasAsked: () => asked);
   }
 
   testWidgets('the person is asked before the operating system is', (tester) async {
@@ -62,7 +65,7 @@ void main() {
 
     expect(call.wasAsked(), isFalse);
     // Declining is an answer, not a failure.
-    expect(call.result, isFalse);
+    expect(call.result(), isFalse);
   });
 
   testWidgets('somebody who already granted it is not asked again', (tester) async {
@@ -71,7 +74,7 @@ void main() {
 
     expect(find.text('Before the microphone turns on'), findsNothing);
     expect(call.wasAsked(), isTrue);
-    expect(call.result, isTrue);
+    expect(call.result(), isTrue);
   });
 
   testWidgets('revoking it in Settings brings the explanation back', (tester) async {
@@ -80,7 +83,7 @@ void main() {
     // Permission was granted once and has since been taken away, so the
     // request comes back false and the remembered grant is no longer true.
     final revoked = await run(tester, request: () async => false);
-    expect(revoked.result, isFalse);
+    expect(revoked.result(), isFalse);
 
     // The next attempt must disclose again rather than letting a bare OS
     // prompt appear out of nowhere.
