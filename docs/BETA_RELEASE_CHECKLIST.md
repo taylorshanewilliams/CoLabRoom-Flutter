@@ -43,7 +43,12 @@
 - [ ] In-app feedback with route, version, platform, and optional screenshot.
       Route, version and platform are captured and stored. The optional
       screenshot is the only part missing.
-- [ ] Privacy policy, Terms, data retention, and deletion policy.
+- [ ] Privacy policy, Terms, data retention, and deletion policy. Drafted and
+      live at `colabroom.com/privacy.html` and `/terms.html`, grounded in the
+      actual subprocessor chain (Supabase, RunPod, Cloud Run, OpenAI) and the
+      real Room-deletion cascade. Unticked deliberately — Terms still has an
+      explicit governing-law placeholder, and neither has had a real legal
+      read yet.
 - [x] Microphone disclosure immediately before permission request.
       `MicrophoneAccess.ensureGranted` gates both recording paths — reference
       takes and voice notes — and is shown again if the permission is later
