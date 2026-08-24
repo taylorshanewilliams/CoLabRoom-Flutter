@@ -32,8 +32,17 @@ jobs:
         with:
           python-version: '3.12'
 
+      # The clip is synthesized here rather than committed, so the check
+      # can't quietly start passing against a stale fixture.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Run one song through the live pipeline
         id: check
+        # Without pipefail the exit status is tee's, not Python's — so a
+        # crashed health check reports healthy. Which it did, on the first
+        # run, while failing to find ffmpeg.
+        shell: bash
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -41,7 +50,9 @@ jobs:
           RUNPOD_ENDPOINT_ID: ${{ secrets.RUNPOD_ENDPOINT_ID }}
           CHORD_SERVICE_URL: ${{ env.CHORD_SERVICE_URL }}
           CHORD_SERVICE_API_KEY: ${{ secrets.CHORD_SERVICE_API_KEY }}
-        run: python tools/health_check.py 2>&1 | tee /tmp/health.log
+        run: |
+          set -o pipefail
+          python tools/health_check.py 2>&1 | tee /tmp/health.log
 
       # Only on a scheduled run. A dispatch is somebody already watching the
       # log, and filing them an issue about what they just ran is noise.
