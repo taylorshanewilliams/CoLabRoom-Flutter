@@ -12,16 +12,25 @@
 
 - [ ] Account creation, sign-in, sign-out, and recovery.
 - [ ] Account deletion in-app and through a public web page.
+      In-app is done (account screen). The public web page is not, and both
+      stores require one before review.
 - [ ] Room creation, rename, icon, invitation, role, and removal.
 - [ ] Song creation and account-scoped duplicate-name enforcement.
 - [ ] Live contribution, comment, file, audio, and history synchronization.
 - [ ] Offline/reconnect conflict behavior and visible save state.
-- [ ] Simple song-sheet export.
+- [x] Simple song-sheet export. Share as text and print to PDF, songs and
+      setlists both (`ProjectExportService`).
 
 ## Trust and diagnostics
 
-- [ ] Crash/error reporting on Apple, Android, and web.
+- [x] Crash/error reporting on Apple, Android, and web. `CrashReporter`
+      installs FlutterError and PlatformDispatcher handlers in main; rows go
+      to `analysis_errors` with `service = 'app'`, deduplicated and capped.
+      Gap: RLS admits inserts only from a signed-in user, so a crash on the
+      sign-in screen is still lost.
 - [ ] In-app feedback with route, version, platform, and optional screenshot.
+      Route, version and platform are captured and stored. The optional
+      screenshot is the only part missing.
 - [ ] Privacy policy, Terms, data retention, and deletion policy.
 - [ ] Microphone disclosure immediately before permission request.
 - [ ] Google Play Data Safety and Apple privacy declarations.
