@@ -1,0 +1,65 @@
+name: Pipeline health check
+
+# Runs one real clip through the live separation endpoint and the live chord
+# service, and fails loudly when the answer stops looking right.
+#
+# The reason this exists: when RunPod is down or a published image is broken,
+# every analysis silently degrades to the on-device fallback and still reports
+# success. The image build's smoke test can't catch that — it runs before
+# publishing, on CPU. This runs against the endpoint real users hit.
+#
+# Daily rather than hourly. It costs one GPU job per run, and the thing it
+# guards against is a bad deploy or a vendor outage, neither of which needs
+# minute-level detection while the app is this size.
+on:
+  schedule:
+    - cron: '41 6 * * *'
+  workflow_dispatch:
+
+env:
+  CHORD_SERVICE_URL: https://colabroom-chord-service-7nvccxceca-uc.a.run.app
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run one song through the live pipeline
+        id: check
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          RUNPOD_ENDPOINT_ID: ${{ secrets.RUNPOD_ENDPOINT_ID }}
+          CHORD_SERVICE_URL: ${{ env.CHORD_SERVICE_URL }}
+          CHORD_SERVICE_API_KEY: ${{ secrets.CHORD_SERVICE_API_KEY }}
+        run: python tools/health_check.py 2>&1 | tee /tmp/health.log
+
+      # Only on a scheduled run. A dispatch is somebody already watching the
+      # log, and filing them an issue about what they just ran is noise.
+      - name: File an issue when the pipeline is unhealthy
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # One open issue at a time. A pipeline that has been down for three
+          # days should be one conversation, not three identical reports.
+          existing=$(gh issue list --label pipeline-health --state open --json number -q '.[0].number')
+          body=$(printf 'The daily health check could not get a good analysis out of the live pipeline.\n\n```\n%s\n```\n\n[Run](%s/%s/actions/runs/%s)\n' \
+            "$(tail -40 /tmp/health.log)" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create \
+              --title "Pipeline health check failing" \
+              --label pipeline-health \
+              --body "$body"
+          fi

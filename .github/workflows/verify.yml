@@ -64,6 +64,8 @@ jobs:
             inference/separation_service/smoke_test.py \
             inference/chord_service/app.py \
             tools/apply_migration.py \
+            tools/run_query.py \
+            tools/health_check.py \
             tools/triage_agent/triage.py
 
       - name: Lint
