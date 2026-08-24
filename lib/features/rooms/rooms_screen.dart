@@ -9,12 +9,9 @@ import '../../app/colabroom_theme.dart';
 import '../../app/music_beta_controller.dart';
 import '../../domain/music_models.dart';
 import '../../domain/name_policy.dart';
-import '../../widgets/app_surface.dart';
-import '../../widgets/bloom_tap.dart';
 import '../../widgets/music_tiles.dart';
 import '../home/new_song_flow.dart';
 import 'room_detail_screen.dart';
-import 'setlist_detail_screen.dart';
 
 /// Every Room you are in, with search and drag-to-reorder.
 ///
@@ -409,41 +406,6 @@ class _DraggableRoomTileState extends State<_DraggableRoomTile> {
           ),
         );
       },
-    );
-  }
-}
-
-class _SetlistNameDialog extends StatefulWidget {
-  const _SetlistNameDialog();
-
-  @override
-  State<_SetlistNameDialog> createState() => _SetlistNameDialogState();
-}
-
-class _SetlistNameDialogState extends State<_SetlistNameDialog> {
-  final TextEditingController _name = TextEditingController();
-
-  @override
-  void dispose() {
-    _name.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('New Setlist'),
-      content: TextField(
-        controller: _name,
-        autofocus: true,
-        textCapitalization: TextCapitalization.words,
-        decoration: const InputDecoration(hintText: 'Friday night set'),
-        onSubmitted: (value) => Navigator.pop(context, value),
-      ),
-      actions: <Widget>[
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(context, _name.text), child: const Text('Create')),
-      ],
     );
   }
 }
