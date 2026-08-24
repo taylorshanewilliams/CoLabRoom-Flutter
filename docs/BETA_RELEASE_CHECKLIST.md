@@ -13,9 +13,11 @@
       Android has no release keystore yet — only the checked-in debug
       keystore (a fixed, non-secret identity, deliberately not private).
 - [ ] Add CI builds for Android App Bundle, TestFlight archive, and web.
-      TestFlight is done (`build-ios-testflight.yml`). Android App Bundle
-      needs the release keystore above. Web has never been scaffolded —
-      `web/` doesn't exist in the repo yet.
+      TestFlight and web are done (`build-ios-testflight.yml`,
+      `build-web.yml`) — the full mobile-first plugin set compiles clean for
+      a browser with zero changes, confirmed by an actual CI run rather than
+      assumed. Android App Bundle is the one piece left, blocked on the
+      release keystore above.
 
 ## Core behavior
 
