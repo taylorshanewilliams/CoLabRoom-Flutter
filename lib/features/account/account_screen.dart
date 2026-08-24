@@ -10,6 +10,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../widgets/app_surface.dart';
+import '../../widgets/audio_privacy_note.dart';
 import '../notifications/notification_settings_screen.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -101,10 +102,14 @@ class _AccountScreenState extends State<AccountScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Privacy & Data'),
-        content: const Text(
-          'Music Rooms are private to members. Contributions retain their author and '
-          'timestamp. Deleting an account removes its profile and contributions; Rooms '
-          'owned by that account are also permanently deleted.',
+        content: const SingleChildScrollView(
+          child: Text(
+            'Music Rooms are private to members. Contributions retain their author and '
+            'timestamp. Deleting an account removes its profile and contributions; Rooms '
+            'owned by that account are also permanently deleted.\n\n'
+            '$audioJourneyTitle\n\n'
+            '$audioJourneyBody',
+          ),
         ),
         actions: <Widget>[
           FilledButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Done')),

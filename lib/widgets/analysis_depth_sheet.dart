@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app/colabroom_theme.dart';
 import '../services/audio_analysis_utils.dart';
+import 'audio_privacy_note.dart';
 
 /// Asks how much of the analysis to run.
 ///
@@ -43,6 +44,9 @@ Future<AnalysisDepth?> showAnalysisDepthSheet(
               ),
               const SizedBox(height: 10),
             ],
+            // Said where it becomes true, rather than buried in a policy
+            // nobody opens. Quiet on purpose — a fact, not a consent gate.
+            const AudioJourneyLink(),
           ],
         ),
       ),

@@ -8,6 +8,7 @@ import '../../widgets/brand_mark.dart';
 import '../../widgets/bloom_tap.dart';
 import '../../widgets/music_tiles.dart';
 import '../rooms/room_detail_screen.dart';
+import '../rooms/rooms_screen.dart';
 import '../songs/song_search.dart';
 import '../workspace/song_workspace_screen.dart';
 import 'new_song_flow.dart';
@@ -245,7 +246,15 @@ class HomeScreen extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
-                TextButton(onPressed: onSeeSongs, child: const Text('See all  ›')),
+                // Goes to the Rooms list now. It used to jump to the Songs
+                // tab, which showed songs — a link labelled "see all" under a
+                // heading that says Rooms should show all the Rooms.
+                TextButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const RoomsScreen()),
+                  ),
+                  child: const Text('See all  ›'),
+                ),
                 const SizedBox(width: 4),
                 FilledButton.tonalIcon(
                   onPressed: () => showCreateRoomDialog(context, controller),

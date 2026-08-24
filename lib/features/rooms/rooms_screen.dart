@@ -16,8 +16,16 @@ import '../home/new_song_flow.dart';
 import 'room_detail_screen.dart';
 import 'setlist_detail_screen.dart';
 
-enum _RoomsView { rooms, setlists }
-
+/// Every Room you are in, with search and drag-to-reorder.
+///
+/// Reachable again. This screen was written when Rooms were a tab, stopped
+/// being instantiated when they folded into Songs as a filter, and sat
+/// unreferenced ever since — carrying the only "New Room" button in the
+/// codebase and the only way to reorder Rooms, neither of which existed in
+/// the running app.
+///
+/// Rooms only now. Setlists live in the Songs tab's Sets view, and two
+/// places for one thing is worse than one place for it.
 class RoomsScreen extends StatefulWidget {
   const RoomsScreen({super.key});
 
@@ -27,27 +35,6 @@ class RoomsScreen extends StatefulWidget {
 
 class _RoomsScreenState extends State<RoomsScreen> {
   String _query = '';
-  _RoomsView _view = _RoomsView.rooms;
-
-  Future<void> _createSetlist(BuildContext context) async {
-    final controller = BetaScope.of(context);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (_) => const _SetlistNameDialog(),
-    );
-    if (name == null || !context.mounted) return;
-    try {
-      final setlist = await controller.createSetlist(name);
-      if (!context.mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => SetlistDetailScreen(setlistId: setlist.id)),
-      );
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,81 +44,32 @@ class _RoomsScreenState extends State<RoomsScreen> {
       return NamePolicy.normalized(room.name).contains(query) ||
           room.projects.any((project) => NamePolicy.normalized(project.title).contains(query));
     }).toList(growable: false);
-    final setlists = controller.setlists
-        .where((setlist) => NamePolicy.normalized(setlist.name).contains(NamePolicy.normalized(_query)))
-        .toList(growable: false);
-    final showingRooms = _view == _RoomsView.rooms;
-    final itemCount = showingRooms ? rooms.length : setlists.length;
+    final itemCount = rooms.length;
 
-    return CustomScrollView(
+    return Scaffold(
+      backgroundColor: AppColors.deepNavy,
+      appBar: AppBar(
+        title: const Text('Rooms'),
+        actions: <Widget>[
+          Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: FilledButton.tonalIcon(
+              onPressed: () => showCreateRoomDialog(context, controller),
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('New Room'),
+            ),
+          ),
+        ],
+      ),
+      body: CustomScrollView(
       slivers: <Widget>[
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(18, 20, 18, 10),
-          sliver: SliverToBoxAdapter(
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    showingRooms ? 'Rooms' : 'Setlists',
-                    style: Theme.of(context).textTheme.displaySmall,
-                  ),
-                ),
-                SizedBox(
-                  width: 116,
-                  height: 48,
-                  child: BloomTap(
-                    onTap: () => showingRooms
-                        ? showCreateRoomDialog(context, controller)
-                        : _createSetlist(context),
-                    borderRadius: BorderRadius.circular(15),
-                    child: AppSurface(
-                      borderRadius: BorderRadius.circular(15),
-                      padding: EdgeInsets.zero,
-                      color: AppColors.raised,
-                      child: Center(
-                        child: Text(
-                          showingRooms ? '+  New Room' : '+  Setlist',
-                          style: const TextStyle(color: AppColors.cyan, fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(18, 4, 18, 4),
-          sliver: SliverToBoxAdapter(
-            child: SegmentedButton<_RoomsView>(
-              segments: const <ButtonSegment<_RoomsView>>[
-                ButtonSegment<_RoomsView>(
-                  value: _RoomsView.rooms,
-                  icon: Icon(Icons.folder_rounded),
-                  label: Text('Rooms'),
-                ),
-                ButtonSegment<_RoomsView>(
-                  value: _RoomsView.setlists,
-                  icon: Icon(Icons.queue_music_rounded),
-                  label: Text('Setlists'),
-                ),
-              ],
-              selected: <_RoomsView>{_view},
-              onSelectionChanged: (selection) => setState(() {
-                _view = selection.first;
-                _query = '';
-              }),
-            ),
-          ),
-        ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
           sliver: SliverToBoxAdapter(
             child: TextField(
               onChanged: (value) => setState(() => _query = value),
               decoration: InputDecoration(
-                hintText: showingRooms ? 'Search Rooms or projects' : 'Search setlists',
+                hintText: 'Search Rooms or projects',
                 prefixIcon: const Icon(Icons.search_rounded),
               ),
             ),
@@ -145,15 +83,13 @@ class _RoomsScreenState extends State<RoomsScreen> {
                 padding: const EdgeInsets.all(30),
                 child: Text(
                   _query.isEmpty
-                      ? (showingRooms
-                          ? 'Create your first Music Room.'
-                          : 'Create a setlist for rehearsals or shows.')
-                      : 'No ${showingRooms ? 'Rooms' : 'setlists'} match “$_query”.',
+                      ? 'Create your first Room.'
+                      : 'No Rooms match “$_query”.',
                 ),
               ),
             ),
           )
-        else if (showingRooms && _query.isEmpty)
+        else if (_query.isEmpty)
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(18, 0, 18, 30),
             sliver: SliverLayoutBuilder(
@@ -202,27 +138,16 @@ class _RoomsScreenState extends State<RoomsScreen> {
                   ),
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
-                      if (showingRooms) {
-                        final room = rooms[index];
-                        return RoomTile(
-                          room: room,
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => RoomDetailScreen(roomId: room.id),
-                            ),
-                          ),
-                          onMore: () => _showRoomMenu(controller, room),
-                          logoBytes: controller.roomLogoBytes(room),
-                        );
-                      }
-                      final setlist = setlists[index];
-                      return SetlistTile(
-                        setlist: setlist,
+                      final room = rooms[index];
+                      return RoomTile(
+                        room: room,
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) => SetlistDetailScreen(setlistId: setlist.id),
+                            builder: (_) => RoomDetailScreen(roomId: room.id),
                           ),
                         ),
+                        onMore: () => _showRoomMenu(controller, room),
+                        logoBytes: controller.roomLogoBytes(room),
                       );
                     },
                     childCount: itemCount,
@@ -231,7 +156,8 @@ class _RoomsScreenState extends State<RoomsScreen> {
               },
             ),
           ),
-      ],
+        ],
+      ),
     );
   }
 
