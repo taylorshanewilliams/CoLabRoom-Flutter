@@ -48,6 +48,64 @@ jobs:
       - name: Type-check Edge Functions
         run: deno check supabase/functions/*/index.ts
 
+  database:
+    runs-on: ubuntu-latest
+
+    # Nothing else in this repo ever executes a migration. `flutter analyze`
+    # cannot see SQL, and the apply workflow runs one file straight at
+    # production — so until now the first thing to run a trigger body was a
+    # musician typing a lyric. That is where `min(uuid)` was found.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: colabroom_smoke
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: colabroom_smoke
+      # Anything the server merely grumbles about is not worth failing on, but
+      # a raised exception must stop the job at the file that raised it.
+      PSQL: psql --no-psqlrc --quiet -v ON_ERROR_STOP=1
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install psql
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Stand up the Supabase-shaped bits Postgres does not ship with
+        run: $PSQL -f supabase/smoke/00_shim.sql
+
+      # In filename order, which is the order they were applied in production.
+      # A migration that only works because of something a human did in the
+      # dashboard fails here, and should.
+      - name: Replay every migration
+        run: |
+          for file in supabase/migrations/*.sql; do
+            echo "--- $file"
+            $PSQL -f "$file"
+          done
+
+      - name: Write a song
+        run: $PSQL -f supabase/smoke/10_scenario.sql
+
+      - name: Check every trigger is accounted for
+        run: $PSQL -f supabase/smoke/20_trigger_coverage.sql
+
   python-services:
     runs-on: ubuntu-latest
     steps:
