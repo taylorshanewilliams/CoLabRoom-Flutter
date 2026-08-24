@@ -627,6 +627,7 @@ class SongAnalysisService {
 
   Future<Map<String, dynamic>> _detectChordsViaCloud(
     ReferenceTrack reference, {
+    required int durationMs,
     ValueChanged<SongAnalysisProgress>? onProgress,
   }) async {
     final request = <String, dynamic>{
@@ -639,6 +640,9 @@ class SongAnalysisService {
       // bandmate on last week's APK shouldn't break the moment the function
       // is deployed.
       'acceptsCachedAnalysis': true,
+      // Only for the usage log — this is what the vendors bill on, and the
+      // Edge Function has no way to know it.
+      'durationMs': durationMs,
     };
 
     // The Edge Function starts the separation job and hands back its id
@@ -731,7 +735,11 @@ class SongAnalysisService {
       Map<String, dynamic> chordResult;
       var usedFallback = false;
       try {
-        chordResult = await _detectChordsViaCloud(reference, onProgress: onProgress);
+        chordResult = await _detectChordsViaCloud(
+          reference,
+          durationMs: durationMs,
+          onProgress: onProgress,
+        );
       } catch (error) {
         // The fallback is for the pipeline being down, not for the phone
         // being off the network. Substituting a much worse analysis because

@@ -105,6 +105,11 @@ function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
 }
 
 interface SeparationResult {
+  /// What RunPod actually billed for: milliseconds the worker spent running,
+  /// excluding the queue wait. The most important number in the usage log,
+  /// because separation is the dominant cost of an analysis.
+  executionMs: number | null;
+
   // Present only on the legacy path, where the worker had nowhere to upload
   // the mix and had to inline it. Prefer mixUploaded.
   harmonicMixB64: string | null;
@@ -181,6 +186,7 @@ async function readSeparation(jobId: string): Promise<SeparationResult | null> {
     throw new Error('RunPod job completed but returned no harmonic mix.');
   }
   return {
+    executionMs: typeof statusBody.executionTime === 'number' ? statusBody.executionTime : null,
     harmonicMixB64: mixB64,
     mixUploaded,
     // Best-effort fields the separation_service computes alongside the
@@ -272,6 +278,11 @@ Deno.serve(async (req) => {
   // one, so they keep getting a real separation job — slower and dearer, but
   // working, which matters more while a band is running mixed builds.
   let acceptsCachedAnalysis: boolean;
+  // How long the recording is. Sent by the client, which has already decoded
+  // the file and knows — this function never does. Only used for the usage
+  // log, so a missing or nonsense value costs a slightly incomplete figure
+  // and nothing else.
+  let audioMs: number | null;
   try {
     const body = await req.json();
     storagePath = body.storagePath;
@@ -281,6 +292,9 @@ Deno.serve(async (req) => {
     action = typeof body.action === 'string' ? body.action : 'start';
     jobId = typeof body.jobId === 'string' && body.jobId.length > 0 ? body.jobId : null;
     acceptsCachedAnalysis = body.acceptsCachedAnalysis === true;
+    audioMs = typeof body.durationMs === 'number' && body.durationMs > 0
+      ? Math.round(body.durationMs)
+      : null;
     if (typeof storagePath !== 'string' || storagePath.length === 0) {
       return json({ error: 'storagePath is required' }, 400);
     }
@@ -390,6 +404,53 @@ Deno.serve(async (req) => {
     }
   }
 
+  /// Records what one vendor call consumed (migration 0028).
+  ///
+  /// Best-effort and never awaited for correctness: a missing usage row makes
+  /// a month's figures slightly wrong, while a failed insert that took an
+  /// analysis down with it would make the product wrong. Cache hits are
+  /// recorded too — the money the cache saves is invisible if the runs it
+  /// saved leave no trace.
+  async function recordUsage(entry: {
+    service: 'separation' | 'chords' | 'transcription' | 'storage';
+    cached?: boolean;
+    audioMs?: number | null;
+    computeMs?: number | null;
+    bytes?: number | null;
+    sha?: string | null;
+  }) {
+    try {
+      await adminClient.from('usage_events').insert({
+        account_id: userData.user!.id,
+        project_id: projectId,
+        draft_id: draftId,
+        service: entry.service,
+        cached: entry.cached ?? false,
+        audio_ms: entry.audioMs ?? null,
+        compute_ms: entry.computeMs ?? null,
+        bytes: entry.bytes ?? null,
+        audio_sha256: entry.sha ?? null,
+      });
+    } catch (_) {
+      // See above.
+    }
+  }
+
+  /// How much storage this analysis's stems are now occupying — the cost that
+  /// isn't paid once, but every month until they're deleted.
+  async function stemBytesIn(dir: string): Promise<number | null> {
+    try {
+      const { data } = await adminClient.storage.from(bucket).list(dir);
+      if (!data) return null;
+      return data.reduce(
+        (total, object) => total + (object.metadata?.size as number | undefined ?? 0),
+        0,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Moves a previous analysis's stems into the directory this caller needs
   /// them in. True when all of them are in place afterwards.
   ///
@@ -462,6 +523,15 @@ Deno.serve(async (req) => {
         hit_count: ((cached.hit_count as number | null) ?? 0) + 1,
       })
       .eq('audio_sha256', sha);
+
+    // A hit is the cheapest outcome there is, and worth logging precisely
+    // because of that: it's the evidence that the cache is earning its keep.
+    // The copied stems are still real bytes somebody pays to store.
+    await recordUsage({ service: 'separation', cached: true, audioMs, sha });
+    await recordUsage({ service: 'chords', cached: true, sha });
+    if (stems.length > 0) {
+      await recordUsage({ service: 'storage', bytes: await stemBytesIn(stemDir), sha });
+    }
 
     return {
       status: 'complete',
@@ -578,7 +648,9 @@ Deno.serve(async (req) => {
       mixBlob = new Blob([base64ToBytes(separation.harmonicMixB64 ?? '')]);
     }
 
+    const chordsStartedAt = Date.now();
     const chords = await detectChords(mixBlob);
+    const chordsMs = Date.now() - chordsStartedAt;
     // Reclaim the intermediate as soon as the chord service has read it;
     // nothing downstream needs it and it is the largest object in the job.
     await adminClient.storage.from(bucket).remove([mixPath]);
@@ -650,6 +722,24 @@ Deno.serve(async (req) => {
         },
         { onConflict: 'audio_sha256' },
       );
+    }
+
+    // What this run consumed, recorded whether or not it was worth caching —
+    // the GPU time was spent either way. After the hash so these rows can be
+    // tied to the cache entry that may serve the next request for free.
+    await recordUsage({
+      service: 'separation',
+      audioMs,
+      computeMs: separation.executionMs,
+      sha: audioSha256,
+    });
+    await recordUsage({ service: 'chords', computeMs: chordsMs, sha: audioSha256 });
+    if (stems.length > 0) {
+      await recordUsage({
+        service: 'storage',
+        bytes: await stemBytesIn(stemDir),
+        sha: audioSha256,
+      });
     }
 
     return json({

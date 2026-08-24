@@ -61,6 +61,7 @@ async function sha256OfText(value: string): Promise<string> {
   return encodeHex(new Uint8Array(digest));
 }
 
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   if (!OPENAI_API_KEY) return json({ error: 'OPENAI_API_KEY is not configured' }, 500);
@@ -95,6 +96,30 @@ Deno.serve(async (req) => {
   // storage bucket's RLS shape, now that the caller is confirmed
   // authenticated above.
   const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+  /// Records what this transcription consumed (migration 0028).
+  ///
+  /// OpenAI bills per minute of audio, so that is what gets logged — not
+  /// wall-clock time, which measures their queue rather than your bill. Cache
+  /// hits are recorded too, with no audio against them: the money the cache
+  /// saves is invisible if the calls it avoided leave no trace.
+  ///
+  /// Best-effort. A missing usage row makes a month's figures slightly wrong;
+  /// a failed insert that took the transcription down with it would make the
+  /// product wrong.
+  async function recordUsage(cached: boolean, sha: string | null, ms: number | null) {
+    try {
+      await adminClient.from('usage_events').insert({
+        account_id: userData.user!.id,
+        service: 'transcription',
+        cached,
+        audio_ms: cached ? null : ms,
+        audio_sha256: sha,
+      });
+    } catch (_) {
+      // See above.
+    }
+  }
 
   // Nudges Whisper toward expecting sung vocals rather than defaulting to
   // "no speech" on recordings with unusual vocal timbre (e.g. AI-generated
@@ -142,6 +167,9 @@ Deno.serve(async (req) => {
         })
         .eq('audio_sha256', audioSha256)
         .eq('prompt_sha256', promptSha256);
+      // No audio length on a hit, because no audio was sent anywhere. The row
+      // exists to count the call that didn't happen.
+      await recordUsage(true, audioSha256, null);
       return json({
         text: (cached.transcript_text as string | null) ?? '',
         words: cached.words ?? [],
@@ -214,6 +242,14 @@ Deno.serve(async (req) => {
       { onConflict: 'audio_sha256,prompt_sha256' },
     );
   }
+
+  // verbose_json reports the audio's length, which is precisely what OpenAI
+  // bills on — better than measuring wall clock, which mostly measures their
+  // queue.
+  const audioMs = typeof result.duration === 'number'
+    ? Math.round(result.duration * 1000)
+    : null;
+  await recordUsage(false, audioSha256, audioMs);
 
   return json({ text, words });
 });

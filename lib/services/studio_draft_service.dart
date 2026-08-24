@@ -284,6 +284,7 @@ class StudioDraftService {
   /// separation job itself.
   Future<Map<String, dynamic>> _detectChordsViaCloud(
     StudioDraft draft, {
+    required int durationMs,
     ValueChanged<SongAnalysisProgress>? onProgress,
   }) async {
     final request = <String, dynamic>{
@@ -293,6 +294,8 @@ class StudioDraftService {
       // See the note on the project path: older builds can't read a `start`
       // that comes back already finished.
       'acceptsCachedAnalysis': true,
+      // See SongAnalysisService: for the usage log only.
+      'durationMs': durationMs,
     };
     final started = await _invokeAnalyze(<String, dynamic>{...request, 'action': 'start'});
     // Recognized from an earlier run — the idea you already analyzed, or the
@@ -400,7 +403,11 @@ class StudioDraftService {
       Map<String, dynamic> chordResult;
       var usedFallback = false;
       try {
-        chordResult = await _detectChordsViaCloud(draft, onProgress: onProgress);
+        chordResult = await _detectChordsViaCloud(
+          draft,
+          durationMs: durationMs,
+          onProgress: onProgress,
+        );
       } catch (error) {
         // See SongAnalysisService: the on-device fallback is for the pipeline
         // being down, never for the phone being off the network. Substituting

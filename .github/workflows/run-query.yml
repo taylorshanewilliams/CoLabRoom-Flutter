@@ -19,6 +19,8 @@ on:
         default: invite-lookup
         options:
           - invite-lookup
+          - usage-by-month
+          - usage-per-analysis
           - custom
       sql:
         description: 'SQL to run when preset is "custom" (single statement, read-only)'
@@ -69,6 +71,47 @@ jobs:
           from public.invitations i
           order by i.created_at desc
           limit 20;
+          SQL
+          elif [ "$PRESET" = "usage-by-month" ]; then
+            # What each account consumed. Accounts are masked to a short id —
+            # this answers "what does a user cost", not "who is this".
+            cat > /tmp/query.sql <<'SQL'
+          select
+            left(account_id::text, 8) as account,
+            to_char(month, 'YYYY-MM') as month,
+            separations_run,
+            separations_from_cache,
+            transcriptions_run,
+            round(gpu_ms / 1000.0, 1) as gpu_seconds,
+            round(chord_service_ms / 1000.0, 1) as chord_seconds,
+            round(whisper_audio_ms / 60000.0, 1) as whisper_minutes,
+            round(bytes_added / 1048576.0, 1) as mb_added
+          from public.usage_by_account_month
+          order by month desc, gpu_ms desc
+          limit 40;
+          SQL
+          elif [ "$PRESET" = "usage-per-analysis" ]; then
+            # The unit cost question: what does ONE analysis consume? Median
+            # rather than mean, so one enormous file doesn't set your price.
+            cat > /tmp/query.sql <<'SQL'
+          select
+            count(*) filter (where service = 'separation' and not cached) as real_separations,
+            count(*) filter (where service = 'separation' and cached) as cache_hits,
+            round(
+              100.0 * count(*) filter (where service = 'separation' and cached)
+              / nullif(count(*) filter (where service = 'separation'), 0), 1
+            ) as cache_hit_percent,
+            round(percentile_cont(0.5) within group (
+              order by compute_ms
+            ) filter (where service = 'separation' and not cached) / 1000.0, 1) as median_gpu_seconds,
+            round(percentile_cont(0.5) within group (
+              order by audio_ms
+            ) filter (where service = 'separation') / 60000.0, 2) as median_song_minutes,
+            round(percentile_cont(0.5) within group (
+              order by bytes
+            ) filter (where service = 'storage') / 1048576.0, 1) as median_mb_per_song,
+            round(sum(bytes) filter (where service = 'storage') / 1073741824.0, 3) as total_gb_stored
+          from public.usage_events;
           SQL
           else
             printf '%s' "$CUSTOM_SQL" > /tmp/query.sql
