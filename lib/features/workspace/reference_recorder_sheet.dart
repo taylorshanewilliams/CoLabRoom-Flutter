@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
+import '../../widgets/microphone_disclosure.dart';
+
 class ReferenceRecorderSheet extends StatefulWidget {
   const ReferenceRecorderSheet({required this.songTitle, super.key});
 
@@ -37,7 +39,13 @@ class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
     if (_recording || _saving) return;
     setState(() => _error = null);
     try {
-      if (!await _recorder.hasPermission()) {
+      if (!mounted) return;
+      final allowed = await MicrophoneAccess.ensureGranted(
+        context,
+        purpose: 'to capture a take of this song',
+        request: _recorder.hasPermission,
+      );
+      if (!allowed) {
         throw StateError('Microphone permission is needed to record a song.');
       }
       final directory = await getTemporaryDirectory();

@@ -20,6 +20,7 @@ import '../../services/project_export_service.dart';
 import '../../services/cowork_service.dart';
 import '../../services/song_analysis_service.dart';
 import '../../widgets/invite_collaborator_dialog.dart';
+import '../../widgets/microphone_disclosure.dart';
 import 'continuous_song_editor.dart';
 import 'cowork_panel.dart';
 import 'live_performance_screen.dart';
@@ -724,7 +725,13 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   Future<void> _startVoiceRecording(Contribution contribution) async {
     final recorder = _voiceRecorder ??= AudioRecorder();
     try {
-      if (!await recorder.hasPermission()) {
+      if (!mounted) return;
+      final allowed = await MicrophoneAccess.ensureGranted(
+        context,
+        purpose: 'to leave a voice note on this line',
+        request: recorder.hasPermission,
+      );
+      if (!allowed) {
         if (mounted) _showMessage('Microphone permission is needed for voice notes.');
         return;
       }

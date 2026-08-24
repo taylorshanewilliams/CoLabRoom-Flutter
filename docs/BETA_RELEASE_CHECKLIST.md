@@ -32,7 +32,10 @@
       Route, version and platform are captured and stored. The optional
       screenshot is the only part missing.
 - [ ] Privacy policy, Terms, data retention, and deletion policy.
-- [ ] Microphone disclosure immediately before permission request.
+- [x] Microphone disclosure immediately before permission request.
+      `MicrophoneAccess.ensureGranted` gates both recording paths — reference
+      takes and voice notes — and is shown again if the permission is later
+      revoked. iOS usage strings are set in the TestFlight build.
 - [ ] Google Play Data Safety and Apple privacy declarations.
 - [ ] Accessibility, keyboard, screen-size, and low-connectivity testing.
 
