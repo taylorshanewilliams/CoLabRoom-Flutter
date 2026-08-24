@@ -1,6 +1,7 @@
 import 'dart:async';
-import 'dart:ui';
 
+// PlatformDispatcher comes from here too, so dart:ui would be a second
+// import of the same thing.
 import 'package:flutter/foundation.dart';
 
 import 'error_reporter.dart';
