@@ -40,9 +40,10 @@
       to `analysis_errors` with `service = 'app'`, deduplicated and capped.
       Gap: RLS admits inserts only from a signed-in user, so a crash on the
       sign-in screen is still lost.
-- [ ] In-app feedback with route, version, platform, and optional screenshot.
-      Route, version and platform are captured and stored. The optional
-      screenshot is the only part missing.
+- [x] In-app feedback with route, version, platform, and optional screenshot.
+      Attach a picture from the feedback dialog itself; it uploads to a
+      private `feedback-screenshots` bucket, own-folder-scoped, before the
+      row is written.
 - [ ] Privacy policy, Terms, data retention, and deletion policy. Drafted and
       live at `colabroom.com/privacy.html` and `/terms.html`, grounded in the
       actual subprocessor chain (Supabase, RunPod, Cloud Run, OpenAI) and the

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -154,19 +155,20 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _feedback(BuildContext context) async {
-    final message = await showDialog<String>(
+    final result = await showDialog<_FeedbackResult>(
       context: context,
       builder: (_) => const _FeedbackDialog(),
     );
-    if (message == null || message.isEmpty || !context.mounted) return;
+    if (result == null || result.message.isEmpty || !context.mounted) return;
     final platform = kIsWeb ? 'web' : defaultTargetPlatform.name;
     await BetaScope.of(context).submitFeedback(
       FeedbackDraft(
         category: 'general',
-        message: message,
+        message: result.message,
         route: 'account',
         platform: platform,
         appVersion: BetaConfig.appVersion,
+        screenshot: result.screenshot,
       ),
     );
     if (context.mounted) {
@@ -367,6 +369,16 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
   }
 }
 
+/// What the dialog hands back — the message is what makes feedback worth
+/// sending, so it's required; the screenshot is optional exactly the way
+/// [FeedbackDraft.screenshot] is.
+class _FeedbackResult {
+  const _FeedbackResult({required this.message, this.screenshot});
+
+  final String message;
+  final Uint8List? screenshot;
+}
+
 class _FeedbackDialog extends StatefulWidget {
   const _FeedbackDialog();
 
@@ -376,6 +388,8 @@ class _FeedbackDialog extends StatefulWidget {
 
 class _FeedbackDialogState extends State<_FeedbackDialog> {
   final _message = TextEditingController();
+  Uint8List? _screenshot;
+  bool _pickingScreenshot = false;
 
   @override
   void dispose() {
@@ -383,28 +397,92 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
     super.dispose();
   }
 
+  Future<void> _pickScreenshot() async {
+    setState(() => _pickingScreenshot = true);
+    try {
+      final file = await FilePicker.pickFile(type: FileType.image);
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (mounted) setState(() => _screenshot = bytes);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text('Could not attach that image: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => _pickingScreenshot = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final screenshot = _screenshot;
     return AlertDialog(
       title: const Text('Beta feedback'),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 460),
         child: SingleChildScrollView(
-          child: TextField(
-            controller: _message,
-            autofocus: true,
-            minLines: 4,
-            maxLines: 8,
-            decoration: const InputDecoration(
-              hintText: 'What happened, and what did you expect?',
-            ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              TextField(
+                controller: _message,
+                autofocus: true,
+                minLines: 4,
+                maxLines: 8,
+                decoration: const InputDecoration(
+                  hintText: 'What happened, and what did you expect?',
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (screenshot != null)
+                Stack(
+                  alignment: Alignment.topRight,
+                  children: <Widget>[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.memory(
+                        screenshot,
+                        height: 140,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove screenshot',
+                      style: IconButton.styleFrom(
+                        backgroundColor: AppColors.ink.withValues(alpha: 0.55),
+                      ),
+                      icon: const Icon(Icons.close_rounded, size: 18, color: Colors.white),
+                      onPressed: () => setState(() => _screenshot = null),
+                    ),
+                  ],
+                )
+              else
+                OutlinedButton.icon(
+                  onPressed: _pickingScreenshot ? null : _pickScreenshot,
+                  icon: _pickingScreenshot
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.image_outlined, size: 18),
+                  label: const Text('Attach a screenshot (optional)'),
+                ),
+            ],
           ),
         ),
       ),
       actions: <Widget>[
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(
-          onPressed: () => Navigator.pop(context, _message.text.trim()),
+          onPressed: () => Navigator.pop(
+            context,
+            _FeedbackResult(message: _message.text.trim(), screenshot: _screenshot),
+          ),
           child: const Text('Send Feedback'),
         ),
       ],

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 enum RoomRole { owner, editor, commenter, viewer }
 
 enum SongStatus { active, completed }
@@ -372,6 +374,7 @@ class FeedbackDraft {
     required this.route,
     required this.platform,
     required this.appVersion,
+    this.screenshot,
   });
 
   final String category;
@@ -379,4 +382,8 @@ class FeedbackDraft {
   final String route;
   final String platform;
   final String appVersion;
+  /// The picture of what the bug report is describing, if one was attached.
+  /// Optional because a screenshot doesn't always exist or apply — a
+  /// suggestion, or a bug in something audio-only, has nothing to show.
+  final Uint8List? screenshot;
 }

@@ -842,6 +842,19 @@ class SupabaseMusicRepository implements MusicRepository {
 
   @override
   Future<void> submitFeedback(FeedbackDraft feedback) async {
+    // Uploaded before the row exists, same order as setAvatar: the row is
+    // what makes the screenshot findable, so writing it first would leave a
+    // feedback entry pointing at a path that was never actually filled.
+    String? screenshotPath;
+    final screenshot = feedback.screenshot;
+    if (screenshot != null) {
+      screenshotPath = '$_userId/${DateTime.now().millisecondsSinceEpoch}.png';
+      await client.storage.from('feedback-screenshots').uploadBinary(
+            screenshotPath,
+            screenshot,
+            fileOptions: const FileOptions(contentType: 'image/png'),
+          );
+    }
     await client.from('feedback').insert(<String, dynamic>{
       'user_id': _userId,
       'category': feedback.category,
@@ -849,6 +862,7 @@ class SupabaseMusicRepository implements MusicRepository {
       'route': feedback.route,
       'platform': feedback.platform,
       'app_version': feedback.appVersion,
+      'screenshot_path': screenshotPath,
     });
   }
 
