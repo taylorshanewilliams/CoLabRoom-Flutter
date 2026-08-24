@@ -651,15 +651,14 @@ class StudioDraftService {
     return project;
   }
 
-  /// "Explain My Song" -> "Put that into my song" — same write path as
-  /// [promoteToProject], targeting an existing project instead of a new one.
-  Future<void> putIntoProject({
-    required SongProject project,
-    required StudioDraftBundle draftBundle,
-  }) {
-    return _writeAnalysisIntoProject(project: project, bundle: draftBundle);
-  }
-
+  /// Copies a draft's audio and analysis into a project that was created
+  /// moments ago by [promoteToProject], which is its only caller.
+  ///
+  /// That the project is new is an assumption this makes, not a coincidence
+  /// it tolerates: it does not look for an existing reference recording and
+  /// will not clean one up. Pointing this at a project that already has one
+  /// would leave the old file and its storage object behind, so a path that
+  /// wants to do that has to deal with the old reference itself.
   Future<void> _writeAnalysisIntoProject({
     required SongProject project,
     required StudioDraftBundle bundle,
@@ -669,29 +668,6 @@ class StudioDraftService {
     final bytes = await client.storage.from('studio-drafts').download(draft.storagePath);
     final timestamp = DateTime.now().microsecondsSinceEpoch;
     final storagePath = '${project.roomId}/${project.id}/analysis/reference_$timestamp.$ext';
-
-    // putIntoProject can target a project that already has a reference
-    // recording (attached via the normal Analyze flow, or a previous
-    // Studio write) — note its old file/storage now so it can be cleaned
-    // up after the new one lands, same as attachReference does. promoteToProject
-    // never has one (the project was just created), so this is just empty there.
-    final existingRefRows = await client
-        .from('project_audio_references')
-        .select('file_id')
-        .eq('project_id', project.id)
-        .limit(1);
-    final oldFileId = (existingRefRows as List<dynamic>).isNotEmpty
-        ? (Map<String, dynamic>.from(existingRefRows.first as Map))['file_id'] as String?
-        : null;
-    String? oldStoragePath;
-    if (oldFileId != null) {
-      final oldFileRow = await client
-          .from('files')
-          .select('storage_path')
-          .eq('id', oldFileId)
-          .maybeSingle();
-      oldStoragePath = oldFileRow?['storage_path'] as String?;
-    }
 
     await client.storage.from('room-files').uploadBinary(
           storagePath,
@@ -757,17 +733,6 @@ class StudioDraftService {
       }
       await client.storage.from('room-files').remove(<String>[storagePath]);
       rethrow;
-    }
-
-    if (oldFileId != null && oldFileId != fileRow['id']) {
-      try {
-        if (oldStoragePath != null) {
-          await client.storage.from('room-files').remove(<String>[oldStoragePath]);
-        }
-        await client.from('files').delete().eq('id', oldFileId);
-      } catch (_) {
-        // The new reference is already valid. Old-file cleanup can be retried later.
-      }
     }
   }
 
