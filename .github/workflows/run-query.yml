@@ -21,6 +21,7 @@ on:
           - invite-lookup
           - usage-by-month
           - usage-per-analysis
+          - storage-footprint
           - custom
       sql:
         description: 'SQL to run when preset is "custom" (single statement, read-only)'
@@ -112,6 +113,33 @@ jobs:
             ) filter (where service = 'storage') / 1048576.0, 1) as median_mb_per_song,
             round(sum(bytes) filter (where service = 'storage') / 1073741824.0, 3) as total_gb_stored
           from public.usage_events;
+          SQL
+          elif [ "$PRESET" = "storage-footprint" ]; then
+            # What is being stored, how old it is, and what it would cost to
+            # keep for a year. Reads storage.objects directly, so it reflects
+            # everything ever written — including anything the app forgot to
+            # clean up. This is the input to the retention decision.
+            cat > /tmp/query.sql <<'SQL'
+          select
+            o.bucket_id as bucket,
+            case
+              when o.name like '%/stems/%' then 'separated stems'
+              when o.name like '%/analysis/%' then 'reference recordings'
+              else 'other'
+            end as kind,
+            count(*) as objects,
+            round(sum((o.metadata->>'size')::bigint) / 1048576.0, 1) as total_mb,
+            round(avg((o.metadata->>'size')::bigint) / 1048576.0, 2) as avg_mb,
+            min(o.created_at)::date as oldest,
+            count(*) filter (where o.created_at < now() - interval '90 days') as older_than_90d,
+            round(
+              sum((o.metadata->>'size')::bigint) filter (
+                where o.created_at < now() - interval '90 days'
+              ) / 1048576.0, 1
+            ) as reclaimable_mb_at_90d
+          from storage.objects o
+          group by o.bucket_id, 2
+          order by total_mb desc;
           SQL
           else
             printf '%s' "$CUSTOM_SQL" > /tmp/query.sql
