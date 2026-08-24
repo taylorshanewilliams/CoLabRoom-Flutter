@@ -6,9 +6,14 @@ import 'app/colabroom_app.dart';
 import 'app/colabroom_theme.dart';
 import 'app/music_beta_controller.dart';
 import 'data/in_memory_music_repository.dart';
+import 'services/crash_reporter.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Before anything else that can fail. A build error reaches
+  // FlutterError.onError, so the crash screen below is what the user sees
+  // while this is what makes it countable.
+  CrashReporter.install();
   ErrorWidget.builder = (details) => _CrashScreen(details: details);
 
   if (BetaConfig.hasSupabase) {
