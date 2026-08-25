@@ -352,6 +352,41 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
       ));
   }
 
+  /// What a screen reader says about one bullet on the rail.
+  ///
+  /// Mirrors the states _BulletRailPainter draws, because a label that
+  /// disagrees with the dot is worse than no label — someone acting on it
+  /// records over a take they were told was empty.
+  String _voiceRailLabel(int index) {
+    final contributions = widget.project.contributions;
+    final contribution = index < contributions.length ? contributions[index] : null;
+    // The line's own words, so the rail is navigable rather than a column of
+    // identical "line 7"s. Truncated: a screen reader reads the whole label
+    // before the action at the end of it.
+    final body = contribution?.body.trim() ?? '';
+    final excerpt = body.isEmpty
+        ? 'empty line'
+        : (body.length > 40 ? '${body.substring(0, 40)}…' : body);
+    final where = 'Line ${index + 1}, $excerpt';
+    if (contribution == null) return '$where. Voice note unavailable';
+    if (contribution.id == widget.recordingContributionId) {
+      return '$where. Recording a voice note. Double tap to stop';
+    }
+    if (contribution.id == widget.savingContributionId) {
+      return '$where. Saving voice note';
+    }
+    if (contribution.id == widget.loadingVoiceContributionId) {
+      return '$where. Loading voice note';
+    }
+    if (contribution.id == widget.playingContributionId) {
+      return '$where. Playing voice note. Double tap for options';
+    }
+    if (contribution.voiceNote != null) {
+      return '$where. Has a voice note. Double tap for options';
+    }
+    return '$where. Double tap to record a voice note';
+  }
+
   Future<void> _voiceTap(int index) async {
     final saved = await _flush();
     if (!saved || !mounted) return;
@@ -412,17 +447,52 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
                             if (index < 0) return;
                             unawaited(_voiceTap(index));
                           },
-                          child: CustomPaint(
-                            painter: _BulletRailPainter(
-                              metrics: metrics,
-                              project: widget.project,
-                              fallbackColor: widget.authorColor,
-                              recordingContributionId: widget.recordingContributionId,
-                              savingContributionId: widget.savingContributionId,
-                              loadingVoiceContributionId: widget.loadingVoiceContributionId,
-                              playingContributionId: widget.playingContributionId,
-                              topInset: 4,
-                            ),
+                          // The painted rail with one real, labelled button
+                          // per line laid over it.
+                          //
+                          // A CustomPaint has no semantics at all, so tapping
+                          // a dot to add a voice note was invisible to
+                          // VoiceOver and TalkBack: the whole feature simply
+                          // did not exist for anyone using one. The tap
+                          // handler above stays as it is, both because it
+                          // still catches the empty rail below the last line
+                          // — where indexForY deliberately clamps to that
+                          // line — and because the regions below only need to
+                          // add meaning, not replace behaviour.
+                          child: Stack(
+                            children: <Widget>[
+                              Positioned.fill(
+                                child: CustomPaint(
+                                  painter: _BulletRailPainter(
+                                    metrics: metrics,
+                                    project: widget.project,
+                                    fallbackColor: widget.authorColor,
+                                    recordingContributionId: widget.recordingContributionId,
+                                    savingContributionId: widget.savingContributionId,
+                                    loadingVoiceContributionId: widget.loadingVoiceContributionId,
+                                    playingContributionId: widget.playingContributionId,
+                                    topInset: 4,
+                                  ),
+                                ),
+                              ),
+                              for (var index = 0; index < metrics.heights.length; index += 1)
+                                Positioned(
+                                  top: 4 + metrics.topFor(index),
+                                  left: 0,
+                                  width: railWidth,
+                                  height: metrics.heights[index],
+                                  child: Semantics(
+                                    button: true,
+                                    label: _voiceRailLabel(index),
+                                    onTap: () => unawaited(_voiceTap(index)),
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () => unawaited(_voiceTap(index)),
+                                      child: const SizedBox.expand(),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
@@ -537,6 +607,17 @@ class _LineMetrics {
       y += height;
     }
     return _LineMetrics(centers, heights, y + 12);
+  }
+
+  /// Where line [index] begins, in the same coordinate space [indexForY]
+  /// reads. The painter only ever needed centres; a tappable, labelled region
+  /// per line needs the top and the height too.
+  double topFor(int index) {
+    var top = 0.0;
+    for (var i = 0; i < index && i < heights.length; i += 1) {
+      top += heights[i];
+    }
+    return top;
   }
 
   int indexForY(double y) {
