@@ -56,6 +56,65 @@ async function sha256OfUrl(url: string): Promise<string | null> {
   }
 }
 
+/// Why a transcript looks like a hallucination rather than a song, or null
+/// when nothing is obviously wrong with it.
+///
+/// Deliberately conservative. A false positive costs one re-run; a false
+/// negative puts invented words in somebody's song and lets them be sung.
+/// Every rule here has to hold for a real lyric sheet — which is why none of
+/// them look at language or vocabulary. Songs are written in every language,
+/// repeat themselves on purpose, and use words no dictionary has.
+export function hallucinationSuspicion(text: string): string | null {
+  const cleaned = (text ?? '').replace(/\s+/g, ' ').trim();
+  if (cleaned.length === 0) return null;
+
+  // Phrases the model emits from its own training data when it has nothing to
+  // work with. The Chinese one translates as "the lyrics of this song were
+  // written in collaboration by…" and is a known Whisper artefact; the rest
+  // come from the video captions it was trained on. Matched anywhere, not
+  // just at the start, because the repeated form buries them mid-string.
+  const artefacts = [
+    '这首歌的歌词是由',
+    '字幕由',
+    'thanks for watching',
+    'thank you for watching',
+    'please subscribe',
+    'subscribe to my channel',
+    'amara.org',
+  ];
+  const lowered = cleaned.toLowerCase();
+  for (const phrase of artefacts) {
+    if (lowered.includes(phrase)) return `known hallucination phrase: "${phrase}"`;
+  }
+
+  // A stuck decoder repeats itself far past anything a chorus does. Counted
+  // over word windows rather than lines because the API returns one
+  // unbroken string, and compared as a share of the transcript so a long
+  // song is not judged by the same absolute number as a short one.
+  const words = cleaned.split(' ').filter((word) => word.length > 0);
+  const window = 6;
+  if (words.length >= window * 4) {
+    let repeats = 0;
+    for (let i = 0; i + window * 2 <= words.length; i += 1) {
+      const a = words.slice(i, i + window).join(' ');
+      const b = words.slice(i + window, i + window * 2).join(' ');
+      if (a === b) {
+        repeats += 1;
+        i += window - 1;
+      }
+    }
+    // A real song might repeat a six-word run a handful of times across a
+    // chorus. Ten separate places, or a third of the whole transcript, is a
+    // decoder that stopped listening.
+    const share = repeats / Math.max(1, Math.floor(words.length / window));
+    if (repeats >= 10 || share > 0.34) {
+      return `repeated the same phrase ${repeats} times`;
+    }
+  }
+
+  return null;
+}
+
 async function sha256OfText(value: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return encodeHex(new Uint8Array(digest));
@@ -222,6 +281,37 @@ Deno.serve(async (req) => {
   }));
 
   const text = result.text ?? '';
+
+  // Whisper does not fail loudly on audio it finds hard — it returns fluent,
+  // confident nonsense. The same recording, same model, same prompt, produced
+  // the song's actual chorus one evening and ten repetitions of a Chinese
+  // boilerplate sentence three hours later. Nothing downstream could tell the
+  // difference, so the second one would have been stored and shown to a
+  // musician as their own lyrics.
+  //
+  // Both observed failures were detectable without knowing the right answer:
+  // a phrase repeating far past what any chorus does, and a known artefact
+  // sentence from the model's training data. Not knowing the right answer is
+  // the whole constraint here — anything that needed it could not run.
+  const suspicion = hallucinationSuspicion(text);
+  if (suspicion) {
+    // Deliberately neither cached nor returned as lyrics. A bad transcript
+    // that reaches the cache is worse than one that doesn't: it would be
+    // served instantly on every later attempt, so re-running — the only
+    // recovery a musician has — would hand back the same garbage forever.
+    await recordUsage(
+      false,
+      audioSha256,
+      typeof result.duration === 'number' ? Math.round(result.duration * 1000) : null,
+    );
+    return json({
+      text: '',
+      words: [],
+      // Named so the app can say something true rather than showing an empty
+      // sheet as though the take simply had no singing in it.
+      rejected: suspicion,
+    });
+  }
 
   // An empty transcription is the result a musician re-runs — an instrumental
   // intro that swallowed the vocal, a take Whisper decided had no speech in
