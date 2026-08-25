@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../services/multitrack.dart';
+import '../../services/take_export.dart';
 import '../../services/take_naming.dart';
 import '../../widgets/microphone_disclosure.dart';
 
@@ -322,6 +325,82 @@ class _OverdubScreenState extends State<OverdubScreen> {
     });
   }
 
+  /// Hand the work to the operating system, which is where it stops being
+  /// ours to lose.
+  ///
+  /// This is what makes an expiry policy fair rather than merely convenient
+  /// for us. Layers nobody opens for months are worth reclaiming; doing that
+  /// to a band is only defensible while a copy is one tap away, in a format
+  /// they can use without this app existing.
+  Future<void> _export() async {
+    final session = _session;
+    if (session == null || session.takes.isEmpty || _busy) return;
+
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: AppColors.deepNavy,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.graphic_eq_rounded, color: AppColors.gold),
+              title: const Text('The mix'),
+              subtitle: const Text(
+                'One file of what you hear now. For sending to someone.',
+              ),
+              onTap: () => Navigator.pop(sheetContext, 'mix'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.folder_zip_outlined, color: AppColors.cyan),
+              title: const Text('Every layer'),
+              subtitle: const Text(
+                'A zip of each part on its own, with the volumes and timing '
+                'written down. For keeping, or for opening in a DAW.',
+              ),
+              onTap: () => Navigator.pop(sheetContext, 'layers'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final File? file = choice == 'mix'
+          ? await TakeExport.mixdown(
+              takes: session.takes,
+              outputPath: '${session.directory}/export_$stamp.wav',
+            )
+          : await TakeExport.layerArchive(
+              takes: session.takes,
+              outputPath: '${session.directory}/export_$stamp.zip',
+            );
+      if (file == null) {
+        if (mounted) {
+          setState(() => _error = 'There was nothing to export.');
+        }
+        return;
+      }
+      await SharePlus.instance.share(
+        ShareParams(
+          files: <XFile>[XFile(file.path)],
+          subject: choice == 'mix' ? 'Mix' : 'Layers',
+        ),
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _togglePlay() async {
     if (_recording) return;
     if (_playing) {
@@ -395,6 +474,15 @@ class _OverdubScreenState extends State<OverdubScreen> {
       appBar: AppBar(
         title: const Text('Layers'),
         backgroundColor: AppColors.deepNavy,
+        actions: <Widget>[
+          IconButton(
+            onPressed: (session?.takes.isEmpty ?? true) || _busy
+                ? null
+                : () => unawaited(_export()),
+            tooltip: 'Save a copy of this work',
+            icon: const Icon(Icons.ios_share_rounded),
+          ),
+        ],
       ),
       body: SafeArea(
         child: session == null
