@@ -485,9 +485,11 @@ class StudioDraftService {
           'sampleRate': 11025,
           'durationMs': durationMs,
         });
-        final fallbackNote =
+        // Plain assignment, not the append the two lyric notes below use:
+        // chords are the first stage in this function now, so there is
+        // provably nothing here yet to append to. The analyzer agrees.
+        warning =
             'Cloud chord detection was unavailable, so a less accurate on-device fallback was used. Details: $error';
-        warning = warning == null ? fallbackNote : '$warning\n\n$fallbackNote';
         // The Studio path was never instrumented, which is why the failure a
         // user hit here produced no telemetry at all and had to be reported
         // by screenshot.
