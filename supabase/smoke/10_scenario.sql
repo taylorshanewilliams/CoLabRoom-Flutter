@@ -16,6 +16,7 @@
 \set bandmate '22222222-2222-2222-2222-222222222222'
 \set room     '33333333-3333-3333-3333-333333333333'
 \set project  '44444444-4444-4444-4444-444444444444'
+\set reffile  '55555555-5555-5555-5555-555555555555'
 
 begin;
 
@@ -122,6 +123,43 @@ do $$
 begin
   if (select count(*) from public.project_events) = 0 then
     raise exception 'contributions_project_event recorded nothing for a written, edited and deleted song';
+  end if;
+end $$;
+
+-- Attaching a recording and analysing it. The notification at the end is the
+-- point: whoever started the analysis should be told it finished rather than
+-- having to watch a progress ring to find out.
+insert into public.files (id, project_id, uploaded_by, storage_path, display_name, mime_type)
+values (:'reffile', :'project', :'writer',
+        'smoke/analysis/reference.mp3', 'reference.mp3', 'audio/mpeg');
+
+insert into public.project_audio_references (project_id, file_id, uploaded_by, analysis_state)
+values (:'project', :'reffile', :'writer', 'processing');
+
+update public.project_audio_references
+set analysis_state = 'ready', bpm = 118, musical_key = 'D major'
+where project_id = :'project';
+
+do $$
+begin
+  if (select count(*) from public.notifications where type = 'analysis_ready') <> 1 then
+    raise exception 'finishing an analysis did not notify the person who started it (got %)',
+      (select count(*) from public.notifications where type = 'analysis_ready');
+  end if;
+end $$;
+
+-- Writing 'ready' a second time must stay silent. Every re-analysis ends by
+-- setting the same state, and without the transition guard on the trigger
+-- each one would tell somebody again about a song that finished once.
+update public.project_audio_references
+set analysis_state = 'ready', bpm = 120
+where project_id = :'project';
+
+do $$
+begin
+  if (select count(*) from public.notifications where type = 'analysis_ready') <> 1 then
+    raise exception 'a repeated ready write sent a duplicate notification (got %)',
+      (select count(*) from public.notifications where type = 'analysis_ready');
   end if;
 end $$;
 

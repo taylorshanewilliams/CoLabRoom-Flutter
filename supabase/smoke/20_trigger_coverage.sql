@@ -26,7 +26,11 @@ insert into smoke_covered (name) values
   ('contributions_project_event'),
   ('comments_set_updated_at'),
   ('notification_preferences_set_updated_at'),
-  ('analysis_errors_set_signature');
+  ('analysis_errors_set_signature'),
+  ('project_audio_references_notify_ready'),
+  -- Moved up from acknowledged: the scenario now attaches a recording and
+  -- takes it through to 'ready', so this one genuinely fires.
+  ('project_audio_references_set_updated_at');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario
@@ -36,8 +40,7 @@ insert into smoke_acknowledged (name, reason) values
   ('studio_drafts_set_updated_at',           'timestamp only; studio drafts have their own service'),
   ('studio_chord_cues_set_updated_at',       'timestamp only'),
   ('chord_cues_set_updated_at',              'timestamp only; written by the analysis pipeline'),
-  ('lyric_sync_cues_set_updated_at',         'timestamp only; written by the analysis pipeline'),
-  ('project_audio_references_set_updated_at','timestamp only');
+  ('lyric_sync_cues_set_updated_at',         'timestamp only; written by the analysis pipeline');
 
 do $$
 declare
