@@ -372,8 +372,9 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
                 _Row('Grid says playing was', '${_alignment!.shiftMs} ms off the beat'),
                 _Row(
                   'Alignment confidence',
-                  _alignment!.confidence.toStringAsFixed(2)
-                      '${_alignment!.trustworthy ? '  ·  usable' : '  ·  too vague'}',
+                  '${_alignment!.confidence.toStringAsFixed(2)}'
+                  '  ·  on-beat share ${(_alignment!.concentration * 100).round()}%'
+                  '  ·  ${_alignment!.trustworthy ? 'usable' : 'too vague'}',
                 ),
                 _Row('Searched to', '${_alignment!.searchedToMs} ms'),
               ],
