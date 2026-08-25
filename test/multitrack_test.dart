@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:colabroom/services/latency_probe.dart';
 import 'package:colabroom/services/multitrack.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -131,5 +133,53 @@ void main() {
     expect(restored.gain, 0.8);
     expect(restored.enabled, isFalse);
     expect(restored.path, original.path);
+  });
+
+  group('reading a layer off disk', () {
+    late Directory tmp;
+
+    setUp(() async {
+      tmp = await Directory.systemTemp.createTemp('multitrack_samples');
+    });
+
+    tearDown(() async {
+      if (await tmp.exists()) await tmp.delete(recursive: true);
+    });
+
+    Take fileTake(String name) => Take(
+          id: name,
+          path: '${tmp.path}/$name',
+          label: name,
+          recordedAt: DateTime(2026),
+        );
+
+    test('a wav layer is read directly', () async {
+      final take = fileTake('a.wav');
+      await File(take.path).writeAsBytes(
+        LatencyProbe.toWav(_flat(0.25, 500)),
+        flush: true,
+      );
+
+      final samples = await Multitrack.samplesFor(take);
+      expect(samples.length, 500);
+      expect(samples[0], closeTo(0.25, 1e-4));
+    });
+
+    test('a missing layer is silence, not an exception', () async {
+      // Mid-session, a take whose file has gone must not take the mix down.
+      expect(await Multitrack.samplesFor(fileTake('gone.wav')), isEmpty);
+    });
+
+    test('a layer that will not decode is silence, not an exception', () async {
+      // Same reasoning, one step further in: everything else still plays, and
+      // the take is still on disk and still exportable.
+      final take = fileTake('broken.m4a');
+      await File(take.path).writeAsBytes(
+        Uint8List.fromList(List<int>.filled(64, 7)),
+        flush: true,
+      );
+
+      expect(await Multitrack.samplesFor(take), isEmpty);
+    });
   });
 }

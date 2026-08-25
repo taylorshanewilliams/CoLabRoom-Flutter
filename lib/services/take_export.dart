@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 
+import 'latency_probe.dart';
 import 'multitrack.dart';
 import 'take_naming.dart';
 
@@ -50,9 +51,16 @@ class TakeExport {
     var added = 0;
 
     for (final take in takes) {
-      final file = File(take.path);
-      if (!await file.exists()) continue;
-      final bytes = await file.readAsBytes();
+      if (!await File(take.path).exists()) continue;
+      // Decoded to wav on the way out rather than copied as-is.
+      //
+      // Layers are stored as AAC to save space, and an export exists to be
+      // opened somewhere else — a DAW, another phone, in ten years. Wav is
+      // the format that will still open, and this is the one moment where
+      // size matters less than certainty.
+      final samples = await Multitrack.samplesFor(take);
+      if (samples.isEmpty) continue;
+      final bytes = LatencyProbe.toWav(samples, rate: Multitrack.rate);
       archive.addFile(ArchiveFile(
         // Numbered so the files sort in the order they were recorded, which
         // is the order they make sense in. Sanitised because a layer can be

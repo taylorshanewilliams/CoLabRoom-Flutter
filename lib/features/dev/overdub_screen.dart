@@ -146,7 +146,10 @@ class _OverdubScreenState extends State<OverdubScreen> {
     try {
       final session = _session!;
       final id = DateTime.now().millisecondsSinceEpoch.toString();
-      final path = '${session.directory}/take_$id.wav';
+      // m4a, not wav. AAC is about seven times smaller for the same take,
+      // which matters twice over: on a phone that fills up, and on the
+      // bandwidth bill when these start being shared.
+      final path = '${session.directory}/take_$id.m4a';
 
       // Everything already recorded, as one file, playing while this take is
       // captured. Absent for the first take, which has nothing to play over.
@@ -154,7 +157,11 @@ class _OverdubScreenState extends State<OverdubScreen> {
 
       await _recorder.start(
         const RecordConfig(
-          encoder: AudioEncoder.wav,
+          // AAC-LC rather than Opus, which is smaller. record's iOS encoder
+          // puts Opus in a CAF container that only iOS can play, and a layer
+          // a bandmate cannot open is worth nothing however small it is.
+          encoder: AudioEncoder.aacLc,
+          bitRate: 96000,
           sampleRate: Multitrack.rate,
           numChannels: 1,
           // Off for the same reasons as the latency probe. Echo cancellation

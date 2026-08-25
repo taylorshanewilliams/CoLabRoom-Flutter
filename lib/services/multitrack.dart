@@ -3,6 +3,9 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:audio_decoder/audio_decoder.dart';
+
+import 'audio_analysis_utils.dart';
 import 'latency_probe.dart';
 import 'take_naming.dart';
 
@@ -80,6 +83,56 @@ class Multitrack {
     return MixResult(out, peak: peak, scaled: scaled);
   }
 
+  /// One take's audio as samples, whatever container it arrived in.
+  ///
+  /// Layers are recorded compressed — AAC, which is roughly seven times
+  /// smaller than the wav this used to write and is the only compressed
+  /// format both platforms record *and* both platforms can read. (Opus is
+  /// smaller still, but record's iOS encoder wraps it in a CAF container that
+  /// only iOS plays, which is no use to a band on mixed phones.)
+  ///
+  /// Mixing needs samples, so a compressed layer has to be decoded first. The
+  /// result is cached beside the original: decoding eight layers on every
+  /// change — and the mix is rebuilt on every mute, every volume change and
+  /// before every new take — would make the screen feel broken. Decoded once,
+  /// the cache is a plain wav and reads at the speed of the disk.
+  static Future<Float64List> samplesFor(Take take) async {
+    final file = File(take.path);
+    if (!await file.exists()) return Float64List(0);
+
+    final extension = audioFileExtension(take.path);
+    if (extension == 'wav') {
+      return LatencyProbe.fromWav(await file.readAsBytes());
+    }
+
+    final cachePath = '${take.path}.pcm.wav';
+    final cache = File(cachePath);
+    // Regenerated if the source is newer, so a re-recorded take under the
+    // same name cannot be played back as the old one.
+    if (await cache.exists() &&
+        (await cache.lastModified()).isAfter(await file.lastModified())) {
+      return LatencyProbe.fromWav(await cache.readAsBytes());
+    }
+
+    try {
+      final wav = await AudioDecoder.convertToWavBytes(
+        await file.readAsBytes(),
+        formatHint: extension,
+        sampleRate: rate,
+        channels: 1,
+        bitDepth: 16,
+        includeHeader: true,
+      );
+      await cache.writeAsBytes(wav, flush: true);
+      return LatencyProbe.fromWav(wav);
+    } catch (_) {
+      // A layer that will not decode is silence in the mix rather than an
+      // exception in the middle of a session. Everything else still plays,
+      // and the take itself is still on disk and still exportable.
+      return Float64List(0);
+    }
+  }
+
   /// Reads every enabled take off disk and writes the mix to [outputPath].
   ///
   /// Returns null when there is nothing to play, which is the ordinary state
@@ -92,12 +145,7 @@ class Multitrack {
     if (wanted.isEmpty) return null;
     final audio = <Float64List>[];
     for (final take in wanted) {
-      final file = File(take.path);
-      if (!await file.exists()) {
-        audio.add(Float64List(0));
-        continue;
-      }
-      audio.add(LatencyProbe.fromWav(await file.readAsBytes()));
+      audio.add(await samplesFor(take));
     }
     final result = mix(wanted, audio);
     if (result.samples.isEmpty) return null;
