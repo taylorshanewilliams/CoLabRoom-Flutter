@@ -13,6 +13,7 @@ import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/audio_privacy_note.dart';
+import '../dev/latency_probe_screen.dart';
 import '../notifications/notification_settings_screen.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -290,6 +291,18 @@ class _AccountScreenState extends State<AccountScreen> {
                 label: 'Privacy & Data',
                 onTap: () => _showPrivacy(context),
               ),
+              // Debug builds only. A measurement tool, not a feature — it
+              // exists to find out whether overdubbing is possible on real
+              // hardware, and a tester who found it would reasonably wonder
+              // what they were supposed to do with it.
+              if (kDebugMode)
+                _AccountRow(
+                  icon: Icons.timer_outlined,
+                  label: 'Recording latency (debug)',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const LatencyProbeScreen()),
+                  ),
+                ),
             ],
           ),
         ),
