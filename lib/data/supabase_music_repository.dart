@@ -994,6 +994,8 @@ class SupabaseMusicRepository implements MusicRepository {
         return NotificationType.inviteDeclined;
       case 'project_update':
         return NotificationType.projectUpdate;
+      case 'analysis_ready':
+        return NotificationType.analysisReady;
     }
     throw ArgumentError('Unknown notification type: $value');
   }

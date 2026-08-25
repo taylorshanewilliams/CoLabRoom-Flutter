@@ -294,7 +294,15 @@ class InviteResult {
   final bool matchedAccount;
 }
 
-enum NotificationType { inviteReceived, inviteAccepted, inviteDeclined, projectUpdate }
+enum NotificationType {
+  inviteReceived,
+  inviteAccepted,
+  inviteDeclined,
+  projectUpdate,
+  /// An analysis the user started has finished. Exists so nobody has to watch
+  /// a progress bar for the minutes a GPU job takes — see migration 0036.
+  analysisReady,
+}
 
 class AppNotification {
   const AppNotification({

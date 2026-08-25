@@ -235,6 +235,11 @@ class _NotificationCard extends StatelessWidget {
         return Icons.cancel_outlined;
       case NotificationType.projectUpdate:
         return Icons.edit_note_rounded;
+      case NotificationType.analysisReady:
+        // The same icon the room list uses to mark a song that has audio, so
+        // "your analysis finished" and "this song has a recording" read as one
+        // idea in two places rather than two unrelated ones.
+        return Icons.graphic_eq_rounded;
     }
   }
 

@@ -612,6 +612,35 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                       _progress!.label,
                       style: const TextStyle(color: AppColors.muted, fontSize: 10.5),
                     ),
+                    // The wait is minutes long and songwriting is what the app
+                    // is for, so say plainly that nobody has to spend those
+                    // minutes watching a bar move.
+                    //
+                    // Worded as "this screen" rather than "the app" because
+                    // that is precisely what's true: the poll that collects the
+                    // finished job runs in this isolate, so navigating away is
+                    // fine and fully backgrounding the app pauses collection
+                    // until it is reopened. The recording and the GPU job
+                    // survive either way — only the collecting waits.
+                    const SizedBox(height: 10),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        const Icon(Icons.edit_note_rounded, size: 13, color: AppColors.muted),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Keep writing — this carries on if you leave this screen, and '
+                            "you'll get a notification when the song sheet is ready.",
+                            style: TextStyle(
+                              color: AppColors.muted.withValues(alpha: 0.85),
+                              fontSize: 10.5,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                   if (_error != null) ...<Widget>[
                     const SizedBox(height: 16),
