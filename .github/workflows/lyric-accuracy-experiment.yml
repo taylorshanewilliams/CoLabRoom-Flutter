@@ -1,0 +1,34 @@
+name: Lyric accuracy experiment
+
+# Scores every transcription path against the lyrics the writer actually
+# typed, rather than against another machine's guess. Prints scores only —
+# this log is public and the songs are unreleased.
+#
+# Costs a GPU job per song, because measuring faster-whisper means running
+# the real handler that produces the stem it transcribes.
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Which project (blank = every song with lyrics and a vocals stem)'
+        type: string
+        required: false
+        default: ''
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Score transcription paths against the written lyrics
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          RUNPOD_ENDPOINT_ID: ${{ secrets.RUNPOD_ENDPOINT_ID }}
+          PROJECT_ID: ${{ inputs.project_id }}
+        run: python tools/lyric_accuracy_experiment.py

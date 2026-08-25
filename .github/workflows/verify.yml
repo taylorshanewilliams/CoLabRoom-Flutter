@@ -129,6 +129,7 @@ jobs:
             tools/chord_mix_experiment.py \
             tools/transcript_mix_experiment.py \
             tools/transcript_model_experiment.py \
+            tools/lyric_accuracy_experiment.py \
             tools/triage_agent/triage.py
 
       - name: Lint
