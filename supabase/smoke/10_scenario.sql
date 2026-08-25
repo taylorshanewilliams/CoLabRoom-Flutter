@@ -163,4 +163,74 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- A bandmate adds a part.
+--
+-- The trigger's whole job is to tell everyone *else* in the room, so the
+-- assertions are about who did and did not hear about it. Getting this wrong
+-- is not a crash: it is a band that never finds out somebody added a lead, or
+-- a person notified about their own playing.
+-- ---------------------------------------------------------------------
+
+insert into public.song_layers
+  (project_id, recorded_by, storage_path, label, part, performer, duration_ms)
+values
+  (:'project', :'writer', :'project' || '/layers/one.m4a',
+   'Rhythm', 'rhythm', 'The Writer', 42000);
+
+do $$
+begin
+  -- The bandmate hears about it.
+  if (select count(*) from public.notifications n
+      where n.type = 'project_update'
+        and n.user_id = '22222222-2222-2222-2222-222222222222'
+        and n.title like '%added a part%') <> 1 then
+    raise exception 'adding a layer did not notify the other member (got %)',
+      (select count(*) from public.notifications n
+       where n.user_id = '22222222-2222-2222-2222-222222222222'
+         and n.title like '%added a part%');
+  end if;
+
+  -- The person who played it does not. notify_user returns early when the
+  -- target is the actor, and the trigger relies on that rather than
+  -- excluding the recorder itself — worth asserting, because the day that
+  -- behaviour changes this is how we find out.
+  if exists (select 1 from public.notifications n
+             where n.user_id = :'writer' and n.title like '%added a part%') then
+    raise exception 'the person who recorded the layer was notified about it';
+  end if;
+end $$;
+
+-- A second layer notifies again. Layers are additive and each one is news;
+-- there is no transition guard here of the kind analysis_ready needs.
+insert into public.song_layers
+  (project_id, recorded_by, storage_path, label, part, duration_ms)
+values
+  (:'project', :'writer', :'project' || '/layers/two.m4a', 'Lead', 'lead', 30000);
+
+do $$
+begin
+  if (select count(*) from public.notifications n
+      where n.user_id = '22222222-2222-2222-2222-222222222222'
+        and n.title like '%added a part%') <> 2 then
+    raise exception 'a second layer did not produce a second notification (got %)',
+      (select count(*) from public.notifications n
+       where n.user_id = '22222222-2222-2222-2222-222222222222'
+         and n.title like '%added a part%');
+  end if;
+end $$;
+
+-- A saved version holds ids, not audio: deleting the layers it names must not
+-- be blocked by it, and a version costs one row however many layers it lists.
+insert into public.song_layer_versions (project_id, created_by, name, layer_ids)
+select :'project', :'writer', 'Smoke mix', array_agg(id)
+from public.song_layers where project_id = :'project';
+
+do $$
+begin
+  if (select cardinality(layer_ids) from public.song_layer_versions limit 1) <> 2 then
+    raise exception 'the saved version did not record both layers';
+  end if;
+end $$;
+
 commit;

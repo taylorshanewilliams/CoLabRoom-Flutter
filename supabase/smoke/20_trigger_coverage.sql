@@ -30,7 +30,9 @@ insert into smoke_covered (name) values
   ('project_audio_references_notify_ready'),
   -- Moved up from acknowledged: the scenario now attaches a recording and
   -- takes it through to 'ready', so this one genuinely fires.
-  ('project_audio_references_set_updated_at');
+  ('project_audio_references_set_updated_at'),
+  -- The scenario adds two layers and asserts who was told about them.
+  ('song_layers_notify_added');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario
