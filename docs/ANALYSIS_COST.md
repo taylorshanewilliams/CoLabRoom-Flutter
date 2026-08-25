@@ -160,3 +160,62 @@ workers or spot instances, typically 30–50% off flex rates, no capex.
 
 CPU separation is not a path: roughly 36x worse than GPU per song, being both
 more expensive per second and an order of magnitude slower.
+
+---
+
+## Finding: the vocal stem is making lyrics *worse*
+
+Added 2026-08-25, after the chord finding above and partly contradicting the
+assumption underneath it.
+
+`transcribe-audio` sends Whisper the isolated vocal stem, and the Edge
+Function says why:
+
+> *"the lyrics pass transcribes that stem rather than the full mix, and doing
+> so is the single largest lever on lyric accuracy in the whole pipeline"*
+
+Measured, that appears to be backwards. Across three songs the raw recording
+transcribed **better** than the stem, and on one of them Taylor confirmed the
+correct lyric directly:
+
+| Song | Raw recording | Vocal stem |
+|---|---|---|
+| e54bc276 verse | closer to truth (confirmed by the writer) | garbled |
+| e54bc276 opening | caught it | missed the verse entirely |
+| 67d039b8 | *"Gray sky filled with black smoke / Black suit filled with bad dreams"* | *"Music is the truth. The sky full of admirable Banging"* |
+| f15a9921 | clean | duplicated the opening line |
+
+Zero songs where the stem clearly won. The likely mechanism is that Demucs
+leaves phase artefacts and spectral holes that ASR handles badly — the stem
+is cleaner to a human ear and stranger to a model.
+
+**If this holds, separation has no consumer left except stems themselves.**
+Chords don't need it (93% agreement, above), beats and structure already run
+on the original mix by design, key has a chord-derived fallback already
+wired, and lyrics are actively hurt by it. That would make separation
+something to run only when somebody wants tracks to play along to — cheaper,
+far faster (the queue dominates latency), *and* more accurate, which is a
+rare direction for three things to move at once.
+
+**Not yet acted on.** Three songs, one partial ground truth, one writer's
+catalogue. Switching production needs the full lyrics for two or three songs
+written out by hand and both paths scored against them. That is the missing
+instrument for every experiment in this document.
+
+### Whisper is also non-deterministic on hard audio
+
+The same recording, same model, same prompt, returned the correct chorus one
+evening and ten repetitions of a Chinese boilerplate sentence three hours
+later. Not a degradation — a total, silent failure, indistinguishable
+downstream from a real transcript.
+
+`hallucinationSuspicion()` in `transcribe-audio` now rejects transcripts that
+repeat a phrase far past what any chorus does, or that contain known Whisper
+training artefacts. Rejected transcripts are neither cached nor returned as
+lyrics, because caching one would serve it forever and make re-running — the
+only recovery a musician has — useless.
+
+That is a net, not a fix. The underlying instability is a reason to test
+`gpt-4o-transcribe` properly (it was more coherent on 2 of 3 songs) or to
+self-host `faster-whisper` large-v3, which emits the word timings lyric sync
+needs and ships a VAD filter aimed at exactly this failure.
