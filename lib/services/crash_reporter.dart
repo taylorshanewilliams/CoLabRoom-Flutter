@@ -50,6 +50,11 @@ abstract final class CrashReporter {
   /// message column and crowds out the end of the exception.
   static const int _stackFrames = 12;
 
+  /// How much of Flutter's own diagnostic to keep. Enough to name the widget
+  /// and its geometry; not the subtree dump that follows.
+  static const int _detailNodes = 4;
+  static const int _detailMaxChars = 700;
+
   /// Installs the handlers. Call once, as early in `main` as possible — errors
   /// thrown before this lands are not recoverable by anything downstream.
   static void install() {
@@ -63,6 +68,7 @@ abstract final class CrashReporter {
         details.exception,
         details.stack,
         stage: details.library ?? 'flutter',
+        detail: _flutterDetail(details),
       ));
     };
 
@@ -83,17 +89,27 @@ abstract final class CrashReporter {
     Object error,
     StackTrace? stack, {
     String stage = 'uncaught',
+    String detail = '',
   }) async {
     try {
       final description = error.toString();
+      // The signature stays keyed on the exception alone. [detail] names the
+      // widget, and widgets are exactly what changes between two occurrences
+      // of the same bug — folding it in would defeat the deduplication it is
+      // meant to make useful.
       final signature = _localSignature(description, stack);
       if (!_claimSendSlot(signature)) return;
 
       final trace = _firstFrames(stack);
+      final message = <String>[
+        description,
+        if (detail.isNotEmpty) detail,
+        if (trace.isNotEmpty) trace,
+      ].join('\n\n');
       await _reporter.reportError(
         service: 'app',
         stage: stage,
-        message: trace.isEmpty ? description : '$description\n\n$trace',
+        message: message,
       );
     } catch (_) {
       // Reporting a crash must not become one.
@@ -109,6 +125,45 @@ abstract final class CrashReporter {
     _lastSentAt[signature] = now;
     _sentThisSession += 1;
     return true;
+  }
+
+  /// What the framework knows about a Flutter error beyond its one-line
+  /// message.
+  ///
+  /// `exception.toString()` on a layout error is "A RenderFlex overflowed by
+  /// 3.0 pixels on the bottom." and nothing else — no widget, no screen, no
+  /// way to act on it. A real report of exactly that arrived and could only
+  /// be guessed at. Everything needed was already in [FlutterErrorDetails];
+  /// it was just never read.
+  ///
+  /// [FlutterErrorDetails.context] is the phase ("during layout"), and the
+  /// information collector is where the framework puts the offending
+  /// `RenderFlex`, its size and orientation, and the widget that created it.
+  ///
+  /// Capped, because that collector is written for a console and will happily
+  /// print a whole subtree. The first few nodes carry the identification; the
+  /// rest is the part nobody reads.
+  static String _flutterDetail(FlutterErrorDetails details) {
+    final parts = <String>[];
+    try {
+      final context = details.context;
+      if (context != null) parts.add(context.toDescription());
+      final collected = details.informationCollector?.call();
+      if (collected != null) {
+        for (final node in collected.take(_detailNodes)) {
+          final line = node.toDescription().replaceAll(RegExp(r'\s+'), ' ').trim();
+          if (line.isNotEmpty) parts.add(line);
+        }
+      }
+    } catch (_) {
+      // Diagnostics are best-effort. A collector that throws while describing
+      // a broken widget must not replace that widget's error with its own.
+    }
+    if (parts.isEmpty) return '';
+    final joined = parts.join('\n');
+    return joined.length <= _detailMaxChars
+        ? joined
+        : '${joined.substring(0, _detailMaxChars)}…';
   }
 
   /// A local grouping key, only ever used to decide whether this looks like
@@ -131,6 +186,15 @@ abstract final class CrashReporter {
         .toList(growable: false);
     return lines.join('\n');
   }
+
+  /// [_flutterDetail], reachable from a test.
+  ///
+  /// Exposed rather than driving `FlutterError.onError` directly, because
+  /// under flutter_test that handler belongs to the test harness — invoking
+  /// it reports a *test* failure instead of exercising this code.
+  @visibleForTesting
+  static String describeFlutterError(FlutterErrorDetails details) =>
+      _flutterDetail(details);
 
   @visibleForTesting
   static void resetForTest() {

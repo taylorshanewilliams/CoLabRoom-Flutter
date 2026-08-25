@@ -1,5 +1,6 @@
 import 'package:colabroom/services/crash_reporter.dart';
 import 'package:colabroom/services/error_reporter.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Stands in for the real reporter so nothing here needs a backend.
@@ -91,5 +92,57 @@ void main() {
     await CrashReporter.report('a bare string thrown from somewhere', null);
 
     expect(reporter.messages.single, 'a bare string thrown from somewhere');
+  });
+
+  test('a layout error carries the widget Flutter named, not just the message', () async {
+    // The real report this covers said only "A RenderFlex overflowed by 3.0
+    // pixels on the bottom." — true, and impossible to act on. Everything
+    // needed to find the widget was in FlutterErrorDetails and went unread.
+    final details = FlutterErrorDetails(
+      exception: FlutterError('A RenderFlex overflowed by 3.0 pixels on the bottom.'),
+      library: 'rendering library',
+      context: ErrorDescription('during layout'),
+      informationCollector: () sync* {
+        yield ErrorDescription(
+          'The overflowing RenderFlex has an orientation of Axis.vertical',
+        );
+        yield DiagnosticsProperty<String>(
+          'creator',
+          'Column <- _AnalyzingRing <- StudioResultsScreen',
+        );
+      },
+    );
+
+    final detail = CrashReporter.describeFlutterError(details);
+    expect(detail, contains('during layout'));
+    expect(detail, contains('Axis.vertical'));
+    expect(detail, contains('_AnalyzingRing'));
+
+    await CrashReporter.report(
+      details.exception,
+      null,
+      stage: details.library!,
+      detail: detail,
+    );
+
+    final message = reporter.messages.single;
+    expect(message, contains('overflowed by 3.0 pixels'));
+    expect(message, contains('_AnalyzingRing'));
+    expect(reporter.stages.single, 'rendering library');
+  });
+
+  test('a diagnostic that throws while describing itself is not fatal', () async {
+    // A collector runs while the widget it describes is already broken, so
+    // it is exactly the code most likely to throw. It must not replace that
+    // widget's error with its own.
+    final details = FlutterErrorDetails(
+      exception: FlutterError('something went wrong'),
+      library: 'rendering library',
+      informationCollector: () sync* {
+        throw StateError('the collector itself failed');
+      },
+    );
+
+    expect(CrashReporter.describeFlutterError(details), isEmpty);
   });
 }

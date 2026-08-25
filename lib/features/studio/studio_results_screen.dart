@@ -521,10 +521,16 @@ class _AnalyzingRing extends StatelessWidget {
 
   final SongAnalysisProgress? progress;
 
+  // These have to match the fractions StudioDraftService.analyze actually
+  // reports, or the checklist ticks the wrong line off. It drifted once
+  // already: when chords moved ahead of lyrics in the pipeline, this still
+  // claimed transcription finished at 20% and chords at 55%, which is the
+  // reverse of what the service now does.
   static const _steps = <(String, double)>[
     ('Preparing audio', 0.05),
-    ('Listening & transcribing', 0.2),
-    ('Analyzing chords & structure', 0.55),
+    ('Separating the instruments', 0.15),
+    ('Listening for the words', 0.55),
+    ('Finding the beat and structure', 0.75),
     ('Saving your song map', 0.9),
   ];
 
