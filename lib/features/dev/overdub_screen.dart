@@ -468,6 +468,9 @@ class _OverdubScreenState extends State<OverdubScreen> {
                           offsetMs: (take.offsetMs + delta).clamp(0, 1000),
                         )),
                       ),
+                      onGain: (value) => unawaited(
+                        _update(take, take.copyWith(gain: value)),
+                      ),
                       onDelete: () => unawaited(_delete(take)),
                     ),
                 ],
@@ -593,21 +596,38 @@ class _LatencyControl extends StatelessWidget {
   }
 }
 
-class _TakeRow extends StatelessWidget {
+class _TakeRow extends StatefulWidget {
   const _TakeRow({
     required this.take,
     required this.onToggle,
     required this.onNudge,
+    required this.onGain,
     required this.onDelete,
   });
 
   final Take take;
   final VoidCallback onToggle;
   final ValueChanged<int> onNudge;
+  final ValueChanged<double> onGain;
   final VoidCallback onDelete;
 
   @override
+  State<_TakeRow> createState() => _TakeRowState();
+}
+
+class _TakeRowState extends State<_TakeRow> {
+  /// Where the thumb is mid-drag.
+  ///
+  /// Committing on every change would rewrite the manifest and rebuild the
+  /// whole mix thirty times across one drag — a file write and a pass over
+  /// every sample of every layer, per increment. The value is held here while
+  /// the finger is down and written once when it lifts.
+  double? _dragging;
+
+  @override
   Widget build(BuildContext context) {
+    final take = widget.take;
+    final gain = _dragging ?? take.gain;
     final seconds = (take.durationMs / 1000).round();
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -619,10 +639,12 @@ class _TakeRow extends StatelessWidget {
           color: take.enabled ? AppColors.cyan.withValues(alpha: 0.25) : AppColors.line,
         ),
       ),
-      child: Row(
+      child: Column(
+        children: <Widget>[
+      Row(
         children: <Widget>[
           IconButton(
-            onPressed: onToggle,
+            onPressed: widget.onToggle,
             tooltip: take.enabled
                 ? 'Mute ${TakeNaming.describe(take)}'
                 : 'Unmute ${TakeNaming.describe(take)}',
@@ -651,21 +673,77 @@ class _TakeRow extends StatelessWidget {
             ),
           ),
           IconButton(
-            onPressed: () => onNudge(-10),
+            onPressed: () => widget.onNudge(-10),
             tooltip: 'Nudge ${TakeNaming.describe(take)} 10 ms earlier',
             icon: const Icon(Icons.remove_rounded, size: 18, color: AppColors.muted),
           ),
           IconButton(
-            onPressed: () => onNudge(10),
+            onPressed: () => widget.onNudge(10),
             tooltip: 'Nudge ${TakeNaming.describe(take)} 10 ms later',
             icon: const Icon(Icons.add_rounded, size: 18, color: AppColors.muted),
           ),
           IconButton(
-            onPressed: onDelete,
+            onPressed: widget.onDelete,
             tooltip: 'Delete ${TakeNaming.describe(take)}',
             icon: const Icon(Icons.delete_outline_rounded,
                 size: 20, color: Color(0xFFFF718B)),
           ),
+        ],
+      ),
+      // Volume per layer, separate from mute rather than replacing it.
+      // Muting is the fast question — how does this sound without the
+      // harmony — and dragging a slider to zero and back loses whatever
+      // balance had been found. They answer different questions, so both
+      // stay.
+      Row(
+        children: <Widget>[
+          const SizedBox(width: 10),
+          Expanded(
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 2.5,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+              ),
+              child: Slider(
+                value: gain.clamp(0.0, 1.5),
+                max: 1.5,
+                divisions: 30,
+                activeColor: take.enabled ? AppColors.cyan : AppColors.muted,
+                inactiveColor: AppColors.line,
+                label: '${(gain * 100).round()}%',
+                // Above 100% on purpose. A quiet vocal sung two feet further
+                // from the phone than the guitar was needs lifting, not
+                // everything else pulled down — and the mixer scales the
+                // whole mix if the sum overshoots, so pushing one layer up
+                // cannot clip anything.
+                onChanged: take.enabled
+                    ? (value) => setState(() => _dragging = value)
+                    : null,
+                onChangeEnd: (value) {
+                  setState(() => _dragging = null);
+                  widget.onGain(value);
+                },
+                semanticFormatterCallback: (value) =>
+                    '${TakeNaming.describe(take)} volume ${(value * 100).round()} percent',
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 44,
+            child: Text(
+              '${(gain * 100).round()}%',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: take.enabled ? AppColors.muted : AppColors.line,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+        ],
+      ),
         ],
       ),
     );
