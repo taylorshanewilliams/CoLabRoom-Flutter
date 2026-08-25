@@ -196,7 +196,8 @@ begin
   -- excluding the recorder itself — worth asserting, because the day that
   -- behaviour changes this is how we find out.
   if exists (select 1 from public.notifications n
-             where n.user_id = :'writer' and n.title like '%added a part%') then
+             where n.user_id = '11111111-1111-1111-1111-111111111111'
+               and n.title like '%added a part%') then
     raise exception 'the person who recorded the layer was notified about it';
   end if;
 end $$;

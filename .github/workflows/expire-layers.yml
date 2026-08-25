@@ -1,0 +1,60 @@
+name: Expire old song layers
+
+# Weekly, and on from the day the feature ships rather than added later.
+#
+# Safe to enable immediately because it provably cannot delete anything yet:
+# no layer can be 90 days unopened until the feature itself is 90 days old.
+# That gives roughly a dozen harmless runs, in the open, before this is
+# capable of doing harm — which is a better way to introduce a deletion path
+# than watching it by hand and hoping.
+#
+# It is on during the beta on purpose. Storage is the one cost that recurs
+# forever and accumulates from everything anybody ever recorded and forgot,
+# and a retention rule that arrives with the feature is a rule while one that
+# arrives afterwards is a broken promise.
+#
+# See tools/expire_layers.py for why this is not the same policy as
+# expire-stems.yml despite the matching number: a stem can be recomputed and
+# a layer is somebody's playing.
+on:
+  schedule:
+    # Sundays, early. Nothing here is urgent — a layer that lives an extra six
+    # days costs a fraction of a cent — and a quiet slot keeps this out of the
+    # way of anything a person is watching.
+    - cron: '20 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: 'Layers unopened this long are deleted'
+        type: string
+        default: '90'
+      warn_days:
+        description: 'Layers unopened this long are warned (must be less than retention)'
+        type: string
+        default: '75'
+      dry_run:
+        description: 'true = report only, false = actually delete'
+        type: choice
+        options: ['true', 'false']
+        default: 'true'
+
+jobs:
+  expire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Sweep
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RETENTION_DAYS: ${{ inputs.retention_days || '90' }}
+          WARN_DAYS: ${{ inputs.warn_days || '75' }}
+          # The scheduled run acts; a hand-run reports unless told otherwise.
+          # A sweep that only ever reported would be a policy nobody enforces.
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: python tools/expire_layers.py
