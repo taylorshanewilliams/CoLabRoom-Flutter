@@ -281,10 +281,27 @@ def parse_diagnosis(text: str) -> dict:
     low confidence is far better than dropping a real production failure
     because the wrapper didn't parse.
     """
-    match = re.search(r"```json\s*(.+?)\s*```", text, re.DOTALL)
-    candidate = match.group(1) if match else text.strip()
-    try:
-        parsed = json.loads(candidate)
+    # Decoded from the first brace rather than pulled out of a fence.
+    #
+    # This used to match ```json ... ``` non-greedily, which fails on exactly
+    # the replies worth reading: `body` is markdown, useful markdown contains
+    # fenced code blocks, and a non-greedy match therefore ends at the first
+    # *inner* fence and truncates the JSON mid-string. Every issue this agent
+    # has filed was filed as "unstructured diagnosis" with a perfectly good
+    # diagnosis pasted underneath it. The failure was in the wrapper, and it
+    # read as a failure of the model.
+    #
+    # raw_decode reads exactly one complete JSON value and ignores whatever
+    # follows it, so a closing fence, a trailing sentence, or nested fences
+    # all cost nothing. Each opening brace is tried in turn, so prose before
+    # the JSON is survivable too.
+    decoder = json.JSONDecoder()
+    start = text.find("{")
+    while start != -1:
+        try:
+            parsed, _ = decoder.raw_decode(text, start)
+        except json.JSONDecodeError:
+            parsed = None
         if isinstance(parsed, dict) and parsed.get("body"):
             return {
                 "title": str(parsed.get("title") or "Untitled analysis failure")[:80],
@@ -292,8 +309,7 @@ def parse_diagnosis(text: str) -> dict:
                 "severity": str(parsed.get("severity") or "minor"),
                 "body": str(parsed["body"]),
             }
-    except json.JSONDecodeError:
-        pass
+        start = text.find("{", start + 1)
     return {
         "title": "Analysis failure (unstructured diagnosis)",
         "confidence": "low",
