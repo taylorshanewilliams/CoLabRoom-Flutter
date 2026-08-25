@@ -11,3 +11,24 @@ linter:
     avoid_print: true
     prefer_final_locals: true
     use_super_parameters: true
+
+    # Correctness, not style. Every rule below has already cost this project
+    # something the analyzer could have found for free.
+    #
+    # use_build_context_synchronously: a modal opened from initState read
+    # localizations off a context that was not mounted yet, threw before its
+    # own first await, and left the Studio spinning at 2% with no error. The
+    # analyzer can see that shape.
+    #
+    # unawaited_futures: the same bug was invisible rather than merely broken
+    # because the failing future was discarded. This codebase already marks
+    # deliberate fire-and-forget with unawaited(), so the rule mostly just
+    # enforces a convention that is already being followed by hand.
+    #
+    # cancel_subscriptions / close_sinks: the audio players hold stream
+    # subscriptions across screens, and a leaked one fires setState on a
+    # disposed State.
+    use_build_context_synchronously: true
+    unawaited_futures: true
+    cancel_subscriptions: true
+    close_sinks: true
