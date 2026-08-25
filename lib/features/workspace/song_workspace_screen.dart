@@ -267,6 +267,42 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     final room = controller.roomForProject(project.id);
     final authorColorValue = _authorColorFor(room).toARGB32();
     final count = lines.length > contributions.length ? lines.length : contributions.length;
+
+    // Everything below maps a line to a contribution by position, which is
+    // only true while this editor's picture of the song still matches the
+    // server's. It stops being true the moment a bandmate adds a line: the
+    // editor refuses to hydrate while somebody is typing, so `lines` can be
+    // an older document than `contributions`, and reconciling one against the
+    // other by index writes the stale one over the fresh one — silently.
+    //
+    // Concretely, with a bandmate appending line 21 to a 20-line song: index
+    // 20 has a contribution and no line, so the old code deleted theirs. With
+    // an insert at the top, every body shifts by one and the colour beside
+    // each line ends up belonging to the wrong person.
+    //
+    // So: compare what the editor was last shown against what is there now.
+    final seen = _continuousController.viewOfServer;
+    final current = contributions.map((line) => line.id).toList(growable: false);
+    // Empty means this editor has never hydrated, so there is nothing to
+    // verify against — not that the song was empty. Skip the check rather
+    // than refuse a legitimate first save.
+    if (seen.isNotEmpty) {
+      final prefix = current.take(seen.length).toList(growable: false);
+      final sameOrder = prefix.length == seen.length &&
+          List.generate(seen.length, (i) => prefix[i] == seen[i]).every((match) => match);
+      if (!sameOrder) {
+        // Lines were inserted, removed or reordered underneath this editor.
+        // Position no longer identifies anything, so any write here is a
+        // guess — and a wrong guess overwrites somebody's words. Refusing
+        // costs this save; guessing costs their work.
+        throw const SongSaveFailure(
+          'Someone else changed this song while you were writing. '
+          'Reopen it to get their version — your words are still on screen.',
+          permanent: true,
+        );
+      }
+    }
+
     try {
       for (var i = 0; i < count; i += 1) {
         final hasLine = i < lines.length;
@@ -289,6 +325,12 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
             position: basePosition + 1024 * (i - contributions.length + 1),
           );
         } else {
+          // Past the end of what this editor was ever shown. The prefix check
+          // above proves the shared part still lines up, so anything beyond it
+          // arrived from somebody else after this document was last hydrated —
+          // and nobody can have meant to delete a line they have never seen.
+          // Their work simply stays.
+          if (seen.isNotEmpty && i >= seen.length) continue;
           await controller.repository.deleteContribution(contributions[i]);
         }
       }
@@ -318,6 +360,17 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       // with one about the reload that followed it.
       try {
         await controller.load();
+        // This save just created and deleted rows, so the ids the editor was
+        // hydrated with are already out of date. Without re-recording them,
+        // the guard above would refuse the *next* save over changes this very
+        // editor made — turning a protection against losing other people's
+        // work into an obstacle to doing your own.
+        final refreshed = controller.projectById(widget.projectId);
+        if (refreshed != null && mounted) {
+          _continuousController.noteServerOrder(
+            refreshed.contributions.map((line) => line.id),
+          );
+        }
       } catch (_) {}
     }
   }

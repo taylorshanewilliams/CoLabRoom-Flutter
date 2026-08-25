@@ -66,6 +66,22 @@ class ContinuousSongEditorController {
   String? _projectId;
   String _lastHydratedText = '';
 
+  /// The contribution ids, in order, that the text on screen was built from.
+  ///
+  /// The save path reconciles lines to contributions **by position**, which is
+  /// only correct while the editor's picture of the document still matches the
+  /// server's. It stops matching the moment a bandmate adds a line, because
+  /// [syncProject] deliberately refuses to hydrate while somebody is typing —
+  /// nobody wants text replaced mid-sentence. Without a record of what this
+  /// editor actually saw, that stale picture gets written over the fresh one,
+  /// and from the save path's side it is indistinguishable from an edit.
+  List<String> _viewOfServer = const <String>[];
+
+  /// What the editor believes the server's line order is. Empty before the
+  /// first hydrate, which callers must read as "unknown" rather than
+  /// "the song has no lines".
+  List<String> get viewOfServer => List<String>.unmodifiable(_viewOfServer);
+
   void syncProject(SongProject project, {bool force = false}) {
     final next = project.contributions
         .map((line) => displayContributionBody(line.body))
@@ -74,6 +90,7 @@ class ContinuousSongEditorController {
     if (!force && _projectId == project.id && text.text != _lastHydratedText) return;
     _projectId = project.id;
     _lastHydratedText = next;
+    _viewOfServer = project.contributions.map((line) => line.id).toList(growable: false);
     if (text.text == next) return;
     text.value = TextEditingValue(
       text: next,
@@ -83,6 +100,17 @@ class ContinuousSongEditorController {
 
   void markSaved() {
     _lastHydratedText = text.text;
+  }
+
+  /// Records the server's line order straight after a save lands.
+  ///
+  /// A save creates and deletes rows, so the ids the editor hydrated with are
+  /// stale the instant one succeeds — and comparing against them would then
+  /// refuse the *next* save over changes this very editor made. Kept separate
+  /// from [syncProject] because that one also replaces the text, which is
+  /// exactly what must not happen to somebody still typing.
+  void noteServerOrder(Iterable<String> contributionIds) {
+    _viewOfServer = List<String>.unmodifiable(contributionIds);
   }
 
   void insertDictation(String words) {
