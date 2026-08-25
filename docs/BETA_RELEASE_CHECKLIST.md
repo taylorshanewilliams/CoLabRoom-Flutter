@@ -67,13 +67,14 @@
       A code-level screen-reader audit is done — every icon-only button and
       tappable region checked, not sampled. 3 real gaps found and fixed
       (password-visibility toggle, Studio preview play/pause, cowork send —
-      all missing a `tooltip`). One real gap found and deliberately *not*
-      quick-fixed: the voice-note bullet rail
-      (`continuous_song_editor.dart`) is a `CustomPaint` with no semantic
-      content at all — tapping a line's dot to add a voice note is
-      currently invisible to a screen reader, and fixing it properly means
-      generating per-line semantic nodes matched to dynamic hit-test
-      positions, not a one-line patch. Two more small refinements, not
+      all missing a `tooltip`). The one real gap deliberately *not* quick-fixed at the time — the
+      voice-note bullet rail (`continuous_song_editor.dart`), a `CustomPaint`
+      with no semantic content, where tapping a line's dot to add a voice note
+      was invisible to a screen reader — is now fixed. Each line has a real
+      button over the painted rail, positioned from the same metrics the
+      painter uses, labelled with the line number, an excerpt of its words,
+      and its actual state.
+      Two more small refinements, not
       gaps: the tap-to-rename song/room titles and tap-to-place-a-chord
       targets read their visible text fine, but don't announce *what*
       double-tapping does. None of this substitutes for an actual pass with

@@ -23,6 +23,7 @@ on:
           - usage-per-analysis
           - storage-footprint
           - who-pays-per-room
+          - migration-drift
           - custom
       sql:
         description: 'SQL to run when preset is "custom" (single statement, read-only)'
@@ -114,6 +115,45 @@ jobs:
             ) filter (where service = 'storage'))::numeric / 1048576.0, 1) as median_mb_per_song,
             round(sum(bytes) filter (where service = 'storage') / 1073741824.0, 3) as total_gb_stored
           from public.usage_events;
+          SQL
+          elif [ "$PRESET" = "migration-drift" ]; then
+            # Whether the schema in production matches the migrations in this
+            # repo. There is no ledger to consult: these were applied by hand
+            # through the dashboard before apply-migration.yml existed, so
+            # `supabase_migrations.schema_migrations` does not reflect reality
+            # and cannot be trusted to. Each row below therefore checks for
+            # the *effect* of one migration rather than a record of it.
+            #
+            # This matters more than it sounds. A migration sitting unapplied
+            # produces no error anywhere — it produces a feature that quietly
+            # does not work. 0033 is the example: every insert into
+            # contributions was refused for as long as it went unapplied,
+            # which is to say nobody could add a line to a song, and the only
+            # signal was two rows in analysis_errors.
+            #
+            # Any `false` here is a migration to apply. Add a row whenever a
+            # migration lands.
+            cat > /tmp/query.sql <<'SQL'
+          select '0028 usage_events' as migration,
+                 to_regclass('public.usage_events') is not null as applied
+          union all select '0029 resumable job id',
+            exists(select 1 from information_schema.columns where table_schema='public' and table_name='studio_drafts' and column_name like '%job%')
+          union all select '0030 cache key includes pipeline',
+            exists(select 1 from information_schema.key_column_usage k join information_schema.table_constraints c on c.constraint_name=k.constraint_name where c.table_name='analysis_cache' and c.constraint_type='PRIMARY KEY' and k.column_name='pipeline_version')
+          union all select '0031 account_limits', to_regclass('public.account_limits') is not null
+          union all select '0032 project_events', to_regclass('public.project_events') is not null
+          union all select '0033 notify_project_update has no min(uuid)',
+            coalesce((select position('min(project_id)' in pg_get_functiondef(p.oid))=0 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='notify_project_update' limit 1), false)
+          union all select '0034 feedback.screenshot_path',
+            exists(select 1 from information_schema.columns where table_schema='public' and table_name='feedback' and column_name='screenshot_path')
+          union all select '0034 feedback-screenshots bucket',
+            exists(select 1 from storage.buckets where id='feedback-screenshots')
+          union all select '0035 notification_type analysis_ready',
+            exists(select 1 from pg_enum e join pg_type t on t.oid=e.enumtypid where t.typname='notification_type' and e.enumlabel='analysis_ready')
+          union all select '0036 notify_analysis_ready',
+            exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='notify_analysis_ready')
+          union all select '0037 analysis_cache.transcript',
+            exists(select 1 from information_schema.columns where table_schema='public' and table_name='analysis_cache' and column_name='transcript');
           SQL
           elif [ "$PRESET" = "storage-footprint" ]; then
             # What is being stored, how old it is, and what it would cost to
