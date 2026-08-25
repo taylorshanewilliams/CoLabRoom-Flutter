@@ -442,7 +442,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       return;
     }
     if (action == _SongMenuAction.color) {
-      _showColorPicker();
+      await _showColorPicker();
       return;
     }
     if (action == _SongMenuAction.invite) {
@@ -596,7 +596,14 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                                   return;
                                 }
                               }
-                              if (mounted) Navigator.pop(sheetContext);
+                              // sheetContext.mounted, not this State's.
+                              // They are different lifetimes: the sheet can
+                              // be dismissed while the workspace behind it is
+                              // very much alive, and popping a dead sheet's
+                              // context then takes the *song* off the stack
+                              // instead — you set a colour and get thrown out
+                              // of the song you were writing.
+                              if (sheetContext.mounted) Navigator.pop(sheetContext);
                             },
                       customBorder: const CircleBorder(),
                       child: Container(

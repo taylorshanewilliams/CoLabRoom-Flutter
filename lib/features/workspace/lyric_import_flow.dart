@@ -20,11 +20,22 @@ Future<List<ContributionDraft>?> showLyricImportFlow(BuildContext context) async
   );
   if (source == null || !context.mounted) return null;
 
-  final draft = switch (source) {
-    _ImportSource.file => await _pickLyricFile(),
-    _ImportSource.googleSheet => await _importGoogleSheet(context),
-    _ImportSource.paste => await _pasteLyrics(context),
-  };
+  // A statement switch rather than an expression, only because the analyzer
+  // cannot see that switch-expression arms are alternatives. In the
+  // expression form it treats `await _pickLyricFile()` in the first arm as an
+  // async gap preceding the other two arms' use of `context`, and reports a
+  // context-across-async-gap that cannot happen — exactly one arm ever runs,
+  // and the mounted check is the line above. Written this way each arm is its
+  // own path from that check, which is both true and provable.
+  final LyricImportDraft? draft;
+  switch (source) {
+    case _ImportSource.file:
+      draft = await _pickLyricFile();
+    case _ImportSource.googleSheet:
+      draft = await _importGoogleSheet(context);
+    case _ImportSource.paste:
+      draft = await _pasteLyrics(context);
+  }
   if (draft == null || !context.mounted) return null;
   return _reviewImport(context, draft);
 }

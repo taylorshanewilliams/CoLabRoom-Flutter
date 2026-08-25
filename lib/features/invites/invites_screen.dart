@@ -15,6 +15,9 @@ class InvitesScreen extends StatelessWidget {
       builder: (_) => const _JoinCodeDialog(),
     );
     if (code == null) return;
+    // The dialog is an await, so this context may be gone by the time it
+    // returns — _runInviteAction shows snackbars through it.
+    if (!context.mounted) return;
     await _runInviteAction(
       context,
       () => controller.acceptInvite(code: code),

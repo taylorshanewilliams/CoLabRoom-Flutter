@@ -328,6 +328,10 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     try {
       final bytes = await file.readAsBytes();
       if (bytes.isEmpty) throw Exception('ColabRoom could not read that image.');
+      // Reading a large photo is its own async gap, and the check above
+      // happened before it. Leaving the room while a cover decodes would
+      // otherwise reach BetaScope through a dead element.
+      if (!mounted) return;
       await BetaScope.of(context).setProjectCover(project, bytes);
     } catch (error) {
       if (mounted) _showMessage(error.toString());
