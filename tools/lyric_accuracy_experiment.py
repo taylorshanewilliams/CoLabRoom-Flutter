@@ -30,6 +30,7 @@ Environment:
 
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
@@ -86,20 +87,49 @@ def words_of(text: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", stripped)
 
 
-def word_error_rate(reference: list[str], hypothesis: list[str]) -> float:
-    """Levenshtein distance over words, divided by the reference length."""
-    if not reference:
-        return 0.0 if not hypothesis else 1.0
-    previous = list(range(len(hypothesis) + 1))
-    for i, ref_word in enumerate(reference, start=1):
-        current = [i]
-        for j, hyp_word in enumerate(hypothesis, start=1):
-            current.append(
-                previous[j - 1] if ref_word == hyp_word
-                else 1 + min(previous[j - 1], previous[j], current[j - 1])
-            )
-        previous = current
-    return previous[-1] / len(reference)
+def line_recall(reference_lines: list[list[str]], hypothesis: list[str]) -> float:
+    """For each written line, how well does it appear anywhere in the transcript.
+
+    Whole-transcript word error rate was the obvious metric and it was the
+    wrong one. A lyric sheet writes each chorus once; the recording sings it
+    three times, so a correct transcript is legitimately two or three times
+    longer than the reference and every extra repeat counts as an insertion.
+    That produced error rates above 100% on four of five songs and, worse,
+    ranked the engines by how *little* they transcribed — the one that heard
+    fewest words came out best, which is precisely backwards.
+
+    Asking the question per line fixes it. A repeated chorus matches wherever
+    it appears, extra material in the transcript costs nothing, and
+    transcribing less earns nothing because every line still has to be found.
+    A short window slides across the transcript looking for the best match,
+    slightly wider than the line so a stray inserted word does not sink it.
+    """
+    if not reference_lines:
+        return 0.0
+    if not hypothesis:
+        return 0.0
+    scores: list[float] = []
+    for line in reference_lines:
+        if not line:
+            continue
+        width = min(len(hypothesis), len(line) + 3)
+        best = 0.0
+        for start in range(0, max(1, len(hypothesis) - width + 1)):
+            window = hypothesis[start:start + width]
+            # Matched words over line length, not SequenceMatcher.ratio().
+            # ratio() divides by the combined length of both sides, so the
+            # window being deliberately wider than the line caps a perfect
+            # match at about 73% — which would have made every engine look
+            # worse than it is, by a margin that varies with line length.
+            matcher = difflib.SequenceMatcher(a=line, b=window, autojunk=False)
+            matched = sum(block.size for block in matcher.get_matching_blocks())
+            score = min(matched, len(line)) / len(line)
+            if score > best:
+                best = score
+            if best >= 0.999:
+                break
+        scores.append(best)
+    return sum(scores) / len(scores) if scores else 0.0
 
 
 def openai_transcribe(api_key: str, path: str, model: str) -> str | None:
@@ -226,16 +256,17 @@ def main() -> int:
             f"&order=position.asc",
             headers=rest,
         ) or []
-        truth = " ".join(
-            row["body"] for row in lines
+        truth_lines = [
+            words_of(row["body"]) for row in lines
             if row.get("body") and not SECTION_LINE.match(row["body"])
-        )
+        ]
+        truth_lines = [line for line in truth_lines if line]
         file_row = request(
             f"{supabase_url}/rest/v1/files?select=storage_path&id=eq.{ref['file_id']}",
             headers=rest,
         ) or []
-        if vocals and words_of(truth) and file_row:
-            songs.append((pid, vocals, file_row[0]["storage_path"], truth))
+        if vocals and truth_lines and file_row:
+            songs.append((pid, vocals, file_row[0]["storage_path"], truth_lines))
 
     if not songs:
         print("No songs found with both written lyrics and a vocals stem.")
@@ -244,11 +275,10 @@ def main() -> int:
     print(f"Scoring {len(songs)} song(s) against the lyrics in the workspace.")
     print("Scores only — no lyrics or transcripts are printed; this log is public.")
     print()
-    print(f"  {'song':<10} {'engine':<20} {'ref words':>9} {'heard':>7} {'WER':>8}")
+    print(f"  {'song':<10} {'engine':<20} {'lines':>6} {'heard':>7} {'line recall':>12}")
 
     totals: dict[str, list[float]] = {}
-    for pid, vocal_path, reference_path, truth in songs:
-        ref_words = words_of(truth)
+    for pid, vocal_path, reference_path, truth_lines in songs:
         with tempfile.TemporaryDirectory() as tmp:
             local = os.path.join(tmp, "vocals.mp3")
             req = urllib.request.Request(
@@ -284,19 +314,19 @@ def main() -> int:
             if text is None:
                 continue
             heard = words_of(text)
-            wer = word_error_rate(ref_words, heard)
-            totals.setdefault(engine, []).append(wer)
-            print(f"  {pid[:8]:<10} {engine:<20} {len(ref_words):>9} {len(heard):>7} {wer:>7.1%}")
+            recall = line_recall(truth_lines, heard)
+            totals.setdefault(engine, []).append(recall)
+            print(f"  {pid[:8]:<10} {engine:<20} {len(truth_lines):>6} {len(heard):>7} {recall:>11.1%}")
         print()
 
-    print("  Mean word error rate, lower is better:")
-    for engine, scores in sorted(totals.items(), key=lambda kv: sum(kv[1]) / len(kv[1])):
+    print("  Mean line recall, higher is better:")
+    for engine, scores in sorted(totals.items(), key=lambda kv: -sum(kv[1]) / len(kv[1])):
         print(f"    {engine:<20} {sum(scores) / len(scores):>7.1%}   ({len(scores)} song(s))")
     print()
-    print("  Caveat worth keeping: a written sheet is not a perfect reference")
-    print("  either. It omits ad-libs, and repeats a chorus a fixed number of")
-    print("  times where the take may differ — both of which cost every engine")
-    print("  equally, so the ranking holds even where the absolute numbers do not.")
+    print("  Caveat: a written sheet still is not a perfect reference. It omits")
+    print("  ad-libs and improvised lines, so no engine should be expected to")
+    print("  reach 100%. What this does measure fairly is whether the words the")
+    print("  writer actually wrote were heard, which is the question that matters.")
     return 0
 
 
