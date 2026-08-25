@@ -48,7 +48,25 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
   @override
   void initState() {
     super.initState();
-    unawaited(widget.draft.state == SongAnalysisState.ready ? _refresh() : _runAnalysis());
+    if (widget.draft.state == SongAnalysisState.ready) {
+      unawaited(_refresh());
+      return;
+    }
+    // One frame later, deliberately.
+    //
+    // _runAnalysis opens the depth sheet as its very first act, and opening
+    // a modal route reads Theme and MaterialLocalizations off this context —
+    // which initState may not do, because the element is not mounted yet.
+    // Called from here it threw before reaching its own first `await`, so
+    // the exception escaped past every catch inside _runAnalysis, was
+    // swallowed by `unawaited`, and left _working true forever: the ring sat
+    // at the 2% it was constructed with and nothing ever said why.
+    //
+    // Every new Studio recording took this path, which is the whole "analyze
+    // a fresh idea" flow.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_runAnalysis());
+    });
   }
 
   Future<void> _renameSection(StudioDraft draft, String label, String? name) async {
@@ -83,8 +101,25 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
   Future<void> _runAnalysis() async {
     // Asked before anything starts — see showAnalysisDepthSheet. Dismissing
     // leaves the idea unanalyzed rather than quietly picking one.
-    final depth = await showAnalysisDepthSheet(context, title: 'Analyze this idea');
-    if (depth == null || !mounted) {
+    //
+    // Guarded because everything below reports its failures into _error and
+    // this did not: a throw here left the screen spinning with no message,
+    // which is a worse outcome than any analysis failure it could report.
+    AnalysisDepth? depth;
+    try {
+      depth = await showAnalysisDepthSheet(context, title: 'Analyze this idea');
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _working = false;
+        _error = 'Could not open the analysis options: $error';
+      });
+      return;
+    }
+    // Checked before setState rather than alongside it — a disposed State
+    // that calls setState throws, turning a cancelled sheet into a crash.
+    if (!mounted) return;
+    if (depth == null) {
       setState(() => _working = false);
       return;
     }
