@@ -25,9 +25,19 @@ class LatencyProbe {
 
   static const int sampleRate = 44100;
 
-  /// How long each marker lasts. Long enough to survive a noisy room, short
-  /// enough that its position is a moment rather than a smear.
-  static const Duration markerLength = Duration(milliseconds: 12);
+  /// How long each marker lasts.
+  ///
+  /// 32ms rather than the 12ms this started at, because the length is what
+  /// separates a real detection from a lucky one. Correlation against random
+  /// noise scatters around zero with a spread of roughly 1/sqrt(length), so a
+  /// longer marker lowers the floor a false match has to clear while the true
+  /// peak stays exactly where it is. At 12ms an empty room could reach 0.20
+  /// against a genuine match's 0.5, which is not enough daylight to put a
+  /// threshold in; at 32ms the floor drops to about 0.12.
+  ///
+  /// It does not blur the answer. A sweep's correlation peak is a spike
+  /// whatever its duration — that is the property being bought.
+  static const Duration markerLength = Duration(milliseconds: 32);
 
   /// The gap between the two markers in the calibration signal.
   ///
@@ -115,7 +125,8 @@ class LatencyProbe {
     Float64List needle, {
     int searchFrom = 0,
     int? searchTo,
-    double minimumConfidence = 3.0,
+    double minimumPeak = 0.25,
+    double minimumProminence = 4.0,
   }) {
     if (needle.isEmpty || haystack.length < needle.length) return null;
     final lastLag = math.min(
@@ -140,10 +151,9 @@ class LatencyProbe {
       windowEnergy += haystack[i] * haystack[i];
     }
 
-    var bestLag = -1;
+    final scores = Float64List(lastLag - firstLag + 1);
     var bestScore = 0.0;
     var scoreSum = 0.0;
-    var scoreCount = 0;
 
     for (var lag = firstLag; lag <= lastLag; lag += 1) {
       var dot = 0.0;
@@ -152,12 +162,9 @@ class LatencyProbe {
       }
       final norm = math.sqrt(windowEnergy) * needleNorm;
       final score = norm > 0 ? dot.abs() / norm : 0.0;
+      scores[lag - firstLag] = score;
       scoreSum += score;
-      scoreCount += 1;
-      if (score > bestScore) {
-        bestScore = score;
-        bestLag = lag;
-      }
+      if (score > bestScore) bestScore = score;
       if (lag < lastLag) {
         windowEnergy -= haystack[lag] * haystack[lag];
         final entering = haystack[lag + needle.length];
@@ -165,15 +172,48 @@ class LatencyProbe {
       }
     }
 
-    if (bestLag < 0 || scoreCount == 0) return null;
-    final mean = scoreSum / scoreCount;
-    // How far the winner stands above the average of everything else. A real
-    // marker towers over the room; a room with no marker in it produces a
-    // winner barely above its own noise floor, and that is the case this has
-    // to refuse rather than report as a very confident zero.
-    final confidence = mean > 0 ? bestScore / mean : 0.0;
-    if (confidence < minimumConfidence) return null;
-    return ProbeMatch(offsetSamples: bestLag, confidence: confidence, peak: bestScore);
+    final mean = scoreSum / scores.length;
+    final prominence = mean > 0 ? bestScore / mean : 0.0;
+    // Two thresholds, because they catch different lies. The absolute peak
+    // asks whether this really looks like the marker; the prominence asks
+    // whether it stands out from its surroundings. A recording of a steady
+    // hum can score respectably everywhere and clear the first alone.
+    if (bestScore < minimumPeak || prominence < minimumProminence) return null;
+
+    // The *first* peak that is convincingly the marker, not the highest one.
+    //
+    // The calibration signal contains the same marker twice, deliberately, so
+    // two lags score almost identically and which of them wins is decided by
+    // room noise. Taking the global maximum therefore returned the second
+    // marker about as often as the first — and the failure was worse than
+    // random, because a run that happened to pick the first looked like
+    // proof the code was right.
+    //
+    // Anything within a whisker of the best is the marker; the earliest such
+    // lag is the one being asked for.
+    // 0.85 rather than something tighter, because the two markers never score
+    // exactly alike — room noise decides which is fractionally higher, and a
+    // threshold close to 1.0 would reject the first marker precisely when the
+    // second happened to win.
+    final acceptable = bestScore * 0.85;
+    for (var i = 0; i < scores.length; i += 1) {
+      if (scores[i] < acceptable) continue;
+      // Crossing the threshold happens on the peak's rising edge, a few
+      // samples before its summit. Climbing to the local maximum recovers
+      // those samples. Bounded by the marker's own length, which cannot reach
+      // the next marker a full second away.
+      var peakAt = i;
+      final limit = math.min(scores.length - 1, i + needle.length);
+      for (var j = i; j <= limit; j += 1) {
+        if (scores[j] > scores[peakAt]) peakAt = j;
+      }
+      return ProbeMatch(
+        offsetSamples: firstLag + peakAt,
+        confidence: prominence,
+        peak: scores[peakAt],
+      );
+    }
+    return null;
   }
 
   /// Both markers, read out of one recording.
@@ -291,9 +331,9 @@ class ProbeMatch {
 
   final int offsetSamples;
 
-  /// The winning score over the average score. Above about 3 means the marker
-  /// is really there; near 1 means nothing was found and the position is
-  /// whatever the loudest noise happened to be.
+  /// How far the best score stands above the average score. Near 1 means
+  /// nothing was found and the position is wherever the loudest noise
+  /// happened to be.
   final double confidence;
 
   /// The winning normalised correlation itself, 0 to 1.
