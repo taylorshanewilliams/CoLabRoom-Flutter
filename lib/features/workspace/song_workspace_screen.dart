@@ -25,6 +25,7 @@ import 'continuous_song_editor.dart';
 import 'cowork_panel.dart';
 import 'live_performance_screen.dart';
 import 'lyric_import_flow.dart';
+import '../layers/song_layers_screen.dart';
 import 'song_analysis_screen.dart';
 
 enum _VoiceNoteAction { play, rerecord, delete }
@@ -426,6 +427,23 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   /// Opens the analysis screen — the chord/lyric/stem breakdown of this
   /// song's recording. [autoRecord] jumps straight into capturing a new take
   /// rather than landing on the summary.
+  /// Deliberately not routed through the analyzer.
+  ///
+  /// Adding a part to a song costs a fraction of a cent and is meant to stay
+  /// free; analysis costs GPU and is where the money eventually is. Putting
+  /// layers inside Analyze would have made them read as part of the paid
+  /// thing, and a feature inherits the meaning of wherever it lives.
+  Future<void> _openLayers(SongProject project) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SongLayersScreen(
+          projectId: project.id,
+          songTitle: project.title,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openAnalysis(SongProject project, {bool autoRecord = false}) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -951,6 +969,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                   Navigator.maybePop(context);
                 },
                 onRename: () => _rename(project),
+                onOpenLayers: () => _openLayers(project),
                 onOpenLive: () => _openLivePerformance(project),
                 onExport: (action) => _exportSong(project, action),
                 hasRecording: _analysisBundle?.reference != null,
@@ -971,6 +990,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     onExport: (action) => _exportSong(project, action),
                   ),
                   _WorkspaceToolbar(
+                    onOpenLayers: () => _openLayers(project),
                     onOpenLive: () => _openLivePerformance(project),
                     onAnalyze: () => _openAnalysis(project),
                     onRecord: () => _openAnalysis(project, autoRecord: true),
@@ -1135,6 +1155,7 @@ class _LandscapeWorkspace extends StatelessWidget {
     required this.room,
     required this.onBack,
     required this.onRename,
+    required this.onOpenLayers,
     required this.onOpenLive,
     required this.onExport,
     required this.hasRecording,
@@ -1148,6 +1169,7 @@ class _LandscapeWorkspace extends StatelessWidget {
   final MusicRoom room;
   final VoidCallback onBack;
   final VoidCallback onRename;
+  final VoidCallback onOpenLayers;
   final VoidCallback onOpenLive;
   final ValueChanged<_SongMenuAction> onExport;
   final bool hasRecording;
@@ -1195,9 +1217,15 @@ class _LandscapeWorkspace extends StatelessWidget {
                   ),
                 ),
               ),
-              // Same three verbs as portrait's toolbar, as icons to fit the
+              // The same verbs as portrait's toolbar, as icons to fit the
               // shorter landscape bar — and reaching the same callbacks, so
               // the two orientations can't drift apart in what they offer.
+              IconButton(
+                key: const Key('workspace_layers_button'),
+                onPressed: onOpenLayers,
+                tooltip: 'Parts of this song',
+                icon: const Icon(Icons.layers_outlined, size: 19, color: AppColors.muted),
+              ),
               IconButton(
                 key: const Key('workspace_analyze_button'),
                 onPressed: onAnalyze,
@@ -1308,6 +1336,7 @@ class _RoomMark extends StatelessWidget {
 
 class _WorkspaceToolbar extends StatelessWidget {
   const _WorkspaceToolbar({
+    required this.onOpenLayers,
     required this.onOpenLive,
     required this.hasRecording,
     required this.onAnalyze,
@@ -1316,6 +1345,7 @@ class _WorkspaceToolbar extends StatelessWidget {
     required this.othersHere,
   });
 
+  final VoidCallback onOpenLayers;
   final VoidCallback onOpenLive;
   final bool hasRecording;
   final VoidCallback onAnalyze;
@@ -1341,6 +1371,15 @@ class _WorkspaceToolbar extends StatelessWidget {
         active: hasRecording,
         activeColor: AppColors.gold,
         onTap: onAnalyze,
+      ),
+      // A first-class verb, beside Analyze rather than inside it. Songs are
+      // words and sound; the editor behind this toolbar holds the words.
+      _ToolPill(
+        key: const Key('workspace_layers_button'),
+        icon: Icons.layers_outlined,
+        label: 'Parts',
+        active: false,
+        onTap: onOpenLayers,
       ),
       _ToolPill(
         key: const Key('workspace_record_button'),
