@@ -153,7 +153,13 @@ jobs:
           union all select '0036 notify_analysis_ready',
             exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='notify_analysis_ready')
           union all select '0037 analysis_cache.transcript',
-            exists(select 1 from information_schema.columns where table_schema='public' and table_name='analysis_cache' and column_name='transcript');
+            exists(select 1 from information_schema.columns where table_schema='public' and table_name='analysis_cache' and column_name='transcript')
+          union all select '0038 song_layers',
+            to_regclass('public.song_layers') is not null
+          union all select '0038 layer RLS is on',
+            coalesce((select relrowsecurity from pg_class where oid = to_regclass('public.song_layers')), false)
+          union all select '0038 layer notify trigger',
+            exists(select 1 from pg_trigger where tgname = 'song_layers_notify_added');
           SQL
           elif [ "$PRESET" = "storage-footprint" ]; then
             # What is being stored, how old it is, and what it would cost to
