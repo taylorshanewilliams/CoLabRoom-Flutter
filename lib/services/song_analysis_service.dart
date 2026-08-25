@@ -915,20 +915,31 @@ class SongAnalysisService {
       // pipeline outage both still get lyrics.
       final inlineTranscript = chordResult['transcript'];
       final rejected = chordResult['transcriptRejected'] as String?;
+      // Not thrown. The catch below wraps whatever reaches it in
+      // "Could not transcribe... Details: $error", and a StateError stringifies
+      // with a "Bad state:" prefix — so throwing here would have shown a
+      // musician a Dart exception name inside a sentence written for them.
+      // This is an expected outcome with a known cause, not an error.
+      //
+      // Deliberately not retried against the paid API either: this is the
+      // failure where a model returns confident nonsense, and the recovery
+      // that actually works is re-running the analysis — which only stays
+      // useful because nothing cached the rejection as though it were an
+      // answer.
+      if (rejected != null) {
+        const note = 'The words came back garbled rather than sung — this '
+            'happens occasionally on a hard recording. Chords and structure '
+            'are unaffected; run the analysis again to retry the lyrics.';
+        lyricsWarning = lyricsWarning == null ? note : '$lyricsWarning\n\n$note';
+        await _reporter.reportWarning(
+          service: 'analysis',
+          stage: 'lyrics',
+          message: 'Transcript rejected by the hallucination guard: $rejected',
+          projectId: project.id,
+        );
+      }
       try {
-        if (rejected != null) {
-          // Deliberately not retried against the paid API. This is the
-          // failure where the model returns confident nonsense, and the
-          // recovery a musician actually has is to re-run the analysis — an
-          // option that only stays useful because nothing cached the
-          // rejection as though it were an answer.
-          throw StateError(
-            'The words came back garbled rather than sung — this happens '
-            'occasionally on a hard recording. Chords and structure are '
-            'unaffected; re-run the analysis to try the lyrics again. '
-            '(Reason: $rejected)',
-          );
-        }
+        if (rejected != null) throw const _TranscriptionSkipped();
         onProgress?.call(SongAnalysisProgress(
           vocalStemPath == null ? 'Listening for the words' : 'Listening to the isolated vocal',
           0.55,
@@ -982,6 +993,10 @@ class SongAnalysisService {
               .toList(growable: false);
           transcriptText = transcriptWords.map((word) => word.word).join(' ');
         }
+      } on _TranscriptionSkipped {
+        // Already reported before the block was entered. Nothing to add,
+        // and deliberately not folded into the catch below: this is an
+        // expected outcome with a known cause, not a failure.
       } catch (error) {
         final note = 'Could not transcribe this recording\'s speech, so only chords were '
             'detected. Details: $error';
@@ -1174,4 +1189,16 @@ class SongAnalysisService {
         .update(<String, dynamic>{'analysis_state': state.name, 'last_error': null})
         .eq('project_id', projectId);
   }
+}
+
+/// Thrown to leave the transcription block early when the guard has already
+/// rejected the transcript, and caught by name immediately below it.
+///
+/// A sentinel rather than a StateError because the general `catch` there
+/// formats whatever reaches it into a sentence a musician reads, and every
+/// real exception type stringifies with a prefix — "Bad state: " — that has
+/// no business appearing inside one. Catching this by name keeps a deliberate
+/// skip out of the path built for genuine failures.
+class _TranscriptionSkipped implements Exception {
+  const _TranscriptionSkipped();
 }

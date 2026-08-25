@@ -505,16 +505,22 @@ class StudioDraftService {
       final inlineTranscript = chordResult['transcript'];
       final rejected = chordResult['transcriptRejected'] as String?;
       final vocalStemPath = chordResult['vocalStemPath'] as String?;
+      // Reported as an outcome rather than thrown — see SongAnalysisService
+      // for why a StateError here would have leaked "Bad state:" into a
+      // sentence written for a musician.
+      if (rejected != null) {
+        const note = 'The words came back garbled rather than sung — this '
+            'happens occasionally on a hard recording. Chords and structure '
+            'are unaffected; run the analysis again to retry the lyrics.';
+        warning = warning == null ? note : '$warning\n\n$note';
+        await _reporter.reportWarning(
+          service: 'studio_analysis',
+          stage: 'lyrics',
+          message: 'Transcript rejected by the hallucination guard: $rejected',
+        );
+      }
       try {
-        if (rejected != null) {
-          // Not retried against the paid API — see SongAnalysisService.
-          throw StateError(
-            'The words came back garbled rather than sung — this happens '
-            'occasionally on a hard recording. Chords and structure are '
-            'unaffected; re-run the analysis to try the lyrics again. '
-            '(Reason: $rejected)',
-          );
-        }
+        if (rejected != null) throw const _TranscriptionSkipped();
         onProgress?.call(const SongAnalysisProgress('Listening to the isolated vocal', 0.55));
         final cloudResult = inlineTranscript is Map
             ? Map<String, dynamic>.from(inlineTranscript)
@@ -549,6 +555,10 @@ class StudioDraftService {
               .toList(growable: false);
           transcriptText = transcriptWords.map((word) => word.word).join(' ');
         }
+      } on _TranscriptionSkipped {
+        // Already reported before the block was entered. Nothing to add,
+        // and deliberately not folded into the catch below: this is an
+        // expected outcome with a known cause, not a failure.
       } catch (error) {
         final note = 'Could not transcribe this recording\'s speech, so only chords were '
             'detected. Details: $error';
@@ -810,4 +820,16 @@ class StudioDraftService {
       promotedProjectId: row['promoted_project_id'] as String?,
     );
   }
+}
+
+/// Thrown to leave the transcription block early when the guard has already
+/// rejected the transcript, and caught by name immediately below it.
+///
+/// A sentinel rather than a StateError because the general `catch` there
+/// formats whatever reaches it into a sentence a musician reads, and every
+/// real exception type stringifies with a prefix — "Bad state: " — that has
+/// no business appearing inside one. Catching this by name keeps a deliberate
+/// skip out of the path built for genuine failures.
+class _TranscriptionSkipped implements Exception {
+  const _TranscriptionSkipped();
 }
