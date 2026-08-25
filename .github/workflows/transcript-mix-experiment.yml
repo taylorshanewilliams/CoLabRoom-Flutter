@@ -1,0 +1,38 @@
+name: Transcript mix experiment
+
+# Does Whisper need the isolated vocal, or is the original recording enough?
+#
+# The remaining unknown behind letting Studio skip separation entirely.
+# Costs two Whisper calls (a few cents) and no GPU — the stems are already
+# in Storage.
+#
+# Needs an OPENAI_API_KEY repo secret. The Edge Function has one, but Edge
+# Function secrets can't be read back out, and transcribe-audio requires a
+# signed-in user JWT — the same reason tools/health_check.py deliberately
+# calls the services directly rather than going through the function.
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Which project to test (blank = first with a vocals stem)'
+        type: string
+        required: false
+        default: ''
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compare raw recording against isolated vocal
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PROJECT_ID: ${{ inputs.project_id }}
+        run: python tools/transcript_mix_experiment.py
