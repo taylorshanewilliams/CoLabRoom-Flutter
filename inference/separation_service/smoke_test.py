@@ -72,7 +72,17 @@ def main() -> int:
         try:
             print("Running the separation handler (CPU)…")
             result = separation.handler(
-                {"input": {"audio_url": f"http://127.0.0.1:{PORT}/smoke.wav", "filename": "smoke.wav"}}
+                {
+                    "input": {
+                        "audio_url": f"http://127.0.0.1:{PORT}/smoke.wav",
+                        "filename": "smoke.wav",
+                        # On, so a broken faster-whisper cannot reach RunPod.
+                        # It defaults off in production, which would otherwise
+                        # mean the one path this test exists to protect is the
+                        # one path it never runs.
+                        "transcribe": True,
+                    }
+                }
             )
         finally:
             server.shutdown()
@@ -122,6 +132,29 @@ def main() -> int:
         failures.append('downbeats_ms should be a list')
     if any(not isinstance(t, int) for t in (beats or [])):
         failures.append('beats_ms should contain integer milliseconds')
+    # Same standard as the beat tracker above: shape, not musicality. The clip
+    # is four sine waves and noise, so an empty transcript is the *correct*
+    # answer — VAD should find no speech in it. What this catches is
+    # faster-whisper failing to import, failing to find its baked-in weights,
+    # or returning something the Edge Function could not parse.
+    transcript = result.get("transcript")
+    if transcript is None:
+        failures.append('transcript missing entirely (transcribe was requested)')
+    elif transcript.get("error"):
+        failures.append(f"transcription raised: {transcript['error']}")
+    else:
+        words = transcript.get("words")
+        if not isinstance(transcript.get("text"), str):
+            failures.append('transcript.text should be a string')
+        if not isinstance(words, list):
+            failures.append('transcript.words should be a list')
+        else:
+            for word in words:
+                if not isinstance(word.get("start_ms"), int) or not isinstance(word.get("end_ms"), int):
+                    failures.append('transcript words need integer millisecond timings')
+                    break
+        print(f"  transcript: {len(words or [])} words, {len(transcript.get('text') or '')} chars")
+
     key = result.get("key")
     if key is not None and not isinstance(key, str):
         failures.append(f"key should be a string or None, got {type(key).__name__}")

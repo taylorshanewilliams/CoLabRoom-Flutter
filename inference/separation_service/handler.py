@@ -553,6 +553,76 @@ def _upload_stem(signed_url: str, file_path: str) -> bool:
         return False
 
 
+# Loaded once and kept, rather than per job. A warm worker handles several
+# jobs, and re-reading 809MB off disk for each one would be a cold start the
+# image was built specifically to avoid. Lazy so importing this module — which
+# the smoke test does — costs nothing.
+_whisper_model = None
+
+
+def _get_whisper():
+    global _whisper_model
+    if _whisper_model is None:
+        from faster_whisper import WhisperModel
+
+        import torch
+
+        on_gpu = torch.cuda.is_available()
+        _whisper_model = WhisperModel(
+            "large-v3-turbo",
+            device="cuda" if on_gpu else "cpu",
+            # float16 on the GPU; int8 on CPU, where float16 is slower than
+            # useless. Demucs has already exited by the time this runs, so the
+            # two models never hold VRAM at the same time.
+            compute_type="float16" if on_gpu else "int8",
+        )
+    return _whisper_model
+
+
+def _transcribe(path: str, prompt: str | None = None) -> dict | None:
+    """Words and their timings, or None if transcription failed outright.
+
+    Runs with Silero VAD in front of it. That is the point of doing this here
+    rather than through the API: Whisper invents fluent speech over passages
+    that contain none, and an instrumental intro is exactly such a passage —
+    one real recording came back with a run of Korean and Arabic numerals
+    before the first line. VAD removes the silence before the decoder ever
+    sees it, so there is nothing to hallucinate over.
+
+    Best-effort like every other detector in this file. Lyrics failing must
+    not take chords and structure down with them.
+    """
+    try:
+        segments, _info = _get_whisper().transcribe(
+            path,
+            word_timestamps=True,
+            vad_filter=True,
+            # Whisper's default of temperature=0 does not mean deterministic —
+            # it escalates temperature on its own when its confidence
+            # thresholds fail, which is the mechanism behind the same file
+            # transcribing correctly one hour and as repeated boilerplate the
+            # next. A single fixed temperature refuses that escalation.
+            temperature=0.0,
+            condition_on_previous_text=False,
+            initial_prompt=prompt,
+        )
+        words = []
+        text_parts = []
+        for segment in segments:
+            text_parts.append(segment.text)
+            for word in (segment.words or []):
+                words.append(
+                    {
+                        "word": word.word,
+                        "start_ms": int(round(word.start * 1000)),
+                        "end_ms": int(round(word.end * 1000)),
+                    }
+                )
+        return {"text": "".join(text_parts).strip(), "words": words}
+    except Exception as error:  # noqa: BLE001 - see docstring
+        return {"error": f"{type(error).__name__}: {error}"}
+
+
 def handler(job):
     job_input = job.get("input", {})
     audio_url = job_input.get("audio_url")
@@ -563,6 +633,12 @@ def handler(job):
     # of this job that runs a *second* source separation. That is roughly half
     # the GPU time, spent on the one result somebody in a hurry doesn't need.
     skip_structure = job_input.get("skip_structure") is True
+    # Off unless asked for. Transcription here is meant to replace a per-minute
+    # API call, but nothing has yet shown this model beats the one it would
+    # replace on real songs — so it ships able to prove that before anything
+    # depends on it.
+    transcribe = job_input.get("transcribe") is True
+    lyrics_hint = job_input.get("lyrics_hint")
     if not audio_url:
         return {"error": "Missing 'audio_url' in input."}
 
@@ -700,8 +776,21 @@ def handler(job):
         if isinstance(mix_upload, str) and mix_upload:
             mix_uploaded = _upload_stem(mix_upload, mix_path)
 
+        # After separation, not before: demucs runs as a subprocess and has
+        # exited by now, so its VRAM is back and the two models never contend.
+        # The vocal stem rather than the original mix, which keeps this change
+        # to one variable — whether a better model helps — instead of also
+        # changing what it listens to, a question ground truth has so far
+        # answered both ways.
+        transcript = None
+        if transcribe:
+            vocal_path = stem_paths.get("vocals")
+            if vocal_path and os.path.exists(vocal_path):
+                transcript = _transcribe(vocal_path, prompt=lyrics_hint)
+
         result = {
             "harmonic_mix_uploaded": mix_uploaded,
+            "transcript": transcript,
             "bpm": bpm,
             "key": musical_key,
             "beats_ms": beat_info["beats_ms"],

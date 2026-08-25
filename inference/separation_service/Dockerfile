@@ -88,6 +88,24 @@ RUN python -c "from allin1_infer.models.loaders import load_pretrained_model; lo
 # which is a different checkpoint from the htdemucs_6s baked in above.
 RUN python -c "from demucs_infer.pretrained import get_model; get_model('htdemucs')"
 
+# Lyrics, on the GPU that is already running rather than a per-minute API.
+#
+# large-v3-turbo rather than large-v3: 809MB on disk against 1.55GB, roughly
+# eight times faster, and 0.2 percentage points of word error rate apart. On
+# an image whose cold start is the single biggest component of this endpoint's
+# latency, half the disk for a rounding error in accuracy is not a close call.
+#
+# faster-whisper runs on CTranslate2, not torch, so it cannot drag a second
+# CUDA stack in the way all-in-one-infer did above. Constrained anyway —
+# defence costs nothing here and that mistake cost 2.7GB.
+RUN pip install --no-cache-dir -c /tmp/torch-constraints.txt faster-whisper     && python -c "import faster_whisper; print('faster_whisper', faster_whisper.__version__)"     && python -c "import torch; assert torch.__version__.startswith('2.3.'), torch.__version__"
+
+# Baked in for the same reason as every other checkpoint above: a cold worker
+# must never pay a model download mid-job. int8 here is only what the download
+# is instantiated with to prove the files are present — the handler picks its
+# own compute type per device.
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('large-v3-turbo', device='cpu', compute_type='int8'); print('large-v3-turbo cached')"
+
 COPY handler.py /app/handler.py
 # Shipped in the image so CI can run the real handler inside the real
 # container before the image is published — the environment differences
