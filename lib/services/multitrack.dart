@@ -1,0 +1,246 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
+
+import 'latency_probe.dart';
+
+/// Layered takes over one another: a riff, then a vocal over it, then a lead
+/// over both.
+///
+/// The whole thing is local audio and arithmetic. No analysis runs, nothing
+/// is uploaded, and no take means anything to the rest of the app until
+/// somebody asks it to — record a riff and it is simply there.
+///
+/// **Why the mix is built here rather than played as separate tracks.**
+/// stem_player_panel.dart plays one stem at a time on purpose: independent
+/// players drift against each other on mobile with no shared clock, and that
+/// drift is exactly what a layered take cannot survive. Summing the takes
+/// into a single file removes the problem instead of managing it — one file
+/// has nothing to drift against. It costs a pass over the samples, which for
+/// a four-minute sketch is a fraction of a second, and it happens while
+/// somebody is deciding what to play next.
+class Multitrack {
+  const Multitrack._();
+
+  static const int rate = LatencyProbe.sampleRate;
+
+  /// Sums [takes] into one signal.
+  ///
+  /// Each take is shifted earlier by its own [Take.offsetMs] — the latency
+  /// correction — and skipped entirely when it is not [Take.enabled], which
+  /// is what makes muting a layer while recording against the rest possible
+  /// without deleting anything.
+  static MixResult mix(List<Take> takes, List<Float64List> audio) {
+    assert(takes.length == audio.length);
+    var longest = 0;
+    final starts = List<int>.filled(takes.length, 0);
+    for (var i = 0; i < takes.length; i += 1) {
+      if (!takes[i].enabled) continue;
+      // A take that came back late is pulled forward, so the first sample
+      // kept is the one that was playing when the backing track started.
+      final skip = math.max(0, (takes[i].offsetMs * rate / 1000).round());
+      starts[i] = skip;
+      longest = math.max(longest, math.max(0, audio[i].length - skip));
+    }
+    if (longest == 0) return MixResult(Float64List(0), peak: 0, scaled: false);
+
+    final out = Float64List(longest);
+    for (var i = 0; i < takes.length; i += 1) {
+      if (!takes[i].enabled) continue;
+      final source = audio[i];
+      final gain = takes[i].gain;
+      final skip = starts[i];
+      final count = math.min(longest, source.length - skip);
+      for (var s = 0; s < count; s += 1) {
+        out[s] += source[skip + s] * gain;
+      }
+    }
+
+    var peak = 0.0;
+    for (final value in out) {
+      final magnitude = value.abs();
+      if (magnitude > peak) peak = magnitude;
+    }
+
+    // Scaled down rather than clipped. Four layers summed will pass 1.0 sooner
+    // or later, and hard clipping turns that into audible crunch that sounds
+    // like a bad take rather than a full mix. Scaling keeps the balance
+    // between layers exactly as it was and only changes how loud the whole
+    // thing is.
+    var scaled = false;
+    if (peak > 1.0) {
+      final factor = 0.99 / peak;
+      for (var s = 0; s < out.length; s += 1) {
+        out[s] *= factor;
+      }
+      scaled = true;
+    }
+    return MixResult(out, peak: peak, scaled: scaled);
+  }
+
+  /// Reads every enabled take off disk and writes the mix to [outputPath].
+  ///
+  /// Returns null when there is nothing to play, which is the ordinary state
+  /// before the first take rather than an error.
+  static Future<MixResult?> writeMixdown({
+    required List<Take> takes,
+    required String outputPath,
+  }) async {
+    final wanted = takes.where((take) => take.enabled).toList(growable: false);
+    if (wanted.isEmpty) return null;
+    final audio = <Float64List>[];
+    for (final take in wanted) {
+      final file = File(take.path);
+      if (!await file.exists()) {
+        audio.add(Float64List(0));
+        continue;
+      }
+      audio.add(LatencyProbe.fromWav(await file.readAsBytes()));
+    }
+    final result = mix(wanted, audio);
+    if (result.samples.isEmpty) return null;
+    await File(outputPath).writeAsBytes(
+      LatencyProbe.toWav(result.samples, rate: rate),
+      flush: true,
+    );
+    return result;
+  }
+}
+
+/// One recorded layer.
+class Take {
+  const Take({
+    required this.id,
+    required this.path,
+    required this.label,
+    required this.recordedAt,
+    this.durationMs = 0,
+    this.offsetMs = 0,
+    this.gain = 1.0,
+    this.enabled = true,
+  });
+
+  final String id;
+  final String path;
+  final String label;
+  final DateTime recordedAt;
+  final int durationMs;
+
+  /// How much of the front of this recording to drop, in milliseconds.
+  ///
+  /// The latency correction, stored per take rather than per session, because
+  /// it is a property of the take: the phone may have been on speaker for one
+  /// and on Bluetooth for the next, and a take recorded before the offset was
+  /// known should not silently change when it becomes known.
+  final int offsetMs;
+
+  final double gain;
+
+  /// Whether this take is in the mix. Muting is not deleting — playing
+  /// against three of four layers is how you hear whether the fourth is
+  /// carrying its weight.
+  final bool enabled;
+
+  Take copyWith({
+    String? label,
+    int? offsetMs,
+    double? gain,
+    bool? enabled,
+  }) {
+    return Take(
+      id: id,
+      path: path,
+      label: label ?? this.label,
+      recordedAt: recordedAt,
+      durationMs: durationMs,
+      offsetMs: offsetMs ?? this.offsetMs,
+      gain: gain ?? this.gain,
+      enabled: enabled ?? this.enabled,
+    );
+  }
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'id': id,
+        'path': path,
+        'label': label,
+        'recorded_at': recordedAt.toIso8601String(),
+        'duration_ms': durationMs,
+        'offset_ms': offsetMs,
+        'gain': gain,
+        'enabled': enabled,
+      };
+
+  factory Take.fromJson(Map<String, dynamic> json) {
+    return Take(
+      id: json['id'] as String? ?? '',
+      path: json['path'] as String? ?? '',
+      label: json['label'] as String? ?? 'Take',
+      recordedAt:
+          DateTime.tryParse(json['recorded_at'] as String? ?? '') ?? DateTime.now(),
+      durationMs: (json['duration_ms'] as num?)?.toInt() ?? 0,
+      offsetMs: (json['offset_ms'] as num?)?.toInt() ?? 0,
+      gain: (json['gain'] as num?)?.toDouble() ?? 1.0,
+      enabled: json['enabled'] as bool? ?? true,
+    );
+  }
+}
+
+class MixResult {
+  const MixResult(this.samples, {required this.peak, required this.scaled});
+
+  final Float64List samples;
+
+  /// The loudest point before any scaling. Above 1.0 means the layers
+  /// summed past full scale.
+  final double peak;
+
+  /// Whether the mix had to be turned down to fit.
+  final bool scaled;
+}
+
+/// The takes for one sketch, and where they live.
+///
+/// Deliberately a file on the device rather than a row in Supabase. Nothing
+/// here needs an account, a project, or a network, and a riff captured in the
+/// thirty seconds before it is forgotten should not wait for any of them.
+/// Sharing a session with a bandmate is a later, separate step that can read
+/// this same manifest.
+class TakeSession {
+  const TakeSession({required this.directory, required this.takes});
+
+  final String directory;
+  final List<Take> takes;
+
+  static String manifestPathIn(String directory) => '$directory/takes.json';
+
+  static Future<TakeSession> load(String directory) async {
+    final file = File(manifestPathIn(directory));
+    if (!await file.exists()) {
+      return TakeSession(directory: directory, takes: const <Take>[]);
+    }
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      final rows = decoded is List ? decoded : const <dynamic>[];
+      return TakeSession(
+        directory: directory,
+        takes: rows
+            .whereType<Map<String, dynamic>>()
+            .map(Take.fromJson)
+            .toList(growable: false),
+      );
+    } catch (_) {
+      // A manifest that will not parse must not cost somebody their audio.
+      // The wav files are still on disk and still named in the directory;
+      // returning empty leaves them recoverable rather than deleting them.
+      return TakeSession(directory: directory, takes: const <Take>[]);
+    }
+  }
+
+  Future<void> save() async {
+    await File(manifestPathIn(directory)).writeAsString(
+      jsonEncode(takes.map((take) => take.toJson()).toList(growable: false)),
+      flush: true,
+    );
+  }
+}

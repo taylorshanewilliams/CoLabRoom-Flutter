@@ -14,6 +14,7 @@ import '../../domain/music_models.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/audio_privacy_note.dart';
 import '../dev/latency_probe_screen.dart';
+import '../dev/overdub_screen.dart';
 import '../notifications/notification_settings_screen.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -295,6 +296,14 @@ class _AccountScreenState extends State<AccountScreen> {
               // exists to find out whether overdubbing is possible on real
               // hardware, and a tester who found it would reasonably wonder
               // what they were supposed to do with it.
+              if (kDebugMode)
+                _AccountRow(
+                  icon: Icons.layers_outlined,
+                  label: 'Layers — record over a take (debug)',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const OverdubScreen()),
+                  ),
+                ),
               if (kDebugMode)
                 _AccountRow(
                   icon: Icons.timer_outlined,
