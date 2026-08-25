@@ -8,6 +8,7 @@ import 'package:record/record.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../services/multitrack.dart';
+import '../../services/take_naming.dart';
 import '../../widgets/microphone_disclosure.dart';
 
 /// Record a riff, play it back, sing over it, add a lead.
@@ -57,6 +58,7 @@ class _OverdubScreenState extends State<OverdubScreen> {
   String? _error;
   String? _note;
   int _offsetMs = 0;
+  String? _performer;
   Duration _elapsed = Duration.zero;
   Timer? _timer;
   StreamSubscription<void>? _completeSub;
@@ -198,10 +200,22 @@ class _OverdubScreenState extends State<OverdubScreen> {
       await _player.stop();
       final session = _session!;
       if (path != null && await File(path).exists()) {
+        // Asked now, not later. This is the one second anybody will spend
+        // naming a layer, and a label that appears on its own beats a field
+        // somebody meant to fill in — the moment for typing is exactly the
+        // moment nobody wants to.
+        final described = await _askWhatThatWas();
+        if (!mounted) return;
+        final part = described?.part ?? TakePart.other;
+        final performer = described?.performer;
         final take = Take(
           id: path.split('/').last,
           path: path,
-          label: 'Take ${session.takes.length + 1}',
+          label: described == null
+              ? 'Take ${session.takes.length + 1}'
+              : TakeNaming.nextLabel(session.takes, part, performer),
+          part: part,
+          performer: performer,
           recordedAt: DateTime.now(),
           durationMs: _elapsed.inMilliseconds,
           // The correction is stamped onto the take at the moment it is made,
@@ -229,6 +243,83 @@ class _OverdubScreenState extends State<OverdubScreen> {
         });
       }
     }
+  }
+
+  /// What was that layer, and who played it.
+  ///
+  /// Dismissable. Somebody who does not care gets "Take 3" and can rename it
+  /// whenever — a sheet that cannot be escaped in the middle of a session is
+  /// worse than an unnamed take.
+  Future<({TakePart part, String? performer})?> _askWhatThatWas() async {
+    var performer = _performer ?? '';
+    return showModalBottomSheet<({TakePart part, String? performer})>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: AppColors.deepNavy,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          18, 0, 18, MediaQuery.of(sheetContext).viewInsets.bottom + 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              'What was that?',
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'So everyone can tell the layers apart later.',
+              style: TextStyle(color: AppColors.muted, fontSize: 12.5),
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              initialValue: performer,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Who played it',
+                hintText: 'Dylan',
+              ),
+              onChanged: (value) => performer = value,
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final part in TakePart.values)
+                  ActionChip(
+                    label: Text(part.label),
+                    backgroundColor: AppColors.raised,
+                    labelStyle: const TextStyle(color: AppColors.text, fontSize: 13),
+                    side: BorderSide(color: AppColors.cyan.withValues(alpha: 0.25)),
+                    onPressed: () => Navigator.pop(
+                      sheetContext,
+                      (
+                        part: part,
+                        performer: performer.trim().isEmpty ? null : performer.trim(),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () => Navigator.pop(sheetContext),
+              child: const Text('Skip'),
+            ),
+          ],
+        ),
+      ),
+    ).then((value) {
+      if (value?.performer != null) _performer = value!.performer;
+      return value;
+    });
   }
 
   Future<void> _togglePlay() async {
@@ -260,7 +351,7 @@ class _OverdubScreenState extends State<OverdubScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('Delete ${take.label}?'),
+        title: Text('Delete ${TakeNaming.describe(take)}?'),
         content: const Text(
           'The audio goes with it. Muting keeps a take out of the mix without '
           'losing it, if you only want to hear what it sounds like without.',
@@ -532,7 +623,9 @@ class _TakeRow extends StatelessWidget {
         children: <Widget>[
           IconButton(
             onPressed: onToggle,
-            tooltip: take.enabled ? 'Mute ${take.label}' : 'Unmute ${take.label}',
+            tooltip: take.enabled
+                ? 'Mute ${TakeNaming.describe(take)}'
+                : 'Unmute ${TakeNaming.describe(take)}',
             icon: Icon(
               take.enabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
               color: take.enabled ? AppColors.cyan : AppColors.muted,
@@ -543,7 +636,7 @@ class _TakeRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  take.label,
+                  TakeNaming.describe(take),
                   style: TextStyle(
                     color: take.enabled ? AppColors.text : AppColors.muted,
                     fontSize: 14,
@@ -559,17 +652,17 @@ class _TakeRow extends StatelessWidget {
           ),
           IconButton(
             onPressed: () => onNudge(-10),
-            tooltip: 'Nudge ${take.label} 10 ms earlier',
+            tooltip: 'Nudge ${TakeNaming.describe(take)} 10 ms earlier',
             icon: const Icon(Icons.remove_rounded, size: 18, color: AppColors.muted),
           ),
           IconButton(
             onPressed: () => onNudge(10),
-            tooltip: 'Nudge ${take.label} 10 ms later',
+            tooltip: 'Nudge ${TakeNaming.describe(take)} 10 ms later',
             icon: const Icon(Icons.add_rounded, size: 18, color: AppColors.muted),
           ),
           IconButton(
             onPressed: onDelete,
-            tooltip: 'Delete ${take.label}',
+            tooltip: 'Delete ${TakeNaming.describe(take)}',
             icon: const Icon(Icons.delete_outline_rounded,
                 size: 20, color: Color(0xFFFF718B)),
           ),

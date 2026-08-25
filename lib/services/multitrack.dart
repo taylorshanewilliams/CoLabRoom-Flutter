@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'latency_probe.dart';
+import 'take_naming.dart';
 
 /// Layered takes over one another: a riff, then a vocal over it, then a lead
 /// over both.
@@ -119,6 +120,9 @@ class Take {
     this.offsetMs = 0,
     this.gain = 1.0,
     this.enabled = true,
+    this.part = TakePart.other,
+    this.performer,
+    this.namedByHand = false,
   });
 
   final String id;
@@ -142,11 +146,31 @@ class Take {
   /// carrying its weight.
   final bool enabled;
 
+  /// What this layer is: a lead, a harmony, the bass. Picked from a short
+  /// list in the second after recording stops, which is the only moment
+  /// anybody will spend on it.
+  final TakePart part;
+
+  /// Who played it. Filled from the signed-in member by default, and
+  /// editable — a phone gets handed around a room, and the person holding it
+  /// is not always the person who played.
+  final String? performer;
+
+  /// Whether [label] was typed by a person.
+  ///
+  /// The distinction matters because a generated label should follow the
+  /// part and performer when either changes, and a chosen one must never be
+  /// overwritten by a rule.
+  final bool namedByHand;
+
   Take copyWith({
     String? label,
     int? offsetMs,
     double? gain,
     bool? enabled,
+    TakePart? part,
+    String? performer,
+    bool? namedByHand,
   }) {
     return Take(
       id: id,
@@ -157,6 +181,9 @@ class Take {
       offsetMs: offsetMs ?? this.offsetMs,
       gain: gain ?? this.gain,
       enabled: enabled ?? this.enabled,
+      part: part ?? this.part,
+      performer: performer ?? this.performer,
+      namedByHand: namedByHand ?? this.namedByHand,
     );
   }
 
@@ -169,6 +196,9 @@ class Take {
         'offset_ms': offsetMs,
         'gain': gain,
         'enabled': enabled,
+        'part': part.name,
+        if (performer != null) 'performer': performer,
+        'named_by_hand': namedByHand,
       };
 
   factory Take.fromJson(Map<String, dynamic> json) {
@@ -182,6 +212,9 @@ class Take {
       offsetMs: (json['offset_ms'] as num?)?.toInt() ?? 0,
       gain: (json['gain'] as num?)?.toDouble() ?? 1.0,
       enabled: json['enabled'] as bool? ?? true,
+      part: TakePart.parse(json['part'] as String?),
+      performer: json['performer'] as String?,
+      namedByHand: json['named_by_hand'] as bool? ?? false,
     );
   }
 }
