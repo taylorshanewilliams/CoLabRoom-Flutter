@@ -1,0 +1,29 @@
+name: Transcript model experiment
+
+# Is a newer transcription model better at the failures we actually have?
+# Text only — gpt-4o-transcribe can't produce the word timings lyric sync
+# is built on, so this is not a swap decision.
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Which project (blank = every song with a vocals stem)'
+        type: string
+        required: false
+        default: ''
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compare transcription models
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PROJECT_ID: ${{ inputs.project_id }}
+        run: python tools/transcript_model_experiment.py
