@@ -253,6 +253,45 @@ class LatencyProbe {
     );
   }
 
+  /// A sweep marker followed by a steady click, for the play-along test.
+  ///
+  /// The marker is not decoration. It pins where playback t=0 landed in the
+  /// recording, which is what turns "somewhere in this take there are some
+  /// clicks" into a beat grid with real positions — and it means the two
+  /// measurements share one recording rather than being run separately and
+  /// compared across whatever changed in between.
+  static Float64List clickTrack({
+    int rate = sampleRate,
+    int bpm = 100,
+    int beats = 20,
+    Duration lead = const Duration(milliseconds: 250),
+  }) {
+    final pulse = marker(rate: rate);
+    final leadCount = (rate * lead.inMicroseconds / 1e6).round();
+    final beatSamples = (rate * 60 / bpm).round();
+    final clickLength = (rate * 0.02).round();
+    final out = Float64List(leadCount + pulse.length + beatSamples * (beats + 1));
+
+    for (var i = 0; i < pulse.length; i += 1) {
+      out[leadCount + i] = pulse[i];
+    }
+    // Clicks start one beat after the marker, so the marker's own energy is
+    // never mistaken for the first click.
+    final clickStart = leadCount + pulse.length + beatSamples;
+    for (var beat = 0; beat < beats; beat += 1) {
+      final at = clickStart + beat * beatSamples;
+      for (var i = 0; i < clickLength && at + i < out.length; i += 1) {
+        final decay = math.exp(-i / (rate * 0.004));
+        out[at + i] = math.sin(2 * math.pi * 1500 * i / rate) * decay * 0.7;
+      }
+    }
+    return out;
+  }
+
+  /// Where the first click sits relative to the marker, in samples.
+  static int clickLeadSamples({int rate = sampleRate, int bpm = 100}) =>
+      marker(rate: rate).length + (rate * 60 / bpm).round();
+
   /// 16-bit mono PCM in a RIFF wrapper — what `audioplayers` will play from a
   /// file, written without a dependency.
   static Uint8List toWav(Float64List samples, {int rate = sampleRate}) {

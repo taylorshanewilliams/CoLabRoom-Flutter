@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import 'package:record/record.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../services/latency_probe.dart';
+import '../../services/onset_align.dart';
 import '../../widgets/microphone_disclosure.dart';
 
 /// A throwaway screen that answers one question: can this phone record in
@@ -35,7 +37,12 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();
 
+  static const int _playAlongBpm = 100;
+
   final List<ProbeReading> _readings = <ProbeReading>[];
+  AlignmentResult? _alignment;
+  int? _alignmentCalibratedMs;
+  String? _alignmentNote;
   final List<String> _failures = <String>[];
   bool _running = false;
   String? _error;
@@ -142,6 +149,124 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
     return LatencyProbe.read(samples);
   }
 
+  /// Records a strum against a click and asks the beat grid where it landed.
+  ///
+  /// The point is not the number on its own but that it can be compared. The
+  /// same recording carries a sweep marker, which says exactly where playback
+  /// began; the clicks after it are a beat grid with real positions. So one
+  /// take yields both a measured latency and an independent answer to "once
+  /// that latency is taken out, does the playing actually sit on the beat".
+  ///
+  /// If those two agree, both methods work and either can carry the feature.
+  /// If the grid says the playing is still badly off after compensation, the
+  /// calibration is not holding — which is precisely the failure the spread
+  /// is looking for, seen from the other side.
+  Future<void> _runPlayAlong() async {
+    if (_running) return;
+    final allowed = await MicrophoneAccess.ensureGranted(
+      context,
+      purpose: 'to record you playing along with a click',
+      request: _recorder.hasPermission,
+    );
+    if (!allowed || !mounted) return;
+
+    setState(() {
+      _running = true;
+      _error = null;
+      _alignment = null;
+      _alignmentCalibratedMs = null;
+      _alignmentNote = null;
+      _stage = 'Play along with the click';
+    });
+
+    try {
+      final directory = await getTemporaryDirectory();
+      final signalPath = '${directory.path}/latency_click.wav';
+      await File(signalPath).writeAsBytes(
+        LatencyProbe.toWav(LatencyProbe.clickTrack(bpm: _playAlongBpm)),
+        flush: true,
+      );
+      final capturePath = '${directory.path}/latency_playalong.wav';
+
+      await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: LatencyProbe.sampleRate,
+          numChannels: 1,
+          echoCancel: false,
+          noiseSuppress: false,
+          autoGain: false,
+        ),
+        path: capturePath,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await _player.play(DeviceFileSource(signalPath));
+      // Twenty beats at 100bpm, plus the lead and a beat of margin.
+      await Future<void>.delayed(const Duration(milliseconds: 13500));
+      await _recorder.stop();
+      await _player.stop();
+
+      final samples = LatencyProbe.fromWav(await File(capturePath).readAsBytes());
+      if (samples.isEmpty) throw StateError('Nothing was recorded.');
+      _analysePlayAlong(samples);
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() {
+        _running = false;
+        _stage = '';
+      });
+    }
+  }
+
+  void _analysePlayAlong(Float64List samples) {
+    final rate = LatencyProbe.sampleRate;
+    final markerAt = LatencyProbe.locate(samples, LatencyProbe.marker());
+    if (markerAt == null) {
+      if (mounted) {
+        setState(() => _alignmentNote =
+            'The marker was not found, so there is no reference to measure '
+            'the playing against. Turn the volume up, or move the phone '
+            'closer.');
+      }
+      return;
+    }
+
+    // Where the first click landed in the recording, from the marker alone.
+    final firstClick = markerAt.offsetSamples +
+        LatencyProbe.clickLeadSamples(rate: rate, bpm: _playAlongBpm);
+    // Start the window early so playing *ahead* of the beat — which players
+    // do constantly — is representable. alignToGrid only searches forward, so
+    // the grid is offset by the same amount and subtracted back out.
+    const leadMs = 150;
+    final windowStart = math.max(0, firstClick - (rate * leadMs / 1000).round());
+    if (windowStart >= samples.length) return;
+
+    final beatMs = (60000 / _playAlongBpm).round();
+    final grid = <int>[for (var i = 0; i < 20; i += 1) leadMs + i * beatMs];
+    final result = OnsetAlign.alignToGrid(
+      Float64List.sublistView(samples, windowStart),
+      grid,
+      rate: rate,
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _alignment = result;
+      _alignmentCalibratedMs =
+          (markerAt.offsetSamples * 1000 / rate).round() - 250;
+      if (result == null) {
+        _alignmentNote = 'No usable attacks were found. Play something with a '
+            'clear pick or strike to it — a held note gives this nothing to '
+            'work with.';
+      } else if (!result.trustworthy) {
+        _alignmentNote = 'The attacks were too vague to trust this answer. '
+            'That is the honest outcome for a sustained part, and the reason '
+            'a manual nudge has to exist regardless.';
+      }
+    });
+  }
+
   /// The number the whole exercise is for.
   ///
   /// Not the average latency — the spread. A device that is 180ms late every
@@ -217,6 +342,53 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
+            const SizedBox(height: 10),
+            OutlinedButton(
+              key: const Key('latency_probe_play_along'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.cyan,
+                minimumSize: const Size.fromHeight(48),
+                side: BorderSide(color: AppColors.cyan.withValues(alpha: 0.5)),
+              ),
+              onPressed: _running ? null : () => unawaited(_runPlayAlong()),
+              child: const Text(
+                'Play along with a click (13s)',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Strum, tap or clap on every click. This measures the same take '
+              'two ways — where the marker says playback began, and where the '
+              'beat grid says your playing landed. Two methods agreeing is '
+              'worth more than either number alone.',
+              style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.5),
+            ),
+            if (_alignment != null || _alignmentNote != null) ...<Widget>[
+              const SizedBox(height: 16),
+              if (_alignmentCalibratedMs != null)
+                _Row('Marker says', '${_alignmentCalibratedMs} ms late'),
+              if (_alignment != null) ...<Widget>[
+                _Row('Grid says playing was', '${_alignment!.shiftMs} ms off the beat'),
+                _Row(
+                  'Alignment confidence',
+                  _alignment!.confidence.toStringAsFixed(2)
+                      '${_alignment!.trustworthy ? '  ·  usable' : '  ·  too vague'}',
+                ),
+                _Row('Searched to', '${_alignment!.searchedToMs} ms'),
+              ],
+              if (_alignmentNote != null) ...<Widget>[
+                const SizedBox(height: 8),
+                Text(
+                  _alignmentNote!,
+                  style: const TextStyle(
+                    color: AppColors.orange,
+                    fontSize: 12.5,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ],
             if (_error != null) ...<Widget>[
               const SizedBox(height: 14),
               Container(

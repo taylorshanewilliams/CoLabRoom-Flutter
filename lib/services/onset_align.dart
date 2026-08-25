@@ -98,6 +98,7 @@ class OnsetAlign {
     int? maxShiftOverrideMs,
   }) {
     if (beatsMs.length < 2) return null;
+    final hopSamples = math.max(1, (rate * hop / 1000).round());
     final strength = onsetStrength(samples, rate: rate, hop: hop);
     if (strength.length < 4) return null;
 
@@ -133,7 +134,13 @@ class OnsetAlign {
       for (final beat in beatsMs) {
         // Where this beat falls in the recording, if the recording is late by
         // `shift` frames.
-        final frame = (beat / hop).round() + shift;
+        // Converted through samples, not through milliseconds. A hop is
+        // 220.5 samples at 44.1kHz and gets rounded to 221, so dividing a
+        // millisecond position by the *nominal* 5ms drifts against the frames
+        // it is being compared to — about a quarter of a frame per beat, all
+        // in the same direction, which read as the take being systematically
+        // early.
+        final frame = (beat * rate / 1000 / hopSamples).round() + shift;
         if (frame < 0 || frame >= strength.length) continue;
         // One frame of tolerance either side, because a player is not a
         // sequencer and the grid itself was estimated.
@@ -156,6 +163,15 @@ class OnsetAlign {
     return AlignmentResult(
       shiftMs: bestShift * hop,
       confidence: mean > 0 ? bestScore / mean : 0.0,
+      // What share of everything the player did landed on a beat. This is the
+      // measure that tells a strum from a swell, and prominence alone was not
+      // it: a sustained note's onset strength is small and smeared, but it is
+      // smeared *evenly*, so some shift still wins by a respectable margin
+      // over the others and looks confident. Asking how much of the total
+      // landed on the grid instead gives a strummed part 0.3 and upwards and
+      // a held note under 0.1, because most of its movement is nowhere near
+      // a beat.
+      concentration: bestScore / total,
       searchedToMs: searchMs,
       clamped: ceiling < ambiguityLimit,
     );
@@ -166,6 +182,7 @@ class AlignmentResult {
   const AlignmentResult({
     required this.shiftMs,
     required this.confidence,
+    required this.concentration,
     required this.searchedToMs,
     required this.clamped,
   });
@@ -181,6 +198,11 @@ class AlignmentResult {
   /// "best" shift is noise wearing the shape of an answer.
   final double confidence;
 
+  /// The share of the take's total attack energy that landed on the grid at
+  /// the winning shift. High for anything played with a pick or a stick, low
+  /// for anything held.
+  final double concentration;
+
   final int searchedToMs;
 
   /// True when [OnsetAlign.maxShiftMs] stopped the search before the musical
@@ -191,10 +213,15 @@ class AlignmentResult {
 
   /// Whether the alignment is worth acting on.
   ///
-  /// 1.5 is deliberately cautious. Getting this wrong does not produce a
-  /// visible error — it produces a take that sits confidently in the wrong
-  /// place, which the musician hears as their own bad timing.
-  bool get trustworthy => confidence >= 1.5;
+  /// Both tests have to pass, because each admits a different fake. A shift
+  /// can stand out from the other shifts while representing almost none of
+  /// the playing, and a take can have most of its energy on beats while no
+  /// single shift is clearly better than its neighbours.
+  ///
+  /// Deliberately cautious in both. Getting this wrong produces no visible
+  /// error at all — it produces a take sitting confidently in the wrong
+  /// place, which the player hears as their own bad timing.
+  bool get trustworthy => confidence >= 1.5 && concentration >= 0.15;
 
   bool get atCeiling => clamped && shiftMs >= searchedToMs;
 }
