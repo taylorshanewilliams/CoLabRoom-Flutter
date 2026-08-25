@@ -38,6 +38,8 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { crypto as stdCrypto } from 'jsr:@std/crypto@1';
 import { encodeHex } from 'jsr:@std/encoding@1/hex';
 
+import { hallucinationSuspicion } from '../_shared/transcript_guard.ts';
+
 const RUNPOD_API_KEY = Deno.env.get('RUNPOD_API_KEY');
 const RUNPOD_ENDPOINT_ID = Deno.env.get('RUNPOD_ENDPOINT_ID');
 const CHORD_SERVICE_URL = Deno.env.get('CHORD_SERVICE_URL');
@@ -66,7 +68,14 @@ type Stem = (typeof STEMS)[number];
 // lettering them. Every cached analysis from .1 carries the old "Part A, Part
 // B" structure, and no amount of re-opening the song would have replaced it —
 // bumping this is what makes the next analysis a real one.
-const PIPELINE_VERSION = 'htdemucs_6s+chordmini+beat_this+allin1.2';
+// .3 moves lyrics onto the worker's own faster-whisper large-v3-turbo,
+// replacing an OpenAI whisper-1 call made after this pipeline had already
+// finished. Measured on five songs against the lyrics their writer typed,
+// that is 68.5% mean line recall against whisper-1's 60.2% — and whisper-1
+// scored a flat 0.0% on one of the five, the silent total failure that
+// hallucinationSuspicion exists to catch. Same recording, different answer,
+// so every cached analysis from .2 has to stop matching.
+const PIPELINE_VERSION = 'htdemucs_6s+chordmini+beat_this+allin1+fw-turbo.3';
 
 // The chords-and-lyrics pass. Skips section naming — the only stage that runs
 // a second source separation — and keeps just the vocal stem, which the
@@ -153,6 +162,11 @@ interface SeparationResult {
   instruments: unknown;
   structure: unknown;
   uploadedStems: string[];
+  /// {text, words} from the worker, or null when it transcribed nothing —
+  /// an instrumental, a failure inside the model, or a worker image that
+  /// predates transcription. All three mean "no lyrics this time", which is
+  /// a result the pipeline has always had to handle.
+  transcript: { text?: string; words?: unknown[] } | null;
 }
 
 function numberArray(value: unknown): number[] {
@@ -165,6 +179,7 @@ async function submitSeparation(
   stemUploads: Record<string, string>,
   mixUpload: string | null,
   skipStructure: boolean,
+  lyricsHint: string | null,
 ): Promise<string> {
   const runResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`, {
     method: 'POST',
@@ -184,6 +199,14 @@ async function submitSeparation(
         stem_uploads: stemUploads,
         mix_upload: mixUpload,
         skip_structure: skipStructure,
+        // The lyrics pass, run here rather than as a second call afterwards.
+        // The worker already holds the isolated vocal stem and already has
+        // the model resident, so this costs the tail of a job that is
+        // running anyway instead of a per-minute API call plus the wait for
+        // one. Older worker images ignore the flag and return no transcript,
+        // which the poll below treats exactly like an instrumental.
+        transcribe: true,
+        lyrics_hint: lyricsHint,
       },
     }),
   });
@@ -237,6 +260,12 @@ async function readSeparation(jobId: string): Promise<SeparationResult | null> {
     uploadedStems: Array.isArray(statusBody.output?.uploaded_stems)
       ? statusBody.output.uploaded_stems.filter((s: unknown) => typeof s === 'string')
       : [],
+    // The worker reports its own failures as {error: "..."} in this slot
+    // rather than raising, so a transcript without words is not a transcript.
+    transcript:
+      statusBody.output?.transcript && Array.isArray(statusBody.output.transcript.words)
+        ? statusBody.output.transcript
+        : null,
   };
 }
 
@@ -318,6 +347,11 @@ Deno.serve(async (req) => {
   let audioMs: number | null;
   // 'quick' is chords and lyrics only. See QUICK_PIPELINE_VERSION.
   let depth: 'full' | 'quick';
+  // The song's own typed lyrics, handed to the transcriber as an initial
+  // prompt. Optional, and only a hint — it biases spelling and proper nouns
+  // toward words the writer actually used, and is never merged into the
+  // result. Absent for a Studio draft, which has no lyrics yet by definition.
+  let lyricsHint: string | null;
   try {
     const body = await req.json();
     storagePath = body.storagePath;
@@ -333,6 +367,9 @@ Deno.serve(async (req) => {
     // Anything unrecognised means full. A build that doesn't know about
     // depths should get the whole analysis, not the abbreviated one.
     depth = body.depth === 'quick' ? 'quick' : 'full';
+    lyricsHint = typeof body.lyricsHint === 'string' && body.lyricsHint.trim().length > 0
+      ? body.lyricsHint
+      : null;
     if (typeof storagePath !== 'string' || storagePath.length === 0) {
       return json({ error: 'storagePath is required' }, 400);
     }
@@ -635,6 +672,11 @@ Deno.serve(async (req) => {
       instruments: cached.instruments ?? null,
       structure: cached.structure ?? [],
       stems,
+      // Cached alongside the chords it was produced with, so recognising a
+      // recording now also means not paying to hear it again. Null on rows
+      // written before migration 0037, which the app handles the same way it
+      // handles an instrumental: it falls back to the transcribe-audio path.
+      transcript: cached.transcript ?? null,
       vocalStemPath: stems.find((entry) => entry.stem === 'vocals')?.storagePath ?? null,
     };
   }
@@ -723,6 +765,7 @@ Deno.serve(async (req) => {
         stemUploads,
         mixUpload,
         depth === 'quick',
+        lyricsHint,
       );
       return json({ status: 'started', jobId: startedJobId });
     } catch (error) {
@@ -760,6 +803,25 @@ Deno.serve(async (req) => {
     // nothing downstream needs it and it is the largest object in the job.
     await adminClient.storage.from(bucket).remove([mixPath]);
     const key = separation.key ?? estimateKeyFallback(chords);
+
+    // The same check transcribe-audio has always applied to whisper-1's
+    // output, applied here for the same reason: a stuck decoder returns
+    // fluent, confident nonsense that is indistinguishable downstream from a
+    // real transcript. Moving the model onto our own GPU narrows the failure
+    // — faster-whisper runs Silero VAD in front of the decoder, so there is
+    // no silence to invent over — but "narrower" is not "gone", and a
+    // rejected transcript that reached the cache would be served forever.
+    //
+    // Rejection drops the words and keeps the analysis. Chords never
+    // depended on singing, and a musician who gets chords and a reason why
+    // there are no lyrics can act on that; one who gets invented lyrics
+    // cannot tell.
+    let transcript = separation.transcript;
+    let transcriptRejected: string | null = null;
+    if (transcript) {
+      transcriptRejected = hallucinationSuspicion(typeof transcript.text === 'string' ? transcript.text : '');
+      if (transcriptRejected) transcript = null;
+    }
 
     let stems: { stem: string; storagePath: string }[] = [];
     if (projectId || draftId) {
@@ -822,6 +884,10 @@ Deno.serve(async (req) => {
           beats_per_bar: separation.beatsPerBar,
           instruments: separation.instruments,
           structure: separation.structure,
+          // Null for an instrumental or a rejected transcript, and that null
+          // is the answer — re-analysing the same bytes would reach the same
+          // model and get the same nothing.
+          transcript,
           stem_bucket: stems.length > 0 ? bucket : null,
           stem_dir: stems.length > 0 ? stemDir : null,
           stems: stems.map((entry) => entry.stem),
@@ -860,7 +926,12 @@ Deno.serve(async (req) => {
       instruments: separation.instruments,
       structure: separation.structure,
       stems,
-      // The lyrics pass transcribes this instead of the raw mix when present.
+      transcript,
+      // Named so the app can say something true rather than showing an empty
+      // sheet as though the take simply had no singing in it.
+      transcriptRejected,
+      // Still returned: it is what the app transcribes if this transcript is
+      // absent, and what the stem player plays either way.
       vocalStemPath: stems.find((entry) => entry.stem === 'vocals')?.storagePath ?? null,
     });
   } catch (error) {

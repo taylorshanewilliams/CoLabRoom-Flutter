@@ -652,12 +652,17 @@ class SongAnalysisService {
     required int durationMs,
     required AnalysisDepth depth,
     String? resumeJobId,
+    String? lyricsHint,
     ValueChanged<SongAnalysisProgress>? onProgress,
   }) async {
     final request = <String, dynamic>{
       'projectId': reference.projectId,
       'storagePath': reference.storagePath,
       'bucket': 'room-files',
+      // Reaches the transcriber as an initial prompt, biasing spelling and
+      // names toward the words this song actually uses. Sent with the job
+      // rather than with a later call because the job is what transcribes now.
+      if (lyricsHint != null) 'lyricsHint': lyricsHint,
       // Tells the Edge Function this build can handle `start` coming back
       // finished instead of with a job id. Builds that predate the analysis
       // cache would read that as "no job was started" and fail, and a
@@ -839,6 +844,7 @@ class SongAnalysisService {
           durationMs: durationMs,
           depth: depth,
           resumeJobId: resumeJobId,
+          lyricsHint: lyricsPromptFor(project),
           onProgress: onProgress,
         );
       } catch (error) {
@@ -896,15 +902,43 @@ class SongAnalysisService {
       final vocalStemPath = chordResult['vocalStemPath'] as String?;
       List<TranscriptWord> transcriptWords = const <TranscriptWord>[];
       String? transcriptText;
+      // The analysis job transcribes the vocal stem itself now, on the GPU
+      // that just separated it, with a model already resident in the worker
+      // image. Measured against the lyrics these songs' writers typed, that
+      // model recalls 68.5% of written lines to whisper-1's 60.2% — and it
+      // costs nothing, because the GPU is running either way.
+      //
+      // Absent means three different things, all handled the same way: an
+      // instrumental, a worker image that predates transcription, and the
+      // on-device chord fallback, which never touched a worker at all. Each
+      // falls through to the API path below, so a band on mixed builds and a
+      // pipeline outage both still get lyrics.
+      final inlineTranscript = chordResult['transcript'];
+      final rejected = chordResult['transcriptRejected'] as String?;
       try {
+        if (rejected != null) {
+          // Deliberately not retried against the paid API. This is the
+          // failure where the model returns confident nonsense, and the
+          // recovery a musician actually has is to re-run the analysis — an
+          // option that only stays useful because nothing cached the
+          // rejection as though it were an answer.
+          throw StateError(
+            'The words came back garbled rather than sung — this happens '
+            'occasionally on a hard recording. Chords and structure are '
+            'unaffected; re-run the analysis to try the lyrics again. '
+            '(Reason: $rejected)',
+          );
+        }
         onProgress?.call(SongAnalysisProgress(
           vocalStemPath == null ? 'Listening for the words' : 'Listening to the isolated vocal',
           0.55,
         ));
-        final cloudResult = await _transcribeViaCloud(
-          vocalStemPath ?? reference.storagePath,
-          lyricsHint: lyricsPromptFor(project),
-        );
+        final cloudResult = inlineTranscript is Map
+            ? Map<String, dynamic>.from(inlineTranscript)
+            : await _transcribeViaCloud(
+                vocalStemPath ?? reference.storagePath,
+                lyricsHint: lyricsPromptFor(project),
+              );
         // Whisper (cloud, same as on-device) emits literal "♪" placeholder
         // tokens as "words" for non-lexical/instrumental stretches instead
         // of just leaving them out — filter those out here so they don't

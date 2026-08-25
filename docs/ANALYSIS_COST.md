@@ -133,9 +133,9 @@ toward running it; only skip when confidently instrumental; always allow
 
 Roughly in order of expected value:
 
-1. **Self-host Whisper on the GPU already being rented.** When separation
-   does run, the worker has the audio and a warm GPU. `faster-whisper` there
-   instead of the API could cut the largest line item several-fold.
+1. ~~**Self-host Whisper on the GPU already being rented.**~~ Done and
+   measured — see "The bake-off, settled" below. It was the largest line
+   item; it is now zero.
 2. **`htdemucs_6s` → `htdemucs`.** The 6-source model exists to split guitar
    and piano out separately; the conventional stem set is vocals/drums/bass/
    other. One-word change, measurable with the existing load test.
@@ -234,3 +234,79 @@ That is a net, not a fix. The underlying instability is a reason to test
 `gpt-4o-transcribe` properly (it was more coherent on 2 of 3 songs) or to
 self-host `faster-whisper` large-v3, which emits the word timings lyric sync
 needs and ships a VAD filter aimed at exactly this failure.
+
+---
+
+## The bake-off, settled
+
+Added 2026-08-25, after the per-line metric replaced whole-transcript WER.
+**This part is measured**, and it is the first number in this document scored
+against an answer rather than against another guess: the reference is the
+lyrics the writers typed into their own projects.
+
+Line recall — of the lines the writer wrote, how many did the engine hear,
+anywhere in the transcript:
+
+| Engine | Mean line recall | Word timings | Cost per song |
+|---|---|---|---|
+| `gpt-4o-transcribe` | 68.6% | **No** | ~$0.03 |
+| **`faster-whisper` large-v3-turbo (self-hosted)** | **68.5%** | Yes | **$0** |
+| `whisper-1` (what production ran) | 60.2% | Yes | ~$0.033 |
+
+Five songs. The top two are 0.1 points apart, which is not a difference —
+they are tied, and the tie is broken by everything else. `gpt-4o-transcribe`
+still cannot emit `timestamp_granularities`, and word timings are what lyric
+sync and Live mode's synced scroll are built on, so it was never really a
+candidate. That leaves the self-hosted model, which is also free, because the
+GPU it runs on has already been rented and paid for by the separation job
+that produced the stem it transcribes.
+
+The margin over the model production was actually running is 8.3 points. Two
+details matter more than the mean:
+
+- On `e54bc276`, `whisper-1` scored **0.0%** — it heard none of the 39 written
+  lines. Not a bad transcript, a total one. That is the silent failure
+  `hallucinationSuspicion()` was written to catch, and it is the failure mode
+  that argues loudest for the change.
+- `faster-whisper` won 3 of 5 songs outright and lost one (`f15a9921`,
+  85.3% against 99.0%). It is better on average, not everywhere, and nothing
+  here claims otherwise.
+
+**Caveat, stated in the tool's own output.** A written sheet is not a perfect
+reference — it omits ad-libs and improvised lines, so no engine should reach
+100%, and these numbers are recall against what was *written*, not accuracy
+against what was *sung*. What it measures fairly is whether the words the
+writer put on the page were heard, which is the question lyric sync depends
+on. Five songs, one writer's catalogue.
+
+### What changed as a result
+
+Transcription moved into the separation job. The worker already holds the
+isolated vocal stem and already has the model resident in its image, so the
+lyrics pass is now the tail of a job that was running anyway rather than a
+second call to a metered API after it. Concretely:
+
+- `analyze-chords` sends `transcribe: true` with the job and returns the
+  transcript with the chords. `PIPELINE_VERSION` is bumped, so every cached
+  analysis from the whisper-1 era stops matching and is replaced by a real
+  run.
+- The transcript is cached with the analysis (migration 0037). A recognised
+  recording no longer pays to be heard again — previously the chord half of a
+  cache hit was free and the lyric half was not.
+- `hallucinationSuspicion()` moved to `supabase/functions/_shared/` and now
+  guards both paths. faster-whisper runs Silero VAD ahead of the decoder,
+  which removes the silence that the intro-hallucination failure needed, but
+  narrower is not gone.
+- `transcribe-audio` and its OpenAI key stay in place, and are still what runs
+  when the worker returns no transcript: an older worker image, or the
+  on-device chord fallback, which never reaches a GPU at all. A band running
+  mixed builds keeps working.
+
+Whisper was the single largest line item in the table at the top of this
+document, and the only one no amount of buying hardware could reduce. It is
+now $0.
+
+**The lesson from earlier in this document still applies to this section.**
+Line recall against a typed sheet is a better reference than another
+machine's transcript, and it is still not ground truth. Treat 68.5% as
+"heard most of what was written on five songs", not as a quality score.

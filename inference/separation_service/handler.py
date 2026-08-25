@@ -633,10 +633,15 @@ def handler(job):
     # of this job that runs a *second* source separation. That is roughly half
     # the GPU time, spent on the one result somebody in a hurry doesn't need.
     skip_structure = job_input.get("skip_structure") is True
-    # Off unless asked for. Transcription here is meant to replace a per-minute
-    # API call, but nothing has yet shown this model beats the one it would
-    # replace on real songs — so it ships able to prove that before anything
-    # depends on it.
+    # Off unless asked for, and analyze-chords now always asks. It shipped
+    # able to prove itself before anything depended on it, and did: scored
+    # against the lyrics five writers actually typed, large-v3-turbo recalls
+    # 68.5% of written lines against whisper-1's 60.2%, emits the word
+    # timings gpt-4o-transcribe cannot, and costs nothing because this GPU is
+    # already running. See docs/ANALYSIS_COST.md.
+    #
+    # Still a flag rather than unconditional: a caller that only wants stems
+    # and chords shouldn't pay the tail of a transcription it will discard.
     transcribe = job_input.get("transcribe") is True
     lyrics_hint = job_input.get("lyrics_hint")
     if not audio_url:

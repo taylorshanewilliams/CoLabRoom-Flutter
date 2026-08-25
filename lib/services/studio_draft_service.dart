@@ -299,10 +299,19 @@ class StudioDraftService {
     return path;
   }
 
-  Future<Map<String, dynamic>> _transcribeViaCloud(StudioDraft draft) async {
+  /// [storagePath] is the isolated vocal stem when separation produced one,
+  /// falling back to the whole recording otherwise — the same preference the
+  /// project path has always had, and the reason this now runs after chords.
+  Future<Map<String, dynamic>> _transcribeViaCloud(
+    StudioDraft draft, {
+    String? storagePath,
+  }) async {
     final response = await client.functions.invoke(
       'transcribe-audio',
-      body: <String, dynamic>{'storagePath': draft.storagePath, 'bucket': 'studio-drafts'},
+      body: <String, dynamic>{
+        'storagePath': storagePath ?? draft.storagePath,
+        'bucket': 'studio-drafts',
+      },
     );
     final data = response.data;
     if (data is! Map) {
@@ -432,46 +441,15 @@ class StudioDraftService {
       String? warning;
       List<TranscriptWord> transcriptWords = const <TranscriptWord>[];
       String? transcriptText;
-      try {
-        onProgress?.call(const SongAnalysisProgress('Listening for the words', 0.2));
-        final cloudResult = await _transcribeViaCloud(draft);
-        final rawWords = (cloudResult['words'] as List<dynamic>? ?? const <dynamic>[])
-            .map((value) => Map<String, dynamic>.from(value as Map))
-            .where((row) => looksLikeSpeech((row['word'] as String? ?? '')))
-            .toList(growable: false);
-        if (rawWords.isEmpty) {
-          final heard = (cloudResult['text'] as String? ?? '').trim();
-          final heardSnippet = heard.isEmpty
-              ? ''
-              : ' Whisper heard: "${heard.length > 80 ? '${heard.substring(0, 80)}…' : heard}"';
-          warning = heard.isNotEmpty && !looksLikeSpeech(heard)
-              ? 'This recording sounds instrumental — chords were detected, but '
-                  'there are no words to sync lyrics to.$heardSnippet'
-              : 'Not enough sung words were heard to sync lyrics, but chords were still detected.'
-                  '$heardSnippet';
-        } else {
-          onProgress?.call(const SongAnalysisProgress('Writing down the lyrics', 0.5));
-          transcriptWords = rawWords
-              .map((row) => TranscriptWord(
-                    word: (row['word'] as String? ?? '').trim(),
-                    startMs: (row['start_ms'] as num?)?.toInt() ?? 0,
-                    endMs: (row['end_ms'] as num?)?.toInt() ?? 0,
-                  ))
-              .where((word) => word.word.isNotEmpty)
-              .toList(growable: false);
-          transcriptText = transcriptWords.map((word) => word.word).join(' ');
-        }
-      } catch (error) {
-        warning = 'Could not transcribe this recording\'s speech, so only chords were '
-            'detected. Details: $error';
-        await _reporter.reportWarning(
-          service: 'studio_analysis',
-          stage: 'lyrics',
-          message: 'Transcription failed: $error',
-        );
-      }
-
-      onProgress?.call(const SongAnalysisProgress('Finding chord changes', 0.55));
+      // Chords run first, and lyrics read what they produced.
+      //
+      // This used to be the other way round: the Studio transcribed the raw
+      // mix before separation had happened, which meant the one path in the
+      // app that only ever had a rough phone recording to work with was also
+      // the one denied the isolated vocal. It now transcribes on the worker,
+      // inside the job that separated the stem — see SongAnalysisService for
+      // the measurement that decided the model.
+      onProgress?.call(const SongAnalysisProgress('Separating the instruments', 0.15));
       Map<String, dynamic> chordResult;
       var usedFallback = false;
       try {
@@ -517,6 +495,66 @@ class StudioDraftService {
           service: 'studio_analysis',
           stage: 'separation',
           message: 'Cloud chord detection unavailable, used on-device fallback: $error',
+        );
+      }
+
+      // Absent for an old worker image or the on-device fallback, and
+      // handled the same way either: fall through to the API path.
+      final inlineTranscript = chordResult['transcript'];
+      final rejected = chordResult['transcriptRejected'] as String?;
+      final vocalStemPath = chordResult['vocalStemPath'] as String?;
+      try {
+        if (rejected != null) {
+          // Not retried against the paid API — see SongAnalysisService.
+          throw StateError(
+            'The words came back garbled rather than sung — this happens '
+            'occasionally on a hard recording. Chords and structure are '
+            'unaffected; re-run the analysis to try the lyrics again. '
+            '(Reason: $rejected)',
+          );
+        }
+        onProgress?.call(const SongAnalysisProgress('Listening to the isolated vocal', 0.55));
+        final cloudResult = inlineTranscript is Map
+            ? Map<String, dynamic>.from(inlineTranscript)
+            : await _transcribeViaCloud(draft, storagePath: vocalStemPath);
+        final rawWords = (cloudResult['words'] as List<dynamic>? ?? const <dynamic>[])
+            .map((value) => Map<String, dynamic>.from(value as Map))
+            .where((row) => looksLikeSpeech((row['word'] as String? ?? '')))
+            .toList(growable: false);
+        if (rawWords.isEmpty) {
+          final heard = (cloudResult['text'] as String? ?? '').trim();
+          final heardSnippet = heard.isEmpty
+              ? ''
+              : ' Whisper heard: "${heard.length > 80 ? '${heard.substring(0, 80)}…' : heard}"';
+          final note = heard.isNotEmpty && !looksLikeSpeech(heard)
+              ? 'This recording sounds instrumental — chords were detected, but '
+                  'there are no words to sync lyrics to.$heardSnippet'
+              : 'Not enough sung words were heard to sync lyrics, but chords were still detected.'
+                  '$heardSnippet';
+          // Append rather than assign: the chord stage runs first now, so a
+          // separation outage may already have left a note here — and that
+          // note is the one explaining why the chords are worse.
+          warning = warning == null ? note : '$warning\n\n$note';
+        } else {
+          onProgress?.call(const SongAnalysisProgress('Writing down the lyrics', 0.65));
+          transcriptWords = rawWords
+              .map((row) => TranscriptWord(
+                    word: (row['word'] as String? ?? '').trim(),
+                    startMs: (row['start_ms'] as num?)?.toInt() ?? 0,
+                    endMs: (row['end_ms'] as num?)?.toInt() ?? 0,
+                  ))
+              .where((word) => word.word.isNotEmpty)
+              .toList(growable: false);
+          transcriptText = transcriptWords.map((word) => word.word).join(' ');
+        }
+      } catch (error) {
+        final note = 'Could not transcribe this recording\'s speech, so only chords were '
+            'detected. Details: $error';
+        warning = warning == null ? note : '$warning\n\n$note';
+        await _reporter.reportWarning(
+          service: 'studio_analysis',
+          stage: 'lyrics',
+          message: 'Transcription failed: $error',
         );
       }
 
