@@ -163,44 +163,59 @@ more expensive per second and an order of magnitude slower.
 
 ---
 
-## Finding: the vocal stem is making lyrics *worse*
+## Finding: the transcription *model* matters more than the input
 
-Added 2026-08-25, after the chord finding above and partly contradicting the
-assumption underneath it.
+Added 2026-08-25. **This section previously claimed the vocal stem was making
+lyrics worse. Real lyrics showed that was wrong**, and the retraction is left
+in rather than quietly edited out, because how it went wrong is the more
+useful lesson.
 
-`transcribe-audio` sends Whisper the isolated vocal stem, and the Edge
-Function says why:
+The claim came from comparing transcripts *to each other* and judging which
+sounded more like English — the exact mistake flagged one section earlier,
+where WER against a flawed reference said the opposite of what the
+transcripts said. Three songs looked like the raw recording beating the
+stem. Then the writer supplied the actual lyrics to three songs, and scored
+against truth it is **1 of 3 favouring raw, 2 of 3 favouring the stem**.
 
-> *"the lyrics pass transcribes that stem rather than the full mix, and doing
-> so is the single largest lever on lyric accuracy in the whole pipeline"*
+What ground truth did show, clearly:
 
-Measured, that appears to be backwards. Across three songs the raw recording
-transcribed **better** than the stem, and on one of them Taylor confirmed the
-correct lyric directly:
+| Song | Truth | whisper-1 | gpt-4o-transcribe |
+|---|---|---|---|
+| You and Me (`ac9869d3`), both on the stem | *"It's a little too late now / It's too dark to see / The only ones they need fighting / Is you and me"* | *"And if we put it under it here, you know, it's warm up"* — missed the verse entirely | *"It's a little too late now, it's too dark to see. The only ones that ain't fighting is you and me"* |
 
-| Song | Raw recording | Vocal stem |
-|---|---|---|
-| e54bc276 verse | closer to truth (confirmed by the writer) | garbled |
-| e54bc276 opening | caught it | missed the verse entirely |
-| 67d039b8 | *"Gray sky filled with black smoke / Black suit filled with bad dreams"* | *"Music is the truth. The sky full of admirable Banging"* |
-| f15a9921 | clean | duplicated the opening line |
+Same audio, same prompt, same stem. **The model is a far larger effect than
+raw-versus-stem in either direction.** `gpt-4o-transcribe` also produced
+*"Pour me up a whiskey / I need something stronger"* where whisper-1 gave
+*"Call me up for whiskey."*
 
-Zero songs where the stem clearly won. The likely mechanism is that Demucs
-leaves phase artefacts and spectral holes that ASR handles badly — the stem
-is cleaner to a human ear and stranger to a model.
+Where the input did decide it, it decided both ways: on `67d039b8` the raw
+recording got two lines nearly word-perfect while the stem returned garbage;
+on `5451ff6e` the stem was clean while the raw hallucinated
+`38,961, کو스마크론…` over the instrumental intro. Those are two different
+failures — stem artefacts confusing the model, and the model inventing
+speech over non-speech — and they argue for fixing each directly rather than
+picking a side.
 
-**If this holds, separation has no consumer left except stems themselves.**
-Chords don't need it (93% agreement, above), beats and structure already run
-on the original mix by design, key has a chord-derived fallback already
-wired, and lyrics are actively hurt by it. That would make separation
-something to run only when somebody wants tracks to play along to — cheaper,
-far faster (the queue dominates latency), *and* more accurate, which is a
-rare direction for three things to move at once.
+The blocker on simply switching: `gpt-4o-transcribe` does not support
+`timestamp_granularities`, and word-level timings are what lyric sync and
+Live mode's synced scroll are built on. So the real options are a hybrid
+(gpt-4o for the words, whisper-1 for the timings, aligned — the alignment
+approach is already specced in `premium-song-analysis.md`) or self-hosting
+`faster-whisper` large-v3, which emits word timings, is more accurate than
+whisper-1, and ships a VAD filter aimed exactly at the intro-hallucination
+failure.
 
-**Not yet acted on.** Three songs, one partial ground truth, one writer's
-catalogue. Switching production needs the full lyrics for two or three songs
-written out by hand and both paths scored against them. That is the missing
-instrument for every experiment in this document.
+**Separation still has a lyrics consumer**, then — contrary to what this
+section first claimed. The stem is not established as the right input, but
+nor is it established as the wrong one, and the earlier conclusion that
+separation had no consumer left except stems themselves does not hold.
+
+**The lesson worth keeping.** Two conclusions in this document were drawn by
+comparing two machine outputs to each other; ground truth reversed one of
+them. Chord agreement of 93% is still only *agreement* — it has never been
+scored against chords a human verified, and the same reversal is available
+to it. Treat every number here as measuring similarity until somebody checks
+the answer.
 
 ### Whisper is also non-deterministic on hard audio
 
