@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
@@ -217,13 +219,24 @@ class HomeScreen extends StatelessWidget {
               separatorBuilder: (_, __) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
                 final item = activity[index];
-                return _ActivityRow(
-                  item: item,
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          SongWorkspaceScreen(projectId: item.projectId),
+                return Dismissible(
+                  // Keyed on the event rather than the index, or dismissing
+                  // one row animates a different one away.
+                  key: ValueKey<String>('activity-${item.id}'),
+                  direction: DismissDirection.endToStart,
+                  background: const _DismissBackground(),
+                  onDismissed: (_) => _dismissActivity(context, item),
+                  child: _ActivityRow(
+                    item: item,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            SongWorkspaceScreen(projectId: item.projectId),
+                      ),
                     ),
+                    // A swipe is not discoverable on its own, and nothing
+                    // else in the app is swipeable to teach it.
+                    onDismiss: () => _dismissActivity(context, item),
                   ),
                 );
               },
@@ -449,12 +462,58 @@ class _RecentSongRow extends StatelessWidget {
   }
 }
 
+/// What shows behind a row on its way out.
+class _DismissBackground extends StatelessWidget {
+  const _DismissBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: Alignment.centerRight,
+      padding: const EdgeInsets.only(right: 18),
+      decoration: BoxDecoration(
+        color: AppColors.raised,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: const Icon(Icons.check_rounded, size: 19, color: AppColors.green),
+    );
+  }
+}
+
+/// Puts one item away, and offers it straight back.
+///
+/// The undo is not decoration. Somebody clearing a feed quickly will bin the
+/// one thing they meant to read, and a dismissal that cannot be taken back
+/// makes the whole gesture something to be careful with — which is the
+/// opposite of what it is for.
+void _dismissActivity(BuildContext context, ActivityItem item) {
+  final controller = BetaScope.of(context, listen: false);
+  final messenger = ScaffoldMessenger.of(context);
+  unawaited(controller.dismissActivity(item.id));
+  messenger.hideCurrentSnackBar();
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text('Cleared ${item.projectTitle}'),
+      duration: const Duration(seconds: 4),
+      action: SnackBarAction(
+        label: 'Undo',
+        onPressed: () => unawaited(controller.restoreActivity(item)),
+      ),
+    ),
+  );
+}
+
 /// One thing somebody did, as a sentence with a face on it.
 class _ActivityRow extends StatelessWidget {
-  const _ActivityRow({required this.item, required this.onTap});
+  const _ActivityRow({
+    required this.item,
+    required this.onTap,
+    required this.onDismiss,
+  });
 
   final ActivityItem item;
   final VoidCallback onTap;
+  final VoidCallback onDismiss;
 
   @override
   Widget build(BuildContext context) {
@@ -496,9 +555,25 @@ class _ActivityRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              shortAgo(item.at),
-              style: const TextStyle(color: AppColors.muted, fontSize: 11),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: <Widget>[
+                Text(
+                  shortAgo(item.at),
+                  style: const TextStyle(color: AppColors.muted, fontSize: 11),
+                ),
+                const SizedBox(height: 4),
+                InkResponse(
+                  onTap: onDismiss,
+                  radius: 18,
+                  child: const Padding(
+                    padding: EdgeInsets.all(2),
+                    child: Icon(Icons.close_rounded,
+                        size: 15, color: AppColors.muted),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

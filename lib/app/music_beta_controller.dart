@@ -94,6 +94,43 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// broken feature.
   List<ActivityItem> get activity => List<ActivityItem>.unmodifiable(_activity);
 
+  /// Puts one item away, off the screen before the server hears about it.
+  ///
+  /// A dismissal that waits for a round trip feels broken on a slow
+  /// connection — the row sits there after the swipe as though nothing
+  /// happened. It goes on failure too: a piece of news that will not stay
+  /// dismissed is worse than one that was never dismissible.
+  Future<void> dismissActivity(String eventId) async {
+    final removed = _activity.where((item) => item.id == eventId).toList();
+    if (removed.isEmpty) return;
+    _activity =
+        _activity.where((item) => item.id != eventId).toList(growable: false);
+    notifyListeners();
+    try {
+      await repository.dismissActivity(eventId);
+    } catch (_) {
+      // Put back, because it is still there for everyone else and will
+      // reappear on the next load anyway.
+      _activity = <ActivityItem>[...removed, ..._activity]
+        ..sort((a, b) => b.at.compareTo(a.at));
+      notifyListeners();
+    }
+  }
+
+  /// Undo.
+  Future<void> restoreActivity(ActivityItem item) async {
+    try {
+      await repository.restoreActivity(item.id);
+    } catch (_) {
+      // Failing to un-dismiss leaves it dismissed, which is recoverable by
+      // nothing the person can see — so put it back on screen regardless and
+      // let the next load decide.
+    }
+    _activity = <ActivityItem>[item, ..._activity]
+      ..sort((a, b) => b.at.compareTo(a.at));
+    notifyListeners();
+  }
+
   Map<String, int> _unheardTakes = const <String, int>{};
 
   /// Takes added by somebody else since this person last opened [projectId].

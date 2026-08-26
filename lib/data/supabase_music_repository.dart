@@ -811,51 +811,55 @@ class SupabaseMusicRepository implements MusicRepository {
 
   @override
   Future<List<ActivityItem>> loadActivity({int limit = 20}) async {
-    final me = client.auth.currentUser?.id;
-    // RLS already limits this to projects this person can see, so the query
-    // does not repeat the membership rule — repeating it is how a filter and
-    // a policy end up quietly disagreeing.
-    var query = client.from('project_events').select(
-          'id, project_id, kind, body, created_at, actor_id, '
-          'actor:profiles!project_events_actor_id_fkey(display_name, avatar_path), '
-          'project:projects!project_events_project_id_fkey(id, title, deleted_at)',
-        );
-    if (me != null) {
-      // Not neq alone. actor_id is nullable, and SQL says NULL != 'uuid' is
-      // NULL rather than true — so a plain neq drops every row without an
-      // actor. That is precisely the rows worth keeping: analyses and
-      // recordings are written by triggers with nobody behind them, and 0032
-      // sets actor_id to null when an account is deleted specifically so
-      // that person's words survive. Both would have vanished from the feed,
-      // and ActivityItem.sentence already renders them as "Somebody".
-      query = query.or('actor_id.is.null,actor_id.neq.$me');
-    }
-    final rows = await query.order('created_at', ascending: false).limit(limit);
+    // One function rather than a query built here. "What counts as activity"
+    // is three rules that have to agree — not yours, not dismissed, not on a
+    // deleted song — and the first of them was already wrong once when it
+    // lived in this file: `actor_id <> me` silently drops the rows where
+    // actor_id is null, which is every system event and everyone whose
+    // account has been deleted. Written once in SQL, it can only be wrong in
+    // one place. RLS still decides which projects are visible at all.
+    final rows = await client.rpc<List<dynamic>>(
+      'recent_activity',
+      params: <String, dynamic>{'max_rows': limit},
+    );
 
-    final items = <ActivityItem>[];
-    for (final value in rows as List<dynamic>) {
-      final row = Map<String, dynamic>.from(value as Map);
-      final project = row['project'];
-      if (project is! Map) continue;
-      final projectRow = Map<String, dynamic>.from(project);
-      // A song in the recycle bin is not news.
-      if (projectRow['deleted_at'] != null) continue;
-      final actor = row['actor'];
-      final actorRow = actor is Map ? Map<String, dynamic>.from(actor) : null;
-      items.add(ActivityItem(
-        id: row['id'] as String,
-        projectId: row['project_id'] as String,
-        projectTitle: projectRow['title'] as String? ?? 'A song',
-        kind: ActivityKind.parse(row['kind'] as String?),
-        at: DateTime.tryParse(row['created_at'] as String? ?? '')?.toLocal() ??
-            DateTime.now(),
-        actorId: row['actor_id'] as String?,
-        actorName: actorRow?['display_name'] as String?,
-        actorAvatarPath: actorRow?['avatar_path'] as String?,
-        body: row['body'] as String? ?? '',
-      ));
-    }
-    return items;
+    return <ActivityItem>[
+      for (final value in rows)
+        if (value is Map)
+          () {
+            final row = Map<String, dynamic>.from(value);
+            return ActivityItem(
+              id: row['id'] as String,
+              projectId: row['project_id'] as String,
+              projectTitle: row['project_title'] as String? ?? 'A song',
+              kind: ActivityKind.parse(row['kind'] as String?),
+              at: DateTime.tryParse(row['created_at'] as String? ?? '')
+                      ?.toLocal() ??
+                  DateTime.now(),
+              actorId: row['actor_id'] as String?,
+              actorName: row['actor_name'] as String?,
+              actorAvatarPath: row['actor_avatar_path'] as String?,
+              body: row['body'] as String? ?? '',
+            );
+          }(),
+    ];
+  }
+
+  @override
+  Future<void> dismissActivity(String eventId) async {
+    await client.from('activity_dismissals').insert(<String, dynamic>{
+      'profile_id': _userId,
+      'event_id': eventId,
+    });
+  }
+
+  @override
+  Future<void> restoreActivity(String eventId) async {
+    await client
+        .from('activity_dismissals')
+        .delete()
+        .eq('profile_id', _userId)
+        .eq('event_id', eventId);
   }
 
   @override
