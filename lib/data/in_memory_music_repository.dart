@@ -8,6 +8,16 @@ import 'music_repository.dart';
 class InMemoryMusicRepository implements MusicRepository {
   InMemoryMusicRepository._(this._rooms, this._invites, this._setlists);
 
+  /// The same fixture, reachable by a subclass.
+  ///
+  /// The generative constructor is private and the entry point is a factory,
+  /// which a test double cannot extend — and counting how often a repository
+  /// is asked for something is exactly the kind of test worth writing against
+  /// this fake. Redirects rather than copies, so a double and the thing it
+  /// doubles cannot start from different data.
+  InMemoryMusicRepository.from(InMemoryMusicRepository source)
+      : this._(source._rooms, source._invites, source._setlists);
+
   final List<AppNotification> _notifications = <AppNotification>[
     AppNotification(
       id: 'notif-1',
@@ -540,6 +550,20 @@ class InMemoryMusicRepository implements MusicRepository {
   /// from. Seeding it directly keeps the fake honest about that rather than
   /// inventing a second, disagreeing model of what a take is.
   final Map<String, int> unheardTakes = <String, int>{};
+
+  /// Nothing arrives here: the fake has no second device writing to it.
+  @override
+  Stream<String> get projectChanges => const Stream<String>.empty();
+
+  @override
+  Future<SongProject?> loadProject(String projectId) async {
+    for (final room in _rooms) {
+      for (final project in room.projects) {
+        if (project.id == projectId) return project;
+      }
+    }
+    return null;
+  }
 
   @override
   Future<Map<String, int>> loadUnheardTakeCounts() async =>
