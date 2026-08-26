@@ -774,7 +774,16 @@ class SupabaseMusicRepository implements MusicRepository {
           'actor:profiles!project_events_actor_id_fkey(display_name, avatar_path), '
           'project:projects!project_events_project_id_fkey(id, title, deleted_at)',
         );
-    if (me != null) query = query.neq('actor_id', me);
+    if (me != null) {
+      // Not neq alone. actor_id is nullable, and SQL says NULL != 'uuid' is
+      // NULL rather than true — so a plain neq drops every row without an
+      // actor. That is precisely the rows worth keeping: analyses and
+      // recordings are written by triggers with nobody behind them, and 0032
+      // sets actor_id to null when an account is deleted specifically so
+      // that person's words survive. Both would have vanished from the feed,
+      // and ActivityItem.sentence already renders them as "Somebody".
+      query = query.or('actor_id.is.null,actor_id.neq.$me');
+    }
     final rows = await query.order('created_at', ascending: false).limit(limit);
 
     final items = <ActivityItem>[];
