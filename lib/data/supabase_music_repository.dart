@@ -750,6 +750,27 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<Map<String, int>> loadUnheardTakeCounts() async {
+    // One round trip for the whole library rather than a query per song. The
+    // counting, the "not my own takes" rule and the room-membership check all
+    // live in the function, so this cannot drift from what the badge means.
+    final rows = await client.rpc<List<dynamic>>('unheard_take_counts');
+    return <String, int>{
+      for (final row in rows)
+        (row as Map<String, dynamic>)['project_id'] as String:
+            (row['unheard'] as num).toInt(),
+    };
+  }
+
+  @override
+  Future<void> markProjectSeen(String projectId) async {
+    await client.rpc<void>(
+      'mark_project_seen',
+      params: <String, dynamic>{'target_project': projectId},
+    );
+  }
+
+  @override
   Future<void> moveProjects(Iterable<SongProject> projects, MusicRoom targetRoom) async {
     for (final project in projects) {
       if (project.roomId == targetRoom.id) continue;

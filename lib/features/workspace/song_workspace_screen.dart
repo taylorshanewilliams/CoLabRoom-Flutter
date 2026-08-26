@@ -434,6 +434,11 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   /// layers inside Analyze would have made them read as part of the paid
   /// thing, and a feature inherits the meaning of wherever it lives.
   Future<void> _openLayers(SongProject project) async {
+    // Marked on the way out, not on the way in. Opening the screen is not
+    // hearing the takes — somebody who taps in and straight back out has
+    // heard nothing, and clearing the badge for them would mean a bandmate's
+    // part is never surfaced again.
+    final controller = BetaScope.of(context);
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SongLayersScreen(
@@ -443,6 +448,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         ),
       ),
     );
+    await controller.markProjectSeen(project.id);
   }
 
   Future<void> _openAnalysis(SongProject project, {bool autoRecord = false}) async {
