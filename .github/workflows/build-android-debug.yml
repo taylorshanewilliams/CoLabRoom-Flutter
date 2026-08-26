@@ -95,12 +95,23 @@ jobs:
         # push-triggered runs have no `inputs` context at all, hence the
         # `github.event_name == 'workflow_dispatch' &&` guard before reading
         # inputs.build_mode — falls back to debug otherwise.
-        run: flutter build apk --${{ (github.event_name == 'workflow_dispatch' && inputs.build_mode == 'release') && 'release' || 'debug' }}
+        #
+        # --split-per-abi, because the round trip is the bottleneck on this
+        # project. A fat APK carries arm64, armeabi-v7a and x86_64 machine
+        # code and weighs about 175MB; every tester downloads all three and
+        # runs one. Split, the arm64 build — which is every Android phone
+        # sold in the last several years — is around a third of that. The
+        # feature work is not what makes testing slow; waiting on 175MB
+        # twice for every one-line fix is.
+        run: flutter build apk --split-per-abi --${{ (github.event_name == 'workflow_dispatch' && inputs.build_mode == 'release') && 'release' || 'debug' }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: colabroom-${{ (github.event_name == 'workflow_dispatch' && inputs.build_mode == 'release') && 'release' || 'debug' }}-apk
-          path: build/app/outputs/flutter-apk/app-${{ (github.event_name == 'workflow_dispatch' && inputs.build_mode == 'release') && 'release' || 'debug' }}.apk
+          # All three ABIs, so a device that is not arm64 is still covered —
+          # they are uploaded separately rather than as one bundle, so
+          # fetching the one you need does not drag the others with it.
+          path: build/app/outputs/flutter-apk/app-*-${{ (github.event_name == 'workflow_dispatch' && inputs.build_mode == 'release') && 'release' || 'debug' }}.apk
           retention-days: 14
 
 # ---------------------------------------------------------------------------
