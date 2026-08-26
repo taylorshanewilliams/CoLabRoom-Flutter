@@ -149,6 +149,13 @@ abstract interface class MusicRepository {
   /// back to you teaches everyone to stop reading it.
   Future<List<ActivityItem>> loadActivity({int limit});
 
+  /// Puts one piece of news away, for this person only.
+  Future<void> dismissActivity(String eventId);
+
+  /// Brings it back. A feed you can clear without recourse is one people
+  /// stop trusting.
+  Future<void> restoreActivity(String eventId);
+
   Future<InviteResult> createInvite({
     required MusicRoom room,
     required String email,

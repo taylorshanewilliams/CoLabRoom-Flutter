@@ -573,8 +573,19 @@ class InMemoryMusicRepository implements MusicRepository {
   final List<ActivityItem> activity = <ActivityItem>[];
 
   @override
-  Future<List<ActivityItem>> loadActivity({int limit = 20}) async =>
-      activity.take(limit).toList(growable: false);
+  Future<List<ActivityItem>> loadActivity({int limit = 20}) async => activity
+      .where((item) => !_dismissed.contains(item.id))
+      .take(limit)
+      .toList(growable: false);
+
+  final Set<String> _dismissed = <String>{};
+
+  @override
+  Future<void> dismissActivity(String eventId) async => _dismissed.add(eventId);
+
+  @override
+  Future<void> restoreActivity(String eventId) async =>
+      _dismissed.remove(eventId);
 
   @override
   Future<void> markProjectSeen(String projectId) async {
