@@ -24,7 +24,7 @@ const String audioJourneyBody =
     'file — the second one reuses the first result instead of processing it '
     'again. Nobody can reach an analysis without already having the '
     'recording it came from.\n\n'
-    'Your recordings stay private to your Rooms. Removing a recording from a '
+    'Your recordings stay private to your catalogs. Removing a recording from a '
     'song deletes it and everything derived from it, and deleting your '
     'account removes all of it.';
 

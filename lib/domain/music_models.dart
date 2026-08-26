@@ -200,6 +200,24 @@ class Setlist {
   }
 }
 
+/// A catalog: the container songs live in.
+///
+/// **Called a Room everywhere in the code and a catalog everywhere a person
+/// can see.** The class, the `rooms` table, `room_id` on every child row and
+/// every storage path that starts with one all keep the old name, because
+/// renaming a table that half the RLS policies read a path segment out of
+/// buys nothing and risks a great deal.
+///
+/// The rename happened because "Room" was doing two incompatible jobs. It is
+/// in the product name as the place you work with people, and it was also the
+/// label on a box that holds songs — and a box that holds songs is not a
+/// room, it is a filing cabinet with a room's name on it. That is what made
+/// somebody reach for "move the file to the other folder" and end up with two
+/// songs called Ladder Of Life.
+///
+/// It also stopped scaling: a catalog can be a band, a side project, or just
+/// what one person has written, and "Band" is wrong for two of those three.
+/// Meanwhile the Studio and the Control Room are rooms that really are rooms.
 class MusicRoom {
   const MusicRoom({
     required this.id,

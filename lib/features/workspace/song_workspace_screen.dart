@@ -500,7 +500,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       context: context,
       builder: (_) => InviteCollaboratorDialog(
         title: 'Invite to This Song',
-        subtitle: 'They\'ll get access to "${project.title}" only — not the rest of this Room.',
+        subtitle: 'They\'ll get access to "${project.title}" only — not the rest of this catalog.',
       ),
     );
     if (draft == null || !mounted) return;
@@ -592,7 +592,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
               Text('Writing color', style: Theme.of(context).textTheme.headlineMedium),
               const SizedBox(height: 8),
               const Text(
-                'Each member has one color in this Room, so collaborators are easy to follow.',
+                'Each member has one color in this catalog, so collaborators are easy to follow.',
               ),
               const SizedBox(height: 18),
               Wrap(
@@ -1408,7 +1408,10 @@ class _WorkspaceToolbar extends StatelessWidget {
       _ToolPill(
         key: const Key('workspace_cowork_button'),
         icon: Icons.forum_outlined,
-        label: 'Room',
+        // Was 'Room', which meant the container — so the one button on this
+        // screen that opens a conversation was named after a filing concept.
+        // Somebody looking for where to say "I like this" had to guess.
+        label: 'Talk',
         active: othersHere,
         activeColor: AppColors.green,
         onTap: onOpenCowork,

@@ -74,7 +74,7 @@ Future<UseInSongChoice?> showUseInSongSheet(
                     leading: const Icon(Icons.add_rounded, color: AppColors.gold),
                     title: const Text('A new song',
                         style: TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: const Text('Name it and pick a Room'),
+                    subtitle: const Text('Name it and pick a catalog'),
                     onTap: () => Navigator.pop(
                         sheetContext, const UseInSongChoice.newSong()),
                   ),

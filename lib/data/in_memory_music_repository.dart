@@ -161,9 +161,9 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<MusicRoom> createRoom({required String name, required String icon}) async {
     final cleaned = NamePolicy.clean(name);
-    NamePolicy.requireUsable(cleaned, label: 'Room name');
+    NamePolicy.requireUsable(cleaned, label: 'Catalog name');
     if (_rooms.any((room) => NamePolicy.same(room.name, cleaned))) {
-      throw const NameConflict('A Room with that name already exists.');
+      throw const NameConflict('A catalog with that name already exists.');
     }
     final now = DateTime.now();
     final room = MusicRoom(
@@ -220,11 +220,11 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<MusicRoom> renameRoom({required MusicRoom room, required String name}) async {
     final cleaned = NamePolicy.clean(name);
-    NamePolicy.requireUsable(cleaned, label: 'Room name');
+    NamePolicy.requireUsable(cleaned, label: 'Catalog name');
     if (_rooms.any(
       (candidate) => candidate.id != room.id && NamePolicy.same(candidate.name, cleaned),
     )) {
-      throw const NameConflict('A Room with that name already exists.');
+      throw const NameConflict('A catalog with that name already exists.');
     }
     final renamed = room.copyWith(name: cleaned, updatedAt: DateTime.now());
     _replaceRoom(renamed);
@@ -701,7 +701,7 @@ class InMemoryMusicRepository implements MusicRepository {
     if (room.members.any(
       (member) => member.userId != currentUserId && member.colorValue == colorValue,
     )) {
-      throw const NameConflict('That color is already being used in this Room.');
+      throw const NameConflict('That color is already being used in this catalog.');
     }
     final updatedMembers = room.members
         .map(

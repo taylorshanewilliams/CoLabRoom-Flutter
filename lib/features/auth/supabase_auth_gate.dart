@@ -151,7 +151,7 @@ class _AuthLoading extends StatelessWidget {
           children: <Widget>[
             CircularProgressIndicator(color: AppColors.cyan),
             SizedBox(height: 16),
-            Text('Opening your Music Rooms…'),
+            Text('Opening your catalogs…'),
           ],
         ),
       ),

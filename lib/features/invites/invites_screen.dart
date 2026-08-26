@@ -21,7 +21,7 @@ class InvitesScreen extends StatelessWidget {
     await _runInviteAction(
       context,
       () => controller.acceptInvite(code: code),
-      success: 'Room joined. You can open it from Rooms.',
+      success: 'Catalog joined. You can open it from Catalogs.',
     );
   }
 
@@ -88,8 +88,8 @@ class InvitesScreen extends StatelessWidget {
                               context,
                               () => controller.acceptInvite(invite: invites[index]),
                               success: invites[index].isProjectScoped
-                                  ? 'Song joined. You can open it from Rooms.'
-                                  : 'Room joined. You can open it from Rooms.',
+                                  ? 'Song joined. You can open it from Catalogs.'
+                                  : 'Catalog joined. You can open it from Catalogs.',
                             ),
                             onDecline: () => _runInviteAction(
                               context,
@@ -99,7 +99,7 @@ class InvitesScreen extends StatelessWidget {
                           ),
                         ),
                   const Center(
-                    child: Text('Share codes are created from the invite button inside a Room.'),
+                    child: Text('Share codes are created from the invite button inside a catalog.'),
                   ),
                 ],
               ),
@@ -140,7 +140,7 @@ class _JoinCodeDialogState extends State<_JoinCodeDialog> {
           textCapitalization: TextCapitalization.characters,
           decoration: const InputDecoration(
             labelText: 'Invite code',
-            helperText: 'Use the code shared by the Room owner.',
+            helperText: 'Use the code shared by whoever owns the catalog.',
           ),
           onSubmitted: (value) => Navigator.pop(context, value),
         ),
@@ -149,7 +149,7 @@ class _JoinCodeDialogState extends State<_JoinCodeDialog> {
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(
           onPressed: () => Navigator.pop(context, _code.text),
-          child: const Text('Join Room'),
+          child: const Text('Join catalog'),
         ),
       ],
     );
@@ -190,7 +190,7 @@ class _InviteCard extends StatelessWidget {
                     ),
                     if (invite.isProjectScoped)
                       Text(
-                        'One song in ${invite.roomName} · not the rest of the Room',
+                        'One song in ${invite.roomName} · not the rest of the catalog',
                         style: const TextStyle(color: AppColors.muted, fontSize: 12),
                       ),
                     Text('Invited by ${invite.inviterName} · ${invite.role.name}'),

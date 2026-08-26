@@ -107,8 +107,8 @@ class _AccountScreenState extends State<AccountScreen> {
         title: const Text('Privacy & Data'),
         content: const SingleChildScrollView(
           child: Text(
-            'Music Rooms are private to members. Contributions retain their author and '
-            'timestamp. Deleting an account removes its profile and contributions; Rooms '
+            'Catalogs are private to their members. Contributions retain their author and '
+            'timestamp. Deleting an account removes its profile and contributions; catalogs '
             'owned by that account are also permanently deleted.\n\n'
             '$audioJourneyTitle\n\n'
             '$audioJourneyBody',
@@ -127,7 +127,7 @@ class _AccountScreenState extends State<AccountScreen> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete Account?'),
         content: const Text(
-          'This permanently deletes your profile, your contributions, and every Room '
+          'This permanently deletes your profile, your contributions, and every catalog '
           'you own—including its song projects. This cannot be undone.',
         ),
         actions: <Widget>[

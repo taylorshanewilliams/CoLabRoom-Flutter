@@ -99,7 +99,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           () => controller.acceptInvite(invite: invite),
                           invite.isProjectScoped
                               ? 'Song joined. Find it under Songs.'
-                              : 'Room joined. Its songs are under Songs.',
+                              : 'Catalog joined. Its songs are under Songs.',
                         ),
                         onDecline: () => _run(
                           () => controller.declineInvite(invite),
@@ -186,7 +186,7 @@ class _InviteCard extends StatelessWidget {
                     ),
                     if (invite.isProjectScoped)
                       Text(
-                        'One song in ${invite.roomName} · not the rest of the Room',
+                        'One song in ${invite.roomName} · not the rest of the catalog',
                         style: const TextStyle(color: AppColors.muted, fontSize: 12),
                       ),
                     Text('${invite.inviterName} invited you as ${invite.role.name}'),

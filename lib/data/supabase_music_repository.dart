@@ -290,7 +290,7 @@ class SupabaseMusicRepository implements MusicRepository {
   @override
   Future<MusicRoom> createRoom({required String name, required String icon}) async {
     final cleaned = NamePolicy.clean(name);
-    NamePolicy.requireUsable(cleaned, label: 'Room name');
+    NamePolicy.requireUsable(cleaned, label: 'Catalog name');
     try {
       final existing = await client
           .from('rooms')
@@ -324,7 +324,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'projects': <dynamic>[],
       });
     } on PostgrestException catch (error) {
-      throw _friendlyDatabaseError(error, noun: 'Room');
+      throw _friendlyDatabaseError(error, noun: 'catalog');
     }
   }
 
@@ -425,7 +425,7 @@ class SupabaseMusicRepository implements MusicRepository {
   @override
   Future<MusicRoom> renameRoom({required MusicRoom room, required String name}) async {
     final cleaned = NamePolicy.clean(name);
-    NamePolicy.requireUsable(cleaned, label: 'Room name');
+    NamePolicy.requireUsable(cleaned, label: 'Catalog name');
     try {
       final row = await client
           .from('rooms')
@@ -439,7 +439,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'projects': room.projects.map(_projectJson).toList(growable: false),
       });
     } on PostgrestException catch (error) {
-      throw _friendlyDatabaseError(error, noun: 'Room');
+      throw _friendlyDatabaseError(error, noun: 'catalog');
     }
   }
 

@@ -72,7 +72,7 @@ class _CrashScreenState extends State<_CrashScreen> {
                   ),
                   const SizedBox(height: 7),
                   const Text(
-                    'Close and reopen the app. Your saved Rooms are still secure.',
+                    'Close and reopen the app. Your saved catalogs are still secure.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppColors.muted, height: 1.4),
                   ),
