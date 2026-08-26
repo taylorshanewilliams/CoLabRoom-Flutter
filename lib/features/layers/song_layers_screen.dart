@@ -731,6 +731,22 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   Widget build(BuildContext context) {
     final layers = _layers;
     final hasLayers = layers != null && layers.isNotEmpty;
+
+    // What there is to hear, which is not the same as what has been recorded
+    // here.
+    //
+    // These were one flag. hasLayers counts only the shared takes, and it
+    // gated the empty state, the whole list *and* the play button — so a song
+    // that had been analyzed but never overdubbed fetched its recording,
+    // downloaded it, put it in _takes, and then drew "No takes yet" over the
+    // top of it with nothing to press. Every analyzed song in the account
+    // behaved that way; the one project with takes on it looked fine, which
+    // is what made it read like a data problem rather than a layout one.
+    //
+    // The song's own recording is the thing you add a take *to*. It has to be
+    // on screen before there is anything to add.
+    final playable = _takes;
+    final hasSomethingToHear = playable.isNotEmpty;
     // Sideways is a desk. A list is the right shape for reading and the wrong
     // shape for balancing: deciding whether the harmony sits well against the
     // lead means comparing them, and on a phone that means remembering one
@@ -793,7 +809,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
                   children: <Widget>[
-                    if (!hasLayers) _EmptyState(),
+                    if (!hasSomethingToHear) _EmptyState(),
                     if (_referenceNote != null) ...<Widget>[
                       Container(
                         margin: const EdgeInsets.only(bottom: 14),
@@ -820,9 +836,14 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                                 color: Color(0xFFFFA0B0), fontSize: 12, height: 1.45)),
                       ),
                     ],
-                    if (hasLayers) ...<Widget>[
+                    if (hasSomethingToHear) ...<Widget>[
                       Text(
-                        '${layers.length} take${layers.length == 1 ? '' : 's'}',
+                        hasLayers
+                            ? '${layers.length} take${layers.length == 1 ? '' : 's'}'
+                            // The recording is present and nobody has played
+                            // over it yet — said as an invitation rather than
+                            // as "0 takes", which reads like a failure.
+                            : 'The song, ready to play over',
                         style: const TextStyle(
                           color: AppColors.text,
                           fontSize: 15,
@@ -854,7 +875,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
           child: Row(
             children: <Widget>[
-              if (hasLayers) ...<Widget>[
+              if (hasSomethingToHear) ...<Widget>[
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: _recording || _busy
