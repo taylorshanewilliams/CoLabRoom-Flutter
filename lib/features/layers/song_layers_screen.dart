@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -24,7 +25,9 @@ import '../../services/take_naming.dart';
 import '../../widgets/microphone_disclosure.dart';
 import 'layer_console.dart';
 import 'layer_group.dart';
-import 'layer_row.dart';
+import 'take_lane.dart';
+import 'take_prompt.dart';
+import 'timeline_ruler.dart';
 
 /// The takes a song is built from, and adding another one.
 ///
@@ -114,6 +117,22 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// Keyed on the person rather than the layer: a bandmate with six takes on
   /// a song is one download, not six.
   final Map<String, Uint8List> _photos = <String, Uint8List>{};
+
+  /// The shape of each take, by take id.
+  ///
+  /// Read after the list is on screen and never awaited by _load: a waveform
+  /// is the least urgent thing here and takes must never wait for one.
+  final Map<String, List<double>> _waves = <String, List<double>>{};
+
+  /// Where the playhead is, and how long the song runs.
+  Duration _position = Duration.zero;
+  Duration _span = Duration.zero;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<Duration>? _durationSub;
+
+  /// True while a finger is on the timeline, so the player's own position
+  /// updates do not fight the drag.
+  bool _scrubbing = false;
   String? _referenceNote;
   final Set<TakeGroup> _collapsed = <TakeGroup>{};
   int _offsetMs = 0;
@@ -133,7 +152,20 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     // before this line runs, so the global default may never reach it.
     unawaited(OverdubSession.applyTo(_player));
     _completeSub = _player.onPlayerComplete.listen((_) {
-      if (mounted) setState(() => _playing = false);
+      if (mounted) {
+        setState(() {
+          _playing = false;
+          _position = Duration.zero;
+        });
+      }
+    });
+    _positionSub = _player.onPositionChanged.listen((position) {
+      // Ignored mid-drag: the finger is the truth until it lifts, and the
+      // player is still reporting where it was.
+      if (mounted && !_scrubbing) setState(() => _position = position);
+    });
+    _durationSub = _player.onDurationChanged.listen((duration) {
+      if (mounted) setState(() => _span = duration);
     });
     unawaited(_load());
   }
@@ -142,6 +174,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   void dispose() {
     _timer?.cancel();
     unawaited(_completeSub?.cancel());
+    unawaited(_positionSub?.cancel());
+    unawaited(_durationSub?.cancel());
     unawaited(_recorder.dispose());
     unawaited(_player.dispose());
     // Every other screen in the app is a player, not a recorder.
@@ -195,6 +229,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         _status = null;
       });
       unawaited(_loadFaces(layers));
+      unawaited(_loadWaves());
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -226,6 +261,29 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       if (member.userId == userId) return Color(member.colorValue);
     }
     return null;
+  }
+
+  /// Reads the shape of every take, then repaints once.
+  ///
+  /// One pass over samples the mixer has already decoded and cached, so this
+  /// costs a disk read rather than a decode. Repainting once at the end
+  /// rather than per take keeps a six-take song from rebuilding six times.
+  Future<void> _loadWaves() async {
+    var found = false;
+    for (final take in _takes) {
+      if (_waves.containsKey(take.id)) continue;
+      try {
+        final wave = await Multitrack.envelopeFor(take);
+        if (wave.isNotEmpty) {
+          _waves[take.id] = wave;
+          found = true;
+        }
+      } catch (_) {
+        // A take whose shape cannot be read still plays. The lane draws a
+        // rule instead of a waveform and nothing else changes.
+      }
+    }
+    if (found && mounted) setState(() {});
   }
 
   /// Fetches the faces for whoever is on this song, then repaints once.
@@ -1085,7 +1143,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                             color: AppColors.muted, fontSize: 12, height: 1.45),
                       ),
                       const SizedBox(height: 14),
-                      ..._partsBody(),
+                      _timeline(),
                       const SizedBox(height: 16),
                       _MetronomeNote(
                         on: _clickOn,
@@ -1196,26 +1254,231 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   Widget _row(Take take) {
     final layer = _layerFor(take);
     final mine = _mine(take);
-    return LayerRow(
+    return TakeLane(
       take: take,
+      wave: _waves[take.id] ?? const <double>[],
+      playedFraction: _playedFraction,
+      spansFraction: _spanFractionFor(take),
       playerColor: layer == null ? null : _colorForMember(layer.recordedBy),
       playerPhoto: layer == null ? null : _photos[layer.recordedBy],
-      subtitle: take.id == _referenceId
-          ? 'The recording this song was analyzed from'
-          : layer == null
-              ? null
-              : _subtitleFor(layer),
+      subtitle: take.id == _referenceId ? 'the song' : null,
       silent: _silent.contains(take.id),
       onToggle: () => _toggle(take.id),
-      onGain: mine && layer != null
-          ? (value) => unawaited(_setGain(layer, value))
-          : null,
-      onNudge: mine && layer != null
-          ? (delta) => unawaited(_nudge(layer, delta))
-          : null,
       // No delete on the reference: it is what every chord and lyric on the
       // song sheet came from, and a mixer should not be able to break those.
       onDelete: layer == null ? null : () => unawaited(_delete(layer)),
+      onAdjust: mine && layer != null
+          ? () => unawaited(_showLevels(layer, take))
+          : null,
+    );
+  }
+
+  /// One take's volume and timing, on demand.
+  ///
+  /// The redesign took the fader off the row to make room for the waveform.
+  /// That must not mean losing it: rotating the phone to change one volume is
+  /// a worse trade than a tap.
+  Future<void> _showLevels(SharedLayer layer, Take take) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: AppColors.deepNavy,
+      builder: (sheetContext) {
+        var gain = layer.gain;
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      TakeNaming.describe(take),
+                      style: const TextStyle(
+                          color: AppColors.text,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(_subtitleFor(layer),
+                        style: const TextStyle(
+                            color: AppColors.muted, fontSize: 12)),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: <Widget>[
+                        const Text('Volume',
+                            style: TextStyle(
+                                color: AppColors.text,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700)),
+                        const Spacer(),
+                        Text('${(gain * 100).round()}%',
+                            style: const TextStyle(
+                                color: AppColors.cyan,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800)),
+                      ],
+                    ),
+                    Slider(
+                      value: gain.clamp(0.0, 1.5),
+                      max: 1.5,
+                      divisions: 30,
+                      activeColor: AppColors.cyan,
+                      inactiveColor: AppColors.line,
+                      onChanged: (value) => setSheetState(() => gain = value),
+                      onChangeEnd: (value) => unawaited(_setGain(layer, value)),
+                      semanticFormatterCallback: (value) =>
+                          'Volume ${(value * 100).round()} percent',
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: <Widget>[
+                        const Text('Timing',
+                            style: TextStyle(
+                                color: AppColors.text,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700)),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: () {
+                            unawaited(_nudge(layer, -10));
+                            Navigator.pop(sheetContext);
+                          },
+                          tooltip: '10 ms earlier',
+                          icon: const Icon(Icons.remove_rounded,
+                              color: AppColors.muted),
+                        ),
+                        Text('${layer.offsetMs} ms',
+                            style: const TextStyle(
+                                color: AppColors.text,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800)),
+                        IconButton(
+                          onPressed: () {
+                            unawaited(_nudge(layer, 10));
+                            Navigator.pop(sheetContext);
+                          },
+                          tooltip: '10 ms later',
+                          icon: const Icon(Icons.add_rounded,
+                              color: AppColors.muted),
+                        ),
+                      ],
+                    ),
+                    const Text(
+                      'An analyzed song times each take automatically. This is '
+                      'for the last few milliseconds.',
+                      style: TextStyle(
+                          color: AppColors.muted, fontSize: 11.5, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// How long the whole song runs, for the ruler and the playhead.
+  ///
+  /// The player's own duration when it has one, and the longest take before
+  /// anything has played — so the timeline is drawn correctly on arrival
+  /// rather than snapping into place at the first press of play.
+  Duration get _songSpan {
+    if (_span > Duration.zero) return _span;
+    var longest = 0;
+    for (final take in _takes) {
+      final end = take.durationMs;
+      if (end > longest) longest = end;
+    }
+    return Duration(milliseconds: longest);
+  }
+
+  double get _playedFraction {
+    final span = _songSpan.inMilliseconds;
+    if (span <= 0) return 0;
+    return (_position.inMilliseconds / span).clamp(0.0, 1.0);
+  }
+
+  /// How much of the song's width one take occupies.
+  ///
+  /// A forty-second harmony on a three-minute song draws a short lane. That
+  /// is the fact a list of equal-width rows could never show, and the reason
+  /// somebody can see at a glance that a part stops before the last chorus.
+  double _spanFractionFor(Take take) {
+    final span = _songSpan.inMilliseconds;
+    if (span <= 0 || take.durationMs <= 0) return 1;
+    return (take.durationMs / span).clamp(0.05, 1.0);
+  }
+
+  /// Moves the playhead, and the audio with it.
+  Future<void> _scrubTo(double fraction) async {
+    final span = _songSpan;
+    if (span <= Duration.zero) return;
+    final at = Duration(
+      milliseconds: (span.inMilliseconds * fraction.clamp(0.0, 1.0)).round(),
+    );
+    setState(() => _position = at);
+    try {
+      await _player.seek(at);
+    } catch (_) {
+      // Nothing loaded yet. The playhead still moved, and the next press of
+      // play starts from where they left it.
+    }
+  }
+
+  /// The lanes, under one clock.
+  ///
+  /// The ruler, the playhead and the drag target are one widget rather than
+  /// three because they are one idea: these lanes share a timeline. Split
+  /// across the screen they would read as a progress bar that happens to sit
+  /// above some rows.
+  Widget _timeline() {
+    const headers = 112.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final laneWidth = math.max(1.0, constraints.maxWidth - headers);
+        void scrub(Offset local) {
+          _scrubbing = true;
+          unawaited(_scrubTo((local.dx - headers) / laneWidth));
+        }
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (details) {
+            scrub(details.localPosition);
+            _scrubbing = false;
+          },
+          onHorizontalDragStart: (details) => scrub(details.localPosition),
+          onHorizontalDragUpdate: (details) => scrub(details.localPosition),
+          onHorizontalDragEnd: (_) => _scrubbing = false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              TimelineRuler(
+                totalMs: _songSpan.inMilliseconds,
+                leftInset: headers,
+              ),
+              const SizedBox(height: 6),
+              Stack(
+                children: <Widget>[
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      for (final widget in _partsBody()) widget,
+                    ],
+                  ),
+                  if (_songSpan > Duration.zero)
+                    Playhead(at: _playedFraction, leftInset: headers),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
