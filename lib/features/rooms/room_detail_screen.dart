@@ -672,6 +672,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                           onMore: _selectedProjectIds.isEmpty ? () => _showSongMenu(room, project) : null,
                           onTap: onTap,
                           coverBytes: controller.projectCoverBytes(project),
+                          unheardTakes: controller.unheardTakesFor(project.id),
                         );
                       },
                       childCount: sortedProjects.length,

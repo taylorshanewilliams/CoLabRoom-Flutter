@@ -531,6 +531,24 @@ class InMemoryMusicRepository implements MusicRepository {
     ));
   }
 
+  /// Unheard counts the fake simply holds, so a badge can be exercised in a
+  /// test without a database behind it.
+  ///
+  /// This repository has no concept of a layer — takes live in Supabase and
+  /// in song_layer_service, not here — so there is nothing to derive a count
+  /// from. Seeding it directly keeps the fake honest about that rather than
+  /// inventing a second, disagreeing model of what a take is.
+  final Map<String, int> unheardTakes = <String, int>{};
+
+  @override
+  Future<Map<String, int>> loadUnheardTakeCounts() async =>
+      Map<String, int>.from(unheardTakes);
+
+  @override
+  Future<void> markProjectSeen(String projectId) async {
+    unheardTakes.remove(projectId);
+  }
+
   @override
   Future<void> moveProjects(Iterable<SongProject> projects, MusicRoom targetRoom) async {
     final selected = projects.toList(growable: false);

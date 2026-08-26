@@ -114,6 +114,13 @@ abstract interface class MusicRepository {
 
   Future<void> moveProjects(Iterable<SongProject> projects, MusicRoom targetRoom);
 
+  /// How many takes have landed on each song since this person last listened,
+  /// keyed by project id. Songs with nothing new are absent rather than zero.
+  Future<Map<String, int>> loadUnheardTakeCounts();
+
+  /// Records that this person has now heard what is on [projectId].
+  Future<void> markProjectSeen(String projectId);
+
   Future<InviteResult> createInvite({
     required MusicRoom room,
     required String email,

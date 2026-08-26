@@ -131,6 +131,7 @@ class SongTile extends StatelessWidget {
     this.selected = false,
     this.density = SongTileDensity.spacious,
     this.coverBytes,
+    this.unheardTakes = 0,
     super.key,
   });
 
@@ -149,12 +150,23 @@ class SongTile extends StatelessWidget {
   /// note-glyph icon — see [RoomTile.logoBytes].
   final Uint8List? coverBytes;
 
+  /// Takes somebody else has added since this person last opened the song.
+  ///
+  /// The one number on this tile that is about a person rather than a file:
+  /// somebody played something and you have not heard it yet. Shown in the
+  /// corner where the arrow sits, because it replaces "there is more in here"
+  /// with the reason there is more.
+  final int unheardTakes;
+
   @override
   Widget build(BuildContext context) {
     return BloomTap(
       onTap: onTap,
       onLongPress: onLongPress,
-      semanticLabel: 'Open ${project.title}',
+      semanticLabel: unheardTakes > 0
+          ? 'Open ${project.title}, $unheardTakes new '
+              '${unheardTakes == 1 ? 'take' : 'takes'} you have not heard'
+          : 'Open ${project.title}',
       child: AppSurface(
         padding: EdgeInsets.all(density.padding),
         color: selected ? const Color(0xFF0C2341) : AppColors.surface,
@@ -186,6 +198,10 @@ class SongTile extends StatelessWidget {
                         ),
                 ),
                 const Spacer(),
+                if (unheardTakes > 0 && !selected) ...<Widget>[
+                  UnheardTakesBadge(count: unheardTakes),
+                  const SizedBox(width: 6),
+                ],
                 if (selected)
                   const Icon(Icons.check_circle_rounded, color: AppColors.cyan, size: 19)
                 else if (onMore != null)
@@ -232,6 +248,45 @@ class SongTile extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A count of takes nobody has played to this person yet.
+///
+/// Cyan rather than red. This is somebody sharing their playing, not an
+/// error and not a demand — red would make a bandmate's guitar part look
+/// like a problem to clear.
+class UnheardTakesBadge extends StatelessWidget {
+  const UnheardTakesBadge({required this.count, super.key});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.cyan,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(Icons.graphic_eq_rounded, size: 11, color: AppColors.ink),
+          const SizedBox(width: 3),
+          Text(
+            // Capped so a long silence cannot widen the tile.
+            count > 9 ? '9+' : '$count',
+            style: const TextStyle(
+              color: AppColors.ink,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+              height: 1.1,
+            ),
+          ),
+        ],
       ),
     );
   }

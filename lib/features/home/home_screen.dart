@@ -213,6 +213,7 @@ class HomeScreen extends StatelessWidget {
                   title: entry.project.title,
                   subtitle: '${entry.room.icon}  ${entry.room.name}',
                   hasRecording: entry.project.hasAudioReference,
+                  unheardTakes: controller.unheardTakesFor(entry.project.id),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => SongWorkspaceScreen(projectId: entry.project.id),
@@ -335,12 +336,16 @@ class _RecentSongRow extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.hasRecording,
+    this.unheardTakes = 0,
     required this.onTap,
   });
 
   final String title;
   final String subtitle;
   final bool hasRecording;
+
+  /// Takes a bandmate added since this person last opened the song.
+  final int unheardTakes;
   final VoidCallback onTap;
 
   @override
@@ -384,9 +389,17 @@ class _RecentSongRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (hasRecording)
+            if (unheardTakes > 0) ...<Widget>[
+              UnheardTakesBadge(count: unheardTakes),
+              const SizedBox(width: 8),
+            ] else if (hasRecording) ...<Widget>[
+              // One or the other. A song with something new to hear does not
+              // also need telling that it has a recording — the badge is the
+              // more urgent half of the same fact, and two marks in a row
+              // read as decoration.
               const Icon(Icons.graphic_eq_rounded, size: 15, color: AppColors.gold),
-            const SizedBox(width: 6),
+              const SizedBox(width: 6),
+            ],
             const Icon(Icons.chevron_right_rounded, color: AppColors.muted, size: 19),
           ],
         ),

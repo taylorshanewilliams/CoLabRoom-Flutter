@@ -66,6 +66,35 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   List<AppNotification> get notifications => List<AppNotification>.unmodifiable(_notifications);
   NotificationPreferences get notificationPreferences => _notificationPreferences;
   int get unreadNotificationCount => _notifications.where((n) => !n.isRead).length;
+
+  Map<String, int> _unheardTakes = const <String, int>{};
+
+  /// Takes added by somebody else since this person last opened [projectId].
+  ///
+  /// Zero for a song with nothing new, which is the overwhelmingly common
+  /// case and the reason the map holds only songs that have something.
+  int unheardTakesFor(String projectId) => _unheardTakes[projectId] ?? 0;
+
+  /// Everything new across every band, for the Home surface.
+  int get unheardTakesTotal =>
+      _unheardTakes.values.fold(0, (sum, count) => sum + count);
+
+  /// Called when somebody opens a song's takes: the badge clears immediately
+  /// rather than waiting for the next load, because the person is looking at
+  /// the thing it refers to.
+  Future<void> markProjectSeen(String projectId) async {
+    if (_unheardTakes.containsKey(projectId)) {
+      final next = Map<String, int>.from(_unheardTakes)..remove(projectId);
+      _unheardTakes = next;
+      notifyListeners();
+    }
+    try {
+      await repository.markProjectSeen(projectId);
+    } catch (_) {
+      // Recording that somebody listened must never interrupt listening. The
+      // next load re-reads the truth from the server.
+    }
+  }
   Iterable<SongProject> get projects => _rooms.expand((room) => room.projects);
   bool get loading => _loading;
   String? get error => _error;
@@ -81,6 +110,14 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       _setlists = await repository.loadSetlists();
       _notifications = await repository.loadNotifications();
       _notificationPreferences = await repository.loadNotificationPreferences();
+      // Best-effort and last. A badge is the least important thing on this
+      // screen: failing to fetch it must never cost somebody their songs,
+      // which is what putting it in the main try would do.
+      try {
+        _unheardTakes = await repository.loadUnheardTakeCounts();
+      } catch (_) {
+        // Left as it was. A stale count is better than a list that failed.
+      }
     } catch (error) {
       _error = error.toString();
     } finally {
