@@ -78,20 +78,25 @@ class PlayerFace extends StatelessWidget {
         ),
         child: photo != null
             ? Image.memory(photo!, fit: BoxFit.cover, width: size, height: size)
-            : Center(
-                child: initials.isEmpty
-                    ? Icon(Icons.person_rounded,
-                        size: size * 0.55, color: AppColors.muted)
-                    : Text(
-                        initials,
-                        style: TextStyle(
-                          color: tint,
-                          fontSize: size * 0.40,
-                          fontWeight: FontWeight.w800,
-                          height: 1.1,
-                          letterSpacing: 0.2,
+            // The initials are a drawing of the name, not a second fact
+            // about it. Left readable, this node announced "Played by Dylan,
+            // D" — the name, and then it spelled at you.
+            : ExcludeSemantics(
+                child: Center(
+                  child: initials.isEmpty
+                      ? Icon(Icons.person_rounded,
+                          size: size * 0.55, color: AppColors.muted)
+                      : Text(
+                          initials,
+                          style: TextStyle(
+                            color: tint,
+                            fontSize: size * 0.40,
+                            fontWeight: FontWeight.w800,
+                            height: 1.1,
+                            letterSpacing: 0.2,
+                          ),
                         ),
-                      ),
+                ),
               ),
       ),
     );
