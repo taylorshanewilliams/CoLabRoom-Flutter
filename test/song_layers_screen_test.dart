@@ -54,6 +54,29 @@ class _NoAnalysis extends SongAnalysisService {
       );
 }
 
+/// A song that has been analyzed and never overdubbed — the state almost
+/// every song in a real account is in.
+class _AnalyzedSong extends SongAnalysisService {
+  _AnalyzedSong() : super(client: null);
+
+  @override
+  Future<SongAnalysisBundle> load(String projectId) async => SongAnalysisBundle(
+        reference: ReferenceTrack(
+          projectId: projectId,
+          fileId: 'file-1',
+          storagePath: 'room-1/project-1/analysis/reference.m4a',
+          displayName: 'The recording',
+          state: SongAnalysisState.ready,
+        ),
+        lyricCues: const <LyricSyncCue>[],
+        chordCues: const <ChordCue>[],
+      );
+
+  @override
+  Future<String> ensureLocalReference(ReferenceTrack reference) async =>
+      '/tmp/reference.m4a';
+}
+
 class _AnalysisThatWillNotLoad extends SongAnalysisService {
   _AnalysisThatWillNotLoad() : super(client: null);
 
@@ -79,6 +102,40 @@ Widget _screen({
 }
 
 void main() {
+  testWidgets('an analyzed song shows its recording before any take exists',
+      (tester) async {
+    // The bug this exists for: hasLayers counted only the *shared* takes, and
+    // gated the empty state, the list and the play button alike. So a song
+    // that had been analyzed but never overdubbed fetched its recording,
+    // downloaded it, and then drew "No takes yet" over the top of it with
+    // nothing to press. Every analyzed song in the account did this.
+    await tester.pumpWidget(_screen(analysis: _AnalyzedSong()));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('The recording'), findsOneWidget);
+    expect(find.text('No takes yet'), findsNothing);
+  });
+
+  testWidgets('an analyzed song can be played before any take exists',
+      (tester) async {
+    // Without this the recording could be listed and still not heard, which
+    // is the same failure one layer further in.
+    await tester.pumpWidget(_screen(analysis: _AnalyzedSong()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Play'), findsOneWidget);
+  });
+
+  testWidgets('a song with neither takes nor a recording is still empty',
+      (tester) async {
+    await tester.pumpWidget(_screen());
+    await tester.pumpAndSettle();
+
+    expect(find.text('No takes yet'), findsOneWidget);
+    expect(find.text('Play'), findsNothing);
+  });
+
   testWidgets('a song with no takes builds and settles without throwing',
       (tester) async {
     await tester.pumpWidget(_screen());
