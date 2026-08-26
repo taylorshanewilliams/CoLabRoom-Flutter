@@ -24,6 +24,7 @@ import '../../services/take_export.dart';
 import '../../services/take_naming.dart';
 import '../../widgets/microphone_disclosure.dart';
 import 'layer_console.dart';
+import 'song_level_store.dart';
 import 'layer_group.dart';
 import 'take_lane.dart';
 import 'take_prompt.dart';
@@ -167,7 +168,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     _durationSub = _player.onDurationChanged.listen((duration) {
       if (mounted) setState(() => _span = duration);
     });
+    unawaited(_loadSongLevel());
     unawaited(_load());
+  }
+
+  Future<void> _loadSongLevel() async {
+    final level = await SongLevelStore.load(widget.projectId);
+    if (!mounted || level == _songLevel) return;
+    setState(() => _songLevel = level);
+    unawaited(_applyMixChange());
   }
 
   @override
@@ -334,7 +343,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     setState(() {
       if (!_enabled.remove(id)) _enabled.add(id);
     });
-    unawaited(_rebuildMix());
+    unawaited(_applyMixChange());
   }
 
   /// Silences a whole group, or brings all of it back.
@@ -353,7 +362,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         }
       }
     });
-    unawaited(_rebuildMix());
+    unawaited(_applyMixChange());
   }
 
   /// What the recorder is asked for, and therefore what a take of a given
@@ -381,6 +390,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       label: reference.displayName,
       recordedAt: DateTime.now(),
       durationMs: reference.durationMs ?? 0,
+      gain: _songLevel,
       enabled: _enabled.contains(_referenceId),
       part: TakePart.other,
       namedByHand: true,
@@ -533,6 +543,27 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     return wrote;
   }
 
+  /// Rebuilds the mix and, if something is playing, carries on from where it
+  /// was.
+  ///
+  /// Every change that alters the mix writes a *new file* — that is what
+  /// stops audioplayers handing back a stale one. But the player is still on
+  /// the old file, so muting a take mid-playback did nothing at all until you
+  /// stopped and pressed play again. The change had happened; nobody could
+  /// hear it.
+  ///
+  /// The position is carried across rather than restarting, because somebody
+  /// muting a guitar forty seconds into a chorus is asking what the chorus
+  /// sounds like without the guitar, not to hear the song from the top.
+  Future<void> _applyMixChange() async {
+    final wasPlaying = _playing;
+    final at = _position;
+    final rebuilt = await _rebuildMix();
+    if (!rebuilt || !wasPlaying || _recording) return;
+    await _playMix(from: at);
+    if (mounted) setState(() => _playing = true);
+  }
+
   /// Plays the current mix, looping it when it is only a click.
   Future<void> _playMix({Duration from = Duration.zero}) async {
     final path = _lastMixPath;
@@ -552,6 +583,13 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// The take is placed here in the mix rather than at the top, which is the
   /// whole of punching in.
   Duration _punchInAt = Duration.zero;
+
+  /// How loud the song is under whatever is being played over it.
+  ///
+  /// Local to this person — see SongLevelStore. Until this existed there was
+  /// no fader on the song at all, so a phone take under a mastered mix was
+  /// buried with nothing on screen able to help.
+  double _songLevel = 1.0;
 
   Future<void> _record() async {
     if (_busy || _recording) return;
@@ -996,6 +1034,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     try {
       await _service.updateLayer(layer, patch);
       await _load();
+      // _load re-reads the layers; it does not re-sum them. Without this a
+      // fader moved mid-playback changed the number on screen and nothing in
+      // the audio, which is the same complaint as muting.
+      await _applyMixChange();
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
     }
@@ -1267,11 +1309,11 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                         fromAnalysis: _reference?.bpm != null && _clickBpm == null,
                         onToggle: (value) {
                           setState(() => _clickOn = value);
-                          unawaited(_rebuildMix());
+                          unawaited(_applyMixChange());
                         },
                         onTempo: (value) {
                           setState(() => _clickBpm = value);
-                          unawaited(_rebuildMix());
+                          unawaited(_applyMixChange());
                         },
                       ),
                       const SizedBox(height: 16),
@@ -1390,9 +1432,101 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // No delete on the reference: it is what every chord and lyric on the
       // song sheet came from, and a mixer should not be able to break those.
       onDelete: layer == null ? null : () => unawaited(_delete(layer)),
-      onAdjust: mine && layer != null
-          ? () => unawaited(_showLevels(layer, take))
-          : null,
+      onAdjust: layer != null
+          ? (mine ? () => unawaited(_showLevels(layer, take)) : null)
+          // The song itself. Not a take and not anybody's to re-balance for
+          // the band — but everybody needs to set how loud it sits while they
+          // play along, and until now nobody could.
+          : (take.id == _referenceId ? () => unawaited(_showSongLevel()) : null),
+    );
+  }
+
+  /// How loud the song sits while somebody plays over it.
+  ///
+  /// Its own sheet rather than the take one, because almost nothing in that
+  /// sheet applies: there is no timing to nudge on a reference, and this
+  /// level is local rather than shared. Saying so on the sheet matters —
+  /// a fader that looks shared and is not would have somebody wondering why
+  /// their bandmate still cannot hear them.
+  Future<void> _showSongLevel() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: AppColors.deepNavy,
+      builder: (sheetContext) {
+        var level = _songLevel;
+        return StatefulBuilder(
+          builder: (context, setSheetState) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Text(
+                    'The song',
+                    style: TextStyle(
+                        color: AppColors.text,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'How loud it sits while you play over it. Yours only — it '
+                    'does not change what anybody else hears.',
+                    style: TextStyle(
+                        color: AppColors.muted, fontSize: 12, height: 1.4),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: <Widget>[
+                      const Icon(Icons.volume_down_rounded,
+                          size: 18, color: AppColors.muted),
+                      Expanded(
+                        child: Slider(
+                          value: level.clamp(
+                              SongLevelStore.min, SongLevelStore.max),
+                          min: SongLevelStore.min,
+                          max: SongLevelStore.max,
+                          divisions: 30,
+                          activeColor: AppColors.gold,
+                          inactiveColor: AppColors.line,
+                          label: '${(level * 100).round()}%',
+                          onChanged: (value) =>
+                              setSheetState(() => level = value),
+                          onChangeEnd: (value) {
+                            setState(() => _songLevel = value);
+                            unawaited(
+                                SongLevelStore.save(widget.projectId, value));
+                            unawaited(_applyMixChange());
+                          },
+                          semanticFormatterCallback: (value) =>
+                              'Song level ${(value * 100).round()} percent',
+                        ),
+                      ),
+                      SizedBox(
+                        width: 46,
+                        child: Text('${(level * 100).round()}%',
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(
+                                color: AppColors.gold,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800)),
+                      ),
+                    ],
+                  ),
+                  const Text(
+                    'A phone records a good deal quieter than a mastered mix. '
+                    'If your take is buried, this is the fader that fixes it.',
+                    style: TextStyle(
+                        color: AppColors.muted, fontSize: 11.5, height: 1.4),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
