@@ -187,8 +187,8 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
     setState(() => _promoting = true);
     try {
       final controller = BetaScope.of(context);
-      final project = await _service.promoteToProject(context, controller, bundle.draft);
-      if (project == null || !mounted) return; // user cancelled room/title selection
+      final project = await _service.useInSong(context, controller, bundle.draft);
+      if (project == null || !mounted) return; // cancelled at the picker
       await Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(builder: (_) => SongWorkspaceScreen(projectId: project.id)),
       );
@@ -372,7 +372,11 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
                         child: CircularProgressIndicator(
                             strokeWidth: 2, color: AppColors.ink),
                       )
-                    : const Text('Create Song Project',
+                    // Named for the choice it opens rather than for one of
+                    // the two answers. "Create Song Project" was the only
+                    // answer the app had, and the button saying so is why
+                    // nobody looked for another.
+                    : const Text('Use in a song',
                         style: TextStyle(fontWeight: FontWeight.w800)),
               ),
             ],
