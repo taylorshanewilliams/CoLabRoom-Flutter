@@ -19,8 +19,12 @@ Float64List _dynamics({required int seconds, int rate = Multitrack.rate}) {
   for (var i = 0; i < out.length; i += 1) {
     final third = i / out.length;
     final level = third < 0.33 ? 0.7 : (third < 0.66 ? 0.12 : 0.0);
-    // A transient every half second, so peak-per-bucket would saturate.
-    final spike = i % (rate ~/ 2) < 400 ? 0.95 : level;
+    // A transient every half second, so peak-per-bucket saturates — but only
+    // where there is playing. Leaving the spikes running through the silent
+    // third made "silence reads as silence" fail, which was the fixture
+    // being wrong rather than the envelope: a silent passage with a
+    // full-scale click in it is not silence.
+    final spike = level > 0 && i % (rate ~/ 2) < 400 ? 0.95 : level;
     out[i] = math.sin(i * 0.05) * spike;
   }
   return out;
