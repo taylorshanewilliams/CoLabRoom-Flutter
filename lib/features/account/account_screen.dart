@@ -15,6 +15,7 @@ import '../../widgets/app_surface.dart';
 import '../../widgets/audio_privacy_note.dart';
 import '../dev/latency_probe_screen.dart';
 import '../notifications/notification_settings_screen.dart';
+import '../toolbox/toolbox_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({this.supabase, super.key});
@@ -290,6 +291,21 @@ class _AccountScreenState extends State<AccountScreen> {
                 icon: Icons.shield_outlined,
                 label: 'Privacy & Data',
                 onTap: () => _showPrivacy(context),
+              ),
+              // Homeless for the moment, and deliberately so rather than
+              // deleted. The Toolbox lost its tab because reference material
+              // is not worth a quarter of the navigation — but every sheet in
+              // it is keyed to a chord or a key, and a song here has both, so
+              // it belongs on the chord chart rather than in a drawer of its
+              // own. Until that lands it lives here, where nothing is lost
+              // and nothing is claimed.
+              _AccountRow(
+                icon: Icons.construction_rounded,
+                label: 'Toolbox',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                      builder: (_) => const ToolboxScreen()),
+                ),
               ),
               // Debug builds only. A measurement tool, not a feature — it
               // exists to find out whether overdubbing is possible on real
