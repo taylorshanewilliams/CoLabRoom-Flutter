@@ -90,6 +90,71 @@ class Multitrack {
     return MixResult(out, peak: peak, scaled: scaled, silentTakeIds: silentTakeIds);
   }
 
+  /// A click track, as samples.
+  ///
+  /// Generated rather than played, so that it can be summed into the mix like
+  /// any other layer. That is the same argument the rest of this file makes:
+  /// a second player has its own clock and drifts against the first, and a
+  /// metronome that drifts is worse than no metronome — it teaches somebody
+  /// their timing is wrong when it is the app's.
+  ///
+  /// [beatsPerBar] accents the downbeat, which is what makes a click
+  /// countable rather than a texture. Zero or one means every beat is the
+  /// same, for anyone who finds the accent worse than the alternative.
+  static Float64List click({
+    required double bpm,
+    required int lengthSamples,
+    int beatsPerBar = 4,
+    double level = 0.32,
+  }) {
+    final out = Float64List(lengthSamples);
+    if (bpm <= 0 || lengthSamples <= 0) return out;
+
+    final samplesPerBeat = 60.0 / bpm * rate;
+    // Short enough to be a tick rather than a note. A long click smears
+    // across the beat it is supposed to mark.
+    final tickSamples = (rate * 0.035).round();
+
+    var beat = 0;
+    for (var start = 0.0;
+        start < lengthSamples;
+        start += samplesPerBeat, beat += 1) {
+      final accent = beatsPerBar > 1 && beat % beatsPerBar == 0;
+      // A fifth apart, so the downbeat is recognisable without being a
+      // different instrument.
+      final frequency = accent ? 1800.0 : 1200.0;
+      final gain = accent ? level : level * 0.62;
+      final from = start.round();
+      for (var i = 0; i < tickSamples; i += 1) {
+        final at = from + i;
+        if (at >= lengthSamples) break;
+        // Exponential decay: a struck sound, not a beep held open.
+        final envelope = math.exp(-i / (tickSamples * 0.28));
+        out[at] += math.sin(2 * math.pi * frequency * i / rate) *
+            envelope *
+            gain;
+      }
+    }
+    return out;
+  }
+
+  /// Where the beats fall for a given tempo, in milliseconds from zero.
+  ///
+  /// The grid a click track implies. Recording against a metronome means the
+  /// tempo is known exactly rather than inferred, so a take on a song with no
+  /// analysis can still be timed to the beat — which is the one case
+  /// automatic alignment could not answer before.
+  static List<int> beatsForTempo({
+    required double bpm,
+    required int throughMs,
+    int beatsPerBar = 4,
+  }) {
+    if (bpm <= 0 || throughMs <= 0) return const <int>[];
+    final beatMs = 60000 / bpm;
+    final count = (throughMs / beatMs).floor() + 1;
+    return <int>[for (var i = 0; i < count; i += 1) (i * beatMs).round()];
+  }
+
   /// One take's audio as samples, whatever container it arrived in.
   ///
   /// Layers are recorded compressed — AAC, which is roughly seven times
@@ -194,6 +259,36 @@ class Multitrack {
     return peak;
   }
 
+  /// A click and nothing else, a whole number of bars long.
+  ///
+  /// For the first take of a song that has no recording to play along to.
+  /// Written as an exact number of bars so the file loops seamlessly — and
+  /// looping is safe here in a way it never is for a backing track, because a
+  /// click on its own has nothing to drift against.
+  static Future<void> writeClickOnly({
+    required double bpm,
+    required String outputPath,
+    int beatsPerBar = 4,
+    int bars = 8,
+  }) async {
+    final beats = math.max(1, beatsPerBar) * bars;
+    final lengthSamples = (60.0 / bpm * rate * beats).round();
+    final samples = click(
+      bpm: bpm,
+      lengthSamples: lengthSamples,
+      beatsPerBar: beatsPerBar,
+    );
+    await File(outputPath).writeAsBytes(
+      LatencyProbe.toWav(samples, rate: rate),
+      flush: true,
+    );
+  }
+
+  /// The click's id inside a mix. Not a uuid, so it cannot collide with a
+  /// real layer, and never written anywhere — a metronome is a way of
+  /// listening, not a part of the song.
+  static const String clickTakeId = 'click';
+
   /// Below this, nothing was captured.
   ///
   /// Deliberately far under anything a person could play. A take recorded
@@ -221,6 +316,8 @@ class Multitrack {
   static Future<MixResult?> writeMixdown({
     required List<Take> takes,
     required String outputPath,
+    double? clickBpm,
+    int clickBeatsPerBar = 4,
   }) async {
     final wanted = takes.where((take) => take.enabled).toList(growable: false);
     if (wanted.isEmpty) return null;
@@ -231,7 +328,42 @@ class Multitrack {
       if (samples.isEmpty) silent.add(take.id);
       audio.add(samples);
     }
-    final result = mix(wanted, audio, silentTakeIds: silent);
+
+    // The click joins the mix as another layer rather than as another player,
+    // for the reason at the top of this file: one file has nothing to drift
+    // against. It is added before the peak is measured, so a mix that was
+    // already near full scale is turned down to fit the click rather than
+    // clipping on every beat.
+    var wantedWithClick = wanted;
+    var audioWithClick = audio;
+    if (clickBpm != null && clickBpm > 0) {
+      var longest = 0;
+      for (var i = 0; i < wanted.length; i += 1) {
+        final skip = math.max(0, (wanted[i].offsetMs * rate / 1000).round());
+        longest = math.max(longest, math.max(0, audio[i].length - skip));
+      }
+      if (longest > 0) {
+        wantedWithClick = <Take>[
+          ...wanted,
+          Take(
+            id: clickTakeId,
+            path: '',
+            label: 'Click',
+            recordedAt: DateTime.now(),
+          ),
+        ];
+        audioWithClick = <Float64List>[
+          ...audio,
+          click(
+            bpm: clickBpm,
+            lengthSamples: longest,
+            beatsPerBar: clickBeatsPerBar,
+          ),
+        ];
+      }
+    }
+
+    final result = mix(wantedWithClick, audioWithClick, silentTakeIds: silent);
     if (result.samples.isEmpty) return null;
     await File(outputPath).writeAsBytes(
       LatencyProbe.toWav(result.samples, rate: rate),
