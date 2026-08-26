@@ -48,6 +48,77 @@ enum TakePart {
   }
 }
 
+/// How a band talks about the parts of a song when there are too many to
+/// list one by one.
+///
+/// Not one group per [TakePart]. Nine parts listed flat is a scroll; nine
+/// parts in four groups is a page — and the groups have to be the ones people
+/// already think in, or they are just a second thing to learn. "The rhythm
+/// section" is a phrase every band uses; "the percussion group" is not.
+enum TakeGroup {
+  vocals,
+  guitars,
+  rhythmSection,
+  keys,
+  other;
+
+  String get label {
+    switch (this) {
+      case TakeGroup.vocals:
+        return 'Vocals';
+      case TakeGroup.guitars:
+        return 'Guitars';
+      case TakeGroup.rhythmSection:
+        return 'Rhythm section';
+      case TakeGroup.keys:
+        return 'Keys';
+      case TakeGroup.other:
+        return 'Everything else';
+    }
+  }
+
+  static TakeGroup of(TakePart part) {
+    switch (part) {
+      case TakePart.vocal:
+      case TakePart.harmony:
+        return TakeGroup.vocals;
+      case TakePart.rhythm:
+      case TakePart.lead:
+        return TakeGroup.guitars;
+      case TakePart.bass:
+      case TakePart.drums:
+      case TakePart.percussion:
+        return TakeGroup.rhythmSection;
+      case TakePart.keys:
+        return TakeGroup.keys;
+      case TakePart.other:
+        return TakeGroup.other;
+    }
+  }
+}
+
+/// Past this many parts, a flat list stops being readable on a phone and the
+/// groups earn their keep. Below it, grouping four things into three headings
+/// is ceremony.
+const int groupingThreshold = 6;
+
+/// [takes] in groups, in a fixed order, with empty groups left out.
+///
+/// The order is deliberate and not alphabetical: vocals first because that is
+/// what somebody checks first, then what is usually carrying the song, then
+/// what is holding it up. Fixed rather than by-recency so the list does not
+/// rearrange itself under somebody who is reaching for a fader.
+List<(TakeGroup, List<Take>)> groupTakes(List<Take> takes) {
+  final buckets = <TakeGroup, List<Take>>{};
+  for (final take in takes) {
+    buckets.putIfAbsent(TakeGroup.of(take.part), () => <Take>[]).add(take);
+  }
+  return <(TakeGroup, List<Take>)>[
+    for (final group in TakeGroup.values)
+      if (buckets[group] != null) (group, buckets[group]!),
+  ];
+}
+
 /// A named combination of layers.
 ///
 /// The thing a band argues about is not a take, it is a *set* of takes: the

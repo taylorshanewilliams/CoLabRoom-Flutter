@@ -219,4 +219,61 @@ void main() {
       );
     });
   });
+
+  group('grouping parts once there are too many to list', () {
+    Take t(String id, TakePart part) => _take(id: id, part: part);
+
+    test('the groups are the ones a band already says out loud', () {
+      expect(TakeGroup.of(TakePart.vocal), TakeGroup.vocals);
+      expect(TakeGroup.of(TakePart.harmony), TakeGroup.vocals);
+      expect(TakeGroup.of(TakePart.rhythm), TakeGroup.guitars);
+      expect(TakeGroup.of(TakePart.lead), TakeGroup.guitars);
+      // Bass, drums and percussion together, because "the rhythm section" is
+      // a phrase every band uses and "the percussion group" is not.
+      expect(TakeGroup.of(TakePart.bass), TakeGroup.rhythmSection);
+      expect(TakeGroup.of(TakePart.drums), TakeGroup.rhythmSection);
+      expect(TakeGroup.of(TakePart.percussion), TakeGroup.rhythmSection);
+    });
+
+    test('empty groups are left out', () {
+      final grouped = groupTakes(<Take>[
+        t('1', TakePart.vocal),
+        t('2', TakePart.bass),
+      ]);
+
+      expect(grouped.map((entry) => entry.$1),
+          <TakeGroup>[TakeGroup.vocals, TakeGroup.rhythmSection]);
+    });
+
+    test('the order is fixed, not by recency', () {
+      // A list that rearranges itself under somebody reaching for a fader is
+      // worse than a list that is slightly wrong.
+      final grouped = groupTakes(<Take>[
+        t('1', TakePart.drums),
+        t('2', TakePart.vocal),
+        t('3', TakePart.lead),
+      ]);
+
+      expect(grouped.map((entry) => entry.$1), <TakeGroup>[
+        TakeGroup.vocals,
+        TakeGroup.guitars,
+        TakeGroup.rhythmSection,
+      ]);
+    });
+
+    test('parts stay with their group', () {
+      final grouped = groupTakes(<Take>[
+        t('lead', TakePart.lead),
+        t('vox', TakePart.vocal),
+        t('rhythm', TakePart.rhythm),
+      ]);
+
+      final guitars = grouped.firstWhere((e) => e.$1 == TakeGroup.guitars).$2;
+      expect(guitars.map((take) => take.id), <String>['lead', 'rhythm']);
+    });
+
+    test('nothing to group is an empty list, not a row of empty headings', () {
+      expect(groupTakes(const <Take>[]), isEmpty);
+    });
+  });
 }

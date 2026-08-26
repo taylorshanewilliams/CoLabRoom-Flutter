@@ -17,6 +17,8 @@ import '../../services/song_layer_service.dart';
 import '../../services/take_export.dart';
 import '../../services/take_naming.dart';
 import '../../widgets/microphone_disclosure.dart';
+import 'layer_console.dart';
+import 'layer_group.dart';
 import 'layer_row.dart';
 
 /// The parts of a song, and adding another one.
@@ -78,6 +80,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   String? _error;
   String? _status;
   final Set<String> _silent = <String>{};
+  final Set<TakeGroup> _collapsed = <TakeGroup>{};
   int _offsetMs = 0;
   String? _performer;
   Duration _elapsed = Duration.zero;
@@ -151,6 +154,50 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   }
 
   String? get _me => Supabase.instance.client.auth.currentUser?.id;
+
+  /// Whether a take is one this person may re-balance. The reference is
+  /// nobody's to move — it is what the analysis was made from.
+  bool _mine(Take take) {
+    if (take.id == _referenceId) return false;
+    final layers = _layers ?? const <SharedLayer>[];
+    for (final layer in layers) {
+      if (layer.id == take.id) return layer.recordedBy == _me;
+    }
+    return false;
+  }
+
+  SharedLayer? _layerFor(Take take) {
+    for (final layer in _layers ?? const <SharedLayer>[]) {
+      if (layer.id == take.id) return layer;
+    }
+    return null;
+  }
+
+  void _toggle(String id) {
+    setState(() {
+      if (!_enabled.remove(id)) _enabled.add(id);
+    });
+    unawaited(_rebuildMix());
+  }
+
+  /// Silences a whole group, or brings all of it back.
+  ///
+  /// "How does this sound without the guitars" is asked constantly, and a
+  /// flat list answers it badly: mute three things one at a time, then
+  /// remember which three to unmute.
+  void _toggleGroup(List<Take> takes) {
+    final anyOn = takes.any((take) => take.enabled);
+    setState(() {
+      for (final take in takes) {
+        if (anyOn) {
+          _enabled.remove(take.id);
+        } else {
+          _enabled.add(take.id);
+        }
+      }
+    });
+    unawaited(_rebuildMix());
+  }
 
   /// Not a uuid, so it can never collide with a real layer's id.
   static const String _referenceId = 'reference';
@@ -454,6 +501,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   Widget build(BuildContext context) {
     final layers = _layers;
     final hasLayers = layers != null && layers.isNotEmpty;
+    // Sideways is a desk. A list is the right shape for reading and the wrong
+    // shape for balancing: deciding whether the harmony sits well against the
+    // lead means comparing them, and on a phone that means remembering one
+    // while scrolling to the other. Side by side, the comparison is just the
+    // picture. It also gives the landscape orientation something to be.
+    final console = MediaQuery.of(context).orientation == Orientation.landscape;
     return Scaffold(
       backgroundColor: AppColors.deepNavy,
       appBar: AppBar(
@@ -493,6 +546,18 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                   ],
                 ),
               )
+            : console && _takes.isNotEmpty
+            ? LayerConsole(
+                takes: _takes,
+                silentIds: _silent,
+                onToggle: (take) => _toggle(take.id),
+                onGain: (take) {
+                  final layer = _layerFor(take);
+                  if (!_mine(take) || layer == null) return null;
+                  return (Take _, double value) =>
+                      unawaited(_setGain(layer, value));
+                },
+              )
             : RefreshIndicator(
                 onRefresh: _load,
                 child: ListView(
@@ -529,46 +594,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                             color: AppColors.muted, fontSize: 12, height: 1.45),
                       ),
                       const SizedBox(height: 14),
-                      if (_referenceTake != null)
-                        LayerRow(
-                          take: _referenceTake!,
-                          subtitle: 'The recording this song was analyzed from',
-                          silent: _silent.contains(_referenceId),
-                          onToggle: () => setState(() {
-                            if (!_enabled.remove(_referenceId)) {
-                              _enabled.add(_referenceId);
-                            }
-                          }),
-                          // No delete. This is the recording the analysis was
-                          // made from — removing it here would quietly break
-                          // the chords and lyrics on the song sheet, which is
-                          // not a thing a mixer should be able to do.
-                          onDelete: null,
-                        ),
-                      for (final layer in layers)
-                        LayerRow(
-                          take: layer.toTake(
-                            _localPaths[layer.id] ?? '',
-                            enabled: _enabled.contains(layer.id),
-                          ),
-                          subtitle: _subtitleFor(layer),
-                          silent: _silent.contains(layer.id),
-                          onToggle: () => setState(() {
-                            if (!_enabled.remove(layer.id)) _enabled.add(layer.id);
-                          }),
-                          // Yours to balance, theirs to leave alone. The first
-                          // cut of this disabled the slider for everyone,
-                          // which locked people out of parts they had just
-                          // recorded themselves — the rule is about other
-                          // people's playing, not about all playing.
-                          onGain: layer.recordedBy == _me
-                              ? (value) => unawaited(_setGain(layer, value))
-                              : null,
-                          onNudge: layer.recordedBy == _me
-                              ? (delta) => unawaited(_nudge(layer, delta))
-                              : null,
-                          onDelete: () => unawaited(_delete(layer)),
-                        ),
+                      ..._partsBody(),
                       const SizedBox(height: 16),
                       _LatencyNote(
                         offsetMs: _offsetMs,
@@ -632,6 +658,57 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// The parts, flat or grouped depending on how many there are.
+  ///
+  /// Grouping four things under three headings is ceremony; grouping nine is
+  /// the difference between a page and a scroll. The threshold is where a
+  /// flat list stops fitting on a phone.
+  List<Widget> _partsBody() {
+    final takes = _takes;
+    if (takes.length <= groupingThreshold) {
+      return <Widget>[for (final take in takes) _row(take)];
+    }
+    return <Widget>[
+      for (final (group, members) in groupTakes(takes)) ...<Widget>[
+        LayerGroupHeader(
+          group: group,
+          takes: members,
+          collapsed: _collapsed.contains(group),
+          onToggleGroup: () => _toggleGroup(members),
+          onToggleCollapsed: () => setState(() {
+            if (!_collapsed.remove(group)) _collapsed.add(group);
+          }),
+        ),
+        if (!_collapsed.contains(group))
+          for (final take in members) _row(take),
+      ],
+    ];
+  }
+
+  Widget _row(Take take) {
+    final layer = _layerFor(take);
+    final mine = _mine(take);
+    return LayerRow(
+      take: take,
+      subtitle: take.id == _referenceId
+          ? 'The recording this song was analyzed from'
+          : layer == null
+              ? null
+              : _subtitleFor(layer),
+      silent: _silent.contains(take.id),
+      onToggle: () => _toggle(take.id),
+      onGain: mine && layer != null
+          ? (value) => unawaited(_setGain(layer, value))
+          : null,
+      onNudge: mine && layer != null
+          ? (delta) => unawaited(_nudge(layer, delta))
+          : null,
+      // No delete on the reference: it is what every chord and lyric on the
+      // song sheet came from, and a mixer should not be able to break those.
+      onDelete: layer == null ? null : () => unawaited(_delete(layer)),
     );
   }
 
