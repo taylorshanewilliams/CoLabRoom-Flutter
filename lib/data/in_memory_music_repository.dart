@@ -7,6 +7,16 @@ import 'music_repository.dart';
 class InMemoryMusicRepository implements MusicRepository {
   InMemoryMusicRepository._(this._rooms, this._invites, this._setlists);
 
+  /// The same fixture, reachable by a subclass.
+  ///
+  /// The generative constructor is private and the entry point is a factory,
+  /// which a test double cannot extend — and counting how often a repository
+  /// is asked for something is exactly the kind of test worth writing against
+  /// this fake. Redirects rather than copies, so a double and the thing it
+  /// doubles cannot start from different data.
+  InMemoryMusicRepository.from(InMemoryMusicRepository source)
+      : this._(source._rooms, source._invites, source._setlists);
+
   final List<AppNotification> _notifications = <AppNotification>[
     AppNotification(
       id: 'notif-1',

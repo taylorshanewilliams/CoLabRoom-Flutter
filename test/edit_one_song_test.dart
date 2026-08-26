@@ -12,6 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 /// hundreds of kilobytes of somebody's own words, per line, over mobile data.
 
 class _CountingRepository extends InMemoryMusicRepository {
+  _CountingRepository() : super.from(InMemoryMusicRepository.seeded());
+
   int roomLoads = 0;
   int projectLoads = 0;
 
