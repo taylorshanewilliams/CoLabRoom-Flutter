@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -43,9 +44,15 @@ class SongLayerService {
   /// genuinely easy thing about this compared with the lyric editor, where
   /// two people editing one document had to be reconciled.
   Future<List<SharedLayer>> listLayers(String projectId) async {
+    // The person comes back with the layer rather than in a second pass.
+    // A take is somebody playing, and a list that has to fetch the players
+    // afterwards renders once as a row of anonymous files and then again as
+    // people — which looks like a bug and reads like an afterthought.
     final rows = await _client
         .from('song_layers')
-        .select()
+        .select(
+          '*, player:profiles!song_layers_recorded_by_fkey(display_name, avatar_path)',
+        )
         .eq('project_id', projectId)
         .order('created_at');
     return (rows as List<dynamic>)
@@ -135,6 +142,32 @@ class SongLayerService {
     return path;
   }
 
+  /// One person's picture, fetched once per session.
+  ///
+  /// The `avatars` bucket is readable by any signed-in account, and a profile
+  /// is readable by anyone sharing a room, so a bandmate's face needs no new
+  /// permission — only the fetch. Cached against the path because avatars are
+  /// small, few, and repeat down every row of the list.
+  ///
+  /// Null rather than throwing: a picture that will not download is a missing
+  /// picture. The row falls back to initials, which is also what happens for
+  /// the many people who never set one.
+  static final Map<String, Uint8List?> _avatarCache = <String, Uint8List?>{};
+
+  Future<Uint8List?> avatarBytes(String storagePath) async {
+    if (_avatarCache.containsKey(storagePath)) return _avatarCache[storagePath];
+    try {
+      final bytes = await _client.storage.from('avatars').download(storagePath);
+      _avatarCache[storagePath] = bytes;
+      return bytes;
+    } catch (_) {
+      // Remembered as absent so a broken path is not retried on every
+      // rebuild of a list that rebuilds constantly.
+      _avatarCache[storagePath] = null;
+      return null;
+    }
+  }
+
   /// Records that somebody actually listened, which is what retention reads.
   ///
   /// Best-effort and deliberately unawaited by callers: failing to mark a
@@ -218,6 +251,8 @@ class SharedLayer {
     required this.part,
     required this.createdAt,
     this.performer,
+    this.recordedByName,
+    this.recordedByAvatarPath,
     this.durationMs = 0,
     this.offsetMs = 0,
     this.gain = 1.0,
@@ -231,6 +266,17 @@ class SharedLayer {
   final String label;
   final TakePart part;
   final String? performer;
+
+  /// The display name of the account that recorded this, from profiles.
+  ///
+  /// Distinct from [performer], which is who actually played — a phone gets
+  /// handed around a room, and the two are often different people. This is
+  /// the fallback when nobody typed a performer, which is most of the time.
+  final String? recordedByName;
+
+  /// Storage path of that account's picture in the `avatars` bucket, or null
+  /// if they have not set one.
+  final String? recordedByAvatarPath;
   final int durationMs;
   final int offsetMs;
   final double gain;
@@ -254,12 +300,32 @@ class SharedLayer {
       gain: gain,
       enabled: enabled,
       part: part,
-      performer: performer,
+      // Falls back to whoever recorded it. TakeNaming.describe already turns
+      // a performer into "Dylan's lead" — it just had nothing to work with
+      // whenever the performer prompt was skipped, which is most takes, and
+      // the result was a list of anonymous parts on a feature whose whole
+      // point is knowing who played what.
+      performer: attributedTo,
       namedByHand: label.trim().isNotEmpty,
     );
   }
 
+  /// Who this take belongs to, in the words the band would use.
+  ///
+  /// The typed performer wins: somebody who said "that was Dylan" while
+  /// handing the phone back is telling the truth about the playing, and the
+  /// account that pressed record is not.
+  String? get attributedTo {
+    final typed = performer?.trim();
+    if (typed != null && typed.isNotEmpty) return typed;
+    final account = recordedByName?.trim();
+    if (account != null && account.isNotEmpty) return account;
+    return null;
+  }
+
   factory SharedLayer.fromRow(Map<String, dynamic> row) {
+    final player = row['player'];
+    final profile = player is Map ? Map<String, dynamic>.from(player) : null;
     return SharedLayer(
       id: row['id'] as String,
       projectId: row['project_id'] as String,
@@ -268,6 +334,8 @@ class SharedLayer {
       label: row['label'] as String? ?? '',
       part: TakePart.parse(row['part'] as String?),
       performer: row['performer'] as String?,
+      recordedByName: profile?['display_name'] as String?,
+      recordedByAvatarPath: profile?['avatar_path'] as String?,
       durationMs: (row['duration_ms'] as num?)?.toInt() ?? 0,
       offsetMs: (row['offset_ms'] as num?)?.toInt() ?? 0,
       gain: (row['gain'] as num?)?.toDouble() ?? 1.0,

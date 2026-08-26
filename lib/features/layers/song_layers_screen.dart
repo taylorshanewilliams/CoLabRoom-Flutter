@@ -9,7 +9,9 @@ import 'package:record/record.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../domain/music_models.dart';
 import '../../services/multitrack.dart';
 import '../../services/overdub_session.dart';
 import '../../domain/song_analysis_models.dart';
@@ -105,6 +107,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   String? _error;
   String? _status;
   final Set<String> _silent = <String>{};
+
+  /// Faces, by the account that recorded the take.
+  ///
+  /// Keyed on the person rather than the layer: a bandmate with six takes on
+  /// a song is one download, not six.
+  final Map<String, Uint8List> _photos = <String, Uint8List>{};
   String? _referenceNote;
   final Set<TakeGroup> _collapsed = <TakeGroup>{};
   int _offsetMs = 0;
@@ -182,6 +190,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         _busy = false;
         _status = null;
       });
+      unawaited(_loadFaces(layers));
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -202,6 +211,44 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   }
 
   String? get _me => Supabase.instance.client.auth.currentUser?.id;
+
+  /// A member's own colour, the same one tinting their lines in the song
+  /// sheet. Null for somebody who is not a member of this room — a guest
+  /// handed the phone, or a member who has since left.
+  Color? _colorForMember(String userId) {
+    final room =
+        BetaScope.maybeOf(context, listen: false)?.roomById(widget.roomId);
+    for (final member in room?.members ?? const <RoomMember>[]) {
+      if (member.userId == userId) return Color(member.colorValue);
+    }
+    return null;
+  }
+
+  /// Fetches the faces for whoever is on this song, then repaints once.
+  ///
+  /// Deliberately after the list is already on screen and deliberately not
+  /// awaited by [_load]: a picture is the least important thing here, and
+  /// takes must never wait on one. Repainting once at the end rather than per
+  /// face keeps a six-person song from rebuilding the list six times.
+  Future<void> _loadFaces(List<SharedLayer> layers) async {
+    final wanted = <String, String>{};
+    for (final layer in layers) {
+      final path = layer.recordedByAvatarPath;
+      if (path != null && !_photos.containsKey(layer.recordedBy)) {
+        wanted[layer.recordedBy] = path;
+      }
+    }
+    if (wanted.isEmpty) return;
+    var found = false;
+    for (final entry in wanted.entries) {
+      final bytes = await _service.avatarBytes(entry.value);
+      if (bytes != null) {
+        _photos[entry.key] = bytes;
+        found = true;
+      }
+    }
+    if (found && mounted) setState(() {});
+  }
 
   /// Whether a take is one this person may re-balance. The reference is
   /// nobody's to move — it is what the analysis was made from.
@@ -889,6 +936,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     final mine = _mine(take);
     return LayerRow(
       take: take,
+      playerColor: layer == null ? null : _colorForMember(layer.recordedBy),
+      playerPhoto: layer == null ? null : _photos[layer.recordedBy],
       subtitle: take.id == _referenceId
           ? 'The recording this song was analyzed from'
           : layer == null
