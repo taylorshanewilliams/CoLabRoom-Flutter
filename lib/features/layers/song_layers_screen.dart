@@ -13,6 +13,7 @@ import '../../app/colabroom_theme.dart';
 import '../../services/multitrack.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
+import '../../services/error_reporter.dart';
 import '../../services/song_layer_service.dart';
 import '../../services/take_export.dart';
 import '../../services/take_naming.dart';
@@ -386,7 +387,30 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     try {
       final path = await _recorder.stop();
       await _player.stop();
-      if (path == null || !await File(path).exists()) return;
+
+      // Every way this can end without a take now says so.
+      //
+      // These were bare `return`s inside the try, so a recorder that gave
+      // back nothing produced no take, no error and no message — the screen
+      // simply went back to how it looked before, which is indistinguishable
+      // from never having pressed the button. Whatever is wrong, a person is
+      // owed the difference between "that failed" and "nothing happened".
+      if (path == null) {
+        throw StateError(
+          'The recorder returned no file. The take was not saved.',
+        );
+      }
+      final recorded = File(path);
+      if (!await recorded.exists()) {
+        throw StateError('The recording did not reach the disk at $path.');
+      }
+      final size = await recorded.length();
+      if (size < 1024) {
+        throw StateError(
+          'The recording is empty ($size bytes) — the microphone may not have '
+          'started. The take was not saved.',
+        );
+      }
       if (!mounted) return;
 
       final described = await askWhatThatWas(context, performer: _performer);
@@ -421,6 +445,16 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       }
       await _load();
     } catch (error) {
+      // Reported as well as shown. A take that fails to save is the single
+      // most costly failure in this feature — somebody played something and
+      // it is gone — and until now the only record of it was a sentence on
+      // one person's screen that vanished on the next rebuild.
+      unawaited(ErrorReporter().reportError(
+        service: 'layers',
+        stage: 'upload',
+        message: 'Saving a take failed: $error',
+        projectId: widget.projectId,
+      ));
       if (mounted) setState(() => _error = error.toString());
     } finally {
       if (mounted) {
