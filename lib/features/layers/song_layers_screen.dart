@@ -1368,7 +1368,7 @@ class _MetronomeNote extends StatelessWidget {
               padding: const EdgeInsets.only(left: 4, right: 8),
               child: Text(
                 fromAnalysis
-                    ? 'This song's own tempo, from its analysis. Change it and '
+                    ? "This song's own tempo, from its analysis. Change it and "
                         'the click follows you instead.'
                     : 'Takes recorded to a click can be timed to the beat '
                         'automatically, even on a song that has never been '
