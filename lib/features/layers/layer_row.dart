@@ -1,8 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../services/multitrack.dart';
 import '../../services/take_naming.dart';
+import 'player_face.dart';
 
 /// One take in the list, with the controls that belong to it.
 ///
@@ -23,6 +26,8 @@ class LayerRow extends StatefulWidget {
     this.silent = false,
     this.onGain,
     this.onNudge,
+    this.playerColor,
+    this.playerPhoto,
     super.key,
   });
 
@@ -39,6 +44,11 @@ class LayerRow extends StatefulWidget {
   /// identical to a bad recording, and the person who made it has no way to
   /// tell which.
   final bool silent;
+
+  /// The player's room colour and picture, when they are a member with one.
+  /// The name itself comes off the take — see [PlayerFace].
+  final Color? playerColor;
+  final Uint8List? playerPhoto;
 
   @override
   State<LayerRow> createState() => _LayerRowState();
@@ -86,6 +96,12 @@ class _LayerRowState extends State<LayerRow> {
                   color: take.enabled ? AppColors.cyan : AppColors.muted,
                 ),
               ),
+              PlayerFace(
+                name: take.performer,
+                color: widget.playerColor,
+                photo: widget.playerPhoto,
+              ),
+              const SizedBox(width: 9),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
