@@ -155,6 +155,40 @@ class Multitrack {
     }
   }
 
+  /// The loudest sample in a just-recorded file, or null if nothing decoded.
+  ///
+  /// The difference between those two answers is the whole point. A file that
+  /// will not decode is a broken container; a file that decodes to a peak of
+  /// zero is a microphone that was open, running and capturing nothing —
+  /// which is what an audio session configured for playback does to a
+  /// concurrent recording. Both used to reach the band as a take nobody could
+  /// hear, and size alone cannot tell them apart: four seconds of encoded
+  /// digital silence is a perfectly well-formed 2.5 KB m4a.
+  static Future<double?> peakOfRecording(String path) async {
+    final samples = await samplesFor(Take(
+      id: path,
+      path: path,
+      label: '',
+      recordedAt: DateTime.now(),
+    ));
+    if (samples.isEmpty) return null;
+    var peak = 0.0;
+    for (final value in samples) {
+      final magnitude = value.abs();
+      if (magnitude > peak) peak = magnitude;
+    }
+    return peak;
+  }
+
+  /// Below this, nothing was captured.
+  ///
+  /// Deliberately far under anything a person could play. A take recorded
+  /// across a room at arm's length still peaks two orders of magnitude above
+  /// this; -54 dBFS is not a quiet performance, it is an input that never
+  /// opened. Set low on purpose — refusing to save something somebody
+  /// actually played would be a worse bug than the one this catches.
+  static const double silenceFloor = 0.002;
+
   /// Signed 16-bit little-endian PCM as samples.
   static Float64List pcmToSamples(Uint8List pcm) {
     final count = pcm.length ~/ 2;
