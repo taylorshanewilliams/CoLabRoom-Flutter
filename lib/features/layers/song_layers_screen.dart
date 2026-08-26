@@ -482,6 +482,13 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         outputPath: path,
         clickBpm: _clickOn ? _tempo : null,
         clickBeatsPerBar: _beatsPerBar,
+        // The song's own beats, unless somebody has chosen a tempo. A click
+        // counted from zero starts wherever the intro leaves it and is wrong
+        // against the record for the whole song; these came out of the
+        // analysis and land where the band actually played.
+        clickBeatsMs: _clickOn && _clickBpm == null
+            ? (_reference?.beatsMs ?? const <int>[])
+            : const <int>[],
       );
       wrote = result != null;
       _loopingClick = false;
@@ -502,6 +509,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     // that quietly fills a phone.
     final previous = _lastMixPath;
     _lastMixPath = wrote ? path : previous;
+    // A new mix is a different recording. Whatever was paused is gone.
+    if (wrote) _pausedAt = null;
     if (wrote && previous != null && previous != path) {
       try {
         final stale = File(previous);
@@ -854,15 +863,42 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
 
   int get _beatsPerBar => _reference?.beatsPerBar ?? 4;
 
+  /// The mix that was playing when somebody pressed pause.
+  ///
+  /// Held so that pressing play again resumes rather than restarts. Cleared
+  /// whenever a new mix is written, because a mute or a volume change makes a
+  /// different file and resuming into it would be resuming into audio that no
+  /// longer exists.
+  String? _pausedAt;
+
   Future<void> _togglePlay() async {
     if (_recording) return;
     if (_playing) {
-      await _player.stop();
+      // Paused, not stopped. stop() winds the position back to zero, which is
+      // why pressing play again always started the song over — a small thing
+      // on a thirty-second sketch and unusable on a three-minute song when
+      // the part you want to hear is at 2:40.
+      await _player.pause();
+      _pausedAt = _lastMixPath;
       if (mounted) setState(() => _playing = false);
       return;
     }
-    if (!await _rebuildMix() || _lastMixPath == null) return;
-    await _playMix();
+
+    // Only built when there is nothing to play yet. Every change that alters
+    // the mix — a mute, a fader, the metronome — rebuilds it as it happens,
+    // so by the time somebody presses play it is already current. Rebuilding
+    // here as well wrote a second identical file under a new name, and a new
+    // name is a new source, which starts at zero.
+    if (_lastMixPath == null) {
+      if (!await _rebuildMix() || _lastMixPath == null) return;
+    }
+
+    if (_pausedAt == _lastMixPath) {
+      await _player.resume();
+    } else {
+      await _playMix();
+    }
+    _pausedAt = null;
     if (mounted) setState(() => _playing = true);
   }
 
@@ -1138,7 +1174,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                       const SizedBox(height: 4),
                       const Text(
                         'Wear headphones when you add one, or the backing '
-                        'track goes down the microphone with you.',
+                        'track goes down the microphone with you. '
+                        'Turn the phone sideways for the faders.',
                         style: TextStyle(
                             color: AppColors.muted, fontSize: 12, height: 1.45),
                       ),
