@@ -90,7 +90,7 @@ class Multitrack {
     return MixResult(out, peak: peak, scaled: scaled, silentTakeIds: silentTakeIds);
   }
 
-  /// The shape of a take, as a short list of peaks.
+  /// The shape of a take, as loudness over time.
   ///
   /// Cheap because the expensive part is already done: every take is decoded
   /// to samples and cached beside itself so the mixer can sum it, so drawing
@@ -98,31 +98,52 @@ class Multitrack {
   /// a second decode. That is the whole reason a phone app can afford
   /// waveforms at all.
   ///
-  /// Absolute peaks, not normalised per take. A take normalised to its own
-  /// loudest moment draws a whisper the same height as a shout, which is
-  /// exactly the comparison a mixer exists to make. The lane applies its own
-  /// curve for legibility instead.
+  /// **Root-mean-square, not peak, and that distinction was a bug.** Peak is
+  /// the obvious choice and it drew a solid fence: a three-and-a-half-minute
+  /// song across 56 buckets is 3.6 seconds a bucket, and the loudest
+  /// *instant* in any 3.6 seconds of a mixed record is essentially always
+  /// full scale, so every bar came out the same height. A four-second take,
+  /// at 70 ms a bucket, kept its detail and looked like a waveform — which is
+  /// what made the difference visible.
+  ///
+  /// RMS asks how loud the bucket *is* rather than how loud its loudest
+  /// sample was, so it keeps saying something however long the window gets:
+  /// a verse reads quieter than a chorus, and silence reads as silence.
+  ///
+  /// Absolute, not normalised per take. A take normalised to its own loudest
+  /// moment draws a whisper the same height as a shout, which is exactly the
+  /// comparison a mixer exists to make.
   static List<double> envelope(Float64List samples, {int buckets = 56}) {
     if (samples.isEmpty || buckets <= 0) return const <double>[];
     final out = List<double>.filled(buckets, 0);
     final per = samples.length / buckets;
     for (var b = 0; b < buckets; b += 1) {
       final from = (b * per).floor();
-      final to = math.min(samples.length, ((b + 1) * per).ceil());
-      var peak = 0.0;
+      final to =
+          math.max(from + 1, math.min(samples.length, ((b + 1) * per).ceil()));
+      var sum = 0.0;
       for (var i = from; i < to; i += 1) {
-        final magnitude = samples[i].abs();
-        if (magnitude > peak) peak = magnitude;
+        sum += samples[i] * samples[i];
       }
-      out[b] = peak > 1 ? 1 : peak;
+      final rms = math.sqrt(sum / (to - from));
+      out[b] = rms > 1 ? 1 : rms;
     }
     return out;
   }
 
   /// A take's shape, read through the same cache the mixer uses.
-  static Future<List<double>> envelopeFor(Take take, {int buckets = 56}) async {
+  ///
+  /// The bucket count follows the take's length — roughly one per quarter
+  /// second — rather than being fixed. A fixed count makes the window length
+  /// depend on how long the take is, which is the other half of why the
+  /// reference averaged into a straight line while a short take did not.
+  /// Floored so a two-second stab still has a shape, capped so a ten-minute
+  /// jam does not draw thousands of bars nobody can see.
+  static Future<List<double>> envelopeFor(Take take, {int? buckets}) async {
     final samples = await samplesFor(take);
-    return envelope(samples, buckets: buckets);
+    final wanted =
+        buckets ?? (samples.length / rate * 4).round().clamp(48, 260);
+    return envelope(samples, buckets: wanted);
   }
 
   /// A click track, as samples.
@@ -136,6 +157,62 @@ class Multitrack {
   /// [beatsPerBar] accents the downbeat, which is what makes a click
   /// countable rather than a texture. Zero or one means every beat is the
   /// same, for anyone who finds the accent worse than the alternative.
+  /// Clicks on beats the analysis actually found.
+  ///
+  /// The tempo version below counts from zero, and a song's first downbeat is
+  /// almost never at zero — an intro, a count-in, half a second of room. A
+  /// click that starts at zero is then wrong against the record for its whole
+  /// length by however long that was, at every tempo, and no amount of
+  /// getting the bpm right fixes it.
+  ///
+  /// These beats also drift with the band, which a fixed tempo cannot. For
+  /// playing along to your own record that is the point; for practising
+  /// steady time it is not, which is why the fixed-tempo version stays.
+  static Float64List clickOnBeats({
+    required List<int> beatsMs,
+    required int lengthSamples,
+    int beatsPerBar = 4,
+    double level = 0.32,
+  }) {
+    final out = Float64List(lengthSamples);
+    if (beatsMs.isEmpty || lengthSamples <= 0) return out;
+    for (var beat = 0; beat < beatsMs.length; beat += 1) {
+      final at = (beatsMs[beat] * rate / 1000).round();
+      if (at >= lengthSamples) break;
+      _strike(
+        out,
+        at,
+        accent: beatsPerBar > 1 && beat % beatsPerBar == 0,
+        level: level,
+      );
+    }
+    return out;
+  }
+
+  /// One tick, written into [out] at [at].
+  static void _strike(
+    Float64List out,
+    int at, {
+    required bool accent,
+    required double level,
+  }) {
+    // Short enough to be a tick rather than a note. A long click smears
+    // across the beat it is supposed to mark.
+    final tickSamples = (rate * 0.035).round();
+    // A fifth apart, so the downbeat is recognisable without being a
+    // different instrument.
+    final frequency = accent ? 1800.0 : 1200.0;
+    final gain = accent ? level : level * 0.62;
+    for (var i = 0; i < tickSamples; i += 1) {
+      final index = at + i;
+      if (index >= out.length) break;
+      // Exponential decay: a struck sound, not a beep held open.
+      final envelope = math.exp(-i / (tickSamples * 0.28));
+      out[index] +=
+          math.sin(2 * math.pi * frequency * i / rate) * envelope * gain;
+    }
+  }
+
   static Float64List click({
     required double bpm,
     required int lengthSamples,
@@ -353,6 +430,7 @@ class Multitrack {
     required String outputPath,
     double? clickBpm,
     int clickBeatsPerBar = 4,
+    List<int> clickBeatsMs = const <int>[],
   }) async {
     final wanted = takes.where((take) => take.enabled).toList(growable: false);
     if (wanted.isEmpty) return null;
@@ -371,7 +449,8 @@ class Multitrack {
     // clipping on every beat.
     var wantedWithClick = wanted;
     var audioWithClick = audio;
-    if (clickBpm != null && clickBpm > 0) {
+    final followsSong = clickBeatsMs.length > 1;
+    if (followsSong || (clickBpm != null && clickBpm > 0)) {
       var longest = 0;
       for (var i = 0; i < wanted.length; i += 1) {
         final skip = math.max(0, (wanted[i].offsetMs * rate / 1000).round());
@@ -389,11 +468,21 @@ class Multitrack {
         ];
         audioWithClick = <Float64List>[
           ...audio,
-          click(
-            bpm: clickBpm,
-            lengthSamples: longest,
-            beatsPerBar: clickBeatsPerBar,
-          ),
+          // The song's own beats when the analysis found them, because a
+          // click counted from zero lands wherever the intro leaves it and
+          // stays wrong for the whole song.
+          if (followsSong)
+            clickOnBeats(
+              beatsMs: clickBeatsMs,
+              lengthSamples: longest,
+              beatsPerBar: clickBeatsPerBar,
+            )
+          else
+            click(
+              bpm: clickBpm!,
+              lengthSamples: longest,
+              beatsPerBar: clickBeatsPerBar,
+            ),
         ];
       }
     }
