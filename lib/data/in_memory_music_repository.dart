@@ -540,6 +540,20 @@ class InMemoryMusicRepository implements MusicRepository {
   /// inventing a second, disagreeing model of what a take is.
   final Map<String, int> unheardTakes = <String, int>{};
 
+  /// Nothing arrives here: the fake has no second device writing to it.
+  @override
+  Stream<String> get projectChanges => const Stream<String>.empty();
+
+  @override
+  Future<SongProject?> loadProject(String projectId) async {
+    for (final room in _rooms) {
+      for (final project in room.projects) {
+        if (project.id == projectId) return project;
+      }
+    }
+    return null;
+  }
+
   @override
   Future<Map<String, int>> loadUnheardTakeCounts() async =>
       Map<String, int>.from(unheardTakes);

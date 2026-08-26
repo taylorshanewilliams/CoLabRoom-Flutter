@@ -114,6 +114,27 @@ abstract interface class MusicRepository {
 
   Future<void> moveProjects(Iterable<SongProject> projects, MusicRoom targetRoom);
 
+  /// One song, with its lyrics — rather than the whole library.
+  ///
+  /// [loadRooms] fetches every room, every song, every lyric line and every
+  /// file in one query. That is the right shape for opening the app and the
+  /// wrong shape for typing: a single edited line was re-downloading every
+  /// word of every song in every Room, twice — once because the mutation
+  /// asked for a reload and once because the realtime channel saw the write
+  /// and asked for another.
+  ///
+  /// Null when the song is gone or no longer visible to this person, which
+  /// the caller should treat as "remove it" rather than as an error.
+  Future<SongProject?> loadProject(String projectId);
+
+  /// Ids of songs somebody *else* changed, for a listener that wants to
+  /// refresh one song rather than everything.
+  ///
+  /// Separate from [changes] because the two carry different news. [changes]
+  /// means "something in the library moved, re-read it"; this means "this one
+  /// song's lyrics moved, and nothing else did".
+  Stream<String> get projectChanges;
+
   /// How many takes have landed on each song since this person last listened,
   /// keyed by project id. Songs with nothing new are absent rather than zero.
   Future<Map<String, int>> loadUnheardTakeCounts();

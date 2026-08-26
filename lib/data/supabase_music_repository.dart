@@ -45,7 +45,16 @@ class SupabaseMusicRepository implements MusicRepository {
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'contributions',
-          callback: (_) => _notifyChanged(),
+          // The loudest table in the app by a wide margin, and the only one
+          // a person writes to continuously. Every keystroke batch that saved
+          // a line announced itself back to the phone that had just written
+          // it, which then re-read every word of every song in the account —
+          // on top of the reload the save itself had already asked for.
+          //
+          // A change to one song refreshes that song. A change this person
+          // made is dropped outright: their own screen is already correct,
+          // and the write path updated it.
+          callback: _onContributionChanged,
         )
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
@@ -88,11 +97,16 @@ class SupabaseMusicRepository implements MusicRepository {
 
   final SupabaseClient client;
   final StreamController<void> _changes = StreamController<void>.broadcast();
+  final StreamController<String> _projectChanges =
+      StreamController<String>.broadcast();
   late RealtimeChannel _channel;
   bool _live = true;
 
   @override
   Stream<void> get changes => _changes.stream;
+
+  @override
+  Stream<String> get projectChanges => _projectChanges.stream;
 
   /// Closes the live connection while the app is in the background.
   ///
@@ -119,6 +133,20 @@ class SupabaseMusicRepository implements MusicRepository {
 
   void _notifyChanged() {
     if (!_changes.isClosed) _changes.add(null);
+  }
+
+  void _onContributionChanged(PostgresChangePayload payload) {
+    final row = payload.newRecord.isNotEmpty ? payload.newRecord : payload.oldRecord;
+    final author = row['author_id'] as String?;
+    // Mine, and already on screen.
+    if (author != null && author == client.auth.currentUser?.id) return;
+
+    final projectId = row['project_id'] as String?;
+    if (projectId == null) {
+      _notifyChanged();
+      return;
+    }
+    if (!_projectChanges.isClosed) _projectChanges.add(projectId);
   }
 
   String get _userId {
@@ -750,6 +778,24 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<SongProject?> loadProject(String projectId) async {
+    // The same shape loadRooms asks for per project, so _project parses it
+    // unchanged and a refreshed song cannot differ from a loaded one.
+    final row = await client
+        .from('projects')
+        .select(
+          'id, room_id, account_id, title, description, status, created_at, updated_at, sort_order, cover_image_path, '
+          'project_audio_references(project_id), '
+          'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
+          'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at))',
+        )
+        .eq('id', projectId)
+        .maybeSingle();
+    if (row == null) return null;
+    return _project(Map<String, dynamic>.from(row));
+  }
+
+  @override
   Future<Map<String, int>> loadUnheardTakeCounts() async {
     // One round trip for the whole library rather than a query per song. The
     // counting, the "not my own takes" rule and the room-membership check all
@@ -1073,5 +1119,6 @@ class SupabaseMusicRepository implements MusicRepository {
   void dispose() {
     client.removeChannel(_channel);
     _changes.close();
+    _projectChanges.close();
   }
 }

@@ -12,6 +12,19 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       _reloadDebounce?.cancel();
       _reloadDebounce = Timer(const Duration(milliseconds: 300), load);
     });
+    // A bandmate typing refreshes the song they typed in, not the library.
+    // Coalesced per song, so somebody pasting a whole lyric sheet costs one
+    // read of one song rather than one read of everything per line.
+    _projectChangesSubscription = repository.projectChanges.listen((projectId) {
+      _projectDebounce[projectId]?.cancel();
+      _projectDebounce[projectId] = Timer(
+        const Duration(milliseconds: 400),
+        () {
+          _projectDebounce.remove(projectId);
+          unawaited(refreshProject(projectId));
+        },
+      );
+    });
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -41,6 +54,9 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
         break;
     }
   }
+
+  StreamSubscription<String>? _projectChangesSubscription;
+  final Map<String, Timer> _projectDebounce = <String, Timer>{};
 
   final MusicRepository repository;
 
@@ -333,6 +349,51 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Re-reads one song and puts it back where it was.
+  ///
+  /// The alternative — and what this replaces — is [load], which fetches
+  /// every Room, every song and every lyric line in the account. Typing a
+  /// line was doing that twice: once here and once again when the realtime
+  /// channel saw the same write land.
+  ///
+  /// A song that comes back null has been deleted or is no longer visible, so
+  /// it is dropped from the Room rather than left as a tile that opens onto
+  /// nothing.
+  Future<void> refreshProject(String projectId) async {
+    final updated = await repository.loadProject(projectId);
+    var changed = false;
+    final rooms = <MusicRoom>[];
+    for (final room in _rooms) {
+      final index =
+          room.projects.indexWhere((project) => project.id == projectId);
+      if (index < 0) {
+        rooms.add(room);
+        continue;
+      }
+      final projects = List<SongProject>.from(room.projects);
+      if (updated == null) {
+        projects.removeAt(index);
+      } else if (updated.roomId != room.id) {
+        // It moved. Taking it out here is right; the Room it went to is
+        // reloaded by the move itself.
+        projects.removeAt(index);
+      } else {
+        projects[index] = updated;
+      }
+      rooms.add(room.copyWith(projects: projects));
+      changed = true;
+    }
+    if (!changed) {
+      // A song this device has not seen before — an invitation accepted
+      // elsewhere, a song added to a Room while the app was open. Nothing to
+      // splice into, so read the library properly this once.
+      await load();
+      return;
+    }
+    _rooms = rooms;
+    notifyListeners();
+  }
+
   Future<void> addContribution(
     SongProject project,
     String body, {
@@ -345,17 +406,17 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       colorValue: colorValue,
       position: position,
     );
-    await load();
+    await refreshProject(project.id);
   }
 
   Future<void> updateContribution(Contribution contribution, String body) async {
     await repository.updateContribution(contribution: contribution, body: body);
-    await load();
+    await refreshProject(contribution.projectId);
   }
 
   Future<void> deleteContribution(Contribution contribution) async {
     await repository.deleteContribution(contribution);
-    await load();
+    await refreshProject(contribution.projectId);
   }
 
   Future<int> importContributions(
@@ -368,7 +429,7 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       drafts: drafts,
       colorValue: colorValue,
     );
-    await load();
+    await refreshProject(project.id);
     return imported.length;
   }
 
@@ -478,7 +539,12 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _reloadDebounce?.cancel();
+    for (final timer in _projectDebounce.values) {
+      timer.cancel();
+    }
+    _projectDebounce.clear();
     _changesSubscription?.cancel();
+    _projectChangesSubscription?.cancel();
     repository.dispose();
     super.dispose();
   }
