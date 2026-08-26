@@ -793,6 +793,28 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         // An orphan in the app's own directory, not worth failing an upload.
       }
       await _load();
+
+      // Rewind to just before the punch, the way a desk does.
+      //
+      // Without this, punching in at 1:40 and pressing play starts the song
+      // at 0:00 — and the take does not come in for another minute and
+      // forty seconds, so the honest conclusion is that nothing recorded.
+      // The take was there the whole time; playback simply had not reached
+      // it yet.
+      //
+      // A couple of seconds of run-up rather than landing exactly on it: the
+      // point of hearing a punch is hearing it arrive against what came
+      // before, and a take that begins on the first sample of playback tells
+      // you nothing about whether it sits right.
+      if (_punchInAt > Duration.zero) {
+        final preRoll = _punchInAt - const Duration(seconds: 2);
+        await _scrubTo(
+          _songSpan.inMilliseconds <= 0
+              ? 0
+              : (preRoll.isNegative ? 0 : preRoll.inMilliseconds) /
+                  _songSpan.inMilliseconds,
+        );
+      }
     } catch (error) {
       // Reported as well as shown. A take that fails to save is the single
       // most costly failure in this feature — somebody played something and
