@@ -1,5 +1,5 @@
 import 'package:colabroom/app/colabroom_theme.dart';
-import 'package:colabroom/features/layers/player_face.dart';
+import 'package:colabroom/widgets/player_face.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

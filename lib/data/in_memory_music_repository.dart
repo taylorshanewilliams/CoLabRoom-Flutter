@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../domain/activity.dart';
 import '../domain/music_models.dart';
 import '../domain/name_policy.dart';
 import 'music_repository.dart';
@@ -543,6 +544,13 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<Map<String, int>> loadUnheardTakeCounts() async =>
       Map<String, int>.from(unheardTakes);
+
+  /// Seeded by tests; the fake has no second person doing anything.
+  final List<ActivityItem> activity = <ActivityItem>[];
+
+  @override
+  Future<List<ActivityItem>> loadActivity({int limit = 20}) async =>
+      activity.take(limit).toList(growable: false);
 
   @override
   Future<void> markProjectSeen(String projectId) async {

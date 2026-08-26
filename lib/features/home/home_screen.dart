@@ -6,6 +6,8 @@ import '../../domain/music_models.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/brand_mark.dart';
 import '../../widgets/bloom_tap.dart';
+import '../../domain/activity.dart';
+import '../../widgets/player_face.dart';
 import '../../widgets/music_tiles.dart';
 import '../rooms/room_detail_screen.dart';
 import '../rooms/rooms_screen.dart';
@@ -34,6 +36,7 @@ class HomeScreen extends StatelessWidget {
     // to something you were already writing, and a Room is a container you
     // then have to open to get at the actual work.
     final recentSongs = allSongsByRecency(controller.rooms).take(4).toList(growable: false);
+    final activity = controller.activity.take(6).toList(growable: false);
     final recentRooms = (List<MusicRoom>.from(controller.rooms)
           ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt)))
         .take(4)
@@ -189,6 +192,44 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
         ),
+        // What happened, before what you were doing.
+        //
+        // Home used to be a second songs list, which is what Songs is for.
+        // The dimension the app was missing entirely is the people in it: a
+        // bandmate's lead landed on a song and there was nowhere that
+        // sentence could appear. project_events has carried it since 0032 and
+        // only inside the song it happened in.
+        //
+        // Absent rather than empty when there is no news. A band that has not
+        // played this week must not be shown a panel announcing that.
+        if (activity.isNotEmpty) ...<Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 22, 18, 10),
+            sliver: SliverToBoxAdapter(
+              child: Text('While you were gone',
+                  style: Theme.of(context).textTheme.titleLarge),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
+            sliver: SliverList.separated(
+              itemCount: activity.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final item = activity[index];
+                return _ActivityRow(
+                  item: item,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          SongWorkspaceScreen(projectId: item.projectId),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
         if (recentSongs.isNotEmpty) ...<Widget>[
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(18, 26, 18, 10),
@@ -401,6 +442,64 @@ class _RecentSongRow extends StatelessWidget {
               const SizedBox(width: 6),
             ],
             const Icon(Icons.chevron_right_rounded, color: AppColors.muted, size: 19),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One thing somebody did, as a sentence with a face on it.
+class _ActivityRow extends StatelessWidget {
+  const _ActivityRow({required this.item, required this.onTap});
+
+  final ActivityItem item;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: AppSurface(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            PlayerFace(name: item.actorName, size: 30),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    item.sentence,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13.5, height: 1.35),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    // The song is the part somebody scans for, so it is not
+                    // buried inside the sentence.
+                    item.projectTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.cyan,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              shortAgo(item.at),
+              style: const TextStyle(color: AppColors.muted, fontSize: 11),
+            ),
           ],
         ),
       ),
