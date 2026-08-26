@@ -113,6 +113,7 @@ class SongLayerService {
           if (take.performer != null) 'performer': take.performer,
           'duration_ms': take.durationMs,
           'offset_ms': take.offsetMs,
+          'start_ms': take.startMs,
           'gain': take.gain,
           'byte_size': bytes.length,
         })
@@ -255,6 +256,7 @@ class SharedLayer {
     this.recordedByAvatarPath,
     this.durationMs = 0,
     this.offsetMs = 0,
+    this.startMs = 0,
     this.gain = 1.0,
     this.byteSize,
   });
@@ -279,6 +281,10 @@ class SharedLayer {
   final String? recordedByAvatarPath;
   final int durationMs;
   final int offsetMs;
+
+  /// Where this take begins on the song, in milliseconds. Zero for one
+  /// recorded from the top.
+  final int startMs;
   final double gain;
   final int? byteSize;
   final DateTime createdAt;
@@ -297,6 +303,7 @@ class SharedLayer {
       recordedAt: createdAt,
       durationMs: durationMs,
       offsetMs: offsetMs,
+      startMs: startMs,
       gain: gain,
       enabled: enabled,
       part: part,
@@ -338,6 +345,7 @@ class SharedLayer {
       recordedByAvatarPath: profile?['avatar_path'] as String?,
       durationMs: (row['duration_ms'] as num?)?.toInt() ?? 0,
       offsetMs: (row['offset_ms'] as num?)?.toInt() ?? 0,
+      startMs: (row['start_ms'] as num?)?.toInt() ?? 0,
       gain: (row['gain'] as num?)?.toDouble() ?? 1.0,
       byteSize: (row['byte_size'] as num?)?.toInt(),
       createdAt:
