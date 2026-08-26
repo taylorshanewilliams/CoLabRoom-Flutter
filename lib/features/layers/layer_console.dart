@@ -36,21 +36,45 @@ class LayerConsole extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: <Widget>[
-          for (final take in takes)
-            _Strip(
-              take: take,
-              silent: silentIds.contains(take.id),
-              onToggle: () => onToggle(take),
-              onGain: onGain(take),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: ConstrainedBox(
+            // At least as wide as the screen, so a band with two takes gets
+            // its desk in the middle rather than shoved into the left corner
+            // of a landscape phone with nothing beside it.
+            constraints: BoxConstraints(
+              minWidth: constraints.maxWidth - 24,
+              // The strips take the height they are given rather than
+              // insisting on their own. They used to add up to a fixed 253
+              // pixels — a fader, a button and two lines of label — which is
+              // taller than a landscape phone has to spare, and the excess
+              // had nowhere to go: this scrolls sideways, not down. The
+              // bottom of every strip was cut off by 47 pixels and the name
+              // fell out of the box it belonged to.
+              minHeight: 0,
+              maxHeight: constraints.maxHeight - 16,
             ),
-        ],
-      ),
+            child: Row(
+              mainAxisAlignment: takes.length > 4
+                  ? MainAxisAlignment.start
+                  : MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                for (final take in takes)
+                  _Strip(
+                    take: take,
+                    silent: silentIds.contains(take.id),
+                    onToggle: () => onToggle(take),
+                    onGain: onGain(take),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -98,7 +122,6 @@ class _StripState extends State<_Strip> {
         ),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Text(
             '${(gain * 100).round()}%',
@@ -108,8 +131,11 @@ class _StripState extends State<_Strip> {
               fontWeight: FontWeight.w700,
             ),
           ),
-          SizedBox(
-            height: 150,
+          Expanded(
+            // The fader takes whatever height is left after the readout, the
+            // mute button and the name, rather than claiming a fixed 150 and
+            // pushing the rest off the bottom of the phone.
+            //
             // A Slider laid on its side. Flutter has no vertical one, and a
             // quarter turn is the whole difference between a list control and
             // a fader — which is the entire point of this view.
