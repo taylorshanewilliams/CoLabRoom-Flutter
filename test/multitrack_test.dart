@@ -181,5 +181,47 @@ void main() {
 
       expect(await Multitrack.samplesFor(take), isEmpty);
     });
+
+    group('telling a silent take from a broken one', () {
+      // The distinction the band actually experiences. Both used to arrive as
+      // a part in the list that nobody could hear, and only one of them means
+      // "record it again" — the other means the microphone never opened.
+
+      test('a recording that captured nothing peaks at zero', () async {
+        final take = fileTake('silence.wav');
+        await File(take.path).writeAsBytes(
+          LatencyProbe.toWav(_flat(0.0, 4000)),
+          flush: true,
+        );
+
+        final peak = await Multitrack.peakOfRecording(take.path);
+        expect(peak, isNotNull);
+        expect(peak, lessThan(Multitrack.silenceFloor));
+      });
+
+      test('a real performance clears the floor by a wide margin', () async {
+        // Quiet on purpose: an acoustic guitar picked up across a room. The
+        // guard must never refuse to save something somebody played.
+        final take = fileTake('quiet.wav');
+        await File(take.path).writeAsBytes(
+          LatencyProbe.toWav(_flat(0.05, 4000)),
+          flush: true,
+        );
+
+        final peak = await Multitrack.peakOfRecording(take.path);
+        expect(peak, isNotNull);
+        expect(peak!, greaterThan(Multitrack.silenceFloor * 10));
+      });
+
+      test('a file that will not decode reports null, not silence', () async {
+        final take = fileTake('rubbish.m4a');
+        await File(take.path).writeAsBytes(
+          Uint8List.fromList(List<int>.filled(64, 7)),
+          flush: true,
+        );
+
+        expect(await Multitrack.peakOfRecording(take.path), isNull);
+      });
+    });
   });
 }

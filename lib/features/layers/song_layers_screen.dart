@@ -11,6 +11,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../services/multitrack.dart';
+import '../../services/overdub_session.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/error_reporter.dart';
@@ -115,6 +116,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   @override
   void initState() {
     super.initState();
+    // Before anything plays. A backing track started under the default
+    // audio session takes the microphone away from the recorder on both
+    // platforms — see OverdubSession, which is where the explanation lives.
+    unawaited(OverdubSession.begin());
     _completeSub = _player.onPlayerComplete.listen((_) {
       if (mounted) setState(() => _playing = false);
     });
@@ -127,6 +132,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     unawaited(_completeSub?.cancel());
     unawaited(_recorder.dispose());
     unawaited(_player.dispose());
+    // Every other screen in the app is a player, not a recorder.
+    unawaited(OverdubSession.end());
     super.dispose();
   }
 
@@ -157,6 +164,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
             'The song has a recording but it could not be loaded here. '
             'Everything else still works. ($error)';
       }
+
+      await _sweepOldMixes();
 
       final layers = await _service.listLayers(widget.projectId);
       for (final layer in layers) {
@@ -277,15 +286,47 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// it and the player kept handing back the first mix it had ever loaded:
   /// record a second take, press play, hear only the first. The bytes were
   /// right the whole time and the player never looked at them again.
-  int _mixVersion = 0;
+  ///
+  /// Now counted from the clock rather than from one, and static rather than
+  /// per screen.
+  ///
+  /// The first version of this counted 1, 2, 3 from a field on the state —
+  /// which resets every time the screen is opened. So the second visit wrote
+  /// `_mix_1.wav` again, over a path the player had already cached, and the
+  /// stale-mix bug this was written to fix came straight back on any session
+  /// that left the screen and returned. A path is only unique if nothing can
+  /// ever reset the thing generating it.
+  static int _mixSequence = 0;
   String? _lastMixPath;
 
   Future<String> _nextMixPath() async {
     final root = await getApplicationDocumentsDirectory();
     final dir = Directory('${root.path}/layers/${widget.projectId}');
     if (!await dir.exists()) await dir.create(recursive: true);
-    _mixVersion += 1;
-    return '${dir.path}/_mix_$_mixVersion.wav';
+    _mixSequence += 1;
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    return '${dir.path}/_mix_${stamp}_$_mixSequence.wav';
+  }
+
+  /// Mixes left behind by earlier visits, which nothing will ever play again.
+  ///
+  /// Unique filenames stop the cache going stale and start the directory
+  /// filling up instead; one of those is a bug and the other is housekeeping.
+  Future<void> _sweepOldMixes() async {
+    try {
+      final root = await getApplicationDocumentsDirectory();
+      final dir = Directory('${root.path}/layers/${widget.projectId}');
+      if (!await dir.exists()) return;
+      await for (final entry in dir.list()) {
+        if (entry is! File) continue;
+        final name = entry.path.split(Platform.pathSeparator).last;
+        if (!name.startsWith('_mix_') || !name.endsWith('.wav')) continue;
+        if (entry.path == _lastMixPath) continue;
+        await entry.delete();
+      }
+    } catch (_) {
+      // Clutter, not a failure worth showing anybody.
+    }
   }
 
   Future<bool> _rebuildMix() async {
@@ -420,6 +461,27 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           'started. The take was not saved.',
         );
       }
+
+      // What the file contains, not how big it is. A take recorded while the
+      // audio session was wrong is a well-formed m4a of nothing: it passes
+      // every check above, uploads cleanly, and arrives in front of the band
+      // as a part that cannot be heard. Checked here — before the upload,
+      // while the person who played it is still holding the phone — because
+      // this is the only moment when "play it again" is a cheap answer.
+      final peak = await Multitrack.peakOfRecording(path);
+      if (peak == null) {
+        throw StateError(
+          'That take could not be read back after recording, so it was not '
+          'saved. The file is still on this phone.',
+        );
+      }
+      if (peak < Multitrack.silenceFloor) {
+        throw StateError(
+          'That take came back silent — the microphone was open but captured '
+          'nothing. It was not saved. If another app is using the microphone, '
+          'close it and record again.',
+        );
+      }
       if (!mounted) return;
 
       final described = await askWhatThatWas(context, performer: _performer);
@@ -449,6 +511,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // how a cache starts disagreeing with the thing it caches.
       try {
         await File(path).delete();
+        // The decoded copy the silence check just made, which is keyed to a
+        // path that is about to stop existing.
+        final decoded = File('$path.pcm.wav');
+        if (await decoded.exists()) await decoded.delete();
       } catch (_) {
         // An orphan in the app's own directory, not worth failing an upload.
       }

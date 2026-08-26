@@ -106,6 +106,22 @@ class _LayerRowState extends State<LayerRow> {
                             fontSize: 11.5,
                             fontWeight: FontWeight.w600),
                       )
+                    // A take at zero is not a muted take. The mute button is
+                    // this person's own view; the volume below is stored on
+                    // the layer and is what the whole band hears, so a slider
+                    // dragged to the bottom silences it for everyone — and
+                    // nothing on the row used to say so. Someone reaching for
+                    // "mute" and finding the slider first ends up with a part
+                    // nobody can hear and no explanation of why, which reads
+                    // as the recording having failed.
+                    else if (take.enabled && gain <= 0)
+                      const Text(
+                        'Volume at zero — silent for the whole band',
+                        style: TextStyle(
+                            color: AppColors.orange,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600),
+                      )
                     else if (widget.subtitle != null)
                       Text(
                         widget.subtitle!,
