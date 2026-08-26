@@ -90,6 +90,41 @@ class Multitrack {
     return MixResult(out, peak: peak, scaled: scaled, silentTakeIds: silentTakeIds);
   }
 
+  /// The shape of a take, as a short list of peaks.
+  ///
+  /// Cheap because the expensive part is already done: every take is decoded
+  /// to samples and cached beside itself so the mixer can sum it, so drawing
+  /// a waveform costs one pass over data this file already holds rather than
+  /// a second decode. That is the whole reason a phone app can afford
+  /// waveforms at all.
+  ///
+  /// Absolute peaks, not normalised per take. A take normalised to its own
+  /// loudest moment draws a whisper the same height as a shout, which is
+  /// exactly the comparison a mixer exists to make. The lane applies its own
+  /// curve for legibility instead.
+  static List<double> envelope(Float64List samples, {int buckets = 56}) {
+    if (samples.isEmpty || buckets <= 0) return const <double>[];
+    final out = List<double>.filled(buckets, 0);
+    final per = samples.length / buckets;
+    for (var b = 0; b < buckets; b += 1) {
+      final from = (b * per).floor();
+      final to = math.min(samples.length, ((b + 1) * per).ceil());
+      var peak = 0.0;
+      for (var i = from; i < to; i += 1) {
+        final magnitude = samples[i].abs();
+        if (magnitude > peak) peak = magnitude;
+      }
+      out[b] = peak > 1 ? 1 : peak;
+    }
+    return out;
+  }
+
+  /// A take's shape, read through the same cache the mixer uses.
+  static Future<List<double>> envelopeFor(Take take, {int buckets = 56}) async {
+    final samples = await samplesFor(take);
+    return envelope(samples, buckets: buckets);
+  }
+
   /// A click track, as samples.
   ///
   /// Generated rather than played, so that it can be summed into the mix like
