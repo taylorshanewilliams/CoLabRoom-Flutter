@@ -43,8 +43,19 @@ class SongLayersScreen extends StatefulWidget {
     required this.roomId,
     required this.projectId,
     required this.songTitle,
+    this.layerService,
+    this.analysisService,
     super.key,
   });
+
+  /// Substituted in tests, real everywhere else.
+  ///
+  /// The screen used to build both of these itself, which meant it could not
+  /// be pumped at all without a live Supabase — and so the one crash that
+  /// mattered most here, a modal opened during initState, was found by a
+  /// person on a phone rather than by a test that takes a second to run.
+  final SongLayerService? layerService;
+  final SongAnalysisService? analysisService;
 
   /// Needed for the storage path, which is {room}/{project}/layers/{id} —
   /// the same shape every other object in this app uses, and the shape the
@@ -59,8 +70,9 @@ class SongLayersScreen extends StatefulWidget {
 }
 
 class _SongLayersScreenState extends State<SongLayersScreen> {
-  final SongLayerService _service = SongLayerService();
-  final SongAnalysisService _analysis = SongAnalysisService();
+  late final SongLayerService _service = widget.layerService ?? SongLayerService();
+  late final SongAnalysisService _analysis =
+      widget.analysisService ?? SongAnalysisService();
 
   /// The song's own recording, shown as the first take.
   ///
