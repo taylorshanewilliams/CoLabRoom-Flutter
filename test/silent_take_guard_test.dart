@@ -45,6 +45,17 @@ void main() {
     );
   });
 
+  test('an empty container does not grow with the take it claims to be', () {
+    // The clue that reframed this. Two takes, two durations, byte-identical
+    // sizes — 2,486 bytes for 4,000 ms and again for 3,600 ms. Encoded
+    // silence still costs *something* per second, so a size that does not
+    // move with duration is a container with no frames in it: the encoder
+    // never started. Both are refused, and the ratio is what refuses them.
+    expect(wouldBeRefused(bytes: 2486, durationMs: 4000), isTrue);
+    expect(wouldBeRefused(bytes: 2486, durationMs: 3600), isTrue);
+    expect(wouldBeRefused(bytes: 2486, durationMs: 30000), isTrue);
+  });
+
   test('a very short take is left alone', () {
     // Container overhead dominates under half a second, so the ratio means
     // nothing there and refusing on it would reject real stabs.

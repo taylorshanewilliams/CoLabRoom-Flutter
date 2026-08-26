@@ -303,6 +303,13 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// agree with it — two numbers that must match are one number.
   static const int _recordingBitRate = 96000;
 
+  /// How long the recorder runs before the backing track starts.
+  ///
+  /// Deterministic, so it is subtracted back out rather than measured: the
+  /// take is this much older than the music, and every take that plays along
+  /// starts life exactly this far ahead.
+  static const int _recorderHeadStartMs = 300;
+
   /// Not a uuid, so it can never collide with a real layer's id.
   static const String _referenceId = 'reference';
 
@@ -468,6 +475,24 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       );
       _backingWasPlaying = hasBacking && _lastMixPath != null;
       if (_backingWasPlaying) {
+        // The recorder gets a head start before anything plays.
+        //
+        // latency_probe_screen has done this since it was written, with the
+        // comment "the recorder needs to be genuinely running before anything
+        // is played" — and that screen records while playing, with these same
+        // settings, and works. This one called play() the instant start()
+        // returned.
+        //
+        // Which fits what the failures actually look like. Two silent takes
+        // reached the database at *byte-identical* sizes, 2,486 bytes, for
+        // two different durations — 4,000 ms and 3,600 ms. A file whose size
+        // does not move with its length contains no audio frames at all: it
+        // is an empty container, not a recording of silence. The encoder was
+        // being asked to start at the same moment playback took the audio
+        // device, and it never started at all.
+        await Future<void>.delayed(
+          const Duration(milliseconds: _recorderHeadStartMs),
+        );
         await _player.play(DeviceFileSource(_lastMixPath!));
       }
 
@@ -658,21 +683,39 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// chord still produces a number, and it is noise wearing the shape of an
   /// answer.
   int _alignedOffsetFor(Float64List samples) {
-    final manual =
-        (_layers ?? const <SharedLayer>[]).isEmpty ? 0 : _offsetMs;
+    // The head start is known, not measured. A take that played along began
+    // recording before the music did, so that much of its front is the room
+    // before the song — and it is subtracted before anything is measured.
+    //
+    // This matters more than it sounds. alignToGrid searches at most half a
+    // beat, because a beat grid repeats and searching further lets a take
+    // snap a whole beat late and call itself aligned. At 120bpm half a beat
+    // is 250ms — less than the head start alone. Handing it the untrimmed
+    // take would put the true answer outside the only window it is allowed
+    // to look in.
+    final headStart = _backingWasPlaying ? _recorderHeadStartMs : 0;
+    final manual = headStart +
+        ((_layers ?? const <SharedLayer>[]).isEmpty ? 0 : _offsetMs);
     final beats = _reference?.beatsMs ?? const <int>[];
     if (beats.length < 2) return manual;
 
+    final skip = (headStart * Multitrack.rate / 1000).round();
+    if (skip >= samples.length) return manual;
+    final afterHeadStart =
+        skip == 0 ? samples : Float64List.sublistView(samples, skip);
+
     final result = OnsetAlign.alignToGrid(
-      samples,
+      afterHeadStart,
       beats,
       rate: Multitrack.rate,
     );
     if (result == null || !result.trustworthy) return manual;
-    _alignedNote = result.shiftMs > 0
-        ? 'Timed to the beat automatically — ${result.shiftMs} ms trimmed.'
+
+    final total = headStart + result.shiftMs;
+    _alignedNote = total > 0
+        ? 'Timed to the beat automatically — $total ms trimmed.'
         : 'Timed to the beat automatically — nothing needed trimming.';
-    return result.shiftMs;
+    return total;
   }
 
   /// What the alignment did, said once after the take lands.
