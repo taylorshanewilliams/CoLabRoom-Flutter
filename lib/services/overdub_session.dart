@@ -91,6 +91,27 @@ class OverdubSession {
 
   static Future<void> end() => _apply(playback);
 
+  /// The same session, applied to one player rather than to the default.
+  ///
+  /// [begin] sets the *global* context, and a player that already exists may
+  /// never see it: AudioPlayer is constructed as a field initialiser on the
+  /// takes screen, which runs before initState. So the player doing the
+  /// playback during a recording was quite possibly still carrying the
+  /// default context — the one that takes the microphone away — while the
+  /// global default said otherwise.
+  ///
+  /// Belt and braces on purpose. This is the one behaviour the feature cannot
+  /// work without, it costs a single call, and there is no device in the
+  /// development loop to tell the two apart.
+  static Future<void> applyTo(AudioPlayer player) async {
+    try {
+      await player.setAudioContext(recording);
+    } catch (_) {
+      // As with _apply: a phone that refuses the session still plays back
+      // what is already recorded.
+    }
+  }
+
   static Future<void> _apply(AudioContext context) async {
     try {
       await AudioPlayer.global.setAudioContext(context);
