@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/colabroom_theme.dart';
 import '../../services/multitrack.dart';
 import '../../services/take_naming.dart';
-import 'player_face.dart';
+import '../../widgets/player_face.dart';
 
 /// One take in the list, with the controls that belong to it.
 ///

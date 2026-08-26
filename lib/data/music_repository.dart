@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../domain/activity.dart';
 import '../domain/music_models.dart';
 
 abstract interface class MusicRepository {
@@ -120,6 +121,12 @@ abstract interface class MusicRepository {
 
   /// Records that this person has now heard what is on [projectId].
   Future<void> markProjectSeen(String projectId);
+
+  /// What other people have done lately, across every song at once.
+  ///
+  /// Excludes this person's own actions: a feed that reports your own typing
+  /// back to you teaches everyone to stop reading it.
+  Future<List<ActivityItem>> loadActivity({int limit});
 
   Future<InviteResult> createInvite({
     required MusicRoom room,

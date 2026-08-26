@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 
+import '../domain/activity.dart';
 import '../data/music_repository.dart';
 import '../domain/music_models.dart';
 
@@ -67,6 +68,16 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   NotificationPreferences get notificationPreferences => _notificationPreferences;
   int get unreadNotificationCount => _notifications.where((n) => !n.isRead).length;
 
+  List<ActivityItem> _activity = const <ActivityItem>[];
+
+  /// What the band has been doing, newest first, nobody's own actions.
+  ///
+  /// Empty is the ordinary state for a band that has not played this week,
+  /// and Home must render that as simply having no news — never as an empty
+  /// state announcing the absence, which makes a quiet week look like a
+  /// broken feature.
+  List<ActivityItem> get activity => List<ActivityItem>.unmodifiable(_activity);
+
   Map<String, int> _unheardTakes = const <String, int>{};
 
   /// Takes added by somebody else since this person last opened [projectId].
@@ -117,6 +128,12 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
         _unheardTakes = await repository.loadUnheardTakeCounts();
       } catch (_) {
         // Left as it was. A stale count is better than a list that failed.
+      }
+      try {
+        _activity = await repository.loadActivity(limit: 20);
+      } catch (_) {
+        // Same bargain: news is the nicest thing on Home and the least
+        // important. Songs load or nothing else matters.
       }
     } catch (error) {
       _error = error.toString();

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../domain/activity.dart';
 import '../domain/music_models.dart';
 import '../domain/name_policy.dart';
 import 'music_repository.dart';
@@ -760,6 +761,46 @@ class SupabaseMusicRepository implements MusicRepository {
         (row as Map<String, dynamic>)['project_id'] as String:
             (row['unheard'] as num).toInt(),
     };
+  }
+
+  @override
+  Future<List<ActivityItem>> loadActivity({int limit = 20}) async {
+    final me = client.auth.currentUser?.id;
+    // RLS already limits this to projects this person can see, so the query
+    // does not repeat the membership rule — repeating it is how a filter and
+    // a policy end up quietly disagreeing.
+    var query = client.from('project_events').select(
+          'id, project_id, kind, body, created_at, actor_id, '
+          'actor:profiles!project_events_actor_id_fkey(display_name, avatar_path), '
+          'project:projects!project_events_project_id_fkey(id, title, deleted_at)',
+        );
+    if (me != null) query = query.neq('actor_id', me);
+    final rows = await query.order('created_at', ascending: false).limit(limit);
+
+    final items = <ActivityItem>[];
+    for (final value in rows as List<dynamic>) {
+      final row = Map<String, dynamic>.from(value as Map);
+      final project = row['project'];
+      if (project is! Map) continue;
+      final projectRow = Map<String, dynamic>.from(project);
+      // A song in the recycle bin is not news.
+      if (projectRow['deleted_at'] != null) continue;
+      final actor = row['actor'];
+      final actorRow = actor is Map ? Map<String, dynamic>.from(actor) : null;
+      items.add(ActivityItem(
+        id: row['id'] as String,
+        projectId: row['project_id'] as String,
+        projectTitle: projectRow['title'] as String? ?? 'A song',
+        kind: ActivityKind.parse(row['kind'] as String?),
+        at: DateTime.tryParse(row['created_at'] as String? ?? '')?.toLocal() ??
+            DateTime.now(),
+        actorId: row['actor_id'] as String?,
+        actorName: actorRow?['display_name'] as String?,
+        actorAvatarPath: actorRow?['avatar_path'] as String?,
+        body: row['body'] as String? ?? '',
+      ));
+    }
+    return items;
   }
 
   @override
