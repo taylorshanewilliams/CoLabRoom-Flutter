@@ -129,6 +129,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     // audio session takes the microphone away from the recorder on both
     // platforms — see OverdubSession, which is where the explanation lives.
     unawaited(OverdubSession.begin());
+    // And on this player specifically. It was built as a field initialiser,
+    // before this line runs, so the global default may never reach it.
+    unawaited(OverdubSession.applyTo(_player));
     _completeSub = _player.onPlayerComplete.listen((_) {
       if (mounted) setState(() => _playing = false);
     });
@@ -295,6 +298,18 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     unawaited(_rebuildMix());
   }
 
+  /// What the recorder is asked for, and therefore what a take of a given
+  /// length should roughly weigh. Named because the guard in _stop has to
+  /// agree with it — two numbers that must match are one number.
+  static const int _recordingBitRate = 96000;
+
+  /// How long the recorder runs before the backing track starts.
+  ///
+  /// Deterministic, so it is subtracted back out rather than measured: the
+  /// take is this much older than the music, and every take that plays along
+  /// starts life exactly this far ahead.
+  static const int _recorderHeadStartMs = 300;
+
   /// Not a uuid, so it can never collide with a real layer's id.
   static const String _referenceId = 'reference';
 
@@ -446,7 +461,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       await _recorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
-          bitRate: 96000,
+          bitRate: _recordingBitRate,
           sampleRate: Multitrack.rate,
           numChannels: 1,
           // Echo cancellation would fight the backing track arriving through
@@ -458,7 +473,26 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         ),
         path: path,
       );
-      if (hasBacking && _lastMixPath != null) {
+      _backingWasPlaying = hasBacking && _lastMixPath != null;
+      if (_backingWasPlaying) {
+        // The recorder gets a head start before anything plays.
+        //
+        // latency_probe_screen has done this since it was written, with the
+        // comment "the recorder needs to be genuinely running before anything
+        // is played" — and that screen records while playing, with these same
+        // settings, and works. This one called play() the instant start()
+        // returned.
+        //
+        // Which fits what the failures actually look like. Two silent takes
+        // reached the database at *byte-identical* sizes, 2,486 bytes, for
+        // two different durations — 4,000 ms and 3,600 ms. A file whose size
+        // does not move with its length contains no audio frames at all: it
+        // is an empty container, not a recording of silence. The encoder was
+        // being asked to start at the same moment playback took the audio
+        // device, and it never started at all.
+        await Future<void>.delayed(
+          const Duration(milliseconds: _recorderHeadStartMs),
+        );
         await _player.play(DeviceFileSource(_lastMixPath!));
       }
 
@@ -526,6 +560,37 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // as a part that cannot be heard. Checked here — before the upload,
       // while the person who played it is still holding the phone — because
       // this is the only moment when "play it again" is a cheap answer.
+      // How much audio is in the file, against how long the recorder ran.
+      //
+      // The decoded-peak check below is not enough on its own and a take
+      // proved it: 2,486 bytes for 3,600 ms of AAC — six per cent of what a
+      // real recording weighs at 96 kbps — decoded to a noise floor just
+      // above the threshold and was saved as a part nobody could hear. That
+      // is the second time the same 2,486 bytes has reached the database.
+      //
+      // Weight is the blunter instrument and the harder one to fool. Silence
+      // costs an encoder almost nothing to store, so a take this light did
+      // not capture a room, whatever its samples decode to.
+      final expectedBytesPerSecond = _recordingBitRate / 8;
+      final seconds = _elapsed.inMilliseconds / 1000;
+      if (seconds > 0.5 && size < expectedBytesPerSecond * seconds * 0.25) {
+        unawaited(ErrorReporter().reportError(
+          service: 'layers',
+          stage: 'capture',
+          message: 'Silent capture: $size bytes for ${_elapsed.inMilliseconds} ms '
+              '(expected around ${(expectedBytesPerSecond * seconds).round()}), '
+              'backing track ${_backingWasPlaying ? "playing" : "not playing"}',
+          projectId: widget.projectId,
+        ));
+        throw StateError(
+          'That take recorded almost nothing — $size bytes in '
+          '${seconds.toStringAsFixed(1)} seconds, where a real take is about '
+          '${(expectedBytesPerSecond * seconds / 1024).round()} KB. The '
+          'microphone was open but the phone was not giving it any sound. It '
+          'was not saved. Wearing headphones is the most reliable fix.',
+        );
+      }
+
       final samples = await Multitrack.readRecording(path);
       if (samples == null) {
         throw StateError(
@@ -618,25 +683,52 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// chord still produces a number, and it is noise wearing the shape of an
   /// answer.
   int _alignedOffsetFor(Float64List samples) {
-    final manual =
-        (_layers ?? const <SharedLayer>[]).isEmpty ? 0 : _offsetMs;
+    // The head start is known, not measured. A take that played along began
+    // recording before the music did, so that much of its front is the room
+    // before the song — and it is subtracted before anything is measured.
+    //
+    // This matters more than it sounds. alignToGrid searches at most half a
+    // beat, because a beat grid repeats and searching further lets a take
+    // snap a whole beat late and call itself aligned. At 120bpm half a beat
+    // is 250ms — less than the head start alone. Handing it the untrimmed
+    // take would put the true answer outside the only window it is allowed
+    // to look in.
+    final headStart = _backingWasPlaying ? _recorderHeadStartMs : 0;
+    final manual = headStart +
+        ((_layers ?? const <SharedLayer>[]).isEmpty ? 0 : _offsetMs);
     final beats = _reference?.beatsMs ?? const <int>[];
     if (beats.length < 2) return manual;
 
+    final skip = (headStart * Multitrack.rate / 1000).round();
+    if (skip >= samples.length) return manual;
+    final afterHeadStart =
+        skip == 0 ? samples : Float64List.sublistView(samples, skip);
+
     final result = OnsetAlign.alignToGrid(
-      samples,
+      afterHeadStart,
       beats,
       rate: Multitrack.rate,
     );
     if (result == null || !result.trustworthy) return manual;
-    _alignedNote = result.shiftMs > 0
-        ? 'Timed to the beat automatically — ${result.shiftMs} ms trimmed.'
+
+    final total = headStart + result.shiftMs;
+    _alignedNote = total > 0
+        ? 'Timed to the beat automatically — $total ms trimmed.'
         : 'Timed to the beat automatically — nothing needed trimming.';
-    return result.shiftMs;
+    return total;
   }
 
   /// What the alignment did, said once after the take lands.
   String? _alignedNote;
+
+  /// Whether a backing track was playing while the last take was recorded.
+  ///
+  /// Reported alongside a silent capture, because it is the one fact that
+  /// separates the two explanations still on the table: a phone that cannot
+  /// record while it plays, or a phone that cannot record at all. Two rounds
+  /// of this have been guessed at from byte counts after the fact; a flag
+  /// costs nothing and answers it.
+  bool _backingWasPlaying = false;
 
   Future<void> _togglePlay() async {
     if (_recording) return;
