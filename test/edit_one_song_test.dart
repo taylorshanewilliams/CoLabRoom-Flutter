@@ -31,6 +31,11 @@ class _CountingRepository extends InMemoryMusicRepository {
 }
 
 void main() {
+  // The controller registers a lifecycle observer so it can close the live
+  // socket when the app is backgrounded, and that needs a binding to register
+  // with. Same reason as controller_test.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late _CountingRepository repository;
   late MusicBetaController controller;
 
