@@ -120,8 +120,8 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
                   const SizedBox(height: 8),
                   Text(
                     _createAccount
-                        ? 'Start a private Music Room and invite your collaborators.'
-                        : 'Your Rooms and songs stay in sync across every device.',
+                        ? 'Start a private catalog and invite your collaborators.'
+                        : 'Your catalogs and songs stay in sync across every device.',
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 24),
@@ -217,7 +217,7 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    'Music beta · Private Rooms · Traceable contributions',
+                    'Music beta · Private catalogs · Traceable contributions',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppColors.muted, fontSize: 12),
                   ),

@@ -93,7 +93,7 @@ class _CreateRoomDialogState extends State<_CreateRoomDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Create a Music Room'),
+      title: const Text('Create a catalog'),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: SingleChildScrollView(
@@ -107,7 +107,7 @@ class _CreateRoomDialogState extends State<_CreateRoomDialog> {
               controller: _name,
               autofocus: true,
               textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(labelText: 'Room name'),
+              decoration: const InputDecoration(labelText: 'Catalog name'),
             ),
             const SizedBox(height: 18),
             const Text('Choose an icon', style: TextStyle(fontWeight: FontWeight.w700)),
@@ -134,7 +134,7 @@ class _CreateRoomDialogState extends State<_CreateRoomDialog> {
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(
           onPressed: () => Navigator.pop(context, _RoomDraft(_name.text, _icon)),
-          child: const Text('Create Room'),
+          child: const Text('Create catalog'),
         ),
       ],
     );
@@ -228,19 +228,19 @@ class _RoomPickerSheetState extends State<_RoomPickerSheet> {
                 style: Theme.of(context).textTheme.headlineMedium,
               ),
               const SizedBox(height: 6),
-              const Text('Choose a Room or create a new one without leaving this flow.'),
+              const Text('Choose a catalog or create a new one without leaving this flow.'),
               const SizedBox(height: 16),
               TextField(
                 onChanged: (value) => setState(() => _query = value),
                 decoration: const InputDecoration(
-                  hintText: 'Search Rooms',
+                  hintText: 'Search catalogs',
                   prefixIcon: Icon(Icons.search_rounded),
                 ),
               ),
               const SizedBox(height: 12),
               Expanded(
                 child: rooms.isEmpty
-                    ? const Center(child: Text('No Rooms match that search.'))
+                    ? const Center(child: Text('No catalogs match that search.'))
                     : ListView.separated(
                         itemCount: rooms.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
@@ -275,7 +275,7 @@ class _RoomPickerSheetState extends State<_RoomPickerSheet> {
               OutlinedButton.icon(
                 onPressed: () => Navigator.pop(context, const _RoomChoice.create()),
                 icon: const Icon(Icons.add_rounded),
-                label: const Text('Create a New Room'),
+                label: const Text('Create a new catalog'),
               ),
             ],
           ),

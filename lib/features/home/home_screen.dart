@@ -295,7 +295,7 @@ class HomeScreen extends StatelessWidget {
               children: <Widget>[
                 Expanded(
                   child: Text(
-                    'Your Rooms',
+                    'Your catalogs',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleLarge,
@@ -314,7 +314,7 @@ class HomeScreen extends StatelessWidget {
                 FilledButton.tonalIcon(
                   onPressed: () => showCreateRoomDialog(context, controller),
                   icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('New Room'),
+                  label: const Text('New catalog'),
                 ),
               ],
             ),
@@ -324,7 +324,7 @@ class HomeScreen extends StatelessWidget {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(18, 4, 18, 30),
             sliver: SliverToBoxAdapter(
-              // "Your Rooms will appear here" was a dead end. The one screen
+              // "Your catalogs will appear here" was a dead end. The one screen
               // where somebody new is certain to be looking for Rooms told
               // them to wait for one to turn up.
               child: AppSurface(
@@ -332,7 +332,7 @@ class HomeScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     const Text(
-                      'A Room is a band, a project, or just the people you write '
+                      'A catalog is a band, a side project, or just the songs you write '
                       'with. Songs live in one, and it decides who can see them.',
                       style: TextStyle(color: AppColors.muted, height: 1.45, fontSize: 12.5),
                     ),
@@ -340,7 +340,7 @@ class HomeScreen extends StatelessWidget {
                     FilledButton.icon(
                       onPressed: () => showCreateRoomDialog(context, controller),
                       icon: const Icon(Icons.add_rounded, size: 18),
-                      label: const Text('Create your first Room'),
+                      label: const Text('Create your first catalog'),
                     ),
                   ],
                 ),
