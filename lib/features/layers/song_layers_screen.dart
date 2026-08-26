@@ -731,10 +731,23 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           'close it and record again.',
         );
       }
-      if (!mounted) return;
-
-      final described = await askWhatThatWas(context, performer: _performer);
-      if (!mounted) return;
+      // Two `if (!mounted) return;` guards used to sit here, one before the
+      // naming sheet and one after it. Both threw the recording away.
+      //
+      // That is the wrong trade in the wrong direction. A person who leaves
+      // this screen in the second between stopping and naming has still
+      // played something, and the app had already decided it was worth
+      // keeping — it passed the silence check two lines ago. Losing it
+      // because a widget went away is the most expensive failure this
+      // feature has, and it is silent: the screen is gone, so there is
+      // nowhere left to say so.
+      //
+      // Asked only while there is somebody to ask. An unnamed take is a
+      // generic name and a rename later; a discarded one is somebody's
+      // playing.
+      final described = mounted
+          ? await askWhatThatWas(context, performer: _performer)
+          : null;
       if (described?.performer != null) _performer = described!.performer;
 
       final part = described?.part ?? TakePart.other;
@@ -750,7 +763,18 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         performer: described?.performer,
       );
 
-      setState(() => _status = 'Sharing it with the room');
+      // Guarded, and the upload does not depend on it.
+      //
+      // This was a bare setState, and the app reported the consequence:
+      // "Saving a take failed: setState() called after dispose()". The
+      // exception fires *before* the upload line, gets caught by the handler
+      // below, and the recording is gone — because somebody left the screen
+      // in the second between naming their take and it being sent.
+      //
+      // A take that has been played is the most expensive thing this feature
+      // can lose. Whether a widget is still on screen has nothing to do with
+      // whether the audio should be kept.
+      if (mounted) setState(() => _status = 'Sharing it with the room');
       await _service.upload(
         roomId: widget.roomId,
         projectId: widget.projectId,

@@ -94,21 +94,35 @@ class _CoworkPanelState extends State<CoworkPanel> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: <Widget>[
-        _HereNow(here: _here),
-        Expanded(
-          child: _events.isEmpty
-              ? const _Quiet()
-              : ListView.builder(
-                  controller: _scroll,
-                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                  itemCount: _events.length,
-                  itemBuilder: (context, index) => _EventLine(event: _events[index]),
-                ),
-        ),
-        _Composer(controller: _composer, sending: _sending, onSend: _send),
-      ],
+    return Padding(
+      // The keyboard, by hand.
+      //
+      // This panel lives in an endDrawer, and resizeToAvoidBottomInset only
+      // moves a Scaffold's *body* — a drawer is not it. So the keyboard came
+      // up over the composer and somebody typing in here could not see what
+      // they were typing. The app reported the other half of it as a
+      // three-pixel RenderFlex overflow, which is what a Column being sat on
+      // looks like from the inside.
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: Column(
+        children: <Widget>[
+          _HereNow(here: _here),
+          Expanded(
+            child: _events.isEmpty
+                ? const _Quiet()
+                : ListView.builder(
+                    controller: _scroll,
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                    itemCount: _events.length,
+                    itemBuilder: (context, index) =>
+                        _EventLine(event: _events[index]),
+                  ),
+          ),
+          _Composer(controller: _composer, sending: _sending, onSend: _send),
+        ],
+      ),
     );
   }
 }
