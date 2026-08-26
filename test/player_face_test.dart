@@ -35,7 +35,25 @@ void main() {
     final semantics = tester.ensureSemantics();
     await tester.pumpWidget(_face(name: 'Dylan'));
 
-    expect(find.bySemanticsLabel('Played by Dylan'), findsOneWidget);
+    // Read off the node rather than searched for by label: the face has to
+    // announce itself as its own thing, and asking the node directly is what
+    // actually checks that.
+    expect(
+      tester.getSemantics(find.byType(PlayerFace)).label,
+      'Played by Dylan',
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('an unnamed player says so rather than staying silent',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(_face());
+
+    expect(
+      tester.getSemantics(find.byType(PlayerFace)).label,
+      'Player not recorded',
+    );
     semantics.dispose();
   });
 
