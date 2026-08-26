@@ -4,14 +4,14 @@ import '../../app/colabroom_theme.dart';
 import '../../services/multitrack.dart';
 import '../../services/take_naming.dart';
 
-/// One part in the list, with the controls that belong to it.
+/// One take in the list, with the controls that belong to it.
 ///
 /// Shared by the project screen and the local scratch one so the two cannot
 /// drift into disagreeing about what a layer looks like or what you can do
 /// to it.
 ///
 /// [onGain] and [onNudge] are nullable on purpose rather than absent. On a
-/// shared song the volume and timing belong to whoever recorded the part, and
+/// shared song the volume and timing belong to whoever recorded the take, and
 /// the values are still worth *showing* everyone — a disabled slider says
 /// "this is where they put it" where a missing one says nothing at all.
 class LayerRow extends StatefulWidget {
@@ -33,8 +33,8 @@ class LayerRow extends StatefulWidget {
   final ValueChanged<int>? onNudge;
   final VoidCallback? onDelete;
 
-  /// This part contributed nothing to the mix — a missing file, or audio that
-  /// would not decode. Said out loud, because a part that is in the list and
+  /// This take contributed nothing to the mix — a missing file, or audio that
+  /// would not decode. Said out loud, because a take that is in the list and
   /// cannot be heard is the most confusing failure there is: it looks
   /// identical to a bad recording, and the person who made it has no way to
   /// tell which.
@@ -197,7 +197,7 @@ class _LayerRowState extends State<LayerRow> {
   }
 }
 
-/// Asks what the part was, in the second after recording stops.
+/// Asks what the take was, in the second after recording stops.
 ///
 /// Dismissable. Somebody who does not care gets a generic name and can rename
 /// it later — a sheet that cannot be escaped mid-session is worse than an
@@ -229,7 +229,7 @@ Future<({TakePart part, String? performer})?> askWhatThatWas(
           ),
           const SizedBox(height: 4),
           const Text(
-            'So the band can tell the parts apart.',
+            'So the band can tell the takes apart.',
             style: TextStyle(color: AppColors.muted, fontSize: 12.5),
           ),
           const SizedBox(height: 14),

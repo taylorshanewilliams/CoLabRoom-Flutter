@@ -4,7 +4,7 @@ import '../../app/colabroom_theme.dart';
 import '../../services/multitrack.dart';
 import '../../services/take_naming.dart';
 
-/// The parts as a desk, for when the phone is turned sideways.
+/// The takes as a desk, for when the phone is turned sideways.
 ///
 /// A list is the right shape for reading and the wrong shape for balancing.
 /// Deciding whether the harmony is too loud against the lead means comparing
@@ -28,7 +28,7 @@ class LayerConsole extends StatelessWidget {
   final List<Take> takes;
   final void Function(Take) onToggle;
 
-  /// Null for a part somebody else recorded — the fader still shows where
+  /// Null for a take somebody else recorded — the fader still shows where
   /// they set it, and will not move.
   final void Function(Take, double)? Function(Take) onGain;
 

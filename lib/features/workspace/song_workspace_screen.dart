@@ -429,7 +429,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   /// rather than landing on the summary.
   /// Deliberately not routed through the analyzer.
   ///
-  /// Adding a part to a song costs a fraction of a cent and is meant to stay
+  /// Adding a take to a song costs a fraction of a cent and is meant to stay
   /// free; analysis costs GPU and is where the money eventually is. Putting
   /// layers inside Analyze would have made them read as part of the paid
   /// thing, and a feature inherits the meaning of wherever it lives.
@@ -1223,7 +1223,7 @@ class _LandscapeWorkspace extends StatelessWidget {
               IconButton(
                 key: const Key('workspace_layers_button'),
                 onPressed: onOpenLayers,
-                tooltip: 'Parts of this song',
+                tooltip: 'Takes on this song',
                 icon: const Icon(Icons.layers_outlined, size: 19, color: AppColors.muted),
               ),
               IconButton(
@@ -1377,7 +1377,7 @@ class _WorkspaceToolbar extends StatelessWidget {
       _ToolPill(
         key: const Key('workspace_layers_button'),
         icon: Icons.layers_outlined,
-        label: 'Parts',
+        label: 'Takes',
         active: false,
         onTap: onOpenLayers,
       ),

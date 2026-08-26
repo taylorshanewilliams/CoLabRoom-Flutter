@@ -4,11 +4,11 @@ import '../../app/colabroom_theme.dart';
 import '../../services/multitrack.dart';
 import '../../services/take_naming.dart';
 
-/// A heading over a handful of parts, with the one control that belongs to a
-/// group rather than to a part: silence all of it.
+/// A heading over a handful of takes, with the one control that belongs to a
+/// group rather than to a take: silence all of it.
 ///
 /// "How does this sound without the guitars" is a question bands ask
-/// constantly and a flat list answers badly — muting three parts one at a
+/// constantly and a flat list answers badly — muting three takes one at a
 /// time and then remembering to unmute exactly those three. One tap, and one
 /// tap back.
 class LayerGroupHeader extends StatelessWidget {

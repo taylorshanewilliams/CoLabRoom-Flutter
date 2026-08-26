@@ -21,7 +21,12 @@ import 'layer_console.dart';
 import 'layer_group.dart';
 import 'layer_row.dart';
 
-/// The parts of a song, and adding another one.
+/// The takes a song is built from, and adding another one.
+///
+/// "Take" rather than "part" or "layer", because it is the word a band
+/// already says out loud — another take, whose take is that, which take do
+/// you like. A name people arrive already knowing beats one they have to be
+/// taught, and it happens to be what the model has been called all along.
 ///
 /// A first-class thing, not an appendix to the analyzer. Analysis costs GPU
 /// and will eventually be worth charging for; this costs a fraction of a cent
@@ -51,10 +56,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   final SongLayerService _service = SongLayerService();
   final SongAnalysisService _analysis = SongAnalysisService();
 
-  /// The song's own recording, shown as the first part.
+  /// The song's own recording, shown as the first take.
   ///
   /// A song that already has a reference track is not an empty session — the
-  /// whole point of adding a part is adding it to something. Kept out of
+  /// whole point of adding a take is adding it to something. Kept out of
   /// song_layers rather than copied into it: it belongs to the analysis, it
   /// is what every chord and lyric on the song sheet was derived from, and
   /// duplicating it would mean two rows that have to be deleted together and
@@ -109,11 +114,11 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     setState(() {
       _busy = true;
       _error = null;
-      _status = 'Fetching the parts';
+      _status = 'Fetching the takes';
     });
     try {
       // Best-effort and first: a song with a recording should never look
-      // empty, but a failure to fetch it must not stop the parts loading.
+      // empty, but a failure to fetch it must not stop the takes loading.
       try {
         final bundle = await _analysis.load(widget.projectId);
         final reference = bundle.reference;
@@ -258,7 +263,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     if (_busy || _recording) return;
     final allowed = await MicrophoneAccess.ensureGranted(
       context,
-      purpose: 'to add a part to this song',
+      purpose: 'to add a take to this song',
       request: _recorder.hasPermission,
     );
     if (!allowed || !mounted) return;
@@ -320,7 +325,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       _busy = true;
       _recording = false;
       _playing = false;
-      _status = 'Saving your part';
+      _status = 'Saving your take';
     });
     try {
       final path = await _recorder.stop();
@@ -406,7 +411,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         title: Text('Delete ${TakeNaming.describe(layer.toTake('', enabled: true))}?'),
         content: const Text(
           'This removes it for the whole band, and the audio goes with it. '
-          'Muting keeps a part out of your mix without touching anyone '
+          'Muting keeps a take out of your mix without touching anyone '
           'else\'s.',
         ),
         actions: <Widget>[
@@ -432,7 +437,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // and saying so plainly beats a button that quietly was not there.
       if (mounted) {
         setState(() => _error =
-            'That part belongs to whoever recorded it. You can mute it, '
+            'That take belongs to whoever recorded it. You can mute it, '
             'or ask them to remove it. ($error)');
       }
     } finally {
@@ -459,7 +464,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.folder_zip_outlined, color: AppColors.cyan),
-              title: const Text('Every part'),
+              title: const Text('Every take'),
               subtitle: const Text(
                 'Each one on its own, with the volumes and timing written '
                 'down. Yours to keep.',
@@ -514,7 +519,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const Text('Parts', style: TextStyle(fontSize: 17)),
+            const Text('Takes', style: TextStyle(fontSize: 17)),
             Text(
               widget.songTitle,
               maxLines: 1,
@@ -579,7 +584,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                     ],
                     if (hasLayers) ...<Widget>[
                       Text(
-                        '${layers.length} part${layers.length == 1 ? '' : 's'}',
+                        '${layers.length} take${layers.length == 1 ? '' : 's'}',
                         style: const TextStyle(
                           color: AppColors.text,
                           fontSize: 15,
@@ -648,8 +653,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                     _recording
                         ? 'Stop  ${_elapsed.inMinutes}:${(_elapsed.inSeconds % 60).toString().padLeft(2, '0')}'
                         : hasLayers
-                            ? 'Add a part'
-                            : 'Record the first part',
+                            ? 'Add a take'
+                            : 'Record the first take',
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
@@ -661,7 +666,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     );
   }
 
-  /// The parts, flat or grouped depending on how many there are.
+  /// The takes, flat or grouped depending on how many there are.
   ///
   /// Grouping four things under three headings is ceremony; grouping nine is
   /// the difference between a page and a scroll. The threshold is where a
@@ -733,7 +738,7 @@ class _EmptyState extends StatelessWidget {
           const Icon(Icons.layers_outlined, size: 42, color: AppColors.line),
           const SizedBox(height: 14),
           const Text(
-            'No parts yet',
+            'No takes yet',
             style: TextStyle(
               color: AppColors.text,
               fontSize: 17,
@@ -756,7 +761,7 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-/// The correction applied to the *next* part recorded on this phone.
+/// The correction applied to the *next* take recorded on this phone.
 class _LatencyNote extends StatelessWidget {
   const _LatencyNote({required this.offsetMs, required this.onChanged});
 
@@ -795,7 +800,7 @@ class _LatencyNote extends StatelessWidget {
             ],
           ),
           const Text(
-            'Every phone records a moment behind what it plays. If your part '
+            'Every phone records a moment behind what it plays. If your take '
             'lands late against the others, raise this and try again.',
             style: TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.45),
           ),
