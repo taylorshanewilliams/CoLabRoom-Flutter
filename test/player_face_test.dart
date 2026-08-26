@@ -32,8 +32,11 @@ void main() {
   });
 
   testWidgets('the player is spoken for a screen reader', (tester) async {
+    final semantics = tester.ensureSemantics();
     await tester.pumpWidget(_face(name: 'Dylan'));
+
     expect(find.bySemanticsLabel('Played by Dylan'), findsOneWidget);
+    semantics.dispose();
   });
 
   test('initials survive whitespace a person actually types', () {
