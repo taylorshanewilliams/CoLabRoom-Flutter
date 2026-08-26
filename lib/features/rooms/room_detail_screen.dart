@@ -179,8 +179,26 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
       _showMessage('Moved ${selected.length} ${selected.length == 1 ? 'project' : 'projects'} to ${target.name}.');
       setState(_selectedProjectIds.clear);
     } catch (error) {
-      if (mounted) _showMessage('Could not move the selection: $error');
+      if (mounted) _showMessage(_moveFailureMessage(error, target));
     }
+  }
+
+  /// Why a move failed, in words about songs rather than about constraints.
+  ///
+  /// Moving a song into a Room owned by a different account now moves the
+  /// song's account with it, which is what the database always required. The
+  /// side effect is that a title can collide on arrival: song titles are
+  /// unique per account, so a Room that already has a song by this name will
+  /// refuse it. That is a real conflict a person has to resolve by renaming
+  /// one of them, and "duplicate key value violates unique constraint
+  /// projects_account_title_unique" tells them none of that.
+  String _moveFailureMessage(Object error, MusicRoom target) {
+    final text = error.toString();
+    if (text.contains('projects_account_title_unique')) {
+      return '${target.name} already has a song with that name. '
+          'Rename one of them and try again.';
+    }
+    return 'Could not move the selection: $error';
   }
 
   Future<void> _deleteSelected(MusicRoom room) async {

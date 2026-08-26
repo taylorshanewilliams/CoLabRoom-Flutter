@@ -32,7 +32,10 @@ insert into smoke_covered (name) values
   -- takes it through to 'ready', so this one genuinely fires.
   ('project_audio_references_set_updated_at'),
   -- The scenario adds two layers and asserts who was told about them.
-  ('song_layers_notify_added');
+  ('song_layers_notify_added'),
+  -- The scenario inserts a song claiming the wrong account, then moves one
+  -- across an account boundary, and asserts the account followed both times.
+  ('projects_account_follows_room');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario
