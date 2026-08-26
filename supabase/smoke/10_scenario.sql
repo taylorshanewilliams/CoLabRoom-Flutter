@@ -304,4 +304,55 @@ begin
   end if;
 end $$;
 
+-- A song's account follows the room it lives in (0043).
+--
+-- Exercised rather than acknowledged, because the reason this trigger exists
+-- at all is that the invariant was already written down — in the projects
+-- insert policy — and a different write path was allowed to break it
+-- afterwards. A rule stated in one place and enforced in none is exactly what
+-- this file is for.
+insert into public.rooms (id, account_id, name)
+values ('66666666-6666-6666-6666-666666666666', :'bandmate', 'The Other Band');
+
+-- Inserted claiming the wrong account on purpose: the trigger has to overrule
+-- the caller rather than trust them.
+insert into public.projects (id, room_id, account_id, title, created_by)
+values (
+  '77777777-7777-7777-7777-777777777777',
+  '66666666-6666-6666-6666-666666666666',
+  :'writer',
+  'A Song In The Other Band',
+  :'writer'
+);
+
+do $$
+begin
+  if (select account_id from public.projects
+      where id = '77777777-7777-7777-7777-777777777777')
+     is distinct from '22222222-2222-2222-2222-222222222222'::uuid then
+    raise exception 'a new song kept an account its room does not belong to (got %)',
+      (select account_id from public.projects
+       where id = '77777777-7777-7777-7777-777777777777');
+  end if;
+end $$;
+
+-- The case that was actually broken. Moving a song into a room owned by
+-- somebody else left account_id pointing at the room it came from — a row the
+-- insert policy would have refused to create, reached by editing one it had
+-- already accepted.
+update public.projects
+set room_id = '66666666-6666-6666-6666-666666666666'
+where id = '44444444-4444-4444-4444-444444444444';
+
+do $$
+begin
+  if (select account_id from public.projects
+      where id = '44444444-4444-4444-4444-444444444444')
+     is distinct from '22222222-2222-2222-2222-222222222222'::uuid then
+    raise exception 'a moved song kept the account of the room it left (got %)',
+      (select account_id from public.projects
+       where id = '44444444-4444-4444-4444-444444444444');
+  end if;
+end $$;
+
 commit;
