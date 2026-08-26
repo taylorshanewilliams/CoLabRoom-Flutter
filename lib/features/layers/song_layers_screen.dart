@@ -731,10 +731,23 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           'close it and record again.',
         );
       }
-      if (!mounted) return;
-
-      final described = await askWhatThatWas(context, performer: _performer);
-      if (!mounted) return;
+      // Two `if (!mounted) return;` guards used to sit here, one before the
+      // naming sheet and one after it. Both threw the recording away.
+      //
+      // That is the wrong trade in the wrong direction. A person who leaves
+      // this screen in the second between stopping and naming has still
+      // played something, and the app had already decided it was worth
+      // keeping — it passed the silence check two lines ago. Losing it
+      // because a widget went away is the most expensive failure this
+      // feature has, and it is silent: the screen is gone, so there is
+      // nowhere left to say so.
+      //
+      // Asked only while there is somebody to ask. An unnamed take is a
+      // generic name and a rename later; a discarded one is somebody's
+      // playing.
+      final described = mounted
+          ? await askWhatThatWas(context, performer: _performer)
+          : null;
       if (described?.performer != null) _performer = described!.performer;
 
       final part = described?.part ?? TakePart.other;
@@ -750,7 +763,18 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         performer: described?.performer,
       );
 
-      setState(() => _status = 'Sharing it with the room');
+      // Guarded, and the upload does not depend on it.
+      //
+      // This was a bare setState, and the app reported the consequence:
+      // "Saving a take failed: setState() called after dispose()". The
+      // exception fires *before* the upload line, gets caught by the handler
+      // below, and the recording is gone — because somebody left the screen
+      // in the second between naming their take and it being sent.
+      //
+      // A take that has been played is the most expensive thing this feature
+      // can lose. Whether a widget is still on screen has nothing to do with
+      // whether the audio should be kept.
+      if (mounted) setState(() => _status = 'Sharing it with the room');
       await _service.upload(
         roomId: widget.roomId,
         projectId: widget.projectId,
@@ -769,6 +793,28 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         // An orphan in the app's own directory, not worth failing an upload.
       }
       await _load();
+
+      // Rewind to just before the punch, the way a desk does.
+      //
+      // Without this, punching in at 1:40 and pressing play starts the song
+      // at 0:00 — and the take does not come in for another minute and
+      // forty seconds, so the honest conclusion is that nothing recorded.
+      // The take was there the whole time; playback simply had not reached
+      // it yet.
+      //
+      // A couple of seconds of run-up rather than landing exactly on it: the
+      // point of hearing a punch is hearing it arrive against what came
+      // before, and a take that begins on the first sample of playback tells
+      // you nothing about whether it sits right.
+      if (_punchInAt > Duration.zero) {
+        final preRoll = _punchInAt - const Duration(seconds: 2);
+        await _scrubTo(
+          _songSpan.inMilliseconds <= 0
+              ? 0
+              : (preRoll.isNegative ? 0 : preRoll.inMilliseconds) /
+                  _songSpan.inMilliseconds,
+        );
+      }
     } catch (error) {
       // Reported as well as shown. A take that fails to save is the single
       // most costly failure in this feature — somebody played something and
