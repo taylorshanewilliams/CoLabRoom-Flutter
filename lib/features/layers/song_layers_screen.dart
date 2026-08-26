@@ -534,14 +534,24 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   }
 
   /// Plays the current mix, looping it when it is only a click.
-  Future<void> _playMix() async {
+  Future<void> _playMix({Duration from = Duration.zero}) async {
     final path = _lastMixPath;
     if (path == null) return;
     await _player.setReleaseMode(
       _loopingClick ? ReleaseMode.loop : ReleaseMode.release,
     );
     await _player.play(DeviceFileSource(path));
+    // Seeked after play rather than before. There is no source to seek into
+    // until one is set, so a seek beforehand lands on the previous mix or on
+    // nothing at all.
+    if (from > Duration.zero) await _player.seek(from);
   }
+
+  /// Where the song was when recording started.
+  ///
+  /// The take is placed here in the mix rather than at the top, which is the
+  /// whole of punching in.
+  Duration _punchInAt = Duration.zero;
 
   Future<void> _record() async {
     if (_busy || _recording) return;
@@ -564,6 +574,14 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       final path =
           '${directory.path}/new_${DateTime.now().millisecondsSinceEpoch}.m4a';
 
+      // Where the playhead is, captured before anything moves it.
+      //
+      // This is the whole of punching in: a take no longer has to begin at
+      // the top of the song. Adding a harmony to the last chorus of a
+      // three-minute song meant sitting through the three minutes, because
+      // record always rewound and the mixer had no way to say a take belongs
+      // anywhere but zero.
+      _punchInAt = _position;
       final hasBacking = await _rebuildMix();
       await _recorder.start(
         const RecordConfig(
@@ -600,7 +618,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         await Future<void>.delayed(
           const Duration(milliseconds: _recorderHeadStartMs),
         );
-        await _playMix();
+        await _playMix(from: _punchInAt);
       }
 
       _elapsed = Duration.zero;
@@ -727,6 +745,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         recordedAt: DateTime.now(),
         durationMs: _elapsed.inMilliseconds,
         offsetMs: _alignedOffsetFor(samples),
+        startMs: _punchInAt.inMilliseconds,
         part: part,
         performer: described?.performer,
       );
@@ -815,6 +834,20 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         throughMs: (samples.length * 1000 / Multitrack.rate).round(),
         beatsPerBar: _beatsPerBar,
       );
+    }
+
+    // Beats measured from where this take starts, not from the top of the
+    // song. A take punched in at 2:40 hears its first downbeat a few hundred
+    // milliseconds in, not two minutes and forty seconds in — handing the
+    // aligner the song's absolute grid would put every candidate shift far
+    // outside the half-beat window it is allowed to search, and it would
+    // decline to answer on a take it could have timed perfectly.
+    final punchedInAt = _punchInAt.inMilliseconds;
+    if (punchedInAt > 0 && beats.length > 1) {
+      beats = <int>[
+        for (final at in beats)
+          if (at >= punchedInAt) at - punchedInAt,
+      ];
     }
     if (beats.length < 2) return manual;
 
@@ -1247,9 +1280,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                   label: Text(
                     _recording
                         ? 'Stop  ${_elapsed.inMinutes}:${(_elapsed.inSeconds % 60).toString().padLeft(2, '0')}'
-                        : hasLayers
-                            ? 'Add a take'
-                            : 'Record the first take',
+                        : _position > Duration.zero
+                            // Says where it will land. Punching in is only
+                            // useful if somebody can see that it is about to
+                            // happen — an unlabelled record button at 2:40
+                            // looks exactly like one at 0:00.
+                            ? 'Punch in at ${_clock(_position)}'
+                            : hasLayers
+                                ? 'Add a take'
+                                : 'Record the first take',
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
@@ -1295,6 +1334,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       take: take,
       wave: _waves[take.id] ?? const <double>[],
       playedFraction: _playedFraction,
+      startsFraction: _startFractionFor(take),
       spansFraction: _spanFractionFor(take),
       playerColor: layer == null ? null : _colorForMember(layer.recordedBy),
       playerPhoto: layer == null ? null : _photos[layer.recordedBy],
@@ -1445,6 +1485,18 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// A forty-second harmony on a three-minute song draws a short lane. That
   /// is the fact a list of equal-width rows could never show, and the reason
   /// somebody can see at a glance that a part stops before the last chorus.
+  static String _clock(Duration at) {
+    final seconds = at.inSeconds;
+    return '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
+  }
+
+  /// How far into the song a take begins.
+  double _startFractionFor(Take take) {
+    final span = _songSpan.inMilliseconds;
+    if (span <= 0 || take.startMs <= 0) return 0;
+    return (take.startMs / span).clamp(0.0, 0.98);
+  }
+
   double _spanFractionFor(Take take) {
     final span = _songSpan.inMilliseconds;
     if (span <= 0 || take.durationMs <= 0) return 1;

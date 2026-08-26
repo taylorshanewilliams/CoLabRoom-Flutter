@@ -28,6 +28,7 @@ class TakeLane extends StatelessWidget {
     required this.onToggle,
     this.wave = const <double>[],
     this.playedFraction = 0,
+    this.startsFraction = 0,
     this.spansFraction = 1,
     this.silent = false,
     this.playerColor,
@@ -47,6 +48,13 @@ class TakeLane extends StatelessWidget {
 
   /// How far through the *song* the playhead is, 0..1.
   final double playedFraction;
+
+  /// How far into the song this take begins, 0..1.
+  ///
+  /// A harmony punched in over the last chorus draws at the right-hand end of
+  /// the lane, where it was played, rather than at the left with everything
+  /// else. Seeing that is most of why the timeline is worth having.
+  final double startsFraction;
 
   /// How much of the song's width this take occupies, 0..1.
   ///
@@ -185,6 +193,7 @@ class TakeLane extends StatelessWidget {
                 wave: wave,
                 tint: live ? tint : AppColors.line,
                 played: playedFraction,
+                starts: startsFraction.clamp(0.0, 0.98),
                 spans: spansFraction.clamp(0.02, 1.0),
                 dim: live ? 0.28 : 0.5,
               ),
@@ -243,6 +252,7 @@ class _WavePainter extends CustomPainter {
     required this.wave,
     required this.tint,
     required this.played,
+    required this.starts,
     required this.spans,
     required this.dim,
   });
@@ -250,20 +260,22 @@ class _WavePainter extends CustomPainter {
   final List<double> wave;
   final Color tint;
   final double played;
+  final double starts;
   final double spans;
   final double dim;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final laneWidth = size.width * spans;
+    final left = size.width * starts;
+    final laneWidth = math.min(size.width - left, size.width * spans);
     final middle = size.height / 2;
 
     if (wave.isEmpty) {
       // Still reading. A rule rather than nothing, so the lane does not
       // change shape when the waveform arrives.
       canvas.drawLine(
-        Offset(0, middle),
-        Offset(laneWidth, middle),
+        Offset(left, middle),
+        Offset(left + laneWidth, middle),
         Paint()
           ..color = tint.withValues(alpha: dim * 0.7)
           ..strokeWidth = 1.5,
@@ -277,14 +289,15 @@ class _WavePainter extends CustomPainter {
     final unlit = Paint()..color = tint.withValues(alpha: dim);
 
     for (var i = 0; i < wave.length; i += 1) {
-      final x = i * (barWidth + gap);
-      if (x > laneWidth) break;
+      final x = left + i * (barWidth + gap);
+      if (x > left + laneWidth) break;
       // Square-rooted rather than linear. Peaks are absolute, so a quiet take
       // is genuinely shorter than a loud one — but linear would draw a
       // fingerpicked part as a flat line, and the point of a waveform is
       // seeing where the playing starts.
       final height = math.max(2.0, math.sqrt(wave[i]) * (size.height - 6));
-      final playedThrough = (i + 0.5) / wave.length * spans < played;
+      final playedThrough =
+          starts + (i + 0.5) / wave.length * spans < played;
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(x, middle - height / 2, barWidth, height),
@@ -299,6 +312,7 @@ class _WavePainter extends CustomPainter {
   bool shouldRepaint(_WavePainter old) =>
       old.played != played ||
       old.tint != tint ||
+      old.starts != starts ||
       old.spans != spans ||
       old.dim != dim ||
       !identical(old.wave, wave);

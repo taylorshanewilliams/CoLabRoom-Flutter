@@ -31,10 +31,19 @@ class Multitrack {
 
   /// Sums [takes] into one signal.
   ///
-  /// Each take is shifted earlier by its own [Take.offsetMs] — the latency
-  /// correction — and skipped entirely when it is not [Take.enabled], which
-  /// is what makes muting a layer while recording against the rest possible
-  /// without deleting anything.
+  /// Two different numbers sit at the front of every take and they must not
+  /// be confused, which is easy because both are milliseconds:
+  ///
+  ///   * [Take.offsetMs] is the latency **trim** — how much of the front of
+  ///     the recording to throw away, because a phone records a moment behind
+  ///     what it plays.
+  ///   * [Take.startMs] is **where the take belongs**, measured from the top
+  ///     of the song. Zero for anything recorded from the beginning, which is
+  ///     every take that existed before punching in did.
+  ///
+  /// A take is skipped entirely when it is not [Take.enabled], which is what
+  /// makes muting a layer while recording against the rest possible without
+  /// deleting anything.
   static MixResult mix(
     List<Take> takes,
     List<Float64List> audio, {
@@ -42,14 +51,20 @@ class Multitrack {
   }) {
     assert(takes.length == audio.length);
     var longest = 0;
-    final starts = List<int>.filled(takes.length, 0);
+    final trims = List<int>.filled(takes.length, 0);
+    final places = List<int>.filled(takes.length, 0);
     for (var i = 0; i < takes.length; i += 1) {
       if (!takes[i].enabled) continue;
       // A take that came back late is pulled forward, so the first sample
       // kept is the one that was playing when the backing track started.
-      final skip = math.max(0, (takes[i].offsetMs * rate / 1000).round());
-      starts[i] = skip;
-      longest = math.max(longest, math.max(0, audio[i].length - skip));
+      final trim = math.max(0, (takes[i].offsetMs * rate / 1000).round());
+      final place = math.max(0, (takes[i].startMs * rate / 1000).round());
+      trims[i] = trim;
+      places[i] = place;
+      // The mix has to be long enough to hold a take that starts late as well
+      // as one that runs long. A harmony punched in over the last chorus ends
+      // after the song does if it overruns.
+      longest = math.max(longest, place + math.max(0, audio[i].length - trim));
     }
     if (longest == 0) {
       return MixResult(Float64List(0),
@@ -61,10 +76,11 @@ class Multitrack {
       if (!takes[i].enabled) continue;
       final source = audio[i];
       final gain = takes[i].gain;
-      final skip = starts[i];
-      final count = math.min(longest, source.length - skip);
+      final trim = trims[i];
+      final place = places[i];
+      final count = math.min(longest - place, source.length - trim);
       for (var s = 0; s < count; s += 1) {
-        out[s] += source[skip + s] * gain;
+        out[place + s] += source[trim + s] * gain;
       }
     }
 
@@ -453,8 +469,10 @@ class Multitrack {
     if (followsSong || (clickBpm != null && clickBpm > 0)) {
       var longest = 0;
       for (var i = 0; i < wanted.length; i += 1) {
-        final skip = math.max(0, (wanted[i].offsetMs * rate / 1000).round());
-        longest = math.max(longest, math.max(0, audio[i].length - skip));
+        final trim = math.max(0, (wanted[i].offsetMs * rate / 1000).round());
+        final place = math.max(0, (wanted[i].startMs * rate / 1000).round());
+        longest =
+            math.max(longest, place + math.max(0, audio[i].length - trim));
       }
       if (longest > 0) {
         wantedWithClick = <Take>[
@@ -506,6 +524,7 @@ class Take {
     required this.recordedAt,
     this.durationMs = 0,
     this.offsetMs = 0,
+    this.startMs = 0,
     this.gain = 1.0,
     this.enabled = true,
     this.part = TakePart.other,
@@ -526,6 +545,18 @@ class Take {
   /// and on Bluetooth for the next, and a take recorded before the offset was
   /// known should not silently change when it becomes known.
   final int offsetMs;
+
+  /// Where this take begins, in milliseconds from the top of the song.
+  ///
+  /// Zero for anything recorded from the beginning — which is every take that
+  /// existed before punching in did, and the reason this defaults rather than
+  /// being nullable.
+  ///
+  /// Not [offsetMs]. That one throws away the front of the recording to
+  /// correct for latency; this one says where the recording sits. Both are
+  /// milliseconds at the front of a take, which is precisely why they are
+  /// named differently.
+  final int startMs;
 
   final double gain;
 
@@ -554,6 +585,7 @@ class Take {
   Take copyWith({
     String? label,
     int? offsetMs,
+    int? startMs,
     double? gain,
     bool? enabled,
     TakePart? part,
@@ -567,6 +599,7 @@ class Take {
       recordedAt: recordedAt,
       durationMs: durationMs,
       offsetMs: offsetMs ?? this.offsetMs,
+      startMs: startMs ?? this.startMs,
       gain: gain ?? this.gain,
       enabled: enabled ?? this.enabled,
       part: part ?? this.part,
@@ -582,6 +615,7 @@ class Take {
         'recorded_at': recordedAt.toIso8601String(),
         'duration_ms': durationMs,
         'offset_ms': offsetMs,
+        'start_ms': startMs,
         'gain': gain,
         'enabled': enabled,
         'part': part.name,
@@ -598,6 +632,7 @@ class Take {
           DateTime.tryParse(json['recorded_at'] as String? ?? '') ?? DateTime.now(),
       durationMs: (json['duration_ms'] as num?)?.toInt() ?? 0,
       offsetMs: (json['offset_ms'] as num?)?.toInt() ?? 0,
+      startMs: (json['start_ms'] as num?)?.toInt() ?? 0,
       gain: (json['gain'] as num?)?.toDouble() ?? 1.0,
       enabled: json['enabled'] as bool? ?? true,
       part: TakePart.parse(json['part'] as String?),
