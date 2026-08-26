@@ -401,20 +401,50 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     }
   }
 
+  /// Whether what is about to play is a click on its own, and so should loop.
+  bool _loopingClick = false;
+
   Future<bool> _rebuildMix() async {
     final takes = _takes;
-    if (takes.every((take) => !take.enabled)) return false;
+    final anythingToPlay = takes.any((take) => take.enabled);
+    // A click with nothing under it is still something to play against — it
+    // is how the first take of a song with no recording gets a tempo.
+    if (!anythingToPlay && !_clickOn) return false;
     final path = await _nextMixPath();
-    final result = await Multitrack.writeMixdown(
-      takes: takes,
-      outputPath: path,
-    );
+
+    // Two ways to end up with something to play, and only one of them
+    // produces a MixResult — a click on its own has no takes to report as
+    // silent and no peak worth measuring. `wrote` is the question the rest of
+    // this method actually asks.
+    MixResult? result;
+    bool wrote;
+    if (anythingToPlay) {
+      result = await Multitrack.writeMixdown(
+        takes: takes,
+        outputPath: path,
+        clickBpm: _clickOn ? _tempo : null,
+        clickBeatsPerBar: _beatsPerBar,
+      );
+      wrote = result != null;
+      _loopingClick = false;
+    } else {
+      await Multitrack.writeClickOnly(
+        bpm: _tempo,
+        outputPath: path,
+        beatsPerBar: _beatsPerBar,
+      );
+      wrote = true;
+      // Eight bars of click, looped. Safe to loop in a way a backing track
+      // never is: there is nothing else playing for it to drift against.
+      _loopingClick = true;
+    }
+
     // The one it replaces, once the new one exists. Old mixes are worthless
     // the moment a take changes, and a directory of them is the sort of thing
     // that quietly fills a phone.
     final previous = _lastMixPath;
-    _lastMixPath = result == null ? previous : path;
-    if (result != null && previous != null && previous != path) {
+    _lastMixPath = wrote ? path : previous;
+    if (wrote && previous != null && previous != path) {
       try {
         final stale = File(previous);
         if (await stale.exists()) await stale.delete();
@@ -433,7 +463,17 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         });
       }
     }
-    return result != null;
+    return wrote;
+  }
+
+  /// Plays the current mix, looping it when it is only a click.
+  Future<void> _playMix() async {
+    final path = _lastMixPath;
+    if (path == null) return;
+    await _player.setReleaseMode(
+      _loopingClick ? ReleaseMode.loop : ReleaseMode.release,
+    );
+    await _player.play(DeviceFileSource(path));
   }
 
   Future<void> _record() async {
@@ -493,7 +533,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         await Future<void>.delayed(
           const Duration(milliseconds: _recorderHeadStartMs),
         );
-        await _player.play(DeviceFileSource(_lastMixPath!));
+        await _playMix();
       }
 
       _elapsed = Duration.zero;
@@ -696,7 +736,19 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     final headStart = _backingWasPlaying ? _recorderHeadStartMs : 0;
     final manual = headStart +
         ((_layers ?? const <SharedLayer>[]).isEmpty ? 0 : _offsetMs);
-    final beats = _reference?.beatsMs ?? const <int>[];
+    // The analysis's grid when there is one; the metronome's when there is
+    // not. Recording against a click means the tempo is not inferred but
+    // chosen, which is the one case automatic alignment could not answer
+    // before — a song with no analysis had no grid, and the person was left
+    // with a slider defaulting to zero.
+    var beats = _reference?.beatsMs ?? const <int>[];
+    if (beats.length < 2 && _clickOn) {
+      beats = Multitrack.beatsForTempo(
+        bpm: _tempo,
+        throughMs: (samples.length * 1000 / Multitrack.rate).round(),
+        beatsPerBar: _beatsPerBar,
+      );
+    }
     if (beats.length < 2) return manual;
 
     final skip = (headStart * Multitrack.rate / 1000).round();
@@ -730,6 +782,20 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// costs nothing and answers it.
   bool _backingWasPlaying = false;
 
+  /// The metronome, and the tempo it clicks at.
+  ///
+  /// Off by default: a click nobody asked for is the fastest way to make
+  /// somebody put the phone down. The tempo starts at the song's own, when
+  /// the analysis found one, because a band's first instinct is to play along
+  /// with the record rather than to a number they chose.
+  bool _clickOn = false;
+  double? _clickBpm;
+
+  double get _tempo =>
+      _clickBpm ?? _reference?.bpm?.roundToDouble() ?? 100;
+
+  int get _beatsPerBar => _reference?.beatsPerBar ?? 4;
+
   Future<void> _togglePlay() async {
     if (_recording) return;
     if (_playing) {
@@ -738,7 +804,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       return;
     }
     if (!await _rebuildMix() || _lastMixPath == null) return;
-    await _player.play(DeviceFileSource(_lastMixPath!));
+    await _playMix();
     if (mounted) setState(() => _playing = true);
   }
 
@@ -1021,6 +1087,20 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                       const SizedBox(height: 14),
                       ..._partsBody(),
                       const SizedBox(height: 16),
+                      _MetronomeNote(
+                        on: _clickOn,
+                        bpm: _tempo,
+                        fromAnalysis: _reference?.bpm != null && _clickBpm == null,
+                        onToggle: (value) {
+                          setState(() => _clickOn = value);
+                          unawaited(_rebuildMix());
+                        },
+                        onTempo: (value) {
+                          setState(() => _clickBpm = value);
+                          unawaited(_rebuildMix());
+                        },
+                      ),
+                      const SizedBox(height: 16),
                       _LatencyNote(
                         offsetMs: _offsetMs,
                         onChanged: (value) => setState(() => _offsetMs = value),
@@ -1184,6 +1264,126 @@ class _EmptyState extends StatelessWidget {
 }
 
 /// The correction applied to the *next* take recorded on this phone.
+/// The metronome, and the tempo it clicks at.
+///
+/// Summed into the backing track rather than played beside it — see
+/// Multitrack.click. A click from a second player drifts against the first,
+/// and a metronome that drifts teaches somebody their timing is wrong when it
+/// is the app's.
+class _MetronomeNote extends StatelessWidget {
+  const _MetronomeNote({
+    required this.on,
+    required this.bpm,
+    required this.fromAnalysis,
+    required this.onToggle,
+    required this.onTempo,
+  });
+
+  final bool on;
+  final double bpm;
+
+  /// Whether this tempo came from the song rather than from a person, which
+  /// is worth saying: it is the difference between a number the app measured
+  /// and one somebody has to trust.
+  final bool fromAnalysis;
+  final ValueChanged<bool> onToggle;
+  final ValueChanged<double> onTempo;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(
+                Icons.av_timer_rounded,
+                size: 18,
+                color: on ? AppColors.cyan : AppColors.muted,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Metronome',
+                  style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700),
+                ),
+              ),
+              Text(
+                '${bpm.round()} bpm',
+                style: TextStyle(
+                  color: on ? AppColors.cyan : AppColors.muted,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              Switch(
+                value: on,
+                activeThumbColor: AppColors.cyan,
+                onChanged: onToggle,
+              ),
+            ],
+          ),
+          if (on) ...<Widget>[
+            Row(
+              children: <Widget>[
+                IconButton(
+                  onPressed: bpm <= 40 ? null : () => onTempo(bpm - 1),
+                  tooltip: 'One beat per minute slower',
+                  icon: const Icon(Icons.remove_rounded,
+                      size: 18, color: AppColors.muted),
+                ),
+                Expanded(
+                  child: Slider(
+                    value: bpm.clamp(40, 220),
+                    min: 40,
+                    max: 220,
+                    divisions: 180,
+                    label: '${bpm.round()} bpm',
+                    activeColor: AppColors.cyan,
+                    inactiveColor: AppColors.line,
+                    onChanged: (value) => onTempo(value.roundToDouble()),
+                    semanticFormatterCallback: (value) =>
+                        '${value.round()} beats per minute',
+                  ),
+                ),
+                IconButton(
+                  onPressed: bpm >= 220 ? null : () => onTempo(bpm + 1),
+                  tooltip: 'One beat per minute faster',
+                  icon: const Icon(Icons.add_rounded,
+                      size: 18, color: AppColors.muted),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 4, right: 8),
+              child: Text(
+                fromAnalysis
+                    ? 'This song's own tempo, from its analysis. Change it and '
+                        'the click follows you instead.'
+                    : 'Takes recorded to a click can be timed to the beat '
+                        'automatically, even on a song that has never been '
+                        'analyzed.',
+                style: const TextStyle(
+                    color: AppColors.muted, fontSize: 11.5, height: 1.4),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _LatencyNote extends StatelessWidget {
   const _LatencyNote({required this.offsetMs, required this.onChanged});
 
