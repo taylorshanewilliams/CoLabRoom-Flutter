@@ -13,6 +13,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../services/multitrack.dart';
+import '../../services/onset_align.dart';
 import '../../services/overdub_session.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
@@ -432,6 +433,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     setState(() {
       _busy = true;
       _error = null;
+      _alignedNote = null;
     });
     try {
       final root = await getApplicationDocumentsDirectory();
@@ -524,13 +526,14 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // as a part that cannot be heard. Checked here — before the upload,
       // while the person who played it is still holding the phone — because
       // this is the only moment when "play it again" is a cheap answer.
-      final peak = await Multitrack.peakOfRecording(path);
-      if (peak == null) {
+      final samples = await Multitrack.readRecording(path);
+      if (samples == null) {
         throw StateError(
           'That take could not be read back after recording, so it was not '
           'saved. The file is still on this phone.',
         );
       }
+      final peak = Multitrack.peakOf(samples);
       if (peak < Multitrack.silenceFloor) {
         throw StateError(
           'That take came back silent — the microphone was open but captured '
@@ -551,7 +554,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         label: TakeNaming.nextLabel(_takes, part, described?.performer),
         recordedAt: DateTime.now(),
         durationMs: _elapsed.inMilliseconds,
-        offsetMs: (_layers ?? const <SharedLayer>[]).isEmpty ? 0 : _offsetMs,
+        offsetMs: _alignedOffsetFor(samples),
         part: part,
         performer: described?.performer,
       );
@@ -596,6 +599,44 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       }
     }
   }
+
+  /// How late this take came back, measured rather than guessed.
+  ///
+  /// Latency is the thing most likely to make somebody give up on overdubs:
+  /// a part that is right but forty milliseconds behind sounds like bad
+  /// playing, and the only remedy the app offered was a slider defaulting to
+  /// zero that nobody can set correctly by ear on the first go.
+  ///
+  /// OnsetAlign has existed and been tested this whole time — it asks how far
+  /// this take must be shifted for its attacks to land on the beat grid the
+  /// analysis already computed, which needs no calibration and no memory of
+  /// the device. It was only ever reachable from a developer screen.
+  ///
+  /// Falls back to the manual value when it cannot answer: a song with no
+  /// analysis has no grid, and a sustained part gives the arithmetic nothing
+  /// to bite on. `trustworthy` is the guard for the second case — a held
+  /// chord still produces a number, and it is noise wearing the shape of an
+  /// answer.
+  int _alignedOffsetFor(Float64List samples) {
+    final manual =
+        (_layers ?? const <SharedLayer>[]).isEmpty ? 0 : _offsetMs;
+    final beats = _reference?.beatsMs ?? const <int>[];
+    if (beats.length < 2) return manual;
+
+    final result = OnsetAlign.alignToGrid(
+      samples,
+      beats,
+      rate: Multitrack.rate,
+    );
+    if (result == null || !result.trustworthy) return manual;
+    _alignedNote = result.shiftMs > 0
+        ? 'Timed to the beat automatically — ${result.shiftMs} ms trimmed.'
+        : 'Timed to the beat automatically — nothing needed trimming.';
+    return result.shiftMs;
+  }
+
+  /// What the alignment did, said once after the take lands.
+  String? _alignedNote;
 
   Future<void> _togglePlay() async {
     if (_recording) return;
@@ -821,6 +862,34 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                         child: Text(_referenceNote!,
                             style: const TextStyle(
                                 color: AppColors.orange, fontSize: 12, height: 1.45)),
+                      ),
+                    ],
+                    // Said out loud, because silently moving somebody's
+                    // playing is worse than not moving it. If the timing is
+                    // wrong they need to know something adjusted it before
+                    // they go hunting for a fault in their own take.
+                    if (_alignedNote != null) ...<Widget>[
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 14),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.cyan.withValues(alpha: 0.09),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: <Widget>[
+                            const Icon(Icons.auto_fix_high_rounded,
+                                size: 15, color: AppColors.cyan),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(_alignedNote!,
+                                  style: const TextStyle(
+                                      color: AppColors.cyan,
+                                      fontSize: 12,
+                                      height: 1.45)),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                     if (_error != null) ...<Widget>[
@@ -1061,8 +1130,10 @@ class _LatencyNote extends StatelessWidget {
             ],
           ),
           const Text(
-            'Every phone records a moment behind what it plays. If your take '
-            'lands late against the others, raise this and try again.',
+            'Every phone records a moment behind what it plays. An analyzed '
+            'song times each take to its beat automatically — this is the '
+            'fallback for songs with no analysis yet, and for parts with no '
+            'clear attack to measure.',
             style: TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.45),
           ),
           Slider(

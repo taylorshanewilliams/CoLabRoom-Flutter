@@ -165,13 +165,27 @@ class Multitrack {
   /// hear, and size alone cannot tell them apart: four seconds of encoded
   /// digital silence is a perfectly well-formed 2.5 KB m4a.
   static Future<double?> peakOfRecording(String path) async {
+    final samples = await readRecording(path);
+    return samples == null ? null : peakOf(samples);
+  }
+
+  /// A just-recorded file's samples, or null if nothing decoded.
+  ///
+  /// Separated from [peakOfRecording] so the one decode can answer more than
+  /// one question. A take is checked for silence and aligned to the beat in
+  /// the same breath, and decoding it twice to do that would double the wait
+  /// between somebody stopping and the take appearing.
+  static Future<Float64List?> readRecording(String path) async {
     final samples = await samplesFor(Take(
       id: path,
       path: path,
       label: '',
       recordedAt: DateTime.now(),
     ));
-    if (samples.isEmpty) return null;
+    return samples.isEmpty ? null : samples;
+  }
+
+  static double peakOf(Float64List samples) {
     var peak = 0.0;
     for (final value in samples) {
       final magnitude = value.abs();
