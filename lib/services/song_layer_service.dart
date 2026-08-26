@@ -20,10 +20,17 @@ import 'take_naming.dart';
 /// layer with a new id rather than replacing one, which is also what makes
 /// "who played this" answerable months later.
 class SongLayerService {
-  SongLayerService({SupabaseClient? client})
-      : _client = client ?? Supabase.instance.client;
+  SongLayerService({SupabaseClient? client}) : _clientOverride = client;
 
-  final SupabaseClient _client;
+  final SupabaseClient? _clientOverride;
+
+  /// Resolved on use, not in the constructor.
+  ///
+  /// Constructing this used to reach for Supabase.instance immediately, which
+  /// meant the screen that owns it could not be built in a test at all — the
+  /// very thing the injection seam was added to allow. Matches
+  /// SongAnalysisService, which already did it this way.
+  SupabaseClient get _client => _clientOverride ?? Supabase.instance.client;
 
   static const String _bucket = 'room-files';
 
