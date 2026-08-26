@@ -2,13 +2,17 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../services/multitrack.dart';
+import '../../domain/song_analysis_models.dart';
+import '../../services/song_analysis_service.dart';
 import '../../services/song_layer_service.dart';
 import '../../services/take_export.dart';
 import '../../services/take_naming.dart';
@@ -43,6 +47,18 @@ class SongLayersScreen extends StatefulWidget {
 
 class _SongLayersScreenState extends State<SongLayersScreen> {
   final SongLayerService _service = SongLayerService();
+  final SongAnalysisService _analysis = SongAnalysisService();
+
+  /// The song's own recording, shown as the first part.
+  ///
+  /// A song that already has a reference track is not an empty session — the
+  /// whole point of adding a part is adding it to something. Kept out of
+  /// song_layers rather than copied into it: it belongs to the analysis, it
+  /// is what every chord and lyric on the song sheet was derived from, and
+  /// duplicating it would mean two rows that have to be deleted together and
+  /// eventually will not be.
+  ReferenceTrack? _reference;
+  String? _referencePath;
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();
 
@@ -61,6 +77,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   bool _busy = false;
   String? _error;
   String? _status;
+  final Set<String> _silent = <String>{};
   int _offsetMs = 0;
   String? _performer;
   Duration _elapsed = Duration.zero;
@@ -92,6 +109,20 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       _status = 'Fetching the parts';
     });
     try {
+      // Best-effort and first: a song with a recording should never look
+      // empty, but a failure to fetch it must not stop the parts loading.
+      try {
+        final bundle = await _analysis.load(widget.projectId);
+        final reference = bundle.reference;
+        if (reference != null && reference.state == SongAnalysisState.ready) {
+          _reference = reference;
+          _referencePath = await _analysis.ensureLocalReference(reference);
+          _enabled.add(_referenceId);
+        }
+      } catch (_) {
+        // No recording, or it could not be fetched. The parts still load.
+      }
+
       final layers = await _service.listLayers(widget.projectId);
       for (final layer in layers) {
         // Everything on by default. Somebody opening a song wants to hear the
@@ -119,9 +150,32 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     }
   }
 
+  String? get _me => Supabase.instance.client.auth.currentUser?.id;
+
+  /// Not a uuid, so it can never collide with a real layer's id.
+  static const String _referenceId = 'reference';
+
+  Take? get _referenceTake {
+    final reference = _reference;
+    final path = _referencePath;
+    if (reference == null || path == null) return null;
+    return Take(
+      id: _referenceId,
+      path: path,
+      label: reference.displayName,
+      recordedAt: DateTime.now(),
+      durationMs: reference.durationMs ?? 0,
+      enabled: _enabled.contains(_referenceId),
+      part: TakePart.other,
+      namedByHand: true,
+    );
+  }
+
   List<Take> get _takes {
     final layers = _layers ?? const <SharedLayer>[];
+    final reference = _referenceTake;
     return <Take>[
+      if (reference != null) reference,
       for (final layer in layers)
         if (_localPaths[layer.id] != null)
           layer.toTake(_localPaths[layer.id]!, enabled: _enabled.contains(layer.id)),
@@ -140,6 +194,16 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       takes: takes,
       outputPath: await _mixPath,
     );
+    if (mounted && result != null) {
+      final silent = result.silentTakeIds.toSet();
+      if (!setEquals(silent, _silent)) {
+        setState(() {
+          _silent
+            ..clear()
+            ..addAll(silent);
+        });
+      }
+    }
     return result != null;
   }
 
@@ -266,6 +330,26 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     if (!await _rebuildMix()) return;
     await _player.play(DeviceFileSource(await _mixPath));
     if (mounted) setState(() => _playing = true);
+  }
+
+  Future<void> _setGain(SharedLayer layer, double gain) async {
+    await _update(layer, <String, dynamic>{'gain': gain});
+  }
+
+  Future<void> _nudge(SharedLayer layer, int delta) async {
+    final next = (layer.offsetMs + delta).clamp(0, 1000);
+    await _update(layer, <String, dynamic>{'offset_ms': next});
+  }
+
+  /// Writes one field and refreshes, so what everyone hears stays what the
+  /// person who played it chose.
+  Future<void> _update(SharedLayer layer, Map<String, dynamic> patch) async {
+    try {
+      await _service.updateLayer(layer, patch);
+      await _load();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    }
   }
 
   Future<void> _delete(SharedLayer layer) async {
@@ -445,6 +529,22 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                             color: AppColors.muted, fontSize: 12, height: 1.45),
                       ),
                       const SizedBox(height: 14),
+                      if (_referenceTake != null)
+                        LayerRow(
+                          take: _referenceTake!,
+                          subtitle: 'The song's recording',
+                          silent: _silent.contains(_referenceId),
+                          onToggle: () => setState(() {
+                            if (!_enabled.remove(_referenceId)) {
+                              _enabled.add(_referenceId);
+                            }
+                          }),
+                          // No delete. This is the recording the analysis was
+                          // made from — removing it here would quietly break
+                          // the chords and lyrics on the song sheet, which is
+                          // not a thing a mixer should be able to do.
+                          onDelete: null,
+                        ),
                       for (final layer in layers)
                         LayerRow(
                           take: layer.toTake(
@@ -452,15 +552,21 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                             enabled: _enabled.contains(layer.id),
                           ),
                           subtitle: _subtitleFor(layer),
+                          silent: _silent.contains(layer.id),
                           onToggle: () => setState(() {
                             if (!_enabled.remove(layer.id)) _enabled.add(layer.id);
                           }),
-                          // Volume and timing belong to whoever recorded the
-                          // part — a bandmate who disagrees mutes it. Shown
-                          // rather than hidden so the values are legible to
-                          // everyone; the database refuses the write anyway.
-                          onGain: null,
-                          onNudge: null,
+                          // Yours to balance, theirs to leave alone. The first
+                          // cut of this disabled the slider for everyone,
+                          // which locked people out of parts they had just
+                          // recorded themselves — the rule is about other
+                          // people's playing, not about all playing.
+                          onGain: layer.recordedBy == _me
+                              ? (value) => unawaited(_setGain(layer, value))
+                              : null,
+                          onNudge: layer.recordedBy == _me
+                              ? (delta) => unawaited(_nudge(layer, delta))
+                              : null,
                           onDelete: () => unawaited(_delete(layer)),
                         ),
                       const SizedBox(height: 16),

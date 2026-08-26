@@ -18,8 +18,9 @@ class LayerRow extends StatefulWidget {
   const LayerRow({
     required this.take,
     required this.onToggle,
-    required this.onDelete,
+    this.onDelete,
     this.subtitle,
+    this.silent = false,
     this.onGain,
     this.onNudge,
     super.key,
@@ -30,7 +31,14 @@ class LayerRow extends StatefulWidget {
   final VoidCallback onToggle;
   final ValueChanged<double>? onGain;
   final ValueChanged<int>? onNudge;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
+
+  /// This part contributed nothing to the mix — a missing file, or audio that
+  /// would not decode. Said out loud, because a part that is in the list and
+  /// cannot be heard is the most confusing failure there is: it looks
+  /// identical to a bad recording, and the person who made it has no way to
+  /// tell which.
+  final bool silent;
 
   @override
   State<LayerRow> createState() => _LayerRowState();
@@ -90,7 +98,15 @@ class _LayerRowState extends State<LayerRow> {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    if (widget.subtitle != null)
+                    if (widget.silent)
+                      const Text(
+                        'Could not be played — try recording it again',
+                        style: TextStyle(
+                            color: AppColors.orange,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600),
+                      )
+                    else if (widget.subtitle != null)
                       Text(
                         widget.subtitle!,
                         style: const TextStyle(
@@ -113,12 +129,13 @@ class _LayerRowState extends State<LayerRow> {
                       size: 18, color: AppColors.muted),
                 ),
               ],
-              IconButton(
-                onPressed: widget.onDelete,
-                tooltip: 'Delete $name',
-                icon: const Icon(Icons.delete_outline_rounded,
-                    size: 20, color: Color(0xFFFF718B)),
-              ),
+              if (widget.onDelete != null)
+                IconButton(
+                  onPressed: widget.onDelete,
+                  tooltip: 'Delete $name',
+                  icon: const Icon(Icons.delete_outline_rounded,
+                      size: 20, color: Color(0xFFFF718B)),
+                ),
             ],
           ),
           Row(

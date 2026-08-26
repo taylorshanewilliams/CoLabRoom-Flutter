@@ -35,7 +35,11 @@ class Multitrack {
   /// correction — and skipped entirely when it is not [Take.enabled], which
   /// is what makes muting a layer while recording against the rest possible
   /// without deleting anything.
-  static MixResult mix(List<Take> takes, List<Float64List> audio) {
+  static MixResult mix(
+    List<Take> takes,
+    List<Float64List> audio, {
+    List<String> silentTakeIds = const <String>[],
+  }) {
     assert(takes.length == audio.length);
     var longest = 0;
     final starts = List<int>.filled(takes.length, 0);
@@ -47,7 +51,10 @@ class Multitrack {
       starts[i] = skip;
       longest = math.max(longest, math.max(0, audio[i].length - skip));
     }
-    if (longest == 0) return MixResult(Float64List(0), peak: 0, scaled: false);
+    if (longest == 0) {
+      return MixResult(Float64List(0),
+          peak: 0, scaled: false, silentTakeIds: silentTakeIds);
+    }
 
     final out = Float64List(longest);
     for (var i = 0; i < takes.length; i += 1) {
@@ -80,7 +87,7 @@ class Multitrack {
       }
       scaled = true;
     }
-    return MixResult(out, peak: peak, scaled: scaled);
+    return MixResult(out, peak: peak, scaled: scaled, silentTakeIds: silentTakeIds);
   }
 
   /// One take's audio as samples, whatever container it arrived in.
@@ -115,22 +122,48 @@ class Multitrack {
     }
 
     try {
-      final wav = await AudioDecoder.convertToWavBytes(
+      // Raw PCM, then a wav header written here.
+      //
+      // This asked the decoder for the header too, and got back something
+      // fromWav could not parse — so every compressed layer decoded to an
+      // empty list, and the mixer's own "a layer that will not decode is
+      // silence" rule then hid that completely: the part was in the list,
+      // muted nothing, and simply could not be heard. The one call to this
+      // decoder that has been in production for months passes
+      // includeHeader: false, and this now matches it.
+      final pcm = await AudioDecoder.convertToWavBytes(
         await file.readAsBytes(),
         formatHint: extension,
         sampleRate: rate,
         channels: 1,
         bitDepth: 16,
-        includeHeader: true,
+        includeHeader: false,
       );
-      await cache.writeAsBytes(wav, flush: true);
-      return LatencyProbe.fromWav(wav);
+      final samples = pcmToSamples(pcm);
+      if (samples.isEmpty) return Float64List(0);
+      await cache.writeAsBytes(
+        LatencyProbe.toWav(samples, rate: rate),
+        flush: true,
+      );
+      return samples;
     } catch (_) {
-      // A layer that will not decode is silence in the mix rather than an
-      // exception in the middle of a session. Everything else still plays,
-      // and the take itself is still on disk and still exportable.
+      // Still silence rather than an exception mid-session — but no longer
+      // silent about it: writeMixdown reports which layers produced nothing
+      // so the screen can say so instead of leaving somebody wondering why
+      // their part vanished.
       return Float64List(0);
     }
+  }
+
+  /// Signed 16-bit little-endian PCM as samples.
+  static Float64List pcmToSamples(Uint8List pcm) {
+    final count = pcm.length ~/ 2;
+    final data = ByteData.sublistView(pcm);
+    final out = Float64List(count);
+    for (var i = 0; i < count; i += 1) {
+      out[i] = data.getInt16(i * 2, Endian.little) / 32768.0;
+    }
+    return out;
   }
 
   /// Reads every enabled take off disk and writes the mix to [outputPath].
@@ -144,10 +177,13 @@ class Multitrack {
     final wanted = takes.where((take) => take.enabled).toList(growable: false);
     if (wanted.isEmpty) return null;
     final audio = <Float64List>[];
+    final silent = <String>[];
     for (final take in wanted) {
-      audio.add(await samplesFor(take));
+      final samples = await samplesFor(take);
+      if (samples.isEmpty) silent.add(take.id);
+      audio.add(samples);
     }
-    final result = mix(wanted, audio);
+    final result = mix(wanted, audio, silentTakeIds: silent);
     if (result.samples.isEmpty) return null;
     await File(outputPath).writeAsBytes(
       LatencyProbe.toWav(result.samples, rate: rate),
@@ -268,7 +304,12 @@ class Take {
 }
 
 class MixResult {
-  const MixResult(this.samples, {required this.peak, required this.scaled});
+  const MixResult(
+    this.samples, {
+    required this.peak,
+    required this.scaled,
+    this.silentTakeIds = const <String>[],
+  });
 
   final Float64List samples;
 
@@ -278,6 +319,12 @@ class MixResult {
 
   /// Whether the mix had to be turned down to fit.
   final bool scaled;
+
+  /// Layers that contributed nothing — a missing file, or audio that would
+  /// not decode. Reported rather than swallowed: a part that is in the list
+  /// and cannot be heard is the most confusing possible failure, and the
+  /// person looking at it has no way to tell it from a bad recording.
+  final List<String> silentTakeIds;
 }
 
 /// The takes for one sketch, and where they live.

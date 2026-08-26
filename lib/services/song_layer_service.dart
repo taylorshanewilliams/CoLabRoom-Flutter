@@ -158,6 +158,15 @@ class SongLayerService {
     return SharedVersion.fromRow(Map<String, dynamic>.from(row));
   }
 
+  /// Changes how a layer sits — its volume, or its timing.
+  ///
+  /// RLS admits this only from the person who recorded it. A bandmate who
+  /// disagrees mutes it locally or saves their own version; what everyone
+  /// else hears stays what the player chose.
+  Future<void> updateLayer(SharedLayer layer, Map<String, dynamic> patch) async {
+    await _client.from('song_layers').update(patch).eq('id', layer.id);
+  }
+
   /// Removes a layer and its audio.
   ///
   /// RLS decides whether this is allowed — the recorder, or a room owner —
