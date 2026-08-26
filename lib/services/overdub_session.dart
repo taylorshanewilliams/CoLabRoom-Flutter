@@ -79,8 +79,24 @@ class OverdubSession {
         ),
       );
 
-  static Future<void> begin() =>
-      AudioPlayer.global.setAudioContext(recording);
+  /// Both of these swallow failure deliberately.
+  ///
+  /// A phone that refuses the session is a phone where recording against a
+  /// backing track will not work well — but it is still a phone where the
+  /// takes already recorded can be listened to, renamed and exported, and
+  /// none of that should be behind an audio session. There is also nowhere
+  /// useful to report it to: this runs from initState, before there is a
+  /// screen to put a message on.
+  static Future<void> begin() => _apply(recording);
 
-  static Future<void> end() => AudioPlayer.global.setAudioContext(playback);
+  static Future<void> end() => _apply(playback);
+
+  static Future<void> _apply(AudioContext context) async {
+    try {
+      await AudioPlayer.global.setAudioContext(context);
+    } catch (_) {
+      // Including in a widget test, where there is no platform behind the
+      // channel at all.
+    }
+  }
 }

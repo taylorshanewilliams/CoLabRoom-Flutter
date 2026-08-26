@@ -165,8 +165,6 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
             'Everything else still works. ($error)';
       }
 
-      await _sweepOldMixes();
-
       final layers = await _service.listLayers(widget.projectId);
       for (final layer in layers) {
         // Everything on by default. Somebody opening a song wants to hear the
@@ -299,10 +297,16 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   static int _mixSequence = 0;
   String? _lastMixPath;
 
+  bool _sweptOldMixes = false;
+
   Future<String> _nextMixPath() async {
     final root = await getApplicationDocumentsDirectory();
     final dir = Directory('${root.path}/layers/${widget.projectId}');
     if (!await dir.exists()) await dir.create(recursive: true);
+    if (!_sweptOldMixes) {
+      _sweptOldMixes = true;
+      await _sweepOldMixes(dir);
+    }
     _mixSequence += 1;
     final stamp = DateTime.now().microsecondsSinceEpoch;
     return '${dir.path}/_mix_${stamp}_$_mixSequence.wav';
@@ -312,14 +316,19 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   ///
   /// Unique filenames stop the cache going stale and start the directory
   /// filling up instead; one of those is a bug and the other is housekeeping.
-  Future<void> _sweepOldMixes() async {
+  ///
+  /// Done from here rather than from _load on purpose. Loading the list of
+  /// takes must not depend on a plugin: the widget tests build this screen
+  /// with no platform channels behind it precisely so that a screen which
+  /// cannot finish loading is caught in a second rather than on a phone, and
+  /// a path_provider call on that path leaves the progress ring turning
+  /// forever — which is the exact bug those tests exist to catch, reached by
+  /// a new route. Nothing needs a directory until there is a mix to write.
+  Future<void> _sweepOldMixes(Directory dir) async {
     try {
-      final root = await getApplicationDocumentsDirectory();
-      final dir = Directory('${root.path}/layers/${widget.projectId}');
-      if (!await dir.exists()) return;
       await for (final entry in dir.list()) {
         if (entry is! File) continue;
-        final name = entry.path.split(Platform.pathSeparator).last;
+        final name = entry.uri.pathSegments.last;
         if (!name.startsWith('_mix_') || !name.endsWith('.wav')) continue;
         if (entry.path == _lastMixPath) continue;
         await entry.delete();
