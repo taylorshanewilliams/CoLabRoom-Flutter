@@ -11,6 +11,7 @@ import '../domain/music_models.dart';
 import '../domain/song_analysis_models.dart';
 import '../domain/studio_draft_models.dart';
 import '../features/home/new_song_flow.dart';
+import '../features/studio/use_in_song_sheet.dart';
 import 'audio_analysis_utils.dart';
 import 'chord_beat_grid.dart';
 import 'error_reporter.dart';
@@ -24,7 +25,8 @@ import 'song_analysis_service.dart'
         separationMaxConsecutiveFailures,
         separationPollDelay,
         separationProgress,
-        separationTimeout;
+        separationTimeout,
+        SongAnalysisService;
 
 List<int> _msList(dynamic value) {
   if (value is! List) return const <int>[];
@@ -681,6 +683,76 @@ class StudioDraftService {
   /// "Create Song Project" — collects room+title via the existing, unmodified
   /// new-song flow, then copies the draft's analysis into that project.
   /// Returns null if the user cancelled room/title selection (not an error).
+  /// Attaches a recording to a song — an existing one, or a new one.
+  ///
+  /// The verb the app never had. Every route from a recording to a song went
+  /// through [promoteToProject], which always makes a *new* song, so somebody
+  /// who recorded a song they had been writing for a week got a second copy
+  /// holding the audio and none of the words. Their lyrics were never lost.
+  /// There was simply no way to say "this recording is that song", and the
+  /// duplicate was the design working exactly as written.
+  ///
+  /// Replacing a recording removes what was derived FROM it — the chord map,
+  /// the lyric timings, the separated stems — because those describe audio
+  /// that is no longer there. It does not touch the words. That distinction
+  /// is the whole point: a person attaching a better take to a song they have
+  /// been writing must not lose the writing.
+  Future<SongProject?> useInSong(
+    BuildContext context,
+    MusicBetaController controller,
+    StudioDraft draft, {
+    SongAnalysisService? analysis,
+  }) async {
+    final choice = await showUseInSongSheet(context, controller.rooms);
+    if (choice == null || !context.mounted) return null;
+    if (choice.isNew) return promoteToProject(context, controller, draft);
+
+    final project = choice.project!;
+    final service = analysis ?? SongAnalysisService();
+
+    // Warned about, in the words of what is actually at stake.
+    if (project.hasAudioReference) {
+      final replace = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Replace the recording on ${project.title}?'),
+          content: const Text(
+            'The chords, the lyric timings and the separated parts all came '
+            'from the old recording, so they go with it. The words stay '
+            'exactly as they are.',
+            style: TextStyle(height: 1.45),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('confirm_replace_reference'),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Replace'),
+            ),
+          ],
+        ),
+      );
+      if (replace != true) return null;
+
+      final existing = (await service.load(project.id)).reference;
+      // Removed before the new one is written, not after. Both paths write to
+      // project_audio_references, and leaving the old row there means the
+      // upsert decides which recording a song has rather than this code.
+      if (existing != null) await service.removeReference(existing);
+    }
+
+    final bundle = await load(draft.id);
+    await _writeAnalysisIntoProject(project: project, bundle: bundle);
+    await client.from('studio_drafts').update(<String, dynamic>{
+      'promoted_project_id': project.id,
+    }).eq('id', draft.id);
+    await controller.load();
+    return project;
+  }
+
   Future<SongProject?> promoteToProject(
     BuildContext context,
     MusicBetaController controller,
@@ -701,14 +773,13 @@ class StudioDraftService {
     return project;
   }
 
-  /// Copies a draft's audio and analysis into a project that was created
-  /// moments ago by [promoteToProject], which is its only caller.
+  /// Copies a draft's audio and analysis into a project.
   ///
-  /// That the project is new is an assumption this makes, not a coincidence
-  /// it tolerates: it does not look for an existing reference recording and
-  /// will not clean one up. Pointing this at a project that already has one
-  /// would leave the old file and its storage object behind, so a path that
-  /// wants to do that has to deal with the old reference itself.
+  /// Does not look for an existing reference recording and will not clean one
+  /// up — pointing this at a song that already has one leaves the old file
+  /// and its storage object behind. [useInSong] deals with that before
+  /// calling here, which is the arrangement this comment used to describe as
+  /// an assumption because there was no caller that needed it.
   Future<void> _writeAnalysisIntoProject({
     required SongProject project,
     required StudioDraftBundle bundle,
