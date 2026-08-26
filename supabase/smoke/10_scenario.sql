@@ -234,4 +234,74 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- A crash before anybody signs in.
+--
+-- The path that exists because the sign-in screen was the one place the app
+-- could break without producing a single row. What matters is not only that a
+-- report lands, but that the three guards hold — otherwise this is an
+-- unauthenticated write into a table nothing else limits.
+-- ---------------------------------------------------------------------
+
+select public.report_anonymous_error(
+  'auth', 'Could not reach the sign-in service', 'startup', 'error', '0.4.0', 'ios');
+
+do $$
+begin
+  if (select count(*) from public.analysis_errors where anonymous) <> 1 then
+    raise exception 'an anonymous crash report did not land (got %)',
+      (select count(*) from public.analysis_errors where anonymous);
+  end if;
+  if (select user_id from public.analysis_errors where anonymous limit 1) is not null then
+    raise exception 'an anonymous report was attributed to a user';
+  end if;
+end $$;
+
+-- The same crash again, immediately. A crash loop must cost one row, not
+-- thousands, and the client's own cooldown cannot be relied on for this — a
+-- caller that ignores it is exactly who this guard is for.
+select public.report_anonymous_error(
+  'auth', 'Could not reach the sign-in service', 'startup', 'error', '0.4.0', 'ios');
+
+do $$
+begin
+  if (select count(*) from public.analysis_errors where anonymous) <> 1 then
+    raise exception 'a repeated anonymous crash was recorded twice';
+  end if;
+end $$;
+
+-- A different crash still gets through, so the repeat guard is not simply a
+-- lid on the whole feature.
+select public.report_anonymous_error(
+  'startup', 'Something else entirely went wrong', null, 'error', '0.4.0', 'android');
+
+do $$
+begin
+  if (select count(*) from public.analysis_errors where anonymous) <> 2 then
+    raise exception 'a distinct anonymous crash was refused (got %)',
+      (select count(*) from public.analysis_errors where anonymous);
+  end if;
+end $$;
+
+-- An empty message is nothing to report, and an unrecognised service is
+-- either a caller bug or somebody else's traffic — it is filed under 'app'
+-- rather than believed.
+select public.report_anonymous_error('auth', '   ', null, 'error', null, null);
+select public.report_anonymous_error(
+  'not-a-real-service', 'Filed under app instead', null, 'error', null, null);
+
+do $$
+begin
+  if (select count(*) from public.analysis_errors where anonymous) <> 3 then
+    raise exception 'an empty anonymous message was recorded (got %)',
+      (select count(*) from public.analysis_errors where anonymous);
+  end if;
+  if not exists (
+    select 1 from public.analysis_errors
+    where anonymous and message = 'Filed under app instead' and service = 'app'
+  ) then
+    raise exception 'an unrecognised service was not normalised to app';
+  end if;
+end $$;
+
 commit;
