@@ -545,7 +545,6 @@ class InMemoryMusicRepository implements MusicRepository {
   Future<Map<String, int>> loadUnheardTakeCounts() async =>
       Map<String, int>.from(unheardTakes);
 
-  @override
   /// Seeded by tests; the fake has no second person doing anything.
   final List<ActivityItem> activity = <ActivityItem>[];
 
