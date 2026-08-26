@@ -61,6 +61,11 @@ class PlayerFace extends StatelessWidget {
     final tint = color ?? AppColors.line;
 
     return Semantics(
+      // Its own node rather than merged into whatever is around it. A label
+      // alone attaches to an ancestor, so on a take row the player's name
+      // would be swallowed into the row's own announcement instead of being
+      // readable as the distinct fact it is.
+      container: true,
       label: known ? 'Played by $person' : 'Player not recorded',
       child: Container(
         width: size,
