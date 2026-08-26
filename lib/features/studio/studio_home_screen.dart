@@ -14,6 +14,27 @@ import 'studio_results_screen.dart';
 
 enum _UploadSource { record, file }
 
+/// What somebody came here to do, which is a different question from where
+/// the audio comes from.
+///
+/// The sheet used to offer only the two sources — microphone, file — and then
+/// every recording walked into the analyzer, because the results screen opens
+/// the depth sheet as its first act. Anybody who only wanted to put an idea
+/// down had to notice a sheet they had not asked for and refuse it, and
+/// refusing a question is not the same as choosing an answer. The cost is
+/// ours either way.
+///
+/// Asked as an intent rather than as a third source, deliberately. "Record
+/// now / Choose a file / No analysis" reads as three sources, and nobody can
+/// tell whether the third one uses the microphone.
+enum _Intent {
+  /// Free. An idea to build on, which is what takes are for.
+  idea,
+
+  /// The expensive one: separation, chords, key, words.
+  workOut,
+}
+
 enum _StudioView { active, promoted }
 
 /// The Studio tab — upload a raw demo with no project yet and get key/BPM/
@@ -64,32 +85,79 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
     // taps while the sheet/recorder/picker is up each independently kick
     // off their own flow.
     setState(() => _working = true);
+    var intent = _Intent.idea;
     final choice = await showModalBottomSheet<_UploadSource>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
       backgroundColor: AppColors.deepNavy,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              ListTile(
-                key: const Key('studio_pick_record'),
-                leading: const Icon(Icons.mic_rounded, color: AppColors.gold),
-                title: const Text('Record now'),
-                subtitle: const Text('Capture a take with this phone\'s microphone'),
-                onTap: () => Navigator.pop(sheetContext, _UploadSource.record),
-              ),
-              ListTile(
-                key: const Key('studio_pick_file'),
-                leading: const Icon(Icons.audio_file_rounded, color: AppColors.gold),
-                title: const Text('Choose a file'),
-                subtitle: const Text('Pick a demo, voice memo, or mix from your phone'),
-                onTap: () => Navigator.pop(sheetContext, _UploadSource.file),
-              ),
-            ],
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text(
+                  'What is this for?',
+                  style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 12),
+                SegmentedButton<_Intent>(
+                  segments: const <ButtonSegment<_Intent>>[
+                    ButtonSegment<_Intent>(
+                      value: _Intent.idea,
+                      icon: Icon(Icons.graphic_eq_rounded, size: 17),
+                      label: Text('An idea'),
+                    ),
+                    ButtonSegment<_Intent>(
+                      value: _Intent.workOut,
+                      icon: Icon(Icons.auto_awesome_rounded, size: 17),
+                      label: Text('Work it out'),
+                    ),
+                  ],
+                  selected: <_Intent>{intent},
+                  onSelectionChanged: (selection) =>
+                      setSheetState(() => intent = selection.first),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  intent == _Intent.idea
+                      ? 'Put it down and build on it. Nothing is analyzed, '
+                          'nothing is charged, and you can add takes over it '
+                          'once it belongs to a song.'
+                      : 'Separates the instruments, finds the chords and key, '
+                          'and transcribes the words. A couple of minutes, and '
+                          'it cannot be stopped once it starts.',
+                  style: const TextStyle(
+                      color: AppColors.muted, fontSize: 12.5, height: 1.45),
+                ),
+                const SizedBox(height: 14),
+                ListTile(
+                  key: const Key('studio_pick_record'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.mic_rounded, color: AppColors.gold),
+                  title: const Text('Record now'),
+                  subtitle:
+                      const Text('Using this phone’s microphone'),
+                  onTap: () => Navigator.pop(sheetContext, _UploadSource.record),
+                ),
+                ListTile(
+                  key: const Key('studio_pick_file'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.audio_file_rounded,
+                      color: AppColors.gold),
+                  title: const Text('Choose a file'),
+                  subtitle: const Text(
+                      'A demo, voice memo, or mix from your phone'),
+                  onTap: () => Navigator.pop(sheetContext, _UploadSource.file),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -98,15 +166,16 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
       if (mounted) setState(() => _working = false);
       return;
     }
+    final analyze = intent == _Intent.workOut;
     switch (choice) {
       case _UploadSource.record:
-        await _record();
+        await _record(analyze: analyze);
       case _UploadSource.file:
-        await _pickFile();
+        await _pickFile(analyze: analyze);
     }
   }
 
-  Future<void> _record() async {
+  Future<void> _record({required bool analyze}) async {
     final path = await Navigator.of(context).push<String>(
       MaterialPageRoute<String>(
         builder: (_) => Scaffold(
@@ -123,10 +192,10 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
     final now = DateTime.now();
     final label =
         'Recording ${now.month}/${now.day} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-    await _upload(path: path, displayName: label);
+    await _upload(path: path, displayName: label, analyze: analyze);
   }
 
-  Future<void> _pickFile() async {
+  Future<void> _pickFile({required bool analyze}) async {
     final file = await FilePicker.pickFile(
       type: FileType.custom,
       allowedExtensions: const <String>['mp3', 'm4a', 'wav', 'flac', 'ogg', 'opus', 'aac'],
@@ -141,7 +210,12 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
     // row in a file browser meant waiting it out. Showing the name that was
     // actually picked is the point: it's the only chance to notice the wrong
     // one before the GPU starts.
-    final confirmed = await showDialog<bool>(
+    //
+    // Only for the intent that actually starts one. An idea costs nothing and
+    // asking somebody to confirm it teaches them to dismiss this dialog.
+    final confirmed = !analyze
+        ? true
+        : await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Analyze this recording?'),
@@ -180,17 +254,25 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
       return;
     }
 
-    await _upload(path: file.path!, displayName: file.name);
+    await _upload(path: file.path!, displayName: file.name, analyze: analyze);
   }
 
-  Future<void> _upload({required String path, required String displayName}) async {
+  Future<void> _upload({
+    required String path,
+    required String displayName,
+    required bool analyze,
+  }) async {
     try {
       final draft = await _service.createDraftAndUpload(localPath: path, displayName: displayName);
       if (!mounted) return;
       setState(() => _working = false);
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => StudioResultsScreen(draft: draft, localPath: path),
+          builder: (_) => StudioResultsScreen(
+            draft: draft,
+            localPath: path,
+            autoAnalyze: analyze,
+          ),
           fullscreenDialog: true,
         ),
       );
@@ -206,7 +288,9 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
   Future<void> _openDraft(StudioDraft draft) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => StudioResultsScreen(draft: draft),
+        // Opening something already recorded must not start a job. The
+        // screen offers analysis; it no longer assumes it.
+        builder: (_) => StudioResultsScreen(draft: draft, autoAnalyze: false),
         fullscreenDialog: true,
       ),
     );

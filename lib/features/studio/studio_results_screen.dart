@@ -17,14 +17,31 @@ import '../workspace/stem_player_panel.dart';
 import 'instrument_chips.dart';
 import 'structure_timeline.dart';
 
-/// "NEW SONG DETECTED" — shown right after uploading to The Studio (runs
-/// analysis immediately if the draft isn't already `ready`), or when
+/// "NEW SONG DETECTED" — shown right after uploading to The Studio, or when
 /// reopening a past draft from the list. Mirrors song_analysis_screen.dart's
 /// upload -> progress -> summary-metrics -> results shape, but has no
 /// project/room to render a full chord+lyric sheet against yet — that's
 /// exactly what "Create Song Project" produces.
 class StudioResultsScreen extends StatefulWidget {
-  const StudioResultsScreen({required this.draft, this.localPath, super.key});
+  const StudioResultsScreen({
+    required this.draft,
+    this.localPath,
+    this.autoAnalyze = false,
+    super.key,
+  });
+
+  /// Whether to start analysis on arrival.
+  ///
+  /// This screen used to do it unconditionally, which meant every route into
+  /// the Studio ended at the GPU: recording an idea, picking a file, and
+  /// simply reopening something from the list all opened the depth sheet as
+  /// their first act. Refusing a question nobody asked is not the same as
+  /// choosing an answer, and the machines cost the same either way.
+  ///
+  /// Now only the intent that asked for it. Everything else offers analysis
+  /// as a button — which had to be added, because starting one from here was
+  /// otherwise impossible.
+  final bool autoAnalyze;
 
   final StudioDraft draft;
 
@@ -64,6 +81,12 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
     //
     // Every new Studio recording took this path, which is the whole "analyze
     // a fresh idea" flow.
+    if (!widget.autoAnalyze) {
+      // Nothing to run and nothing to wait for. The idea is uploaded; the
+      // screen shows it and offers to work it out.
+      _working = false;
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_runAnalysis());
     });
@@ -307,21 +330,52 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
-          child: FilledButton(
-            key: const Key('create_song_project'),
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.gold,
-              foregroundColor: AppColors.ink,
-              minimumSize: const Size.fromHeight(50),
-            ),
-            onPressed: bundle == null || _working || _promoting ? null : _createSongProject,
-            child: _promoting
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.ink),
-                  )
-                : const Text('Create Song Project', style: TextStyle(fontWeight: FontWeight.w800)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              // Offered rather than assumed, and this is the only way to
+              // start one now that arriving here does not.
+              if (bundle != null &&
+                  bundle.draft.state != SongAnalysisState.ready) ...<Widget>[
+                OutlinedButton.icon(
+                  key: const Key('studio_work_it_out'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.gold,
+                    side: const BorderSide(color: AppColors.line),
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  onPressed: _working || _promoting
+                      ? null
+                      : () => unawaited(_runAnalysis()),
+                  icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                  label: const Text(
+                    'Work out the chords and words',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              FilledButton(
+                key: const Key('create_song_project'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.gold,
+                  foregroundColor: AppColors.ink,
+                  minimumSize: const Size.fromHeight(50),
+                ),
+                onPressed: bundle == null || _working || _promoting
+                    ? null
+                    : _createSongProject,
+                child: _promoting
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: AppColors.ink),
+                      )
+                    : const Text('Create Song Project',
+                        style: TextStyle(fontWeight: FontWeight.w800)),
+              ),
+            ],
           ),
         ),
       ),
