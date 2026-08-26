@@ -179,6 +179,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       if (!mounted) return;
       setState(() {
         _error = error.toString();
+        // An empty list rather than null, which is the difference between
+        // "nothing came back" and "we are still waiting".
+        //
+        // The body only renders once _layers is non-null, so leaving it null
+        // here left a spinner turning forever with the error sitting in a
+        // field nothing was drawing. A widget test found this by timing out
+        // waiting for the animation to stop — which is precisely what a
+        // person would have experienced, minus the explanation.
+        _layers ??= const <SharedLayer>[];
         _busy = false;
         _status = null;
       });
