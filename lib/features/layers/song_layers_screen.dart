@@ -532,7 +532,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                       if (_referenceTake != null)
                         LayerRow(
                           take: _referenceTake!,
-                          subtitle: 'The song's recording',
+                          subtitle: 'The recording this song was analyzed from',
                           silent: _silent.contains(_referenceId),
                           onToggle: () => setState(() {
                             if (!_enabled.remove(_referenceId)) {
