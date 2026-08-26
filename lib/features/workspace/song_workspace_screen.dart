@@ -437,6 +437,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SongLayersScreen(
+          roomId: project.roomId,
           projectId: project.id,
           songTitle: project.title,
         ),

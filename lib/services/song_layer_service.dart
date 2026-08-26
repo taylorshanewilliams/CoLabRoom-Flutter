@@ -65,6 +65,7 @@ class SongLayerService {
   /// sweep reclaims. Of the two ways this can half-fail, the second is much
   /// the kinder.
   Future<SharedLayer> upload({
+    required String roomId,
     required String projectId,
     required Take take,
   }) async {
@@ -72,7 +73,15 @@ class SongLayerService {
     final bytes = await file.readAsBytes();
     final extension = take.path.split('.').last;
     final objectId = DateTime.now().microsecondsSinceEpoch.toString();
-    final storagePath = '$projectId/layers/$objectId.$extension';
+    // {room}/{project}/layers/{id}, matching every other object this app
+    // stores. The existing storage policies read the room out of the first
+    // path segment and the project out of the second; a path that skipped the
+    // room put the *project* id where a room id was expected and the literal
+    // 'layers' where a project id was — and one of those policies casts that
+    // segment to uuid, which is an error rather than a false. Layers were
+    // getting in on their own policy while another one was being asked an
+    // impossible question about them.
+    final storagePath = '$roomId/$projectId/layers/$objectId.$extension';
 
     await _client.storage.from(_bucket).uploadBinary(
           storagePath,

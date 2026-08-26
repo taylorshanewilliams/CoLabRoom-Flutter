@@ -40,10 +40,16 @@ import 'layer_row.dart';
 /// the two of them are not in the same room.
 class SongLayersScreen extends StatefulWidget {
   const SongLayersScreen({
+    required this.roomId,
     required this.projectId,
     required this.songTitle,
     super.key,
   });
+
+  /// Needed for the storage path, which is {room}/{project}/layers/{id} —
+  /// the same shape every other object in this app uses, and the shape the
+  /// storage policies are written against.
+  final String roomId;
 
   final String projectId;
   final String songTitle;
@@ -85,6 +91,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   String? _error;
   String? _status;
   final Set<String> _silent = <String>{};
+  String? _referenceNote;
   final Set<TakeGroup> _collapsed = <TakeGroup>{};
   int _offsetMs = 0;
   String? _performer;
@@ -114,6 +121,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     setState(() {
       _busy = true;
       _error = null;
+      _referenceNote = null;
       _status = 'Fetching the takes';
     });
     try {
@@ -127,8 +135,14 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           _referencePath = await _analysis.ensureLocalReference(reference);
           _enabled.add(_referenceId);
         }
-      } catch (_) {
-        // No recording, or it could not be fetched. The parts still load.
+      } catch (error) {
+        // Said out loud rather than swallowed. This was a bare catch, which
+        // meant a song with a recording on it showed an empty screen and gave
+        // no reason — the one failure here that is guaranteed to look like a
+        // missing feature rather than a problem.
+        _referenceNote =
+            'The song has a recording but it could not be loaded here. '
+            'Everything else still works. ($error)';
       }
 
       final layers = await _service.listLayers(widget.projectId);
@@ -234,18 +248,46 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     ];
   }
 
-  Future<String> get _mixPath async {
+  /// Every rebuild writes a new filename.
+  ///
+  /// It used to be one path, `_mix.wav`, overwritten each time — and
+  /// audioplayers keys its cache on the path. So the file changed underneath
+  /// it and the player kept handing back the first mix it had ever loaded:
+  /// record a second take, press play, hear only the first. The bytes were
+  /// right the whole time and the player never looked at them again.
+  int _mixVersion = 0;
+  String? _lastMixPath;
+
+  Future<String> _nextMixPath() async {
     final root = await getApplicationDocumentsDirectory();
-    return '${root.path}/layers/${widget.projectId}/_mix.wav';
+    final dir = Directory('${root.path}/layers/${widget.projectId}');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    _mixVersion += 1;
+    return '${dir.path}/_mix_$_mixVersion.wav';
   }
 
   Future<bool> _rebuildMix() async {
     final takes = _takes;
     if (takes.every((take) => !take.enabled)) return false;
+    final path = await _nextMixPath();
     final result = await Multitrack.writeMixdown(
       takes: takes,
-      outputPath: await _mixPath,
+      outputPath: path,
     );
+    // The one it replaces, once the new one exists. Old mixes are worthless
+    // the moment a take changes, and a directory of them is the sort of thing
+    // that quietly fills a phone.
+    final previous = _lastMixPath;
+    _lastMixPath = result == null ? previous : path;
+    if (result != null && previous != null && previous != path) {
+      try {
+        final stale = File(previous);
+        if (await stale.exists()) await stale.delete();
+      } catch (_) {
+        // A file that will not delete is clutter, not a failure worth
+        // interrupting playback for.
+      }
+    }
     if (mounted && result != null) {
       final silent = result.silentTakeIds.toSet();
       if (!setEquals(silent, _silent)) {
@@ -295,7 +337,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         ),
         path: path,
       );
-      if (hasBacking) await _player.play(DeviceFileSource(await _mixPath));
+      if (hasBacking && _lastMixPath != null) {
+        await _player.play(DeviceFileSource(_lastMixPath!));
+      }
 
       _elapsed = Duration.zero;
       _timer = Timer.periodic(const Duration(milliseconds: 200), (_) {
@@ -350,7 +394,11 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       );
 
       setState(() => _status = 'Sharing it with the room');
-      await _service.upload(projectId: widget.projectId, take: take);
+      await _service.upload(
+        roomId: widget.roomId,
+        projectId: widget.projectId,
+        take: take,
+      );
       // The local recording is not kept: ensureLocal will fetch the canonical
       // copy under its layer id on the next load. Two files for one layer is
       // how a cache starts disagreeing with the thing it caches.
@@ -379,8 +427,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       if (mounted) setState(() => _playing = false);
       return;
     }
-    if (!await _rebuildMix()) return;
-    await _player.play(DeviceFileSource(await _mixPath));
+    if (!await _rebuildMix() || _lastMixPath == null) return;
+    await _player.play(DeviceFileSource(_lastMixPath!));
     if (mounted) setState(() => _playing = true);
   }
 
@@ -569,6 +617,19 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
                   children: <Widget>[
                     if (!hasLayers) _EmptyState(),
+                    if (_referenceNote != null) ...<Widget>[
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 14),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.orange.withValues(alpha: 0.09),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(_referenceNote!,
+                            style: const TextStyle(
+                                color: AppColors.orange, fontSize: 12, height: 1.45)),
+                      ),
+                    ],
                     if (_error != null) ...<Widget>[
                       Container(
                         margin: const EdgeInsets.only(bottom: 14),
