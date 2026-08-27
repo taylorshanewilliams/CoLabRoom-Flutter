@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
@@ -66,6 +68,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               onPressed: () => controller.markAllNotificationsRead(),
               child: const Text('Mark all read'),
             ),
+          // Reading something was never the same as being done with it, and
+          // until now there was no way to say the second thing at all: an
+          // inbox could only grow.
+          if (notifications.any((n) => n.isRead))
+            TextButton(
+              key: const Key('inbox_clear_read'),
+              onPressed: () => unawaited(controller.deleteReadNotifications()),
+              child: const Text('Clear read'),
+            ),
           IconButton(
             key: const Key('inbox_use_code'),
             tooltip: 'Join with an invite code',
@@ -113,9 +124,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   if (notifications.isNotEmpty) ...<Widget>[
                     const _SectionLabel('Activity'),
                     for (final notification in notifications) ...<Widget>[
-                      _NotificationCard(
-                        notification: notification,
-                        onTap: () => controller.markNotificationRead(notification),
+                      Dismissible(
+                        key: ValueKey<String>('notification-${notification.id}'),
+                        direction: DismissDirection.endToStart,
+                        background: const _ClearBackground(),
+                        onDismissed: (_) =>
+                            unawaited(controller.deleteNotification(notification)),
+                        child: _NotificationCard(
+                          notification: notification,
+                          onTap: () =>
+                              controller.markNotificationRead(notification),
+                          // A swipe on its own is not discoverable, and the
+                          // inbox is where somebody arrives already annoyed.
+                          onClear: () => unawaited(
+                              controller.deleteNotification(notification)),
+                        ),
                       ),
                       const SizedBox(height: 10),
                     ],
@@ -219,11 +242,35 @@ class _InviteCard extends StatelessWidget {
   }
 }
 
+/// What shows behind a notification on its way out.
+class _ClearBackground extends StatelessWidget {
+  const _ClearBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: Alignment.centerRight,
+      padding: const EdgeInsets.only(right: 18),
+      decoration: BoxDecoration(
+        color: AppColors.raised,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: const Icon(Icons.delete_outline_rounded,
+          size: 19, color: Color(0xFFFF718B)),
+    );
+  }
+}
+
 class _NotificationCard extends StatelessWidget {
-  const _NotificationCard({required this.notification, required this.onTap});
+  const _NotificationCard({
+    required this.notification,
+    required this.onTap,
+    required this.onClear,
+  });
 
   final AppNotification notification;
   final VoidCallback onTap;
+  final VoidCallback onClear;
 
   IconData get _icon {
     switch (notification.type) {
@@ -284,6 +331,15 @@ class _NotificationCard extends StatelessWidget {
                 margin: const EdgeInsets.only(top: 4, left: 8),
                 decoration: const BoxDecoration(color: AppColors.cyan, shape: BoxShape.circle),
               ),
+            InkResponse(
+              onTap: onClear,
+              radius: 18,
+              child: const Padding(
+                padding: EdgeInsets.only(left: 8, top: 2),
+                child: Icon(Icons.close_rounded,
+                    size: 16, color: AppColors.muted),
+              ),
+            ),
           ],
         ),
       ),

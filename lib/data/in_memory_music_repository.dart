@@ -146,6 +146,16 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> deleteNotification(AppNotification notification) async {
+    _notifications.removeWhere((item) => item.id == notification.id);
+  }
+
+  @override
+  Future<void> deleteReadNotifications() async {
+    _notifications.removeWhere((item) => item.isRead);
+  }
+
+  @override
   Future<void> markAllNotificationsRead() async {
     final now = DateTime.now();
     for (var index = 0; index < _notifications.length; index += 1) {

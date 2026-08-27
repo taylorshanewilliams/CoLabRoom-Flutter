@@ -252,6 +252,24 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> deleteNotification(AppNotification notification) async {
+    await client
+        .from('notifications')
+        .delete()
+        .eq('id', notification.id)
+        .eq('user_id', _userId);
+  }
+
+  @override
+  Future<void> deleteReadNotifications() async {
+    await client
+        .from('notifications')
+        .delete()
+        .eq('user_id', _userId)
+        .not('read_at', 'is', null);
+  }
+
+  @override
   Future<void> markAllNotificationsRead() async {
     await client
         .from('notifications')
