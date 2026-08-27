@@ -1,5 +1,6 @@
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
+import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/services/chord_names.dart';
 import 'package:flutter/material.dart';
@@ -207,7 +208,19 @@ class _ChordWord extends StatelessWidget {
         ? const SizedBox.shrink()
         : InkWell(
             key: chord!.id == null ? null : Key('edit_chord_${chord!.id}'),
-            onTap: editable ? _activate : null,
+            // A chord on the sheet answers a question before it asks one:
+            // most of the time somebody tapping A♯ wants to know how to play
+            // A♯, not to correct it. Correcting is the deliberate mode with
+            // its own banner, and it keeps the tap while it is on.
+            //
+            // Not in live mode — a modal over the words while somebody is
+            // playing along is the one place this would be an interruption
+            // rather than an answer.
+            onTap: editable
+                ? _activate
+                : liveMode
+                    ? null
+                    : () => showChordReference(context, chordText),
             borderRadius: BorderRadius.circular(5),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 1),
