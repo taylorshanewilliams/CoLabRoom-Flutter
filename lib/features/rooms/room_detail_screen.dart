@@ -691,6 +691,10 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                           onTap: onTap,
                           coverBytes: controller.projectCoverBytes(project),
                           unheardTakes: controller.unheardTakesFor(project.id),
+                          owner: room.authorOf(project)?.displayName,
+                          ownerColor: room.authorOf(project) == null
+                              ? null
+                              : Color(room.authorOf(project)!.colorValue),
                         );
                       },
                       childCount: sortedProjects.length,

@@ -163,7 +163,7 @@ class SupabaseMusicRepository implements MusicRepository {
         .select(
           'id, account_id, name, icon, created_at, updated_at, sort_order, logo_path, '
           'room_members(user_id, display_name, role, color_value), '
-          'projects(id, room_id, account_id, title, description, status, created_at, updated_at, sort_order, cover_image_path, '
+          'projects(id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, '
           'project_audio_references(project_id), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at)))',
@@ -785,7 +785,7 @@ class SupabaseMusicRepository implements MusicRepository {
     final row = await client
         .from('projects')
         .select(
-          'id, room_id, account_id, title, description, status, created_at, updated_at, sort_order, cover_image_path, '
+          'id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, '
           'project_audio_references(project_id), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at))',
@@ -1037,6 +1037,7 @@ class SupabaseMusicRepository implements MusicRepository {
       id: row['id'] as String,
       roomId: row['room_id'] as String,
       accountId: row['account_id'] as String,
+      createdBy: row['created_by'] as String?,
       title: row['title'] as String,
       description: row['description'] as String? ?? '',
       status: SongStatus.values.byName(row['status'] as String? ?? SongStatus.active.name),
