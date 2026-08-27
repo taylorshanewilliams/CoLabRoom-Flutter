@@ -163,7 +163,7 @@ class SupabaseMusicRepository implements MusicRepository {
         .from('rooms')
         .select(
           'id, account_id, name, icon, created_at, updated_at, sort_order, logo_path, '
-          'room_members(user_id, display_name, role, color_value), '
+          'room_members(user_id, display_name, role, color_value, profiles(avatar_path)), '
           'projects(id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, '
           'project_audio_references(project_id, analysis_state), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
@@ -1040,11 +1040,16 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   RoomMember _member(Map<String, dynamic> row) {
+    // room_members carries the name and colour a person picked for this
+    // catalog, but a profile picture belongs to the person, not to their
+    // membership — so it is embedded from profiles through the user_id key.
+    final profile = row['profiles'];
     return RoomMember(
       userId: row['user_id'] as String,
       displayName: row['display_name'] as String? ?? 'Member',
       role: RoomRole.values.byName(row['role'] as String? ?? RoomRole.viewer.name),
       colorValue: row['color_value'] as int? ?? 0xFF32D4FF,
+      avatarPath: profile is Map ? profile['avatar_path'] as String? : null,
     );
   }
 

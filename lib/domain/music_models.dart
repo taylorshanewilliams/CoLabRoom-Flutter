@@ -43,12 +43,20 @@ class RoomMember {
     required this.displayName,
     required this.role,
     required this.colorValue,
+    this.avatarPath,
   });
 
   final String userId;
   final String displayName;
   final RoomRole role;
   final int colorValue;
+
+  /// Storage path (in the `avatars` bucket) of this person's profile
+  /// picture, or null when they have not set one.
+  ///
+  /// It comes from `profiles`, not from the membership: the same person in
+  /// three catalogs has one face and three colours.
+  final String? avatarPath;
 }
 
 class Contribution {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -123,10 +124,16 @@ class HomeScreen extends StatelessWidget {
                     radius: 28,
                     containedInkWell: true,
                     customBorder: const CircleBorder(),
+                    // The picture, when there is one. This corner is the most
+                    // visible place in the app that draws a person, and it
+                    // drew initials over a photo the account had already
+                    // uploaded — the avatar was fetched for the account
+                    // screen and nowhere else.
                     child: Container(
                       width: 44,
                       height: 44,
                       alignment: Alignment.center,
+                      clipBehavior: Clip.antiAlias,
                       decoration: const BoxDecoration(
                         shape: BoxShape.circle,
                         gradient: LinearGradient(colors: <Color>[AppColors.blue, Color(0xFF124A80)]),
@@ -134,7 +141,15 @@ class HomeScreen extends StatelessWidget {
                           BoxShadow(color: Color(0x242B6FFF), blurRadius: 24),
                         ],
                       ),
-                      child: Text(initials, style: const TextStyle(fontWeight: FontWeight.w800)),
+                      child: controller.avatarBytes != null
+                          ? Image.memory(
+                              controller.avatarBytes!,
+                              fit: BoxFit.cover,
+                              width: 44,
+                              height: 44,
+                            )
+                          : Text(initials,
+                              style: const TextStyle(fontWeight: FontWeight.w800)),
                     ),
                   ),
                 ),
@@ -272,6 +287,8 @@ class HomeScreen extends StatelessWidget {
                   ownerColor: entry.room.authorOf(entry.project) == null
                       ? null
                       : Color(entry.room.authorOf(entry.project)!.colorValue),
+                  ownerPhoto: controller.avatarBytesFor(
+                      entry.room.authorOf(entry.project)?.avatarPath),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => SongWorkspaceScreen(projectId: entry.project.id),
@@ -397,6 +414,7 @@ class _RecentSongRow extends StatelessWidget {
     this.unheardTakes = 0,
     this.owner,
     this.ownerColor,
+    this.ownerPhoto,
     required this.onTap,
   });
 
@@ -410,6 +428,7 @@ class _RecentSongRow extends StatelessWidget {
   /// Who started it — see MusicRoom.authorOf. Null in a catalog of one.
   final String? owner;
   final Color? ownerColor;
+  final Uint8List? ownerPhoto;
   final VoidCallback onTap;
 
   @override
@@ -431,7 +450,12 @@ class _RecentSongRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(11),
               ),
               child: owner != null
-                  ? PlayerFace(name: owner, color: ownerColor, size: 34)
+                  ? PlayerFace(
+                      name: owner,
+                      color: ownerColor,
+                      photo: ownerPhoto,
+                      size: 34,
+                    )
                   : const Icon(Icons.music_note_rounded,
                       color: AppColors.cyan, size: 18),
             ),
@@ -538,7 +562,13 @@ class _ActivityRow extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            PlayerFace(name: item.actorName, size: 30),
+            // The activity view has carried actor_avatar_path since 0044 and
+            // nothing ever drew it.
+            PlayerFace(
+              name: item.actorName,
+              photo: BetaScope.of(context).avatarBytesFor(item.actorAvatarPath),
+              size: 30,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
