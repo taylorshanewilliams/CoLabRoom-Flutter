@@ -268,6 +268,10 @@ class HomeScreen extends StatelessWidget {
                   subtitle: '${entry.room.icon}  ${entry.room.name}',
                   hasRecording: entry.project.hasAudioReference,
                   unheardTakes: controller.unheardTakesFor(entry.project.id),
+                  owner: entry.room.authorOf(entry.project)?.displayName,
+                  ownerColor: entry.room.authorOf(entry.project) == null
+                      ? null
+                      : Color(entry.room.authorOf(entry.project)!.colorValue),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => SongWorkspaceScreen(projectId: entry.project.id),
@@ -391,6 +395,8 @@ class _RecentSongRow extends StatelessWidget {
     required this.subtitle,
     required this.hasRecording,
     this.unheardTakes = 0,
+    this.owner,
+    this.ownerColor,
     required this.onTap,
   });
 
@@ -400,6 +406,10 @@ class _RecentSongRow extends StatelessWidget {
 
   /// Takes a bandmate added since this person last opened the song.
   final int unheardTakes;
+
+  /// Who started it — see MusicRoom.authorOf. Null in a catalog of one.
+  final String? owner;
+  final Color? ownerColor;
   final VoidCallback onTap;
 
   @override
@@ -420,7 +430,10 @@ class _RecentSongRow extends StatelessWidget {
                 color: AppColors.raised,
                 borderRadius: BorderRadius.circular(11),
               ),
-              child: const Icon(Icons.music_note_rounded, color: AppColors.cyan, size: 18),
+              child: owner != null
+                  ? PlayerFace(name: owner, color: ownerColor, size: 34)
+                  : const Icon(Icons.music_note_rounded,
+                      color: AppColors.cyan, size: 18),
             ),
             const SizedBox(width: 11),
             Expanded(

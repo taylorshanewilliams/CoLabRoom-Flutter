@@ -579,6 +579,33 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     await load();
   }
 
+  /// Removes one, off the screen before the server hears about it.
+  Future<void> deleteNotification(AppNotification notification) async {
+    final kept = _notifications
+        .where((item) => item.id != notification.id)
+        .toList(growable: false);
+    if (kept.length == _notifications.length) return;
+    _notifications = kept;
+    notifyListeners();
+    try {
+      await repository.deleteNotification(notification);
+    } catch (_) {
+      // Back on the next load. Better than a row that will not go away.
+    }
+  }
+
+  /// Clears everything already read, leaving anything still waiting.
+  Future<void> deleteReadNotifications() async {
+    _notifications =
+        _notifications.where((item) => !item.isRead).toList(growable: false);
+    notifyListeners();
+    try {
+      await repository.deleteReadNotifications();
+    } catch (_) {
+      // Same bargain.
+    }
+  }
+
   Future<void> markAllNotificationsRead() async {
     await repository.markAllNotificationsRead();
     await load();

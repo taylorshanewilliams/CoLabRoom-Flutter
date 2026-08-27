@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../widgets/player_face.dart';
 import '../../domain/music_models.dart';
 import '../../widgets/app_surface.dart';
 import '../../domain/name_policy.dart';
@@ -263,10 +264,17 @@ class _SongsScreenState extends State<SongsScreen> {
               sliver: SliverList.separated(
                 itemCount: results.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 9),
-                itemBuilder: (context, index) => _SongRow(
-                  result: results[index],
-                  onTap: () => _open(results[index].project),
-                ),
+                itemBuilder: (context, index) {
+                  final result = results[index];
+                  final author = result.room.authorOf(result.project);
+                  return _SongRow(
+                    result: result,
+                    onTap: () => _open(result.project),
+                    owner: author?.displayName,
+                    ownerColor:
+                        author == null ? null : Color(author.colorValue),
+                  );
+                },
               ),
             ),
       ],
@@ -359,10 +367,19 @@ class _RoomChip extends StatelessWidget {
 /// looking for is a name, and it leaves room to show *why* a search result
 /// matched.
 class _SongRow extends StatelessWidget {
-  const _SongRow({required this.result, required this.onTap});
+  const _SongRow({
+    required this.result,
+    required this.onTap,
+    this.owner,
+    this.ownerColor,
+  });
 
   final SongSearchResult result;
   final VoidCallback onTap;
+
+  /// Who started it — see MusicRoom.authorOf. Null in a catalog of one.
+  final String? owner;
+  final Color? ownerColor;
 
   @override
   Widget build(BuildContext context) {
@@ -383,7 +400,10 @@ class _SongRow extends StatelessWidget {
                 color: AppColors.raised,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.music_note_rounded, color: AppColors.cyan, size: 19),
+              child: owner != null
+                  ? PlayerFace(name: owner, color: ownerColor, size: 38)
+                  : const Icon(Icons.music_note_rounded,
+                      color: AppColors.cyan, size: 19),
             ),
             const SizedBox(width: 12),
             Expanded(

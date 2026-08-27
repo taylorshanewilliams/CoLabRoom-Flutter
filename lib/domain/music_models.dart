@@ -113,6 +113,7 @@ class SongProject {
     this.sortOrder = 0,
     this.coverImagePath,
     this.hasAudioReference = false,
+    this.createdBy,
   });
 
   final String id;
@@ -135,6 +136,18 @@ class SongProject {
   /// surfaced on its tile as a small indicator.
   final bool hasAudioReference;
 
+  /// Who started this song.
+  ///
+  /// The column has existed since 0001 and had an index on it, and nothing
+  /// ever read it. [accountId] looks like it should answer the same question
+  /// and cannot: since 0043 it always equals the account that owns the
+  /// catalog, so every song in a catalog shares it. That identifies the
+  /// catalog, not the writer.
+  ///
+  /// Null for a song loaded by an older path that does not ask for it, which
+  /// the tile treats as "nobody in particular" rather than guessing.
+  final String? createdBy;
+
   SongProject copyWith({
     String? roomId,
     String? title,
@@ -145,6 +158,7 @@ class SongProject {
     double? sortOrder,
     Object? coverImagePath = _unset,
     bool? hasAudioReference,
+    String? createdBy,
   }) {
     return SongProject(
       id: id,
@@ -159,6 +173,7 @@ class SongProject {
       sortOrder: sortOrder ?? this.sortOrder,
       coverImagePath: identical(coverImagePath, _unset) ? this.coverImagePath : coverImagePath as String?,
       hasAudioReference: hasAudioReference ?? this.hasAudioReference,
+      createdBy: createdBy ?? this.createdBy,
     );
   }
 }
@@ -239,6 +254,27 @@ class MusicRoom {
   final DateTime createdAt;
   final DateTime updatedAt;
   final List<RoomMember> members;
+
+  /// Who started [project], when that is worth showing.
+  ///
+  /// Null in a catalog with one member: there the answer is always "you", and
+  /// a column of identical faces is noise rather than information. Null too
+  /// for a song whose author is not a member any more, or one loaded by a
+  /// path that does not ask for created_by — both better drawn as the plain
+  /// note than as a guess.
+  ///
+  /// Lives here so every surface that lists songs agrees. Home, the catalog
+  /// and the Songs list each drew their own icon, and a rule copied into
+  /// three places is a rule that will differ in two of them.
+  RoomMember? authorOf(SongProject project) {
+    if (members.length < 2) return null;
+    final id = project.createdBy;
+    if (id == null) return null;
+    for (final member in members) {
+      if (member.userId == id) return member;
+    }
+    return null;
+  }
   final List<SongProject> projects;
   final double sortOrder;
 

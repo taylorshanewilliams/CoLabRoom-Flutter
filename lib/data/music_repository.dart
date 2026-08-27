@@ -20,6 +20,13 @@ abstract interface class MusicRepository {
 
   Future<void> markAllNotificationsRead();
 
+  /// Removes one for good. The RLS policy for this has existed since 0018;
+  /// nothing ever called it, so an inbox could only ever grow.
+  Future<void> deleteNotification(AppNotification notification);
+
+  /// Clears everything already read, leaving anything still waiting.
+  Future<void> deleteReadNotifications();
+
   Future<List<Setlist>> loadSetlists();
 
   Future<MusicRoom> createRoom({required String name, required String icon});

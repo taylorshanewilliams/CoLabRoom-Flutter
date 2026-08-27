@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../app/colabroom_theme.dart';
+import 'player_face.dart';
 import '../domain/music_models.dart';
 import 'app_surface.dart';
 import 'bloom_tap.dart';
@@ -132,6 +133,8 @@ class SongTile extends StatelessWidget {
     this.density = SongTileDensity.spacious,
     this.coverBytes,
     this.unheardTakes = 0,
+    this.owner,
+    this.ownerColor,
     super.key,
   });
 
@@ -158,12 +161,23 @@ class SongTile extends StatelessWidget {
   /// with the reason there is more.
   final int unheardTakes;
 
+  /// Who started this song, when that is worth saying.
+  ///
+  /// Null in a catalog with one member, because there the answer is always
+  /// "you" and a row of identical faces is noise. In a band it is the fastest
+  /// thing on the tile to read: scrolling a shared catalog, whose song this
+  /// is matters more than how many lines it has.
+  final String? owner;
+  final Color? ownerColor;
+
   @override
   Widget build(BuildContext context) {
     return BloomTap(
       onTap: onTap,
       onLongPress: onLongPress,
-      semanticLabel: unheardTakes > 0
+      semanticLabel: owner != null && unheardTakes == 0
+          ? 'Open ${project.title}, started by $owner'
+          : unheardTakes > 0
           ? 'Open ${project.title}, $unheardTakes new '
               '${unheardTakes == 1 ? 'take' : 'takes'} you have not heard'
           : 'Open ${project.title}',
@@ -185,17 +199,24 @@ class SongTile extends StatelessWidget {
                     borderRadius: BorderRadius.circular(density.iconRadius),
                   ),
                   child: coverBytes != null
+                      // A cover somebody chose beats a face the app picked.
                       ? Image.memory(
                           coverBytes!,
                           fit: BoxFit.cover,
                           width: density.iconBox,
                           height: density.iconBox,
                         )
-                      : Icon(
-                          Icons.music_note_rounded,
-                          color: AppColors.cyan,
-                          size: density.iconGlyph,
-                        ),
+                      : owner != null
+                          ? PlayerFace(
+                              name: owner,
+                              color: ownerColor,
+                              size: density.iconBox,
+                            )
+                          : Icon(
+                              Icons.music_note_rounded,
+                              color: AppColors.cyan,
+                              size: density.iconGlyph,
+                            ),
                 ),
                 const Spacer(),
                 if (unheardTakes > 0 && !selected) ...<Widget>[
