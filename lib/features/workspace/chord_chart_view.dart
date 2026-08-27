@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/colabroom_theme.dart';
 import '../../services/chord_chart.dart';
 import '../../services/chord_names.dart';
+import 'music_reference_sheets.dart';
 import 'musician_sheet_logic.dart' show transposeChord;
 
 /// The song as bars.
@@ -151,21 +152,45 @@ class _BarCell extends StatelessWidget {
         children: <Widget>[
           for (var beat = 1; beat <= bar.beatsInBar; beat += 1)
             Expanded(
-              child: Text(
-                byBeat[beat] ?? '',
-                maxLines: 1,
-                overflow: TextOverflow.visible,
-                softWrap: false,
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 14.5 * fontScale,
-                  fontWeight: FontWeight.w800,
-                  height: 1.1,
-                ),
-              ),
+              child: _BeatSlot(chord: byBeat[beat] ?? '', fontScale: fontScale),
             ),
         ],
       ),
+    );
+  }
+}
+
+/// One beat of a bar — a chord name, or the space that means "keep playing
+/// the last one".
+///
+/// The chord is a tap target because a chart is read by people who can't yet
+/// play every chord on it. The Toolbox used to answer that question in a
+/// different tab, in a different key.
+class _BeatSlot extends StatelessWidget {
+  const _BeatSlot({required this.chord, required this.fontScale});
+
+  final String chord;
+  final double fontScale;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Text(
+      chord,
+      maxLines: 1,
+      overflow: TextOverflow.visible,
+      softWrap: false,
+      style: TextStyle(
+        color: AppColors.text,
+        fontSize: 14.5 * fontScale,
+        fontWeight: FontWeight.w800,
+        height: 1.1,
+      ),
+    );
+    if (chord.isEmpty) return text;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => showChordReference(context, chord),
+      child: text,
     );
   }
 }
