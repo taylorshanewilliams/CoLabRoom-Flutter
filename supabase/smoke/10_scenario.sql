@@ -57,7 +57,9 @@ values (:'project', :'room', :'writer', 'Smoke Song', :'writer');
 
 update public.projects set description = 'a song for the test' where id = :'project';
 
--- One line at a time: the single-row branch of notify_project_update.
+-- One line at a time. This used to exercise notify_project_update's
+-- single-row branch; that trigger is gone as of 0046, and the edit now
+-- reaches people through project_events instead.
 insert into public.contributions (project_id, author_id, author_name, body)
 values (:'project', :'writer', 'The Writer', 'the first line');
 

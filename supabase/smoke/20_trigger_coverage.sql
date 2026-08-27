@@ -22,7 +22,6 @@ insert into smoke_covered (name) values
   ('projects_set_updated_at'),
   ('contributions_set_updated_at'),
   ('contributions_archive_revision'),
-  ('contributions_notify_project_update'),
   ('contributions_project_event'),
   ('comments_set_updated_at'),
   ('notification_preferences_set_updated_at'),
