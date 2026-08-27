@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
@@ -273,6 +275,7 @@ class _SongsScreenState extends State<SongsScreen> {
                     owner: author?.displayName,
                     ownerColor:
                         author == null ? null : Color(author.colorValue),
+                    ownerPhoto: controller.avatarBytesFor(author?.avatarPath),
                   );
                 },
               ),
@@ -372,6 +375,7 @@ class _SongRow extends StatelessWidget {
     required this.onTap,
     this.owner,
     this.ownerColor,
+    this.ownerPhoto,
   });
 
   final SongSearchResult result;
@@ -380,6 +384,7 @@ class _SongRow extends StatelessWidget {
   /// Who started it — see MusicRoom.authorOf. Null in a catalog of one.
   final String? owner;
   final Color? ownerColor;
+  final Uint8List? ownerPhoto;
 
   @override
   Widget build(BuildContext context) {
@@ -401,7 +406,12 @@ class _SongRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: owner != null
-                  ? PlayerFace(name: owner, color: ownerColor, size: 38)
+                  ? PlayerFace(
+                      name: owner,
+                      color: ownerColor,
+                      photo: ownerPhoto,
+                      size: 38,
+                    )
                   : const Icon(Icons.music_note_rounded,
                       color: AppColors.cyan, size: 19),
             ),

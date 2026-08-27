@@ -188,6 +188,11 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
         // Same bargain: news is the nicest thing on Home and the least
         // important. Songs load or nothing else matters.
       }
+      // The signed-in user's own picture, fetched once with everything else.
+      // It used to be fetched only by the account screen, so the face in the
+      // corner of Home was initials until you had been to Settings — for
+      // anybody who never went, the picture they uploaded never appeared.
+      unawaited(loadAvatar());
     } catch (error) {
       _error = error.toString();
     } finally {
@@ -315,6 +320,10 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     if (_avatarPath != null) _imageCache.remove(_avatarPath);
     _avatarPath = path;
     _imageCache[path] = bytes;
+    // Setting a picture clears any earlier failure to fetch one at this
+    // path, or the face the account just chose would stay initials
+    // everywhere it is drawn from the cache.
+    _avatarMisses.remove(path);
     notifyListeners();
   }
 
@@ -323,6 +332,48 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     if (_avatarPath != null) _imageCache.remove(_avatarPath);
     _avatarPath = null;
     notifyListeners();
+  }
+
+  final Set<String> _avatarFetchesInFlight = <String>{};
+  final Set<String> _avatarMisses = <String>{};
+
+  /// Bytes for anybody's profile picture, by storage path — a bandmate whose
+  /// face belongs on a song they started, or the actor on an activity row.
+  ///
+  /// Same shape as [roomLogoBytes]: asking triggers the fetch and
+  /// [notifyListeners] fires when it lands, so a face appears the frame
+  /// after it arrives without any caller awaiting anything. Cached by path
+  /// rather than by person, because one picture belongs to one profile and
+  /// shows up in every catalog they are in.
+  ///
+  /// Deliberately separate from [_imageBytes]: that one identifies an image
+  /// by searching the loaded rooms for something that claims the path, and a
+  /// face can belong to somebody who is not in any of them.
+  Uint8List? avatarBytesFor(String? path) {
+    if (path == null) return null;
+    final cached = _imageCache[path];
+    if (cached != null) return cached;
+    // A path that already failed is not retried. Song lists rebuild often,
+    // and a picture whose object is gone would otherwise mean a fresh 404
+    // per row per frame.
+    if (_avatarMisses.contains(path)) return null;
+    if (_avatarFetchesInFlight.add(path)) {
+      unawaited(_fetchAvatar(path));
+    }
+    return null;
+  }
+
+  Future<void> _fetchAvatar(String path) async {
+    try {
+      _imageCache[path] = await repository.loadAvatar(path);
+      notifyListeners();
+    } catch (_) {
+      // A face that will not download is a missing face, not an error worth
+      // showing on a list of songs — the initials are already the fallback.
+      _avatarMisses.add(path);
+    } finally {
+      _avatarFetchesInFlight.remove(path);
+    }
   }
 
   Uint8List? _imageBytes(String? path) {

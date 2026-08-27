@@ -695,6 +695,8 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                           ownerColor: room.authorOf(project) == null
                               ? null
                               : Color(room.authorOf(project)!.colorValue),
+                          ownerPhoto: controller
+                              .avatarBytesFor(room.authorOf(project)?.avatarPath),
                         );
                       },
                       childCount: sortedProjects.length,

@@ -135,6 +135,7 @@ class SongTile extends StatelessWidget {
     this.unheardTakes = 0,
     this.owner,
     this.ownerColor,
+    this.ownerPhoto,
     super.key,
   });
 
@@ -169,6 +170,11 @@ class SongTile extends StatelessWidget {
   /// is matters more than how many lines it has.
   final String? owner;
   final Color? ownerColor;
+
+  /// That person's profile picture, when they have set one and it has
+  /// arrived. Initials are drawn until it does — and stay drawn if there is
+  /// no picture, which is still the common case.
+  final Uint8List? ownerPhoto;
 
   @override
   Widget build(BuildContext context) {
@@ -210,6 +216,7 @@ class SongTile extends StatelessWidget {
                           ? PlayerFace(
                               name: owner,
                               color: ownerColor,
+                              photo: ownerPhoto,
                               size: density.iconBox,
                             )
                           : Icon(
