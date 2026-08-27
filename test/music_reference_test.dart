@@ -58,6 +58,19 @@ void main() {
       expect(chordReference('A')!.bassMoves.last.$2, 'A  C#  E  F#');
     });
 
+    test('the notes that work over it follow the third', () {
+      // A minor chord takes the minor pentatonic, a major one the major.
+      expect(chordReference('Am')!.pentatonic, <String>['A', 'C', 'D', 'E', 'G']);
+      expect(chordReference('A')!.pentatonic,
+          <String>['A', 'B', 'C#', 'E', 'F#']);
+      // A dominant 7th is still a major chord to play over.
+      expect(chordReference('A7')!.pentatonic,
+          <String>['A', 'B', 'C#', 'E', 'F#']);
+      // No third to go on — the safer guess rather than a coin toss.
+      expect(chordReference('Asus4')!.pentatonic,
+          <String>['A', 'B', 'C#', 'E', 'F#']);
+    });
+
     test('an inversion keeps the bass note', () {
       final reference = chordReference('C:maj/G')!;
       expect(reference.bassNote, 'G');
@@ -69,6 +82,7 @@ void main() {
       expect(reference.recognised, isFalse);
       expect(reference.tones, isEmpty);
       expect(reference.shapes, isEmpty);
+      expect(reference.pentatonic, isEmpty);
     });
 
     test('no chord opens no sheet', () {

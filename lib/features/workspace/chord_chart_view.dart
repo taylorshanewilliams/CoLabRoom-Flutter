@@ -49,10 +49,33 @@ class ChordChartView extends StatelessWidget {
       );
     }
 
+    // Every row is built at once — this sits inside the sheet's own scroll
+    // view, so it cannot be lazy. That is fine for a song: four minutes in
+    // four at 120bpm is about thirty rows. It is not fine for a beat grid
+    // that came back wrong, where thousands of "bars" would be laid out in
+    // the frame that switches to the chart and the app would appear to hang.
+    // Past a plainly impossible length, draw what fits and say so.
+    const maxRows = 200;
+    final drawn = rows.length > maxRows ? rows.sublist(0, maxRows) : rows;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        for (final row in rows) ...<Widget>[
+        if (drawn.length != rows.length)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Text(
+              'This recording came back with ${rows.length * 4} bars, which is '
+              'more than a song has — the beat grid is probably wrong. Showing '
+              'the first ${maxRows * 4}.',
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 11.5,
+                height: 1.4,
+              ),
+            ),
+          ),
+        for (final row in drawn) ...<Widget>[
           if (row.sectionLabel != null)
             Padding(
               padding: const EdgeInsets.only(top: 14, bottom: 5, left: 2),
