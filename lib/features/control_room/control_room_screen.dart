@@ -207,16 +207,19 @@ class _LeadCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(
-              isSheet ? 'PICK UP WHERE YOU LEFT OFF' : 'NEXT UP',
-              style: const TextStyle(
-                color: AppColors.gold,
-                fontSize: 9.5,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1.4,
-              ),
+            // The state, in words, before anything else on the card.
+            //
+            // It used to read "pick up where you left off", and whether the
+            // sheet already existed was carried by the icon being a book
+            // rather than a waveform. An icon is a thing you have to already
+            // know; a sentence is not. Everything else here — the icon, the
+            // gold, the verb on the action row — now agrees with a line that
+            // says it outright.
+            _StatusPill(
+              label: isSheet ? 'Song sheet made' : 'No song sheet yet',
+              made: isSheet,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Text(
               project.title,
               maxLines: 2,
@@ -259,7 +262,8 @@ class _LeadCard extends StatelessWidget {
                       ),
                       Text(
                         isSheet
-                            ? 'Chords, key, and the words in time'
+                            ? 'It’s already made — chords, key, and the '
+                                'words in time'
                             // That the last run did not finish is the whole
                             // reason this row differs: it is not a state you
                             // should have to open the song to discover.
@@ -280,6 +284,54 @@ class _LeadCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Whether the sheet exists, said in words a first-timer can read.
+///
+/// Filled and gold when it is made, hollow when it is not: the two states
+/// are different shapes as well as different sentences, so the difference
+/// survives being glanced at, colour-blindness, and a screenshot.
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.label, required this.made});
+
+  final String label;
+  final bool made;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: made ? AppColors.gold.withValues(alpha: 0.16) : null,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: made
+              ? AppColors.gold.withValues(alpha: 0.5)
+              : AppColors.line,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(
+            made ? Icons.check_rounded : Icons.hourglass_empty_rounded,
+            size: 11,
+            color: made ? AppColors.gold : AppColors.muted,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label.toUpperCase(),
+            style: TextStyle(
+              color: made ? AppColors.gold : AppColors.muted,
+              fontSize: 9.5,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.1,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -384,10 +436,20 @@ class _SongRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
+                    // Every row says where it stands in words, not only by
+                    // the icon beside it and the heading above it. A row is
+                    // read on its own — somebody scrolling past the heading
+                    // should not have to remember which pile they are in.
                     <String>[
+                      if (busy)
+                        'Working it out…'
+                      else if (state == SongAnalysisState.failed)
+                        'Didn’t finish — worth another go'
+                      else if (ready)
+                        'Song sheet made'
+                      else
+                        'No song sheet yet',
                       '${entry.room.icon} ${entry.room.name}',
-                      if (busy) 'working it out…',
-                      if (state == SongAnalysisState.failed) 'didn’t finish',
                       if (ready && lines > 0)
                         '$lines ${lines == 1 ? 'line' : 'lines'}',
                     ].join('  ·  '),

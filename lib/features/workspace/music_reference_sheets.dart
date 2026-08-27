@@ -82,6 +82,21 @@ class _ChordReferenceSheet extends StatelessWidget {
               'player’s, not the guitar’s.',
             ),
           const SizedBox(height: 14),
+          // The other half of the question. A shape says where to put the
+          // hand; this says what to reach for between the changes.
+          _Section(
+            heading: 'Notes that work over it',
+            child: Text(
+              reference.pentatonic.join('   '),
+              style: const TextStyle(
+                color: AppColors.text,
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
           _Section(
             heading: 'If you are playing bass',
             child: Column(

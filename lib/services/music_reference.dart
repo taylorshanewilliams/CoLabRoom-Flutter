@@ -82,6 +82,7 @@ class ChordReference {
     required this.tones,
     required this.shapes,
     required this.bassMoves,
+    required this.pentatonic,
     this.bassNote,
   });
 
@@ -94,6 +95,15 @@ class ChordReference {
   /// Root-note patterns from the old bass sheet, spelled in this chord's own
   /// notes rather than as "the 5th, seven half-steps up".
   final List<(String, String)> bassMoves;
+
+  /// Five notes that sit right over this chord — the pentatonic rooted on
+  /// it, major or minor to match the third.
+  ///
+  /// This is the "what can I play here" half of the question. A shape says
+  /// where to put the hand for the chord; these say what to reach for
+  /// between them, and it is the same five notes whatever the rest of the
+  /// song is doing.
+  final List<String> pentatonic;
 
   /// The note under the chord when it is an inversion — the G of `C/G`.
   final String? bassNote;
@@ -287,6 +297,7 @@ ChordReference? chordReference(String label) {
       tones: const <ChordTone>[],
       shapes: const <ChordShape>[],
       bassMoves: const <(String, String)>[],
+      pentatonic: const <String>[],
       bassNote: bassToken.isEmpty ? null : bassToken,
     );
   }
@@ -304,6 +315,14 @@ ChordReference? chordReference(String label) {
     ],
     shapes: _shapesFor(rootText, rootPitch, quality),
     bassMoves: _bassMovesFor(rootPitch, quality, flats),
+    pentatonic: <String>[
+      // The third decides it: a flat third takes the minor pentatonic, and
+      // a chord with no third at all (sus, fifths) is left on the major one,
+      // which is the safer guess over an ambiguous chord.
+      for (final step
+          in quality.intervals.contains(3) ? _minorPentatonic : _majorPentatonic)
+        noteName(rootPitch + step, flats: flats),
+    ],
     bassNote: bassToken.isEmpty ? null : bassToken,
   );
 }

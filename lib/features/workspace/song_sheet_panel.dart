@@ -47,6 +47,26 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   bool _editingChords = false;
   bool _savingChord = false;
 
+  /// The bar grid, worked out once per bundle rather than once per frame.
+  ///
+  /// It used to be built inline in [build], so every setState on this panel —
+  /// font size, transpose, saving a chord, even switching back to the lyric
+  /// sheet — re-walked every chord cue against every downbeat in the song
+  /// before anything could be drawn. None of it depends on transpose or font
+  /// scale, so caching costs one field and takes the work off the frame that
+  /// switches to the chart.
+  List<ChartRow>? _chartRows;
+
+  List<ChartRow> get _chart => _chartRows ??= buildChartRows(
+        buildChartBars(
+          cues: _bundle.chordCues,
+          beatsMs: _bundle.reference?.beatsMs ?? const <int>[],
+          downbeatsMs: _bundle.reference?.downbeatsMs ?? const <int>[],
+          sections:
+              _bundle.reference?.structureSections ?? const <StructureSection>[],
+        ),
+      );
+
   @override
   void initState() {
     super.initState();
@@ -58,6 +78,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.bundle, widget.bundle)) {
       _bundle = widget.bundle;
+      _chartRows = null;
     }
   }
 
@@ -154,7 +175,12 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
         );
       }
       if (!mounted) return;
-      setState(() => _bundle = updated);
+      setState(() {
+        _bundle = updated;
+        // A corrected chord changes the bars too — the cached grid has to go
+        // with the cues it was built from.
+        _chartRows = null;
+      });
       widget.onAnalysisChanged?.call(updated);
     } catch (error) {
       if (!mounted) return;
@@ -241,12 +267,22 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
                 children: <Widget>[
                   _ViewToggle(
                     view: _view,
-                    // Editing chords is a lyric-sheet gesture (tap a word,
-                    // tap a chord), so switching views mid-edit would strand
-                    // you. Finish first.
-                    onChanged: _editingChords
+                    // Editing chords is a lyric-sheet gesture — tap a word,
+                    // tap a chord — so the chart used to refuse the switch
+                    // while it was on. It refused it *silently*: the segment
+                    // went grey and a tap did nothing, which is the same
+                    // thing a frozen app does. Switching now just ends the
+                    // edit, which is what somebody pressing Chart means.
+                    // Only a save actually in flight still holds the control,
+                    // and that one says why.
+                    onChanged: _savingChord
                         ? null
-                        : (next) => setState(() => _view = next),
+                        : (next) => setState(() {
+                              _view = next;
+                              if (next == SongSheetView.chart) {
+                                _editingChords = false;
+                              }
+                            }),
                   ),
                   if (_view == SongSheetView.sheet)
                     TextButton.icon(
@@ -329,18 +365,52 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
               ],
             ),
           ),
+        ] else ...<Widget>[
+          // A plain grey sentence here was missed entirely — the feature was
+          // found by accident. It reads as an instruction now, in the same
+          // shape as the editing banner it sits in place of, because the
+          // thing it is describing is not guessable from a chord that looks
+          // like every other chord ever printed on paper.
+          const SizedBox(height: 9),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.cyan.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.cyan.withValues(alpha: 0.16)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Icon(
+                  Icons.touch_app_rounded,
+                  color: AppColors.cyan,
+                  size: 17,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _view == SongSheetView.chart
+                        ? 'Tap any underlined chord for its shape, the notes '
+                            'in it, and what works over it.'
+                        : 'Tap any underlined chord for its shape, the notes '
+                            'in it, and what works over it — or the key for '
+                            'the scale and where to put a capo.',
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 10.5,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
         const SizedBox(height: 10),
         if (_view == SongSheetView.chart)
           ChordChartView(
-            rows: buildChartRows(
-              buildChartBars(
-                cues: _bundle.chordCues,
-                beatsMs: _bundle.reference?.beatsMs ?? const <int>[],
-                downbeatsMs: _bundle.reference?.downbeatsMs ?? const <int>[],
-                sections: _bundle.reference?.structureSections ?? const <StructureSection>[],
-              ),
-            ),
+            rows: _chart,
             transpose: _transpose,
             fontScale: _fontScale,
           )
