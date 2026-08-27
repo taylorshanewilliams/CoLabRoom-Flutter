@@ -207,6 +207,11 @@ class _BeatSlot extends StatelessWidget {
         fontSize: 14.5 * fontScale,
         fontWeight: FontWeight.w800,
         height: 1.1,
+        // The same dotted underline the sheet uses, for the same reason:
+        // without it a chord on a chart is ink, and nobody taps ink.
+        decoration: chord.isEmpty ? null : TextDecoration.underline,
+        decorationStyle: TextDecorationStyle.dotted,
+        decorationColor: AppColors.cyan.withValues(alpha: 0.55),
       ),
     );
     if (chord.isEmpty) return text;

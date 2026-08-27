@@ -151,12 +151,19 @@ class MusicianSongSheet extends StatelessWidget {
                                 letterSpacing: 1,
                               ),
                             ),
+                            // Underlined like the chords, and for the same
+                            // reason: a badge reads as a label, and nobody
+                            // taps a label.
                             Text(
                               transposeChord(key, transpose),
-                              style: const TextStyle(
-                                color: Color(0xFF244A37),
+                              style: TextStyle(
+                                color: const Color(0xFF244A37),
                                 fontSize: 15,
                                 fontWeight: FontWeight.w900,
+                                decoration: TextDecoration.underline,
+                                decorationStyle: TextDecorationStyle.dotted,
+                                decorationColor: const Color(0xFF244A37)
+                                    .withValues(alpha: 0.55),
                               ),
                             ),
                           ],

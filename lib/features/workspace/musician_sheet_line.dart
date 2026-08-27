@@ -222,8 +222,22 @@ class _ChordWord extends StatelessWidget {
                     ? null
                     : () => showChordReference(context, chordText),
             borderRadius: BorderRadius.circular(5),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 1),
+            // A chord that answers when tapped is worth nothing if nobody
+            // taps it. On paper a chord is just ink, so it needs to look
+            // like it holds something: a pale tint behind it and a dotted
+            // underline — the oldest "there is more here" mark there is —
+            // which together cost almost no ink but change what the eye
+            // reads it as. Not in live mode, where nothing is tappable and
+            // an affordance would be a lie.
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+              decoration: liveMode
+                  ? null
+                  : BoxDecoration(
+                      color: const Color(0xFF197A74)
+                          .withValues(alpha: editable ? 0.16 : 0.08),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
               child: Text(
                 chordText,
                 style: TextStyle(
@@ -236,8 +250,11 @@ class _ChordWord extends StatelessWidget {
                   fontSize: (liveMode ? 10.8 : 11.2) * fontScale,
                   height: 1,
                   fontWeight: FontWeight.w900,
-                  decoration: editable ? TextDecoration.underline : null,
+                  decoration:
+                      liveMode ? null : TextDecoration.underline,
                   decorationStyle: TextDecorationStyle.dotted,
+                  decorationColor: const Color(0xFF197A74)
+                      .withValues(alpha: editable ? 0.9 : 0.55),
                 ),
               ),
             ),

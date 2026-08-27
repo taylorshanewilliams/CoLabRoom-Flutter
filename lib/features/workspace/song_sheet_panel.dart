@@ -366,19 +366,44 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             ),
           ),
         ] else ...<Widget>[
-          // One quiet line, because a chord that answers when tapped is
-          // worth nothing if nobody taps it — and a sheet covered in
-          // affordances stops looking like paper, which is the whole idea.
-          const SizedBox(height: 8),
-          Text(
-            _view == SongSheetView.chart
-                ? 'Tap any chord to see how to play it.'
-                : 'Tap any chord to see how to play it, or the key for the '
-                    'notes that work over it.',
-            style: const TextStyle(
-              color: AppColors.muted,
-              fontSize: 10.5,
-              height: 1.35,
+          // A plain grey sentence here was missed entirely — the feature was
+          // found by accident. It reads as an instruction now, in the same
+          // shape as the editing banner it sits in place of, because the
+          // thing it is describing is not guessable from a chord that looks
+          // like every other chord ever printed on paper.
+          const SizedBox(height: 9),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.cyan.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.cyan.withValues(alpha: 0.16)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Icon(
+                  Icons.touch_app_rounded,
+                  color: AppColors.cyan,
+                  size: 17,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _view == SongSheetView.chart
+                        ? 'Tap any underlined chord for its shape, the notes '
+                            'in it, and what works over it.'
+                        : 'Tap any underlined chord for its shape, the notes '
+                            'in it, and what works over it — or the key for '
+                            'the scale and where to put a capo.',
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 10.5,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
