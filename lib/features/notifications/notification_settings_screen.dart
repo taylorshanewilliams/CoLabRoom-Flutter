@@ -42,8 +42,10 @@ class NotificationSettingsScreen extends StatelessWidget {
                   ),
                   const Divider(height: 1),
                   SwitchListTile(
-                    title: const Text('Project updates'),
-                    subtitle: const Text('When a collaborator adds to a song you\'re in'),
+                    title: const Text('New takes'),
+                    subtitle: const Text(
+                        "When somebody records a part on a song you're in. "
+                        'Writing shows up on Home instead of here.'),
                     value: preferences.projectUpdates,
                     onChanged: (value) => controller.updateNotificationPreferences(
                       preferences.copyWith(projectUpdates: value),
