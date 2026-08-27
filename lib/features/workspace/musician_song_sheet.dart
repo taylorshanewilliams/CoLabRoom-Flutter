@@ -1,3 +1,4 @@
+import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_line.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:flutter/material.dart';
@@ -119,35 +120,47 @@ class MusicianSongSheet extends StatelessWidget {
                     ),
                   ),
                   if (key != null && key.trim().isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
+                    // The badge is a tap target, not decoration: the key is
+                    // the one fact on the sheet that answers a question the
+                    // reader actually has — which notes, which chords, and
+                    // where to put the capo.
+                    GestureDetector(
+                      key: const Key('song_sheet_key_badge'),
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => showKeyReference(
+                        context,
+                        transposeChord(key, transpose),
                       ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE8F0E8),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Column(
-                        children: <Widget>[
-                          const Text(
-                            'KEY',
-                            style: TextStyle(
-                              color: Color(0xFF667263),
-                              fontSize: 7.5,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 1,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F0E8),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          children: <Widget>[
+                            const Text(
+                              'KEY',
+                              style: TextStyle(
+                                color: Color(0xFF667263),
+                                fontSize: 7.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1,
+                              ),
                             ),
-                          ),
-                          Text(
-                            transposeChord(key, transpose),
-                            style: const TextStyle(
-                              color: Color(0xFF244A37),
-                              fontSize: 15,
-                              fontWeight: FontWeight.w900,
+                            Text(
+                              transposeChord(key, transpose),
+                              style: const TextStyle(
+                                color: Color(0xFF244A37),
+                                fontSize: 15,
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                 ],
