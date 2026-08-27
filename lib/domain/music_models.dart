@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'song_analysis_models.dart' show SongAnalysisState;
+
 enum RoomRole { owner, editor, commenter, viewer }
 
 enum SongStatus { active, completed }
@@ -113,6 +115,7 @@ class SongProject {
     this.sortOrder = 0,
     this.coverImagePath,
     this.hasAudioReference = false,
+    this.analysisState,
     this.createdBy,
   });
 
@@ -136,6 +139,16 @@ class SongProject {
   /// surfaced on its tile as a small indicator.
   final bool hasAudioReference;
 
+  /// How far that recording has got through analysis, or null when there is
+  /// no recording at all.
+  ///
+  /// It rides along with [hasAudioReference] because it comes from the same
+  /// embedded row and costs nothing extra to ask for. The Control Room reads
+  /// it to sort songs into the two piles that room is actually about — one
+  /// waiting for a song sheet, one that already has one — instead of listing
+  /// the whole account and letting the reader work it out.
+  final SongAnalysisState? analysisState;
+
   /// Who started this song.
   ///
   /// The column has existed since 0001 and had an index on it, and nothing
@@ -158,6 +171,7 @@ class SongProject {
     double? sortOrder,
     Object? coverImagePath = _unset,
     bool? hasAudioReference,
+    SongAnalysisState? analysisState,
     String? createdBy,
   }) {
     return SongProject(
@@ -173,6 +187,7 @@ class SongProject {
       sortOrder: sortOrder ?? this.sortOrder,
       coverImagePath: identical(coverImagePath, _unset) ? this.coverImagePath : coverImagePath as String?,
       hasAudioReference: hasAudioReference ?? this.hasAudioReference,
+      analysisState: analysisState ?? this.analysisState,
       createdBy: createdBy ?? this.createdBy,
     );
   }
