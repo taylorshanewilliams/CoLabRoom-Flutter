@@ -127,7 +127,7 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
                 const SizedBox(height: 10),
                 Text(
                   intent == _Intent.idea
-                      ? 'Put it down and build on it. Nothing is analyzed, '
+                      ? 'Put it down and build on it. No song sheet is made, '
                           'nothing is charged, and you can add takes over it '
                           'once it belongs to a song.'
                       : 'Separates the instruments, finds the chords and key, '
@@ -218,7 +218,7 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
         : await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Analyze this recording?'),
+        title: const Text('Make the song sheet from this?'),
         content: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 440),
           child: Column(
@@ -244,7 +244,7 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
           FilledButton(
             key: const Key('studio_confirm_analyze'),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Analyze'),
+            child: const Text('Make it'),
           ),
         ],
       ),
@@ -602,7 +602,7 @@ String _clock(int ms) {
 String _stateLabel(SongAnalysisState state) => switch (state) {
       SongAnalysisState.uploaded => 'Uploaded',
       SongAnalysisState.queued => 'Queued',
-      SongAnalysisState.processing => 'Analyzing…',
+      SongAnalysisState.processing => 'Writing it down…',
       SongAnalysisState.ready => 'Ready',
       SongAnalysisState.failed => 'Analysis failed',
     };

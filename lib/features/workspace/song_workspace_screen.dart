@@ -1236,7 +1236,7 @@ class _LandscapeWorkspace extends StatelessWidget {
               IconButton(
                 key: const Key('workspace_analyze_button'),
                 onPressed: onAnalyze,
-                tooltip: hasRecording ? 'Analysis' : 'Analyze this song',
+                tooltip: hasRecording ? 'Song Sheet' : 'Make the song sheet',
                 icon: Icon(
                   Icons.graphic_eq_rounded,
                   size: 19,
@@ -1374,7 +1374,7 @@ class _WorkspaceToolbar extends StatelessWidget {
       _ToolPill(
         key: const Key('workspace_analyze_button'),
         icon: Icons.graphic_eq_rounded,
-        label: hasRecording ? 'Analysis' : 'Analyze',
+        label: hasRecording ? 'Song Sheet' : 'Make it',
         active: hasRecording,
         activeColor: AppColors.gold,
         onTap: onAnalyze,

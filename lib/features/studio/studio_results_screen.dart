@@ -123,14 +123,14 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
 
   Future<void> _runAnalysis() async {
     // Asked before anything starts — see showAnalysisDepthSheet. Dismissing
-    // leaves the idea unanalyzed rather than quietly picking one.
+    // leaves the idea without a song sheet rather than quietly picking one.
     //
     // Guarded because everything below reports its failures into _error and
     // this did not: a throw here left the screen spinning with no message,
     // which is a worse outcome than any analysis failure it could report.
     AnalysisDepth? depth;
     try {
-      depth = await showAnalysisDepthSheet(context, title: 'Analyze this idea');
+      depth = await showAnalysisDepthSheet(context, title: 'Make the song sheet');
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -349,7 +349,7 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
                       : () => unawaited(_runAnalysis()),
                   icon: const Icon(Icons.auto_awesome_rounded, size: 18),
                   label: const Text(
-                    'Work out the chords and words',
+                    'Make the song sheet',
                     style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),

@@ -63,7 +63,7 @@ class ControlRoomScreen extends StatelessWidget {
           )
         else ...<Widget>[
           if (ready.isNotEmpty) ...<Widget>[
-            const _Heading('Ready to work out'),
+            const _Heading('Ready for a song sheet'),
             _SongList(entries: ready),
           ],
           if (waiting.isNotEmpty) ...<Widget>[

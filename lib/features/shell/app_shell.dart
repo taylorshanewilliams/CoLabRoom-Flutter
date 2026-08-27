@@ -274,9 +274,24 @@ class _NavButton extends StatelessWidget {
                 child: Icon(destination.icon, size: 24, color: color),
               ),
               const SizedBox(height: 3),
-              Text(
-                destination.label,
-                style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700),
+              // One line, shrunk if it has to be.
+              //
+              // "Control Room" is two words where every other label is one,
+              // and on a narrow tab it wrapped — which overflowed the fixed
+              // 56-pixel column by a single pixel and failed the landscape
+              // layout test. Scaling down beats truncating: "Control R…" is
+              // not a name.
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    destination.label,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: TextStyle(
+                        color: color, fontSize: 11, fontWeight: FontWeight.w700),
+                  ),
+                ),
               ),
             ],
           ),

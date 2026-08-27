@@ -1624,7 +1624,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                       ],
                     ),
                     const Text(
-                      'An analyzed song times each take automatically. This is '
+                      'A song with a song sheet times each take automatically. This is '
                       'for the last few milliseconds.',
                       style: TextStyle(
                           color: AppColors.muted, fontSize: 11.5, height: 1.4),
@@ -1903,8 +1903,7 @@ class _MetronomeNote extends StatelessWidget {
                     ? "This song's own tempo, from its analysis. Change it and "
                         'the click follows you instead.'
                     : 'Takes recorded to a click can be timed to the beat '
-                        'automatically, even on a song that has never been '
-                        'analyzed.',
+                        'automatically, even on a song with no song sheet.',
                 style: const TextStyle(
                     color: AppColors.muted, fontSize: 11.5, height: 1.4),
               ),
@@ -1954,9 +1953,9 @@ class _LatencyNote extends StatelessWidget {
             ],
           ),
           const Text(
-            'Every phone records a moment behind what it plays. An analyzed '
-            'song times each take to its beat automatically — this is the '
-            'fallback for songs with no analysis yet, and for parts with no '
+            'Every phone records a moment behind what it plays. A song with a '
+            'song sheet times each take to its beat automatically — this is '
+            'the fallback for songs without one yet, and for parts with no '
             'clear attack to measure.',
             style: TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.45),
           ),
