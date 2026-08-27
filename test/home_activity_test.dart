@@ -39,7 +39,8 @@ void main() {
 
   test('every kind has words', () {
     expect(_item(kind: ActivityKind.edited).sentence, 'Dylan changed the words');
-    expect(_item(kind: ActivityKind.analyzed).sentence, 'Dylan analyzed it');
+    expect(_item(kind: ActivityKind.analyzed).sentence,
+        'Dylan made the song sheet');
     expect(_item(kind: ActivityKind.recording).sentence,
         'Dylan added a recording');
     expect(_item(kind: ActivityKind.joined).sentence, 'Dylan joined');

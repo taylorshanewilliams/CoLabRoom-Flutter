@@ -47,7 +47,7 @@ class ActivityItem {
     return switch (kind) {
       ActivityKind.message => body.trim().isEmpty ? '$name said something' : '$name: ${body.trim()}',
       ActivityKind.edited => '$name changed the words',
-      ActivityKind.analyzed => '$name analyzed it',
+      ActivityKind.analyzed => '$name made the song sheet',
       ActivityKind.recording => '$name added a recording',
       ActivityKind.joined => '$name joined',
     };

@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../widgets/song_sheet_button.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
@@ -218,7 +219,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     if (_working || reference == null) return;
     // Asked before anything starts, because the answer changes how long the
     // next few minutes take. Dismissing means don't analyze.
-    final depth = await showAnalysisDepthSheet(context, title: 'Analyze this recording');
+    final depth = await showAnalysisDepthSheet(context, title: 'Make the song sheet');
     if (depth == null || !mounted) return;
     setState(() {
       _working = true;
@@ -507,7 +508,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     return Scaffold(
       backgroundColor: AppColors.deepNavy,
       appBar: AppBar(
-        title: const Text('Analyze Song'),
+        title: const Text('Song Sheet'),
         backgroundColor: AppColors.deepNavy,
       ),
       body: SafeArea(
@@ -557,7 +558,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                         ? 'Use a rehearsal, demo, or finished mix. If this project already has lyrics, CoLabRoom times them to the recording; if not, it builds a separate song sheet from what you sing — your project\'s own lyrics stay untouched either way.'
                         : ready
                             ? 'This song now has a timed lyric map and chord map for Live mode.'
-                            : 'Ready to analyze the recording. If the project has lyrics, they\'ll be timed to this take — otherwise this builds a separate song sheet from what it hears, without touching the project\'s own lyrics.',
+                            : 'Ready when you are. If the project has lyrics, they\'ll be timed to this take — otherwise this builds a separate song sheet from what it hears, without touching the project\'s own lyrics.',
                     style: const TextStyle(color: AppColors.muted, height: 1.45, fontSize: 12),
                   ),
                   const SizedBox(height: 18),
@@ -571,23 +572,28 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                           label: Text(reference == null ? 'Add a recording' : 'Replace recording'),
                         ),
                       ),
-                      if (reference != null) ...<Widget>[
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton.icon(
-                            key: const Key('analyze_reference_recording'),
-                            onPressed: _working ? null : _analyze,
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppColors.gold,
-                              foregroundColor: AppColors.ink,
-                            ),
-                            icon: const Icon(Icons.auto_awesome_rounded),
-                            label: Text(ready ? 'Analyze again' : 'Analyze song'),
-                          ),
-                        ),
-                      ],
                     ],
                   ),
+                  // Full width and on its own line, rather than half a row
+                  // beside "Add a recording". This is the end of the journey
+                  // — the recording is made, the takes are on it, and this is
+                  // where the app hands back the thing nobody wanted to work
+                  // out by ear. A prize does not share a row with a file
+                  // picker.
+                  if (reference != null) ...<Widget>[
+                    const SizedBox(height: 12),
+                    SongSheetButton(
+                      key: const Key('analyze_reference_recording'),
+                      onPressed: _working ? null : _analyze,
+                      busy: _working,
+                      label: ready ? 'Make it again' : 'Make the song sheet',
+                      subtitle: ready
+                          ? 'Listens again from the top — useful after you '
+                              'replace the recording.'
+                          : 'CoLabRoom listens to the recording and writes '
+                              'down the chords, the key and the words.',
+                    ),
+                  ],
                   if (reference != null) ...<Widget>[
                     const SizedBox(height: 8),
                     Align(
@@ -683,7 +689,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     const SizedBox(height: 20),
                     const _QuietNote(
                       icon: Icons.cloud_outlined,
-                      text: 'This recording is analyzed off-device to keep results accurate, then stays saved to the catalog as its reference track.',
+                      text: 'This recording is read on our machines to keep the results accurate, then stays saved to the catalog as its reference track.',
                     ),
                   ],
                   // These two don't require the *latest* analysis attempt to

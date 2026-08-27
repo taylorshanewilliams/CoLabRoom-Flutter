@@ -175,7 +175,7 @@ class HomeScreen extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  'Write, record, and analyze',
+                                  'Write, record, and make the song sheet',
                                   style: TextStyle(
                                     color: AppColors.muted,
                                     fontSize: 12.5,
