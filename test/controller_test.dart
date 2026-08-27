@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// A repository whose avatars are all missing, counting how often it is asked.
 class _MissingAvatars extends InMemoryMusicRepository {
-  _MissingAvatars(InMemoryMusicRepository source) : super.from(source);
+  _MissingAvatars(super.source) : super.from();
 
   int avatarRequests = 0;
 
