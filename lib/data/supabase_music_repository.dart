@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/activity.dart';
 import '../domain/music_models.dart';
 import '../domain/name_policy.dart';
+import '../domain/song_analysis_models.dart' show SongAnalysisState;
 import 'music_repository.dart';
 
 class SupabaseMusicRepository implements MusicRepository {
@@ -164,7 +165,7 @@ class SupabaseMusicRepository implements MusicRepository {
           'id, account_id, name, icon, created_at, updated_at, sort_order, logo_path, '
           'room_members(user_id, display_name, role, color_value), '
           'projects(id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, '
-          'project_audio_references(project_id), '
+          'project_audio_references(project_id, analysis_state), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at)))',
         )
@@ -512,7 +513,9 @@ class SupabaseMusicRepository implements MusicRepository {
       return _project(<String, dynamic>{
         ...row,
         'contributions': project.contributions.map(_contributionJson).toList(growable: false),
-        'project_audio_references': project.hasAudioReference ? <String, dynamic>{} : null,
+        'project_audio_references': project.hasAudioReference
+            ? <String, dynamic>{'analysis_state': project.analysisState?.name}
+            : null,
       });
     } on PostgrestException catch (error) {
       throw _friendlyDatabaseError(error, noun: 'project');
@@ -530,7 +533,9 @@ class SupabaseMusicRepository implements MusicRepository {
     return _project(<String, dynamic>{
       ...row,
       'contributions': project.contributions.map(_contributionJson).toList(growable: false),
-      'project_audio_references': project.hasAudioReference ? <String, dynamic>{} : null,
+      'project_audio_references': project.hasAudioReference
+          ? <String, dynamic>{'analysis_state': project.analysisState?.name}
+          : null,
     });
   }
 
@@ -804,7 +809,7 @@ class SupabaseMusicRepository implements MusicRepository {
         .from('projects')
         .select(
           'id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, '
-          'project_audio_references(project_id), '
+          'project_audio_references(project_id, analysis_state), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at))',
         )
@@ -1069,6 +1074,22 @@ class SupabaseMusicRepository implements MusicRepository {
       // (or null), not a list, unlike the one-to-many embeds elsewhere in
       // this query.
       hasAudioReference: row['project_audio_references'] != null,
+      analysisState: _analysisState(row['project_audio_references']),
+    );
+  }
+
+  /// The reference row's state, or null when there is no reference.
+  ///
+  /// An unrecognised value is read as `uploaded` rather than thrown: the
+  /// check constraint can gain a state in a migration that ships before the
+  /// app that knows about it, and a song list is not worth crashing over.
+  SongAnalysisState? _analysisState(Object? reference) {
+    if (reference is! Map) return null;
+    final name = reference['analysis_state'] as String?;
+    if (name == null) return SongAnalysisState.uploaded;
+    return SongAnalysisState.values.firstWhere(
+      (state) => state.name == name,
+      orElse: () => SongAnalysisState.uploaded,
     );
   }
 
@@ -1158,7 +1179,9 @@ class SupabaseMusicRepository implements MusicRepository {
         'updated_at': project.updatedAt.toIso8601String(),
         'contributions': project.contributions.map(_contributionJson).toList(growable: false),
         'cover_image_path': project.coverImagePath,
-        'project_audio_references': project.hasAudioReference ? <String, dynamic>{} : null,
+        'project_audio_references': project.hasAudioReference
+            ? <String, dynamic>{'analysis_state': project.analysisState?.name}
+            : null,
       };
 
   Map<String, dynamic> _contributionJson(Contribution contribution) => <String, dynamic>{
