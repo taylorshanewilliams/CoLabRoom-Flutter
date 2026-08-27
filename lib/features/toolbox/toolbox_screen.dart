@@ -49,6 +49,25 @@ class _ToolboxScreenState extends State<ToolboxScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // A Scaffold of its own, because this stopped being a tab.
+    //
+    // As a tab it was a bare CustomScrollView and the shell's Scaffold
+    // supplied the Material that its search TextField requires. Pushed from
+    // Account onto a MaterialPageRoute there is no Scaffold above it — a
+    // route is not Material — so the field threw "No Material widget found"
+    // on build and took the whole screen down with it. The category and
+    // cheat-sheet screens under it already carry their own; this one was
+    // the only Toolbox screen that had never needed one.
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        title: const Text('Toolbox'),
+      ),
+      body: SafeArea(top: false, child: _buildBody(context)),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
     if (_loadingOrder) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -61,18 +80,14 @@ class _ToolboxScreenState extends State<ToolboxScreen> {
     return CustomScrollView(
       slivers: <Widget>[
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(18, 20, 18, 10),
-          sliver: SliverToBoxAdapter(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text('Toolbox', style: Theme.of(context).textTheme.displaySmall),
-                const SizedBox(height: 4),
-                const Text(
-                  'Reference sheets for every instrument — drag to reorder, yours to arrange.',
-                  style: TextStyle(color: AppColors.muted, fontSize: 12.5),
-                ),
-              ],
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
+          sliver: const SliverToBoxAdapter(
+            // The page title moved into the app bar with the back button, so
+            // saying "Toolbox" again here would just be saying it twice.
+            child: Text(
+              'Reference sheets for every instrument — drag to reorder, '
+              'yours to arrange.',
+              style: TextStyle(color: AppColors.muted, fontSize: 12.5),
             ),
           ),
         ),
