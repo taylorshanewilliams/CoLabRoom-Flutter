@@ -34,7 +34,11 @@ insert into smoke_covered (name) values
   ('song_layers_notify_added'),
   -- The scenario inserts a song claiming the wrong account, then moves one
   -- across an account boundary, and asserts the account followed both times.
-  ('projects_account_follows_room');
+  ('projects_account_follows_room'),
+  -- The scenario has two accounts accept invitations to one Room and
+  -- asserts they came out with distinct colours.
+  ('room_members_assign_colour'),
+  ('project_members_assign_colour');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario

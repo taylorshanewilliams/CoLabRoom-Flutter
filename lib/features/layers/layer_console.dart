@@ -177,19 +177,22 @@ class _StripState extends State<_Strip> {
               color: take.enabled ? AppColors.cyan : AppColors.muted,
             ),
           ),
-          SizedBox(
-            height: 30,
-            child: Text(
-              name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: take.enabled ? AppColors.text : AppColors.muted,
-                fontSize: 10,
-                height: 1.2,
-                fontWeight: FontWeight.w700,
-              ),
+          // No SizedBox around this. Two lines of 10px text at height 1.2 is
+          // 24 logical pixels on the phone this was written on and 31 on a
+          // phone whose owner has set their system font larger — so a box of
+          // 30 fits until it doesn't, and then the strip overflows by the
+          // difference. Let the name take the height it actually needs; the
+          // fader above is the Expanded one and gives up the space.
+          Text(
+            name,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: take.enabled ? AppColors.text : AppColors.muted,
+              fontSize: 10,
+              height: 1.2,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
