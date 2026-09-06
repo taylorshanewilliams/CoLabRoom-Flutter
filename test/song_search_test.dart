@@ -1,5 +1,5 @@
 import 'package:colabroom/domain/music_models.dart';
-import 'package:colabroom/features/songs/song_search.dart';
+import 'package:colabroom/services/song_search.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 MusicRoom _room({
@@ -134,5 +134,54 @@ void main() {
   test('all songs are ordered most recently touched first', () {
     final results = allSongsByRecency(rooms);
     expect(results.map((r) => r.project.id), <String>['song-3', 'song-1', 'song-2']);
+  });
+
+  // The catalog screen, the set picker and the catalog list each had their
+  // own `title.contains(...)` and none of them read a lyric. Somebody found
+  // that from the outside: a line they could search for on the Songs tab
+  // returned nothing once they were standing inside the catalog holding it.
+  // These are what stop the app growing a sixth private definition of
+  // "matches".
+  group('one definition of a match, for every list', () {
+    final song = rooms.first.projects.first; // Midnight Signal
+
+    test('a title still matches', () {
+      expect(songMatch(song, 'midnight'), SongMatch.title);
+      expect(songMatch(song, '  MIDNIGHT '), SongMatch.title);
+    });
+
+    test('a lyric matches, which is the whole bug', () {
+      expect(songMatch(song, 'streetlights'), SongMatch.lyric);
+      expect(matchedLyricLine(song, 'streetlights'),
+          'Streetlights blur like a warning in the rain');
+    });
+
+    test('a miss is a miss', () {
+      expect(songMatch(song, 'trombone'), isNull);
+      expect(matchedLyricLine(song, 'trombone'), isNull);
+    });
+
+    test('the catalog name only counts when the caller says it matched', () {
+      expect(songMatch(song, 'after hours'), isNull);
+      expect(songMatch(song, 'after hours', roomNameMatches: true),
+          SongMatch.room);
+    });
+
+    test('an empty query keeps everything, because a filter nobody typed '
+        'should not hide anything', () {
+      expect(songMatch(song, ''), SongMatch.title);
+      expect(songMatch(song, '   '), SongMatch.title);
+    });
+
+    test('it agrees with searchSongs, which is the point', () {
+      for (final query in <String>['midnight', 'streetlights', 'trombone']) {
+        final viaList = searchSongs(rooms, query)
+            .where((r) => r.project.id == song.id)
+            .map((r) => r.match)
+            .firstOrNull;
+        expect(songMatch(song, query), viaList,
+            reason: 'the two disagreed about “$query”');
+      }
+    });
   });
 }

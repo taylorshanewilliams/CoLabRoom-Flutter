@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
-import '../../domain/name_policy.dart';
+import '../../services/song_search.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/bloom_tap.dart';
 import '../../widgets/invite_collaborator_dialog.dart';
@@ -54,11 +54,14 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
   String _query = '';
 
   List<SongProject> _sortedProjects(MusicRoom room) {
-    final query = NamePolicy.normalized(_query);
+    // The same matcher the Songs tab uses, so a lyric you can find from the
+    // library is still findable standing inside the catalog that holds it.
+    // This filtered on the title alone until somebody hit the difference
+    // while testing.
     final projects = List<SongProject>.from(
-      query.isEmpty
+      _query.trim().isEmpty
           ? room.projects
-          : room.projects.where((project) => NamePolicy.normalized(project.title).contains(query)),
+          : room.projects.where((project) => songMatch(project, _query) != null),
     );
     switch (_sort) {
       case _ProjectSort.manual:

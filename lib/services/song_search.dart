@@ -1,5 +1,5 @@
-import '../../domain/music_models.dart';
-import '../../domain/name_policy.dart';
+import '../domain/music_models.dart';
+import '../domain/name_policy.dart';
 
 /// Why a song matched, so results can show the reason rather than just the
 /// title. Ranked in the order below: a title hit is what someone usually
@@ -22,6 +22,40 @@ class SongSearchResult {
   /// The contribution line that matched, when [match] is [SongMatch.lyric].
   /// Shown under the title so the result explains itself.
   final String? lyricLine;
+}
+
+/// Whether one song answers a query, and why — null when it does not.
+///
+/// The single definition of "does this song match", so that every list in the
+/// app agrees. It did not used to: the catalog, the set and the catalog list
+/// each filtered on `title.contains(...)` of their own, so a lyric you could
+/// find from the Songs tab vanished the moment you were standing inside the
+/// catalog that held it. Somebody hit exactly that during testing, and the
+/// honest description of the bug is not "lyric search is missing here" — it
+/// is that there were five searches pretending to be one.
+///
+/// [roomNameMatches] is passed in rather than computed, because a caller
+/// filtering one catalog usually knows the answer already and a caller
+/// filtering a hundred should not recompute it per song.
+SongMatch? songMatch(
+  SongProject project,
+  String query, {
+  bool roomNameMatches = false,
+}) {
+  final needle = NamePolicy.normalized(query);
+  if (needle.isEmpty) return SongMatch.title;
+  if (NamePolicy.normalized(project.title).contains(needle)) {
+    return SongMatch.title;
+  }
+  if (_firstLyricMatch(project, needle) != null) return SongMatch.lyric;
+  return roomNameMatches ? SongMatch.room : null;
+}
+
+/// The line that matched, for a list that wants to show why.
+String? matchedLyricLine(SongProject project, String query) {
+  final needle = NamePolicy.normalized(query);
+  if (needle.isEmpty) return null;
+  return _firstLyricMatch(project, needle);
 }
 
 /// Searches every song the user can reach, by title, by lyric text, and by

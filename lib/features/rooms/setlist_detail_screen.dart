@@ -9,6 +9,7 @@ import '../../services/project_export_service.dart';
 import '../../widgets/app_surface.dart';
 import '../workspace/song_workspace_screen.dart';
 import '../../services/user_facing_error.dart';
+import '../../services/song_search.dart';
 
 enum _SetlistMenuAction { print, share }
 
@@ -251,7 +252,7 @@ class _AddSongsSheetState extends State<_AddSongsSheet> {
         .expand((room) => room.projects)
         .where((project) =>
             !widget.existingIds.contains(project.id) &&
-            (normalizedQuery.isEmpty || project.title.toLowerCase().contains(normalizedQuery)))
+            (normalizedQuery.isEmpty || songMatch(project, normalizedQuery) != null))
         .toList(growable: false);
     return SafeArea(
       top: false,

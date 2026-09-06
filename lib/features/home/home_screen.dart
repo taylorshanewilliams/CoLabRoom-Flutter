@@ -14,7 +14,7 @@ import '../../widgets/player_face.dart';
 import '../../widgets/music_tiles.dart';
 import '../rooms/room_detail_screen.dart';
 import '../rooms/rooms_screen.dart';
-import '../songs/song_search.dart';
+import '../../services/song_search.dart';
 import '../workspace/song_workspace_screen.dart';
 import 'new_song_flow.dart';
 import '../openmic/open_mic_screen.dart';

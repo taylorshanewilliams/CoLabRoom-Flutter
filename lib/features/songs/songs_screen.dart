@@ -12,7 +12,7 @@ import '../../widgets/music_tiles.dart';
 import '../home/new_song_flow.dart';
 import '../rooms/setlist_detail_screen.dart';
 import '../workspace/song_workspace_screen.dart';
-import 'song_search.dart';
+import '../../services/song_search.dart';
 import '../../services/user_facing_error.dart';
 
 /// Songs, or the sets they're grouped into for a specific occasion.

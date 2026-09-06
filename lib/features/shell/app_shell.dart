@@ -96,11 +96,11 @@ class _AppShellState extends State<AppShell> {
   ///
   /// IndexedStack keeps every child alive, which is what preserves scroll
   /// position and typed state when switching tabs — but it also *builds*
-  /// them all immediately. That meant launching the app constructed Studio
-  /// (which fetches drafts over the network) and Toolbox (which reads stored
-  /// ordering) before the user had looked at either, paying for work nobody
-  /// asked for on the slowest frame there is. Once a tab has been visited it
-  /// stays built, so the state-preserving behaviour is unchanged.
+  /// them all immediately. That meant launching the app constructed Studio,
+  /// which fetches drafts over the network, before the user had looked at it
+  /// — paying for work nobody asked for on the slowest frame there is. Once a
+  /// tab has been visited it stays built, so the state-preserving behaviour is
+  /// unchanged.
   List<Widget> get _lazyScreens => <Widget>[
         for (var i = 0; i < _screens.length; i += 1)
           _LazyTab(active: _index == i, child: _screens[i]),
