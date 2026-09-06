@@ -8,6 +8,7 @@ import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import 'musician_profile_screen.dart';
+import 'open_mic_song_screen.dart';
 
 /// Open Mic — where you meet somebody you have not met.
 ///
@@ -49,9 +50,14 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
         (part: 'percussion', label: 'Percussion', icon: Icons.grain_rounded),
       ];
 
+  /// People or songs. Two things are on an open mic — who is here, and
+  /// what is being played — and this screen only knew about the first.
+  bool _showingSongs = false;
+
   String? _part;
   final TextEditingController _city = TextEditingController();
   List<Musician>? _found;
+  List<OpenMicSong>? _songs;
   String? _error;
   bool _busy = false;
 
@@ -72,6 +78,27 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
       _busy = true;
       _error = null;
     });
+    if (_showingSongs) {
+      try {
+        final songs =
+            await widget.repository.openMicSongs(part: _part, limit: 40);
+        if (mounted) setState(() => _songs = songs);
+      } catch (error) {
+        if (!mounted) return;
+        setState(() {
+          _songs = const <OpenMicSong>[];
+          _error = reportAndDescribe(
+            error,
+            service: 'app',
+            stage: 'open_mic_songs',
+            route: 'Open Mic',
+          );
+        });
+      } finally {
+        if (mounted) setState(() => _busy = false);
+      }
+      return;
+    }
     try {
       final found = await widget.repository.findMusicians(
         part: _part,
@@ -93,6 +120,18 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _openSong(OpenMicSong song) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'Open Mic song'),
+      builder: (_) => OpenMicSongScreen(
+        projectId: song.id,
+        repository: widget.repository,
+        initial: song,
+      ),
+    ));
+    if (mounted) CurrentRoute.enter('Open Mic');
   }
 
   Future<void> _openProfile(Musician musician) async {
@@ -139,13 +178,42 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
           ),
         ),
         Padding(
+          padding: const EdgeInsets.fromLTRB(18, 6, 18, 6),
+          child: SegmentedButton<bool>(
+            segments: const <ButtonSegment<bool>>[
+              ButtonSegment<bool>(
+                value: false,
+                icon: Icon(Icons.people_alt_rounded, size: 17),
+                label: Text('People'),
+              ),
+              ButtonSegment<bool>(
+                value: true,
+                icon: Icon(Icons.library_music_rounded, size: 17),
+                label: Text('Songs'),
+              ),
+            ],
+            selected: <bool>{_showingSongs},
+            onSelectionChanged: (picked) {
+              setState(() {
+                _showingSongs = picked.first;
+                _error = null;
+              });
+              unawaited(_search());
+            },
+          ),
+        ),
+        Padding(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              _part == null
-                  ? 'Everybody who is here'
-                  : 'People who play ${_labelFor(_part!).toLowerCase()}',
+              _showingSongs
+                  ? (_part == null
+                      ? 'Songs anybody can listen to'
+                      : 'Songs asking for ${_labelFor(_part!).toLowerCase()}')
+                  : (_part == null
+                      ? 'Everybody who is here'
+                      : 'People who play ${_labelFor(_part!).toLowerCase()}'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: AppColors.muted, fontSize: 12),
@@ -170,6 +238,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
             },
           ),
         ),
+        if (!_showingSongs)
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
           child: TextField(
@@ -191,6 +260,13 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
           ),
         ),
         const Divider(height: 1),
+        if (_showingSongs)
+          Expanded(child: _SongList(
+            songs: _songs,
+            error: _error,
+            onOpen: _openSong,
+          ))
+        else
         Expanded(
           child:
               found == null
@@ -231,6 +307,149 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
       if (entry.part == part) return entry.label;
     }
     return part;
+  }
+}
+
+/// The songs half of the Open Mic.
+///
+/// Cards lead with what a song is *asking for*, because that is the one thing
+/// that decides whether somebody taps. A list of titles is a list nobody can
+/// act on: you cannot tell from "Ladder Of Life" whether it wants a bass
+/// player, and playing all of them to find out is exactly the friction that
+/// makes a pile of audio go unlistened to.
+class _SongList extends StatelessWidget {
+  const _SongList({
+    required this.songs,
+    required this.error,
+    required this.onOpen,
+  });
+
+  final List<OpenMicSong>? songs;
+  final String? error;
+  final ValueChanged<OpenMicSong> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final found = songs;
+    if (found == null) {
+      return const Center(child: CircularProgressIndicator(color: AppColors.gold));
+    }
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+      children: <Widget>[
+        if (error != null) ...<Widget>[
+          Text(error!,
+              style: const TextStyle(color: AppColors.orange, fontSize: 13)),
+          const SizedBox(height: 14),
+        ],
+        if (found.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 40),
+            child: Column(
+              children: <Widget>[
+                Icon(Icons.library_music_outlined,
+                    size: 34, color: AppColors.line),
+                SizedBox(height: 12),
+                Text(
+                  'No songs up yet',
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 6),
+                // Says how one gets here, because an empty list that does not
+                // is a list somebody assumes is broken.
+                Text(
+                  'A song appears here when whoever owns it puts it up. Open '
+                  'one of yours and choose "Put it on the Open Mic".',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: AppColors.muted, fontSize: 12.5, height: 1.45),
+                ),
+              ],
+            ),
+          )
+        else
+          for (final song in found) _SongCard(song: song, onTap: () => onOpen(song)),
+      ],
+    );
+  }
+}
+
+class _SongCard extends StatelessWidget {
+  const _SongCard({required this.song, required this.onTap});
+
+  final OpenMicSong song;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: AppColors.raised,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: song.isAsking
+                ? AppColors.cyan.withValues(alpha: 0.45)
+                : AppColors.line,
+          ),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  song.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  song.ownerName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      const TextStyle(color: AppColors.muted, fontSize: 12.5),
+                ),
+                if (song.isAsking) ...<Widget>[
+                  const SizedBox(height: 9),
+                  Text(
+                    song.askingFor.isEmpty
+                        ? 'Asking for help'
+                        : 'Asking for ${song.askingFor.join(', ')}',
+                    style: const TextStyle(
+                      color: AppColors.cyan,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Text(
+                  '${song.takeCount} '
+                  '${song.takeCount == 1 ? 'part' : 'parts'} to listen to',
+                  style:
+                      const TextStyle(color: AppColors.muted, fontSize: 11.5),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
