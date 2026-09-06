@@ -182,11 +182,30 @@ end $$;
 -- a person notified about their own playing.
 -- ---------------------------------------------------------------------
 
+-- Recorded, and not shared. Since 0057 this is a private draft: it exists,
+-- it belongs to the writer, and nobody else has been told anything. That is
+-- the whole point of the change and it is asserted before anything else.
 insert into public.song_layers
   (project_id, recorded_by, storage_path, label, part, performer, duration_ms)
 values
   (:'project', :'writer', :'project' || '/layers/one.m4a',
    'Rhythm', 'rhythm', 'The Writer', 42000);
+
+do $$
+begin
+  if exists (select 1 from public.notifications n
+             where n.user_id = '22222222-2222-2222-2222-222222222222'
+               and n.title like '%added a part%') then
+    raise exception 'recording a take told the room before it was shared';
+  end if;
+end $$;
+
+-- Now the writer decides the room can hear it.
+select public.share_layer(
+  (select id from public.song_layers
+   where project_id = '44444444-4444-4444-4444-444444444444'
+     and label = 'Rhythm')
+);
 
 do $$
 begin
@@ -212,12 +231,13 @@ begin
   end if;
 end $$;
 
--- A second layer notifies again. Layers are additive and each one is news;
--- there is no transition guard here of the kind analysis_ready needs.
+-- A second layer, shared on insert -- which is what a client that shares
+-- straight away does, and a path the trigger has to handle as well as the
+-- update one.
 insert into public.song_layers
-  (project_id, recorded_by, storage_path, label, part, duration_ms)
+  (project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
 values
-  (:'project', :'writer', :'project' || '/layers/two.m4a', 'Lead', 'lead', 30000);
+  (:'project', :'writer', :'project' || '/layers/two.m4a', 'Lead', 'lead', 30000, now());
 
 do $$
 begin
@@ -225,6 +245,30 @@ begin
       where n.user_id = '22222222-2222-2222-2222-222222222222'
         and n.title like '%added a part%') <> 2 then
     raise exception 'a second layer did not produce a second notification (got %)',
+      (select count(*) from public.notifications n
+       where n.user_id = '22222222-2222-2222-2222-222222222222'
+         and n.title like '%added a part%');
+  end if;
+end $$;
+
+-- Editing a take that was already shared says nothing. The trigger fires on
+-- any change to shared_at, so without the transition guard renaming a layer
+-- would announce it to the room a second time -- which is exactly the kind of
+-- pointless notification this whole change exists to remove.
+update public.song_layers
+set label = 'Lead, second pass'
+where project_id = :'project' and part = 'lead';
+
+update public.song_layers
+set shared_at = now()
+where project_id = :'project' and part = 'lead';
+
+do $$
+begin
+  if (select count(*) from public.notifications n
+      where n.user_id = '22222222-2222-2222-2222-222222222222'
+        and n.title like '%added a part%') <> 2 then
+    raise exception 'a take that was already shared announced itself again (got %)',
       (select count(*) from public.notifications n
        where n.user_id = '22222222-2222-2222-2222-222222222222'
          and n.title like '%added a part%');
