@@ -554,42 +554,49 @@ class _LinkRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
+    // Material rather than a decorated Container. A ListTile paints its ink
+    // on the nearest Material ancestor, so a coloured box between the two
+    // hides every splash — the row would look dead on a real phone, and
+    // Flutter asserts about it in debug.
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
         color: AppColors.raised,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.line),
-      ),
-      child: ListTile(
-        onTap: onOpen,
-        leading:
-            const Icon(Icons.play_circle_outline_rounded, color: AppColors.cyan),
-        title: Text(
-          link.displayTitle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: AppColors.text,
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: AppColors.line),
+        ),
+        child: ListTile(
+          onTap: onOpen,
+          leading:
+              const Icon(Icons.play_circle_outline_rounded, color: AppColors.cyan),
+          title: Text(
+            link.displayTitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
           ),
+          // The platform is said out loud. Tapping this leaves the app, and
+          // somebody is entitled to know where they are about to be sent.
+          subtitle: Text(
+            link.platform,
+            style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
+          ),
+          trailing: onRemove == null
+              ? const Icon(Icons.open_in_new_rounded,
+                  size: 16, color: AppColors.muted)
+              : IconButton(
+                  tooltip: 'Remove',
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.close_rounded,
+                      size: 17, color: AppColors.muted),
+                ),
         ),
-        // The platform is said out loud. Tapping this leaves the app, and
-        // somebody is entitled to know where they are about to be sent.
-        subtitle: Text(
-          link.platform,
-          style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
-        ),
-        trailing: onRemove == null
-            ? const Icon(Icons.open_in_new_rounded,
-                size: 16, color: AppColors.muted)
-            : IconButton(
-                tooltip: 'Remove',
-                onPressed: onRemove,
-                icon: const Icon(Icons.close_rounded,
-                    size: 17, color: AppColors.muted),
-              ),
       ),
     );
   }

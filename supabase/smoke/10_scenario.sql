@@ -835,9 +835,14 @@ begin
     raise exception 'a signed-in person could not open their own profile';
   end if;
 
-  -- The writer never opted in, and can still see the page.
-  if mine.discoverable is not false then
-    raise exception 'own discoverable came back as % rather than false',
+  -- Your own settings come back as settings. Compared against the column
+  -- rather than against a literal, because whether the writer has opted in by
+  -- this point in the scenario is a detail of the block above and not the
+  -- thing being tested.
+  if mine.discoverable is distinct from
+     (select p.discoverable from public.profiles p
+      where p.id = '11111111-1111-1111-1111-111111111111') then
+    raise exception 'own discoverable came back as % rather than the stored value',
       mine.discoverable;
   end if;
 
