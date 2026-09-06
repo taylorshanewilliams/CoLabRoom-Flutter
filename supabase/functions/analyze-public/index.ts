@@ -157,10 +157,18 @@ Deno.serve(async (request: Request) => {
 
   try {
     const outgoing = new FormData();
-    // Passed straight through. It is never written anywhere: no bucket, no
-    // row, no id. When this function returns, the only copy is the one on the
-    // musician's own computer.
-    outgoing.append('file', file, 'upload');
+    // The extension is kept, and that is not cosmetic. The chord service
+    // decides how to decode by the filename it is given: analyze-chords has
+    // always sent 'harmonic_mix.mp3', and this sent 'upload' with no
+    // extension at all — which came back as a 502 that read like the
+    // recording was at fault when nothing was wrong with it.
+    //
+    // Still passed straight through and still never written anywhere: no
+    // bucket, no row, no id. When this function returns, the only copy is the
+    // one on the musician's own computer.
+    const dot = (file.name ?? '').lastIndexOf('.');
+    const extension = dot > 0 ? file.name.slice(dot).toLowerCase() : '.mp3';
+    outgoing.append('file', file, `upload${extension}`);
     const response = await fetch(`${CHORD_SERVICE_URL}/analyze`, {
       method: 'POST',
       headers: { 'X-API-Key': CHORD_SERVICE_API_KEY },
