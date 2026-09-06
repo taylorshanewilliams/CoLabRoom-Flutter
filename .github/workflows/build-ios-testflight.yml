@@ -135,16 +135,22 @@ jobs:
               # TestFlight and App Store builds — those talk to Apple's
               # production APNs servers, and a build entitled for the sandbox
               # silently receives nothing there.
-              cat > ios/Runner/Runner.entitlements <<'ENTITLEMENTS'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>aps-environment</key>
-  <string>production</string>
-</dict>
-</plist>
-ENTITLEMENTS
+              # printf rather than a heredoc, and this is not a style choice: a
+              # heredoc body has to start at column 0 to keep the XML declaration
+              # where the spec wants it, and a line at column 0 ends the YAML block
+              # scalar this whole step lives in. The workflow then fails to parse at
+              # all -- a zero-second run reporting a workflow file issue, with no
+              # log to read and nothing about push in the message.
+              {
+                echo '<?xml version="1.0" encoding="UTF-8"?>'
+                echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+                echo '<plist version="1.0">'
+                echo '<dict>'
+                echo '  <key>aps-environment</key>'
+                echo '  <string>production</string>'
+                echo '</dict>'
+                echo '</plist>'
+              } > ios/Runner/Runner.entitlements
 
               # xcodeproj rather than sed. project.pbxproj is a generated
               # graph with its own object ids, and hand-editing it is how a

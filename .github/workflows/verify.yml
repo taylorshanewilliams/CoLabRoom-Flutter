@@ -115,9 +115,36 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Parse every workflow file
+        # A workflow whose YAML is invalid does not fail loudly — it fails in
+        # zero seconds with "this run likely failed because of a workflow file
+        # issue", no log, and no clue which line. build-ios-testflight.yml
+        # spent a merge and every subsequent push to main in that state,
+        # because a heredoc body sat at column 0 and column 0 ends the block
+        # scalar the whole step lives in.
+        #
+        # Nothing else in this repo reads these files until GitHub does, by
+        # which point the branch is already merged. Two seconds here closes
+        # that gap for all of them.
+        run: |
+          python - <<'CHECK'
+          import glob, sys, yaml
+          broken = []
+          for path in sorted(glob.glob('.github/workflows/*.yml')):
+              try:
+                  yaml.safe_load(open(path, encoding='utf-8'))
+              except Exception as error:
+                  broken.append((path, str(error).splitlines()[0]))
+          for path, reason in broken:
+              print(f"::error file={path}::{reason}")
+          print(f"{len(glob.glob('.github/workflows/*.yml'))} workflows checked, {len(broken)} broken")
+          sys.exit(1 if broken else 0)
+          CHECK
+
       - name: Compile-check Python
         run: |
           python -m compileall -q \
+            tools/set_push_config.py \
             inference/separation_service/handler.py \
             inference/separation_service/smoke_test.py \
             inference/chord_service/app.py \

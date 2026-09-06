@@ -91,15 +91,35 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
-      - name: What is still needed
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Point the database at the function
+        # This step used to be a paragraph of instructions telling somebody to
+        # open the SQL editor and paste the same secret they had just put into
+        # GitHub. That is a bad design and it failed every time it was tried:
+        # once with the placeholder text left in, and twice with the text of
+        # the command that was supposed to generate the value.
+        #
+        # A secret a person has to copy into two places is a secret that ends
+        # up matching in neither, and the failure is invisible — the database
+        # calls, the function returns 403, and notifications simply stop at a
+        # door nobody is watching. So nothing is copied now. The URL is built
+        # from the project ref this deploy already used, and the secret is the
+        # same variable the function was handed forty seconds ago.
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          PUSH_HOOK_SECRET: ${{ secrets.PUSH_HOOK_SECRET }}
+        run: python tools/set_push_config.py
+
+      - name: Done
         run: |
-          echo "Deployed. One thing remains, and it is done once by hand:"
+          echo "Push is configured end to end:"
+          echo "  - the function is deployed and holds both secrets"
+          echo "  - the database knows where to send and how to prove it is us"
           echo
-          echo "  insert into private.push_config (function_url, hook_secret)"
-          echo "  values ("
-          echo "    'https://<project-ref>.supabase.co/functions/v1/send-push',"
-          echo "    '<the same value as the PUSH_HOOK_SECRET secret>'"
-          echo "  );"
-          echo
-          echo "Until that row exists the trigger does nothing and"
-          echo "notifications behave exactly as they did before."
+          echo "Nothing else is needed here. Notifications reach a phone as"
+          echo "soon as somebody has allowed them and the app has registered"
+          echo "a token, which needs a build carrying firebase_messaging."
