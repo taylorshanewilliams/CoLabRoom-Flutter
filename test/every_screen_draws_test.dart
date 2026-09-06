@@ -1,7 +1,9 @@
 import 'package:colabroom/app/colabroom_app.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
+import 'package:colabroom/widgets/brand_mark.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Can this app be drawn — on a small phone, and by somebody who has turned
@@ -336,5 +338,33 @@ void main() {
       await _tapText(tester, tab);
       expect(tester.takeException(), isNull, reason: _why('$tab'));
     }
+  });
+
+  testWidgets('the app says its own name in full', (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.0);
+
+    // Not an overflow test — that one already passes. This is the failure the
+    // overflow check cannot see: content that fits because it was truncated.
+    //
+    // The header once read "CoL…" on a phone with obvious empty space beside
+    // it, because the wordmark and a Spacer were both flex children and split
+    // the free space between them. Nothing overflowed. It was simply an app
+    // whose own name was cut off on its first screen, which is worse than the
+    // overflow that fix was for.
+    final wordmark = find.descendant(
+      of: find.byType(BrandMark),
+      matching: find.byType(RichText),
+    );
+    expect(wordmark, findsWidgets, reason: 'the wordmark is not on Home');
+
+    final paragraph = tester.renderObject<RenderParagraph>(wordmark.first);
+    expect(
+      paragraph.didExceedMaxLines,
+      isFalse,
+      reason: 'the wordmark is being truncated on a phone that has room for it',
+    );
   });
 }
