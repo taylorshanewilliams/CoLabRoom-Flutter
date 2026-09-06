@@ -109,9 +109,16 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         if (mounted) setState(() => _othersHere = here.length > 1);
       });
       await _cowork.join(projectId: widget.projectId, displayName: name);
-    } catch (_) {
+    } catch (error) {
       // The song still works without the stream. Failing to open a panel is
       // not a reason to fail opening the song.
+      //
+      // But this is the failure that hides best: presence simply never
+      // appears, the panel is merely empty, and an empty panel looks exactly
+      // like a quiet room. Cowork could be dead for every user in the app and
+      // the only evidence would be nobody mentioning it.
+      unawaited(ErrorReporter().reportWarning(
+        service: 'app', stage: 'cowork_join', message: error.toString()));
     }
   }
 

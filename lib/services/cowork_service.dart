@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/error_reporter.dart';
 
 /// One entry in a song's stream — someone talking, or the app reporting.
 class ProjectEvent {
@@ -162,9 +163,13 @@ class CoworkService {
   Future<void> _refresh(String projectId) async {
     try {
       _events.add(await loadEvents(projectId));
-    } catch (_) {
+    } catch (error) {
       // A stream that fails to refresh keeps showing what it last had, which
-      // is better than emptying itself because one query timed out.
+      // is better than emptying itself because one query timed out. Counted,
+      // because a stream frozen on old content is indistinguishable from a
+      // song where nothing has happened.
+      unawaited(ErrorReporter().reportWarning(
+        service: 'app', stage: 'cowork_refresh', message: error.toString()));
     }
   }
 

@@ -8,6 +8,7 @@ import '../domain/music_models.dart';
 import '../domain/name_policy.dart';
 import '../domain/song_analysis_models.dart' show SongAnalysisState;
 import 'music_repository.dart';
+import '../services/error_reporter.dart';
 
 class SupabaseMusicRepository implements MusicRepository {
   SupabaseMusicRepository(this.client) {
@@ -406,7 +407,15 @@ class SupabaseMusicRepository implements MusicRepository {
       // picture.
       try {
         await client.storage.from('avatars').remove(<String>[previous]);
-      } catch (_) {}
+      } catch (error) {
+        // The new picture is already saved, so this must not fail the change.
+        // Counted because an orphan is not free: storage is the one line on
+        // this bill that is paid again every month, on everything ever
+        // uploaded, and a cleanup that silently never runs is a cost that
+        // only ever grows.
+        unawaited(ErrorReporter().reportWarning(
+          service: 'app', stage: 'avatar_cleanup', message: error.toString()));
+      }
     }
     return path;
   }
