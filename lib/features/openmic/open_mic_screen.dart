@@ -39,15 +39,15 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   /// looking for one is not looking for the other.
   static const List<({String part, String label, IconData icon})> _parts =
       <({String part, String label, IconData icon})>[
-    (part: 'vocal', label: 'Singer', icon: Icons.mic_rounded),
-    (part: 'harmony', label: 'Harmony', icon: Icons.groups_rounded),
-    (part: 'lead', label: 'Lead', icon: Icons.electric_bolt_rounded),
-    (part: 'rhythm', label: 'Rhythm', icon: Icons.music_note_rounded),
-    (part: 'bass', label: 'Bass', icon: Icons.waves_rounded),
-    (part: 'drums', label: 'Drums', icon: Icons.album_rounded),
-    (part: 'keys', label: 'Keys', icon: Icons.piano_rounded),
-    (part: 'percussion', label: 'Percussion', icon: Icons.grain_rounded),
-  ];
+        (part: 'vocal', label: 'Singer', icon: Icons.mic_rounded),
+        (part: 'harmony', label: 'Harmony', icon: Icons.groups_rounded),
+        (part: 'lead', label: 'Lead', icon: Icons.electric_bolt_rounded),
+        (part: 'rhythm', label: 'Rhythm', icon: Icons.music_note_rounded),
+        (part: 'bass', label: 'Bass', icon: Icons.waves_rounded),
+        (part: 'drums', label: 'Drums', icon: Icons.album_rounded),
+        (part: 'keys', label: 'Keys', icon: Icons.piano_rounded),
+        (part: 'percussion', label: 'Percussion', icon: Icons.grain_rounded),
+      ];
 
   String? _part;
   final TextEditingController _city = TextEditingController();
@@ -96,13 +96,16 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   }
 
   Future<void> _openProfile(Musician musician) async {
-    await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => MusicianProfileScreen(
-        profileId: musician.id,
-        repository: widget.repository,
-        initial: musician,
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder:
+            (_) => MusicianProfileScreen(
+              profileId: musician.id,
+              repository: widget.repository,
+              initial: musician,
+            ),
       ),
-    ));
+    );
     if (mounted) CurrentRoute.enter('Open Mic');
   }
 
@@ -114,97 +117,112 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   @override
   Widget build(BuildContext context) {
     final found = _found;
-    return Scaffold(
-      backgroundColor: AppColors.deepNavy,
-      appBar: AppBar(
-        backgroundColor: AppColors.deepNavy,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            const Text('Open Mic', style: TextStyle(fontSize: 17)),
-            Text(
+    // A tab now, not a pushed route, so it wears the same inline header the
+    // other tabs do rather than an AppBar. It reached the third slot when the
+    // Studio and the Control Room stopped being destinations: three tabs were
+    // three filters on one library, and the freed one goes to the part of the
+    // app that is supposed to grow.
+    return Column(
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 20, 18, 2),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  'Open Mic',
+                  style: Theme.of(context).textTheme.displaySmall,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
               _part == null
                   ? 'Everybody who is here'
                   : 'People who play ${_labelFor(_part!).toLowerCase()}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: AppColors.muted, fontSize: 11),
+              style: const TextStyle(color: AppColors.muted, fontSize: 12),
             ),
-          ],
+          ),
         ),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: <Widget>[
-            SizedBox(
-              height: 82,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-                itemCount: _parts.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (context, index) {
-                  final entry = _parts[index];
-                  return _PartChip(
-                    label: entry.label,
-                    icon: entry.icon,
-                    selected: _part == entry.part,
-                    onTap: _busy ? null : () => _choose(entry.part),
-                  );
-                },
+        SizedBox(
+          height: 82,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+            itemCount: _parts.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final entry = _parts[index];
+              return _PartChip(
+                label: entry.label,
+                icon: entry.icon,
+                selected: _part == entry.part,
+                onTap: _busy ? null : () => _choose(entry.part),
+              );
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+          child: TextField(
+            controller: _city,
+            textInputAction: TextInputAction.search,
+            onSubmitted: (_) => unawaited(_search()),
+            style: const TextStyle(fontSize: 14),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'Any city',
+              prefixIcon: const Icon(Icons.place_outlined, size: 18),
+              suffixIcon: IconButton(
+                tooltip: 'Search',
+                icon: const Icon(Icons.search_rounded, size: 20),
+                onPressed: _busy ? null : () => unawaited(_search()),
               ),
+              border: const OutlineInputBorder(),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-              child: TextField(
-                controller: _city,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => unawaited(_search()),
-                style: const TextStyle(fontSize: 14),
-                decoration: InputDecoration(
-                  isDense: true,
-                  hintText: 'Any city',
-                  prefixIcon: const Icon(Icons.place_outlined, size: 18),
-                  suffixIcon: IconButton(
-                    tooltip: 'Search',
-                    icon: const Icon(Icons.search_rounded, size: 20),
-                    onPressed: _busy ? null : () => unawaited(_search()),
-                  ),
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: found == null
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child:
+              found == null
                   ? const Center(
-                      child: CircularProgressIndicator(color: AppColors.gold))
+                    child: CircularProgressIndicator(color: AppColors.gold),
+                  )
                   : ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-                      children: <Widget>[
-                        if (_error != null) ...<Widget>[
-                          Text(
-                            _error!,
-                            style: const TextStyle(
-                                color: AppColors.orange, fontSize: 13),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                    children: <Widget>[
+                      if (_error != null) ...<Widget>[
+                        Text(
+                          _error!,
+                          style: const TextStyle(
+                            color: AppColors.orange,
+                            fontSize: 13,
                           ),
-                          const SizedBox(height: 14),
-                        ],
-                        if (found.isEmpty)
-                          const _Empty()
-                        else
-                          for (final musician in found)
-                            _MusicianCard(
-                              musician: musician,
-                              filter: _part,
-                              onTap: () => _openProfile(musician),
-                            ),
+                        ),
+                        const SizedBox(height: 14),
                       ],
-                    ),
-            ),
-          ],
+                      if (found.isEmpty)
+                        const _Empty()
+                      else
+                        for (final musician in found)
+                          _MusicianCard(
+                            musician: musician,
+                            filter: _part,
+                            onTap: () => _openProfile(musician),
+                          ),
+                    ],
+                  ),
         ),
-      ),
+      ],
     );
   }
 
@@ -238,7 +256,10 @@ class _PartChip extends StatelessWidget {
         width: 74,
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
         decoration: BoxDecoration(
-          color: selected ? AppColors.cyan.withValues(alpha: 0.14) : AppColors.raised,
+          color:
+              selected
+                  ? AppColors.cyan.withValues(alpha: 0.14)
+                  : AppColors.raised,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: selected ? AppColors.cyan : AppColors.line,
@@ -248,7 +269,11 @@ class _PartChip extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Icon(icon, size: 21, color: selected ? AppColors.cyan : AppColors.muted),
+            Icon(
+              icon,
+              size: 21,
+              color: selected ? AppColors.cyan : AppColors.muted,
+            ),
             const SizedBox(height: 5),
             Text(
               label,
@@ -316,11 +341,18 @@ class _MusicianCard extends StatelessWidget {
                       ),
                     ),
                     if (musician.city != null) ...<Widget>[
-                      const Icon(Icons.place_outlined, size: 13, color: AppColors.muted),
+                      const Icon(
+                        Icons.place_outlined,
+                        size: 13,
+                        color: AppColors.muted,
+                      ),
                       const SizedBox(width: 3),
                       Text(
                         musician.city!,
-                        style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 11.5,
+                        ),
                       ),
                     ],
                   ],
@@ -337,7 +369,10 @@ class _MusicianCard extends StatelessWidget {
                     children: <Widget>[
                       for (final entry in top)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: AppColors.cyan.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(20),
@@ -345,7 +380,10 @@ class _MusicianCard extends StatelessWidget {
                           child: Text(
                             '${entry.key} · ${entry.value}',
                             style: TextStyle(
-                              color: entry.key == filter ? AppColors.cyan : AppColors.text,
+                              color:
+                                  entry.key == filter
+                                      ? AppColors.cyan
+                                      : AppColors.text,
                               fontSize: 11.5,
                               fontWeight: FontWeight.w700,
                             ),
@@ -359,7 +397,10 @@ class _MusicianCard extends StatelessWidget {
                         ? 'Has not recorded anything here yet'
                         : 'Says they play ${musician.plays.join(', ')} · '
                             'nothing recorded here yet',
-                    style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 12,
+                    ),
                   ),
 
                 if (musician.hasRecord) ...<Widget>[
@@ -369,7 +410,10 @@ class _MusicianCard extends StatelessWidget {
                     '${musician.songsPlayedOn == 1 ? 'song' : 'songs'} · '
                     '${musician.peopleWorkedWith} '
                     '${musician.peopleWorkedWith == 1 ? 'person' : 'people'}',
-                    style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 11.5,
+                    ),
                   ),
                 ],
               ],
@@ -410,7 +454,11 @@ class _Empty extends StatelessWidget {
             'default — every account so far joined a private room to write '
             'with people they already knew.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.45),
+            style: TextStyle(
+              color: AppColors.muted,
+              fontSize: 12.5,
+              height: 1.45,
+            ),
           ),
         ],
       ),
