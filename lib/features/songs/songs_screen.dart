@@ -26,7 +26,7 @@ import '../../services/user_facing_error.dart';
 /// equal weight to the whole library despite there being one of them. None of
 /// those is a place — they are all the same list with a different question
 /// asked of it, and a question is a chip.
-enum _SongsView { all, needsSheet, hasSheet, sets }
+enum _SongsView { all, ideas, needsSheet, hasSheet, sets }
 
 /// Every song the user can reach, in one place.
 ///
@@ -123,7 +123,14 @@ class _SongsScreenState extends State<SongsScreen> {
     // The Control Room's two piles, as a filter on the one list rather than a
     // destination of their own. A song with no recording is in neither: there
     // is nothing a sheet could be made from.
-    if (_view == _SongsView.needsSheet) {
+    // Where a recording lands when nobody has said where it goes. The Studio
+    // used to be a second library holding these; now they are songs like any
+    // other, in a catalog, and this is the chip that finds them.
+    if (_view == _SongsView.ideas) {
+      results = results
+          .where((r) => r.room.name.trim().toLowerCase() == 'ideas')
+          .toList(growable: false);
+    } else if (_view == _SongsView.needsSheet) {
       results = results
           .where((r) =>
               r.project.hasAudioReference &&
@@ -191,6 +198,7 @@ class _SongsScreenState extends State<SongsScreen> {
                     for (final option
                         in const <({_SongsView view, String label})>[
                       (view: _SongsView.all, label: 'All'),
+                      (view: _SongsView.ideas, label: 'Ideas'),
                       (view: _SongsView.needsSheet, label: 'Needs a sheet'),
                       (view: _SongsView.hasSheet, label: 'Has a sheet'),
                       (view: _SongsView.sets, label: 'Sets'),

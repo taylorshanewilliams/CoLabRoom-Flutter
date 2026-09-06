@@ -821,6 +821,26 @@ class InMemoryMusicRepository implements MusicRepository {
   final List<BlockedPerson> _blocked = <BlockedPerson>[];
 
   @override
+  Future<MusicRoom> ideasCatalog() async {
+    for (final room in _rooms) {
+      if (room.name.trim().toLowerCase() == 'ideas') return room;
+    }
+    return createRoom(name: 'Ideas', icon: '💡');
+  }
+
+  @override
+  Future<SongProject> startIdea({String? title}) async {
+    final room = await ideasCatalog();
+    final wanted = (title ?? '').trim();
+    return createSong(
+      room: room,
+      title: wanted.isEmpty
+          ? 'Idea ${_rooms.expand((r) => r.projects).length + 1}'
+          : wanted,
+    );
+  }
+
+  @override
   Future<void> blockUser(String profileId) async {
     if (_blocked.any((b) => b.id == profileId)) return;
     _blocked.add(BlockedPerson(

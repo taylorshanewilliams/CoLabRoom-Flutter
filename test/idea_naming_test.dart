@@ -1,4 +1,4 @@
-import 'package:colabroom/services/studio_draft_service.dart';
+import 'package:colabroom/services/idea_naming.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

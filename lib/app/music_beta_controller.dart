@@ -654,6 +654,14 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     await load();
   }
 
+  /// Starts a song for a recording that has no home yet, and reloads so it
+  /// appears under Songs straight away.
+  Future<SongProject> startIdea({String? title}) async {
+    final project = await repository.startIdea(title: title);
+    await load();
+    return project;
+  }
+
   Future<void> removeRoomMember({
     required String roomId,
     required String userId,
