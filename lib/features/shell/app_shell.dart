@@ -2,13 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../account/account_screen.dart';
 import '../home/home_screen.dart';
 import '../notifications/notifications_screen.dart';
+import '../openmic/open_mic_screen.dart';
 import '../songs/songs_screen.dart';
 import '../studio/studio_home_screen.dart';
-import '../control_room/control_room_screen.dart';
 import '../../services/current_route.dart';
 
 class AppShell extends StatefulWidget {
@@ -44,8 +45,13 @@ class _AppShellState extends State<AppShell> {
         onOpenNotifications: _openNotifications,
       ),
       const SongsScreen(),
-      const StudioHomeScreen(),
-      const ControlRoomScreen(),
+      // Built through a Builder because it needs the repository, and the
+      // scope is not reachable from initState.
+      Builder(
+        builder: (context) => OpenMicScreen(
+          repository: BetaScope.of(context, listen: false).repository,
+        ),
+      ),
     ];
   }
 
@@ -87,9 +93,26 @@ class _AppShellState extends State<AppShell> {
   static const _destinations = <_Destination>[
     _Destination('Home', Icons.home_rounded),
     _Destination('Songs', Icons.library_music_rounded),
-    _Destination('Studio', Icons.fiber_manual_record_rounded),
-    _Destination('Control Room', Icons.tune_rounded),
+    _Destination('Open Mic', Icons.mic_external_on_rounded),
   ];
+
+  /// Recording, from anywhere.
+  ///
+  /// The Studio's one capability nothing else had was *record something that
+  /// has no home yet*, and that is a button rather than a destination. As a
+  /// tab it cost a permanent quarter of the navigation to hold a list of
+  /// unfiled takes; as a button it is one tap from all three tabs instead of
+  /// one tap from whichever one you happened to be on.
+  void _record() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'Studio'),
+      builder: (_) => Scaffold(
+        backgroundColor: AppColors.deepNavy,
+        appBar: AppBar(backgroundColor: AppColors.deepNavy),
+        body: const SafeArea(child: StudioHomeScreen()),
+      ),
+    ));
+  }
 
   /// The tab contents, but each one only constructed once it has actually
   /// been opened.
@@ -135,11 +158,13 @@ class _AppShellState extends State<AppShell> {
                 ],
               ),
             ),
+            floatingActionButton: _RecordButton(onTap: _record, extended: true),
           );
         }
 
         return Scaffold(
           body: SafeArea(bottom: false, child: IndexedStack(index: _index, children: _lazyScreens)),
+          floatingActionButton: _RecordButton(onTap: _record, extended: false),
           bottomNavigationBar: SafeArea(
             top: false,
             child: _BottomNavigation(
@@ -150,6 +175,44 @@ class _AppShellState extends State<AppShell> {
           ),
         );
       },
+    );
+  }
+}
+
+/// The one thing you can always do.
+///
+/// Gold, because gold is what this app spends on the things that matter most,
+/// and because it must not read as part of the tab bar sitting under it —
+/// a fourth destination is exactly what this change removed.
+class _RecordButton extends StatelessWidget {
+  const _RecordButton({required this.onTap, required this.extended});
+
+  final VoidCallback onTap;
+
+  /// Wide layouts have the room for the word; a phone does not, and an
+  /// unlabelled circle with a microphone in it is not ambiguous.
+  final bool extended;
+
+  @override
+  Widget build(BuildContext context) {
+    if (extended) {
+      return FloatingActionButton.extended(
+        key: const Key('shell_record_button'),
+        onPressed: onTap,
+        backgroundColor: AppColors.gold,
+        foregroundColor: AppColors.ink,
+        icon: const Icon(Icons.mic_rounded),
+        label: const Text('Record',
+            style: TextStyle(fontWeight: FontWeight.w800)),
+      );
+    }
+    return FloatingActionButton(
+      key: const Key('shell_record_button'),
+      onPressed: onTap,
+      backgroundColor: AppColors.gold,
+      foregroundColor: AppColors.ink,
+      tooltip: 'Record something',
+      child: const Icon(Icons.mic_rounded),
     );
   }
 }

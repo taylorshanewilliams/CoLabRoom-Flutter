@@ -12,11 +12,21 @@ import '../../widgets/music_tiles.dart';
 import '../home/new_song_flow.dart';
 import '../rooms/setlist_detail_screen.dart';
 import '../workspace/song_workspace_screen.dart';
+import '../../domain/song_analysis_models.dart' show SongAnalysisState;
 import '../../services/song_search.dart';
+import '../workspace/song_analysis_screen.dart';
+import 'song_sheet_queue.dart';
 import '../../services/user_facing_error.dart';
 
 /// Songs, or the sets they're grouped into for a specific occasion.
-enum _SongsView { songs, sets }
+/// What the library is filtered to.
+///
+/// These were three tabs. Songs was everything, the Control Room was songs
+/// sorted by whether their sheet existed, and Sets sat under a toggle of
+/// equal weight to the whole library despite there being one of them. None of
+/// those is a place — they are all the same list with a different question
+/// asked of it, and a question is a chip.
+enum _SongsView { all, needsSheet, hasSheet, sets }
 
 /// Every song the user can reach, in one place.
 ///
@@ -36,7 +46,7 @@ class _SongsScreenState extends State<SongsScreen> {
   final _searchController = TextEditingController();
   String _query = '';
   String? _roomFilterId;
-  _SongsView _view = _SongsView.songs;
+  _SongsView _view = _SongsView.all;
 
   @override
   void dispose() {
@@ -47,6 +57,21 @@ class _SongsScreenState extends State<SongsScreen> {
   void _open(SongProject project) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => SongWorkspaceScreen(projectId: project.id)),
+    );
+  }
+
+  /// The paid room, still a room — just not a shelf you always see.
+  ///
+  /// The argument for the Control Room as a tab was that separate rooms
+  /// explain a price better than a badge. That is about the door you walk
+  /// through, not the tab you never tap: this opens it, with the depth choice
+  /// and the cost on the other side.
+  void _openSheet(SongProject project) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'Song sheet'),
+        builder: (_) => SongAnalysisScreen(project: project),
+      ),
     );
   }
 
@@ -88,11 +113,26 @@ class _SongsScreenState extends State<SongsScreen> {
     final rooms = controller.rooms;
     final searching = _query.trim().isNotEmpty;
 
-    final showingSongs = _view == _SongsView.songs;
+    final showingSongs = _view != _SongsView.sets;
+    final queue = SongSheetQueue.from(rooms);
 
     var results = searching ? searchSongs(rooms, _query) : allSongsByRecency(rooms);
     if (_roomFilterId != null) {
       results = results.where((r) => r.room.id == _roomFilterId).toList(growable: false);
+    }
+    // The Control Room's two piles, as a filter on the one list rather than a
+    // destination of their own. A song with no recording is in neither: there
+    // is nothing a sheet could be made from.
+    if (_view == _SongsView.needsSheet) {
+      results = results
+          .where((r) =>
+              r.project.hasAudioReference &&
+              r.project.analysisState != SongAnalysisState.ready)
+          .toList(growable: false);
+    } else if (_view == _SongsView.hasSheet) {
+      results = results
+          .where((r) => r.project.analysisState == SongAnalysisState.ready)
+          .toList(growable: false);
     }
     final sets = searching
         ? controller.setlists
@@ -120,29 +160,49 @@ class _SongsScreenState extends State<SongsScreen> {
             ),
           ),
         ),
-        // Sets are the same music, grouped for an occasion — Friday's
-        // practice, Saturday's show — so they belong beside the library
-        // rather than behind a tab of their own. They used to live under a
-        // toggle on the Rooms screen, which meant they disappeared entirely
-        // when Rooms stopped being a destination.
+        // Present only when there is something to act on, and absent when
+        // there is not. The Control Room was a permanent tab for this
+        // question and answered it with an empty room most of the time.
+        if (queue.lead != null && queue.waiting.length + 1 > 0 && !searching)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+            sliver: SliverToBoxAdapter(
+              child: _SheetQueueBanner(
+                queue: queue,
+                onTap: () => _openSheet(queue.lead!.project),
+              ),
+            ),
+          ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
           sliver: SliverToBoxAdapter(
-            child: SegmentedButton<_SongsView>(
-              segments: const <ButtonSegment<_SongsView>>[
-                ButtonSegment<_SongsView>(
-                  value: _SongsView.songs,
-                  icon: Icon(Icons.library_music_rounded, size: 18),
-                  label: Text('All songs'),
+            // A Row inside a scroll view rather than a ListView. Four fixed
+            // chips do not need lazy building, and lazy building actively
+            // hurts here: at 360px with the text scaled up, the fourth chip
+            // is off-screen and a ListView never builds it at all — so it is
+            // not merely out of view, it does not exist to a screen reader or
+            // to anything looking for it.
+            child: SizedBox(
+              height: 34,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: <Widget>[
+                    for (final option
+                        in const <({_SongsView view, String label})>[
+                      (view: _SongsView.all, label: 'All'),
+                      (view: _SongsView.needsSheet, label: 'Needs a sheet'),
+                      (view: _SongsView.hasSheet, label: 'Has a sheet'),
+                      (view: _SongsView.sets, label: 'Sets'),
+                    ])
+                      _RoomChip(
+                        label: option.label,
+                        selected: _view == option.view,
+                        onTap: () => setState(() => _view = option.view),
+                      ),
+                  ],
                 ),
-                ButtonSegment<_SongsView>(
-                  value: _SongsView.sets,
-                  icon: Icon(Icons.queue_music_rounded, size: 18),
-                  label: Text('Sets'),
-                ),
-              ],
-              selected: <_SongsView>{_view},
-              onSelectionChanged: (selection) => setState(() => _view = selection.first),
+              ),
             ),
           ),
         ),
@@ -156,7 +216,7 @@ class _SongsScreenState extends State<SongsScreen> {
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
                 hintText: showingSongs
-                    ? 'Search songs, rooms, or a lyric you remember'
+                    ? 'Search songs, catalogs, or a lyric you remember'
                     : 'Search sets',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: searching
@@ -283,6 +343,85 @@ class _SongsScreenState extends State<SongsScreen> {
             ),
       ],
     );
+  }
+}
+
+/// What is waiting for a song sheet, when anything is.
+///
+/// This is the whole Control Room, reduced to the one sentence it existed to
+/// say. In production 19 of 22 recordings already had their sheet, so the tab
+/// was a room with three things in it and a permanent place in the
+/// navigation. A banner can be absent; a tab cannot.
+class _SheetQueueBanner extends StatelessWidget {
+  const _SheetQueueBanner({required this.queue, required this.onTap});
+
+  final SongSheetQueue queue;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final lead = queue.lead!;
+    final alsoWaiting = queue.waiting.length;
+    final working = queue.working.length;
+
+    return Material(
+      color: AppColors.gold.withValues(alpha: 0.1),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(13),
+        side: BorderSide(color: AppColors.gold.withValues(alpha: 0.5)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+          child: Row(
+            children: <Widget>[
+              const Icon(Icons.graphic_eq_rounded,
+                  color: AppColors.gold, size: 20),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      queue.leadIsSheet
+                          ? 'Open the sheet for ${lead.project.title}'
+                          : 'Make the song sheet for ${lead.project.title}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _rest(alsoWaiting, working),
+                      style: const TextStyle(
+                          color: AppColors.muted, fontSize: 11.5),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  color: AppColors.muted, size: 18),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The rest of the queue in one line, and nothing when there is no rest.
+  /// "1 more waiting" is worth saying; "0 more waiting" is noise.
+  static String _rest(int waiting, int working) {
+    final parts = <String>[
+      if (waiting > 0) '$waiting more waiting',
+      if (working > 0) '$working being worked out',
+    ];
+    return parts.isEmpty ? 'Nothing else is waiting' : parts.join(' · ');
   }
 }
 

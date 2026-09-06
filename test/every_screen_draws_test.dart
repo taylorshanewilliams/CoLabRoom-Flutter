@@ -208,8 +208,20 @@ void main() {
         await _boot(tester, controller, size: phone.value, textScale: scale);
         expect(tester.takeException(), isNull, reason: _why('Home'));
 
-        for (final tab in <String>['Songs', 'Studio', 'Control Room', 'Home']) {
-          await _tapText(tester, tab);
+        // Asserted present, not merely tapped. _tapText is tolerant by
+        // design, so when the Studio and the Control Room stopped being tabs
+        // this loop kept passing while testing nothing — which is the exact
+        // failure mode this whole file exists to prevent.
+        for (final tab in <String>['Home', 'Songs', 'Open Mic']) {
+          expect(find.text(tab), findsWidgets, reason: '$tab is not a tab');
+        }
+        for (final gone in <String>['Studio', 'Control Room']) {
+          expect(find.text(gone), findsNothing,
+              reason: '$gone is a tab again');
+        }
+
+        for (final tab in <String>['Songs', 'Open Mic', 'Home']) {
+          expect(await _tapText(tester, tab), isTrue, reason: '$tab is gone');
           expect(tester.takeException(), isNull, reason: _why('$tab'));
         }
       });
@@ -327,16 +339,49 @@ void main() {
     }
   });
 
-  testWidgets('the Studio and the Control Room draw their contents',
+  testWidgets('recording is one tap from every tab', (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.3);
+
+    // The Studio's one capability nothing else had was recording something
+    // with no home yet, and that is a button rather than a destination. It
+    // has to be reachable from all three tabs, or it has simply been buried
+    // deeper than the tab it replaced.
+    for (final tab in <String>['Home', 'Songs', 'Open Mic']) {
+      await _tapText(tester, tab);
+      expect(find.byKey(const Key('shell_record_button')), findsOneWidget,
+          reason: 'no record button on $tab');
+    }
+
+    expect(await _tapKey(tester, 'shell_record_button'), isTrue);
+    expect(tester.takeException(), isNull, reason: _why('the Studio'));
+    expect(find.text('The Studio'), findsWidgets,
+        reason: 'the record button did not open the Studio');
+  });
+
+  testWidgets('the song sheet queue is a filter, not a destination',
       (tester) async {
     final controller = await _controller();
     addTearDown(controller.dispose);
     await _boot(tester, controller,
         size: const Size(360, 690), textScale: 1.3);
 
-    for (final tab in <String>['Studio', 'Control Room']) {
-      await _tapText(tester, tab);
-      expect(tester.takeException(), isNull, reason: _why('$tab'));
+    await _tapText(tester, 'Songs');
+    // The Control Room's two piles, now questions asked of one list. Sets
+    // joins them rather than sitting at the weight of the whole library.
+    for (final chip in <String>['All', 'Needs a sheet', 'Has a sheet', 'Sets']) {
+      final finder = find.text(chip);
+      expect(finder, findsOneWidget, reason: '$chip chip is gone');
+      // Scrolled into view first. The row scrolls sideways on a small phone
+      // with large text, and a chip that has to be reached is still a chip —
+      // one that was never built would not be.
+      await tester.ensureVisible(finder);
+      await _frames(tester);
+      await tester.tap(finder, warnIfMissed: false);
+      await _frames(tester);
+      expect(tester.takeException(), isNull, reason: _why('the $chip filter'));
     }
   });
 

@@ -1,6 +1,6 @@
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
-import 'package:colabroom/features/control_room/control_room_screen.dart';
+import 'package:colabroom/features/songs/song_sheet_queue.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 SongProject _song(
@@ -33,9 +33,9 @@ MusicRoom _room(List<SongProject> projects) => MusicRoom(
     );
 
 void main() {
-  group('ControlRoomPlan', () {
+  group('SongSheetQueue', () {
     test('a song with no recording never appears', () {
-      final plan = ControlRoomPlan.from(<MusicRoom>[
+      final plan = SongSheetQueue.from(<MusicRoom>[
         _room(<SongProject>[
           _song('Lyrics only', minutesAgo: 1, recording: false),
           _song('Ladder', minutesAgo: 20),
@@ -46,7 +46,7 @@ void main() {
     });
 
     test('an account of only unrecorded songs opens on the empty room', () {
-      final plan = ControlRoomPlan.from(<MusicRoom>[
+      final plan = SongSheetQueue.from(<MusicRoom>[
         _room(<SongProject>[
           _song('Words', minutesAgo: 1, recording: false),
           _song('More words', minutesAgo: 2, recording: false),
@@ -57,7 +57,7 @@ void main() {
     });
 
     test('leads with the newest recording that has no sheet', () {
-      final plan = ControlRoomPlan.from(<MusicRoom>[
+      final plan = SongSheetQueue.from(<MusicRoom>[
         _room(<SongProject>[
           _song('Older', minutesAgo: 90),
           _song('Newest', minutesAgo: 2),
@@ -73,7 +73,7 @@ void main() {
     });
 
     test('with nothing waiting it leads with the last sheet touched', () {
-      final plan = ControlRoomPlan.from(<MusicRoom>[
+      final plan = SongSheetQueue.from(<MusicRoom>[
         _room(<SongProject>[
           _song('Older sheet', minutesAgo: 60, state: SongAnalysisState.ready),
           _song('Newer sheet', minutesAgo: 5, state: SongAnalysisState.ready),
@@ -86,7 +86,7 @@ void main() {
     });
 
     test('a run in flight is its own pile, not one you are asked to start', () {
-      final plan = ControlRoomPlan.from(<MusicRoom>[
+      final plan = SongSheetQueue.from(<MusicRoom>[
         _room(<SongProject>[
           _song('Running', minutesAgo: 1, state: SongAnalysisState.processing),
           _song('Queued', minutesAgo: 2, state: SongAnalysisState.queued),
@@ -100,7 +100,7 @@ void main() {
     });
 
     test('a failed run waits with the rest rather than hiding', () {
-      final plan = ControlRoomPlan.from(<MusicRoom>[
+      final plan = SongSheetQueue.from(<MusicRoom>[
         _room(<SongProject>[
           _song('Broke', minutesAgo: 1, state: SongAnalysisState.failed),
           _song('Fine', minutesAgo: 30),
@@ -112,7 +112,7 @@ void main() {
     });
 
     test('songs from every catalog land in the same room', () {
-      final plan = ControlRoomPlan.from(<MusicRoom>[
+      final plan = SongSheetQueue.from(<MusicRoom>[
         _room(<SongProject>[_song('One', minutesAgo: 10)]),
         _room(<SongProject>[_song('Two', minutesAgo: 5)]),
       ]);
