@@ -18,6 +18,7 @@ on:
         required: true
         default: invite-lookup
         options:
+          - open-reports
           - invite-lookup
           - usage-by-month
           - usage-per-analysis
@@ -47,7 +48,46 @@ jobs:
           PRESET: ${{ inputs.preset }}
           CUSTOM_SQL: ${{ inputs.sql }}
         run: |
-          if [ "$PRESET" = "invite-lookup" ]; then
+          if [ "$PRESET" = "open-reports" ]; then
+            # The moderation queue.
+            #
+            # Reports are write-only from a phone — the reporter sees their
+            # own and nobody else sees any — so this is the only way to read
+            # them, and without it the report button is a mechanism in name
+            # only. App Store Guideline 1.2 asks for a report mechanism *and*
+            # timely responses; this is the second half.
+            #
+            # Names rather than uuids, because triage is a human reading
+            # sentences. No email addresses: knowing who reported whom is not
+            # needed to decide whether something should come down.
+            cat > /tmp/query.sql <<'SQL'
+          select
+            r.created_at,
+            r.reason,
+            r.kind,
+            coalesce(
+              tp.display_name,
+              proj.title,
+              'take on ' || (select p2.title from public.projects p2
+                             where p2.id = l.project_id),
+              pl.platform || ' link'
+            ) as about,
+            reporter.display_name as reported_by,
+            nullif(r.detail, '') as they_said,
+            r.id
+          from public.content_reports r
+          left join public.profiles reporter on reporter.id = r.reporter_id
+          left join public.profiles tp       on tp.id   = r.target_profile
+          left join public.projects proj     on proj.id = r.target_project
+          left join public.song_layers l     on l.id    = r.target_layer
+          left join public.profile_links pl  on pl.id   = r.target_link
+          where r.status = 'open'
+          order by
+            -- Copyright first: it is the one with a statutory clock on it.
+            (r.reason = 'copyright') desc,
+            r.created_at;
+          SQL
+          elif [ "$PRESET" = "invite-lookup" ]; then
             # Why every pending invite reported "no account yet". Emails are
             # masked to first two characters plus domain — enough to tell one
             # invite from another, not enough to be a mailing list.

@@ -1,0 +1,80 @@
+name: Moderation check
+
+# Does anybody actually read the reports?
+#
+# A report button that files rows nobody looks at is not a moderation
+# mechanism, it is a mechanism-shaped hole. App Store Review Guideline 1.2
+# asks for a way to report offensive content *and* timely responses to
+# concerns, and the second half is a promise about behaviour that nothing in
+# the repo was keeping.
+#
+# So this asks the question once a day and fails loudly when the answer is
+# wrong. A failing scheduled workflow emails the repo owner, which is the
+# notification path that already exists and needs nothing new built.
+#
+# **It tolerates a day.** Failing the moment a report is filed would mean a
+# red workflow every time somebody uses the feature, and a workflow that is
+# usually red is one nobody reads — which is the thing this exists to prevent.
+# Anything still open after 24 hours is a different matter: that is not a
+# queue, that is a queue being ignored.
+#
+# Copyright reports get 24 hours like the rest here, but they are the ones
+# with a statutory clock attached — §512 wants them acted on expeditiously,
+# and "expeditiously" has never meant "within a working week".
+
+on:
+  schedule:
+    # 09:00 UTC daily. Early enough in the day to act on, late enough that a
+    # report filed overnight has had its grace period.
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  queue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install --quiet requests
+
+      - name: Anything waiting?
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          python tools/run_query.py "$(cat <<'SQL'
+          select
+            count(*) filter (where status = 'open') as open_now,
+            count(*) filter (
+              where status = 'open' and created_at < now() - interval '24 hours'
+            ) as open_over_a_day,
+            count(*) filter (
+              where status = 'open' and reason = 'copyright'
+            ) as copyright_open,
+            coalesce(
+              min(extract(epoch from now() - created_at) / 3600)
+                filter (where status = 'open'),
+              0
+            )::int as newest_hours,
+            coalesce(
+              max(extract(epoch from now() - created_at) / 3600)
+                filter (where status = 'open'),
+              0
+            )::int as oldest_hours
+          from public.content_reports
+          SQL
+          )" | tee /tmp/queue.txt
+
+          # The gate. Nothing open, or nothing open long, and the job is green.
+          stale=$(grep -oE 'open_over_a_day +[0-9]+' /tmp/queue.txt | grep -oE '[0-9]+$' || echo 0)
+          if [ "${stale:-0}" -gt 0 ]; then
+            echo "::error::${stale} report(s) have been open for more than a day."
+            echo "Read them: gh workflow run run-query.yml -f preset=open-reports"
+            exit 1
+          fi
+          echo "Queue is clear, or everything in it arrived today."

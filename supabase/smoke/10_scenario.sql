@@ -1295,4 +1295,64 @@ begin
 end $$;
 
 
+-- Closing a report (0064).
+--
+-- The queue has to drain, and what happened has to survive — the repeat
+-- infringer policy on the website counts actioned copyright reports, and it
+-- can only count them if resolving one records rather than erases.
+do $$
+declare
+  the_report uuid;
+  strikes bigint;
+begin
+  select id into the_report from public.content_reports
+  where reason = 'harassment' limit 1;
+
+  perform public.resolve_report(the_report, 'dismissed', 'No evidence of it.');
+
+  if (select status from public.content_reports where id = the_report)
+     <> 'dismissed' then
+    raise exception 'resolving did not change the status';
+  end if;
+
+  -- The note is appended, not substituted: what the reporter said is still
+  -- there underneath what was decided.
+  if (select detail from public.content_reports where id = the_report)
+     not like '%asked them to stop%' then
+    raise exception 'resolving overwrote what the reporter wrote';
+  end if;
+  if (select detail from public.content_reports where id = the_report)
+     not like '%dismissed%' then
+    raise exception 'the decision was not recorded';
+  end if;
+
+  -- Only 'actioned' and 'dismissed' are answers.
+  begin
+    perform public.resolve_report(the_report, 'maybe', '');
+    raise exception 'an invented status was accepted';
+  exception when sqlstate '22023' then null;
+  end;
+
+  -- A dismissed report is not a strike. This is the check that stops
+  -- somebody losing an account over a complaint nobody upheld.
+  strikes := public.copyright_strikes(
+    '11111111-1111-1111-1111-111111111111');
+  if strikes <> 0 then
+    raise exception 'a dismissed harassment report counted as a copyright strike (got %)',
+      strikes;
+  end if;
+
+  -- An actioned copyright one is.
+  insert into public.content_reports
+    (reporter_id, kind, reason, detail, target_profile, status)
+  values ('22222222-2222-2222-2222-222222222222', 'profile', 'copyright',
+          'That is our record.', '11111111-1111-1111-1111-111111111111',
+          'actioned');
+
+  if public.copyright_strikes('11111111-1111-1111-1111-111111111111') <> 1 then
+    raise exception 'an actioned copyright report did not count';
+  end if;
+end $$;
+
+
 commit;
