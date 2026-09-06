@@ -49,16 +49,24 @@ interface NotificationRow {
 /// carries it as a PEM with literal \n escapes, which JSON.parse turns back
 /// into real newlines — but a key pasted through a form somewhere along the
 /// way may not have, so strip whichever arrives.
-function pemToPkcs8(pem: string): Uint8Array {
+///
+/// Hands back an ArrayBuffer rather than a Uint8Array, which is not a
+/// stylistic choice. Under the current TypeScript lib a Uint8Array is generic
+/// over its backing buffer, so `Uint8Array<ArrayBufferLike>` — what
+/// `new Uint8Array(n)` widens to — is not assignable to the `BufferSource`
+/// importKey wants, because that buffer might be shared. Returning the
+/// ArrayBuffer sidesteps the question entirely.
+function pemToPkcs8(pem: string): ArrayBuffer {
   const body = pem
     .replace(/\\n/g, '\n')
     .replace(/-----BEGIN PRIVATE KEY-----/, '')
     .replace(/-----END PRIVATE KEY-----/, '')
     .replace(/\s+/g, '');
   const binary = atob(body);
-  const bytes = new Uint8Array(binary.length);
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes;
+  return buffer;
 }
 
 function base64url(input: Uint8Array | string): string {
