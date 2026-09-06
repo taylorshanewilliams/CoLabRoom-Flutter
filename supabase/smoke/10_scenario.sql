@@ -1040,4 +1040,127 @@ begin
 end $$;
 
 
+-- Who is in this band (0062).
+--
+-- Membership could only ever grow. These are the two ways out and the one
+-- thing neither of them may do.
+do $$
+begin
+  -- The owner is not removable, by anybody, including themselves. A catalog
+  -- with no owner is one nobody can invite to, rename or delete: the rows are
+  -- still there and nobody can reach them.
+  begin
+    perform public.remove_room_member(
+      '33333333-3333-3333-3333-333333333333',
+      '11111111-1111-1111-1111-111111111111');
+    raise exception 'the owner was removed from their own catalog';
+  exception when sqlstate '22023' then null;
+  end;
+end $$;
+
+-- A member with a per-song role, so removal can be checked to take both.
+insert into public.project_members (project_id, user_id, display_name, role)
+values ('44444444-4444-4444-4444-444444444444',
+        '22222222-2222-2222-2222-222222222222', 'Bandmate', 'editor')
+on conflict (project_id, user_id) do nothing;
+
+select public.remove_room_member(
+  '33333333-3333-3333-3333-333333333333',
+  '22222222-2222-2222-2222-222222222222');
+
+do $$
+begin
+  if exists (
+    select 1 from public.room_members
+    where room_id = '33333333-3333-3333-3333-333333333333'
+      and user_id = '22222222-2222-2222-2222-222222222222'
+  ) then
+    raise exception 'removing a member did not remove them';
+  end if;
+
+  -- The half that is easy to forget: somebody taken out of a catalog who
+  -- keeps an editor row on four of its songs has not been removed, they have
+  -- been removed from the list that displays them.
+  if exists (
+    select 1 from public.project_members pm
+    join public.projects p on p.id = pm.project_id
+    where p.room_id = '33333333-3333-3333-3333-333333333333'
+      and pm.user_id = '22222222-2222-2222-2222-222222222222'
+  ) then
+    raise exception 'removal left the per-song memberships behind';
+  end if;
+end $$;
+
+-- Inviting somebody by profile rather than by email, and the consent rule:
+-- sending grants nothing.
+select public.invite_musician_to_room(
+  '33333333-3333-3333-3333-333333333333',
+  '22222222-2222-2222-2222-222222222222',
+  'Come back, we miss the bass.');
+
+do $$
+begin
+  if exists (
+    select 1 from public.room_members
+    where room_id = '33333333-3333-3333-3333-333333333333'
+      and user_id = '22222222-2222-2222-2222-222222222222'
+  ) then
+    raise exception 'inviting somebody put them in the catalog before they agreed';
+  end if;
+
+  -- Twice is refused rather than queued, same cap as an ask.
+  begin
+    perform public.invite_musician_to_room(
+      '33333333-3333-3333-3333-333333333333',
+      '22222222-2222-2222-2222-222222222222', '');
+    raise exception 'a second open invitation to the same person was accepted';
+  exception when unique_violation then null;
+  end;
+end $$;
+
+set local request.jwt.claims = '{"sub": "22222222-2222-2222-2222-222222222222"}';
+
+do $$
+declare
+  mine record;
+begin
+  select * into mine from public.room_invites_for_me() limit 1;
+  if mine.id is null then
+    raise exception 'the invited person was shown nothing';
+  end if;
+
+  perform public.answer_room_invite(mine.id, true);
+
+  if not exists (
+    select 1 from public.room_members
+    where room_id = '33333333-3333-3333-3333-333333333333'
+      and user_id = '22222222-2222-2222-2222-222222222222'
+  ) then
+    raise exception 'accepting did not put them back in the catalog';
+  end if;
+
+  -- 0047's colour trigger ran on the way back in. A rejoin that reused a
+  -- colour already taken is the shape of the bug a real tester hit.
+  if (select count(distinct color_value)
+      from public.room_members
+      where room_id = '33333333-3333-3333-3333-333333333333')
+     <> (select count(*) from public.room_members
+         where room_id = '33333333-3333-3333-3333-333333333333') then
+    raise exception 'two members of one catalog ended up the same colour';
+  end if;
+
+  -- And leaving is theirs to do, without asking anybody.
+  perform public.leave_room('33333333-3333-3333-3333-333333333333');
+  if exists (
+    select 1 from public.room_members
+    where room_id = '33333333-3333-3333-3333-333333333333'
+      and user_id = '22222222-2222-2222-2222-222222222222'
+  ) then
+    raise exception 'leaving did not work';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+
 commit;

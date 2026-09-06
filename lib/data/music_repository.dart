@@ -182,6 +182,35 @@ abstract interface class MusicRepository {
   /// normal case and not an error.
   Future<String?> sharedCityWith(String profileId);
 
+  /// Takes somebody out of a catalog, and out of every song inside it.
+  ///
+  /// The owner only, or you removing yourself. The owner cannot be removed at
+  /// all — a catalog with nobody who can invite, rename or delete it is one
+  /// whose rows are still there and nobody can reach.
+  Future<void> removeRoomMember({
+    required String roomId,
+    required String userId,
+  });
+
+  /// Leaving one yourself. Nobody needs permission to stop being in a band.
+  Future<void> leaveRoom(String roomId);
+
+  /// Catalogs you own that [profileId] could be invited into.
+  Future<List<InvitableRoom>> roomsICanInviteTo(String profileId);
+
+  /// Invites somebody you met into a catalog. Grants nothing until they say
+  /// yes, exactly like an ask.
+  Future<void> inviteMusicianToRoom({
+    required String roomId,
+    required String profileId,
+    String note,
+  });
+
+  /// Catalog invitations aimed at you by name.
+  Future<List<RoomInviteForMe>> roomInvitesForMe();
+
+  Future<void> answerRoomInvite(String inviteId, {required bool accept});
+
   /// Songs you are on and could offer to [profileId], newest first.
   Future<List<OfferableSong>> songsICanOffer(String profileId);
 

@@ -182,11 +182,14 @@ void main() {
     // The verb this page did not have. Open Mic could find you a bass player
     // and then the app stopped.
     expect(find.text('Ask them to play on…'), findsOneWidget);
+    // Two doors, deliberately different sizes: one song to meet somebody,
+    // a whole catalog once you know them. The small one is the loud one.
+    expect(find.text('Invite to a catalog'), findsOneWidget);
     // Said before the tap, because somebody about to contact a stranger about
     // an unfinished song wants to know what it costs them.
     expect(
-      find.text('They hear about it. Nothing of yours opens up unless they '
-          'say yes.'),
+      find.text('Either way, they hear about it and nothing of yours opens '
+          'up unless they say yes.'),
       findsOneWidget,
     );
 
@@ -216,7 +219,7 @@ void main() {
     );
   });
 
-  testWidgets('your own page has no ask button on it', (tester) async {
+  testWidgets('your own page has neither door on it', (tester) async {
     final repository = InMemoryMusicRepository.seeded();
     await _boot(
       tester,
@@ -226,6 +229,46 @@ void main() {
       ),
     );
     expect(find.text('Ask them to play on…'), findsNothing);
+    expect(find.text('Invite to a catalog'), findsNothing);
+  });
+
+  testWidgets('a catalog invitation says how big it is before you send it',
+      (tester) async {
+    final repository = InMemoryMusicRepository.seeded();
+    const mara = Musician(
+      id: 'preview-mara',
+      displayName: 'Mara Ellison',
+      plays: <String>['vocal'],
+      partsRecorded: <String, int>{'vocal': 9},
+      songsPlayedOn: 7,
+      peopleWorkedWith: 5,
+    );
+
+    await _boot(
+      tester,
+      MusicianProfileScreen(
+        profileId: mara.id,
+        repository: repository,
+        initial: mara,
+      ),
+    );
+
+    await tester.tap(find.text('Invite to a catalog'));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+    expect(tester.takeException(), isNull,
+        reason: 'the invite sheet did not draw');
+
+    // The difference from an ask, stated before the choice rather than
+    // discovered after it. This is the sheet where somebody hands over a
+    // library rather than a track.
+    expect(
+      find.text('A catalog is everything in it, now and later. If you only '
+          'want them on one song, ask them to play on it instead.'),
+      findsOneWidget,
+    );
+    expect(find.text('WHICH CATALOG'), findsOneWidget);
   });
 
   group('the preview refuses exactly what the server refuses', () {
