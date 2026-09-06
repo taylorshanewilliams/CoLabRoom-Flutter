@@ -118,6 +118,26 @@ begin
   end if;
 end $$;
 
+-- Everything that points at the table, before the table.
+--
+-- Dropping it outright fails: a policy on `storage.objects` gates the
+-- `studio-drafts` bucket by looking a row up in `studio_drafts`, and the
+-- realtime publication carries it. Neither is a foreign key, so neither is
+-- visible from the table definition — they are only visible from the error.
+drop policy if exists studio_drafts_files_owner on storage.objects;
+
+do $$
+begin
+  if exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'studio_drafts'
+  ) then
+    alter publication supabase_realtime drop table public.studio_drafts;
+  end if;
+end $$;
+
 -- The whole family, and explicitly rather than by cascade. `drop ... cascade`
 -- removes the dependent *constraints* and leaves the dependent tables behind
 -- as orphans with no parent and no purpose, which is a worse mess than the
