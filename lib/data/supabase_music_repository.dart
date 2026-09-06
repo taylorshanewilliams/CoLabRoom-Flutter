@@ -917,6 +917,50 @@ class SupabaseMusicRepository implements MusicRepository {
   String get currentUserId => _userId;
 
   @override
+  Future<List<Musician>> findMusicians({
+    String? part,
+    String? city,
+    int limit = 30,
+  }) async {
+    final rows = await client.rpc<dynamic>(
+      'find_musicians',
+      params: <String, dynamic>{
+        'in_part': part,
+        'in_city': (city != null && city.trim().isNotEmpty) ? city.trim() : null,
+        'in_limit': limit,
+      },
+    );
+    return <Musician>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        _musician(Map<String, dynamic>.from(row as Map)),
+    ];
+  }
+
+  Musician _musician(Map<String, dynamic> row) {
+    final counts = <String, int>{};
+    final parts = row['parts_recorded'];
+    if (parts is Map) {
+      parts.forEach((key, value) {
+        final n = value is num ? value.toInt() : int.tryParse('$value') ?? 0;
+        if (n > 0) counts['$key'] = n;
+      });
+    }
+    return Musician(
+      id: row['id'] as String,
+      displayName: row['display_name'] as String? ?? 'Someone',
+      avatarPath: row['avatar_path'] as String?,
+      city: row['city'] as String?,
+      plays: <String>[
+        for (final p in (row['plays'] as List<dynamic>? ?? const <dynamic>[]))
+          '$p',
+      ],
+      partsRecorded: counts,
+      songsPlayedOn: (row['songs_played_on'] as num?)?.toInt() ?? 0,
+      peopleWorkedWith: (row['people_worked_with'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
   Future<List<ProvenanceEvent>> loadProvenance(String projectId) async {
     final rows = await client.rpc<dynamic>(
       'song_provenance',

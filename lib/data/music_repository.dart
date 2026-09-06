@@ -168,6 +168,13 @@ abstract interface class MusicRepository {
   /// not merely whether somebody has.
   String get currentUserId;
 
+  /// People who play [part], optionally in [city].
+  ///
+  /// A coarse filter on purpose. An instrument narrows thousands to dozens
+  /// and no filter can do the rest — "guitarist" does not distinguish a metal
+  /// player from a jazz one, and that judgement is made by listening.
+  Future<List<Musician>> findMusicians({String? part, String? city, int limit});
+
   /// Everything that has happened to this song, oldest first.
   ///
   /// Visible only to somebody the song is already visible to — the function
