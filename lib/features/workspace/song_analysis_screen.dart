@@ -21,6 +21,7 @@ import 'musician_sheet_logic.dart';
 import 'reference_recorder_sheet.dart';
 import 'song_sheet_panel.dart';
 import 'stem_player_panel.dart';
+import '../../services/user_facing_error.dart';
 
 enum _ReferenceSource { record, file }
 
@@ -99,7 +100,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = error.toString();
+        _error = reportAndDescribe(error, service: 'analysis', route: 'Analyze');
       });
     }
   }
@@ -208,7 +209,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
       });
       _syncRoomsWithReference();
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = reportAndDescribe(error, service: 'analysis', route: 'Analyze'));
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -258,7 +259,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
       // silently afterward without disturbing the error message: _refresh()
       // clears _error on success, which would otherwise wipe the message
       // out from under the user moments after showing it.
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = reportAndDescribe(error, service: 'analysis', route: 'Analyze'));
       if (mounted) setState(() => _working = false);
       try {
         final bundle = await _service.load(widget.project.id);
@@ -328,7 +329,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
       });
       _syncRoomsWithReference();
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = reportAndDescribe(error, service: 'analysis', route: 'Analyze'));
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -418,7 +419,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         );
       }
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = reportAndDescribe(error, service: 'analysis', route: 'Analyze'));
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -494,7 +495,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         const SnackBar(content: Text('Song Sheet updated with the manual lyrics.')),
       );
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = reportAndDescribe(error, service: 'analysis', route: 'Analyze'));
     } finally {
       if (mounted) setState(() => _working = false);
     }

@@ -16,6 +16,7 @@ import '../workspace/song_workspace_screen.dart';
 import '../workspace/stem_player_panel.dart';
 import 'instrument_chips.dart';
 import 'structure_timeline.dart';
+import '../../services/user_facing_error.dart';
 
 /// "NEW SONG DETECTED" — shown right after uploading to The Studio, or when
 /// reopening a past draft from the list. Mirrors song_analysis_screen.dart's
@@ -115,7 +116,7 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = error.toString();
+        _error = reportAndDescribe(error, service: 'studio', route: 'Studio results');
         _working = false;
       });
     }
@@ -169,7 +170,7 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
         _progress = null;
       });
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = reportAndDescribe(error, service: 'studio', route: 'Studio results'));
       try {
         final bundle = await _service.load(widget.draft.id);
         if (mounted) setState(() => _bundle = bundle);
@@ -194,7 +195,7 @@ class _StudioResultsScreenState extends State<StudioResultsScreen> {
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'studio', route: 'Studio results'))));
       }
     } finally {
       if (mounted) setState(() => _promoting = false);
@@ -485,7 +486,7 @@ class _AudioPreviewPlayerState extends State<_AudioPreviewPlayer> {
         if (mounted) {
           setState(() {
             _loading = false;
-            _error = error.toString();
+            _error = reportAndDescribe(error, service: 'studio', route: 'Studio results');
           });
         }
         return;

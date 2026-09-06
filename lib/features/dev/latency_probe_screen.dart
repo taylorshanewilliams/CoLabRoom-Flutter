@@ -12,6 +12,7 @@ import '../../app/colabroom_theme.dart';
 import '../../services/latency_probe.dart';
 import '../../services/onset_align.dart';
 import '../../widgets/microphone_disclosure.dart';
+import '../../services/user_facing_error.dart';
 
 /// A throwaway screen that answers one question: can this phone record in
 /// time with what it is playing?
@@ -96,7 +97,7 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
         await Future<void>.delayed(const Duration(milliseconds: 400));
       }
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = reportAndDescribe(error, service: 'app', route: 'Latency probe'));
     } finally {
       if (mounted) setState(() {
         _running = false;
@@ -210,7 +211,7 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
       if (samples.isEmpty) throw StateError('Nothing was recorded.');
       _analysePlayAlong(samples);
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = reportAndDescribe(error, service: 'app', route: 'Latency probe'));
     } finally {
       if (mounted) setState(() {
         _running = false;

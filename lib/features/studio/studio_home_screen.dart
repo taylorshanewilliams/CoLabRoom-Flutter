@@ -11,6 +11,7 @@ import '../../services/studio_draft_service.dart';
 import '../workspace/reference_recorder_sheet.dart';
 import 'draft_search.dart';
 import 'studio_results_screen.dart';
+import '../../services/user_facing_error.dart';
 
 enum _UploadSource { record, file }
 
@@ -74,7 +75,7 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() => _error = error.toString());
+      setState(() => _error = reportAndDescribe(error, service: 'studio', route: 'Studio'));
     }
   }
 
@@ -280,7 +281,7 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
     } catch (error) {
       if (mounted) {
         setState(() => _working = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'studio', route: 'Studio'))));
       }
     }
   }
@@ -326,7 +327,7 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
       NamePolicy.requireUsable(name, label: 'Recording name');
       cleaned = NamePolicy.clean(name);
     } catch (error) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'studio', route: 'Studio'))));
       return;
     }
     final previous = _drafts;
@@ -340,7 +341,7 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _drafts = previous);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'studio', route: 'Studio'))));
     }
   }
 
@@ -398,7 +399,7 @@ class _StudioHomeScreenState extends State<StudioHomeScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _drafts = previous);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'studio', route: 'Studio'))));
     }
   }
 
