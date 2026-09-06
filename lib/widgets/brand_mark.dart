@@ -28,14 +28,34 @@ class BrandMark extends StatelessWidget {
           child: const CustomPaint(painter: _CoLabRoomMarkPainter()),
         ),
         const SizedBox(width: 12),
-        Text.rich(
-          const TextSpan(
-            children: <InlineSpan>[
-              TextSpan(text: 'CoLab', style: TextStyle(color: AppColors.text)),
-              TextSpan(text: 'Room', style: TextStyle(color: AppColors.cyan)),
-            ],
+        // Flexible, and it has to be here rather than only at the call site.
+        //
+        // The mark is a fixed square but the wordmark beside it is text at 26
+        // points, so it grows with the reader's font setting — and a Row with
+        // mainAxisSize.min hands its children their natural width and lets
+        // them run off the end. Wrapping the whole BrandMark in a Flexible
+        // outside does not help: that constrains the Row, and the Row then
+        // overflows internally instead, which is exactly what happened.
+        //
+        // Softwrap off with an ellipsis, because a brand that breaks onto two
+        // lines in a header looks like a bug, and one that is quietly clipped
+        // mid-letter looks like a worse one.
+        Flexible(
+          child: Text.rich(
+            const TextSpan(
+              children: <InlineSpan>[
+                TextSpan(text: 'CoLab', style: TextStyle(color: AppColors.text)),
+                TextSpan(text: 'Room', style: TextStyle(color: AppColors.cyan)),
+              ],
+            ),
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: compact ? 20 : 26,
+              fontWeight: FontWeight.w800,
+            ),
           ),
-          style: TextStyle(fontSize: compact ? 20 : 26, fontWeight: FontWeight.w800),
         ),
       ],
     );
