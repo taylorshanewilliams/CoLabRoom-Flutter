@@ -1,7 +1,30 @@
 import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
-import 'toolbox_models.dart';
+
+/// A six-string fretted-instrument chord shape, low string to high string
+/// (standard guitar tuning order: E A D G B E).
+///
+/// Lived in the Toolbox until the Toolbox was removed. It moved here rather
+/// than being deleted with it because the chord chart draws these — which was
+/// always the better place for them: a shape you open by tapping the chord
+/// you are looking at, already in your key.
+class ChordDiagramData {
+  const ChordDiagramData({
+    required this.name,
+    required this.frets,
+    this.baseFret = 1,
+  });
+
+  final String name;
+
+  /// One entry per string, low to high. -1 = muted (X), 0 = open (O),
+  /// N = fret N relative to [baseFret].
+  final List<int> frets;
+
+  /// The fret the diagram starts on, for shapes played higher up the neck.
+  final int baseFret;
+}
 
 /// Draws a standard six-string chord diagram: strings run vertically,
 /// frets horizontally, with X/O markers above muted/open strings and

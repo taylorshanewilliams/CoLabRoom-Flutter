@@ -13,6 +13,7 @@ import '../../widgets/music_tiles.dart';
 import '../home/new_song_flow.dart';
 import 'room_detail_screen.dart';
 import '../../services/user_facing_error.dart';
+import '../../services/song_search.dart';
 
 /// Every Room you are in, with search and drag-to-reorder.
 ///
@@ -37,10 +38,14 @@ class _RoomsScreenState extends State<RoomsScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = BetaScope.of(context);
+    // "Search catalogs or songs" now means it. The song half was a title
+    // check, so a catalog you could only remember a line from did not come
+    // back — the same gap the catalog and set screens had.
+    final needle = NamePolicy.normalized(_query);
     final rooms = controller.rooms.where((room) {
-      final query = NamePolicy.normalized(_query);
-      return NamePolicy.normalized(room.name).contains(query) ||
-          room.projects.any((project) => NamePolicy.normalized(project.title).contains(query));
+      if (needle.isEmpty) return true;
+      return NamePolicy.normalized(room.name).contains(needle) ||
+          room.projects.any((project) => songMatch(project, _query) != null);
     }).toList(growable: false);
     final itemCount = rooms.length;
 

@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../services/music_reference.dart';
-import '../toolbox/guitar_chord_diagram.dart';
-import '../toolbox/toolbox_models.dart' show ChordDiagramData;
+import 'guitar_chord_diagram.dart';
 
 /// The reference sheets, opened from the thing they describe.
 ///
