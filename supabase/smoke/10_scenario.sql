@@ -604,4 +604,60 @@ begin
 end $$;
 
 
+-- The provenance record (0055).
+--
+-- A function that reads six tables and unions them is a function that breaks
+-- the first time any one of them changes a column, and plpgsql does not plan
+-- a body until somebody calls it -- which is how min(uuid) reached production
+-- and stayed there. So it is called here, on the song this file has been
+-- building all along, and the shape of what comes back is asserted.
+do $$
+declare
+  rows_back integer;
+  first_event text;
+begin
+  select count(*) into rows_back
+  from public.song_provenance('44444444-4444-4444-4444-444444444444');
+
+  if rows_back = 0 then
+    raise exception 'the provenance record for a song with lyrics and takes is empty';
+  end if;
+
+  select event into first_event
+  from public.song_provenance('44444444-4444-4444-4444-444444444444')
+  order by at asc limit 1;
+
+  -- Oldest first, and the oldest thing that can happen to a song is that
+  -- somebody made it. If this ever comes back as something else, the ordering
+  -- has inverted and the record reads as a story told backwards.
+  if first_event is distinct from 'song created' then
+    raise exception 'the record does not begin with the song being created (got %)',
+      first_event;
+  end if;
+
+  -- The lyric lines this file wrote have to be in there, with an author.
+  if not exists (
+    select 1 from public.song_provenance('44444444-4444-4444-4444-444444444444')
+    where event = 'lyric written' and who is not null
+  ) then
+    raise exception 'lyrics are missing from the provenance record';
+  end if;
+end $$;
+
+do $$
+declare
+  summary record;
+begin
+  select * into summary
+  from public.song_provenance_summary('44444444-4444-4444-4444-444444444444');
+
+  if summary.title is null then
+    raise exception 'the provenance summary found no song';
+  end if;
+  if coalesce(summary.contributors, 0) < 1 then
+    raise exception 'the provenance summary counted no contributors';
+  end if;
+end $$;
+
+
 commit;

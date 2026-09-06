@@ -116,6 +116,24 @@ const DEFAULT_MONTHLY_ANALYSES = 100;
 /// throws would mean an analysis the user can't run at all. The cache is an
 /// optimization and is never allowed to be the reason something breaks — the
 /// same reasoning applies at every call site below.
+/// Files the recording's fingerprint against the file it came from.
+///
+/// Best-effort by design and swallowed on failure: a provenance record is
+/// worth having and is not worth failing an analysis for. A missing hash
+/// leaves one line of the record slightly thinner; a thrown error would cost
+/// somebody the analysis they were waiting on.
+async function rememberAudioHash(
+  client: { from: (table: string) => any },
+  storagePath: string,
+  sha: string,
+): Promise<void> {
+  try {
+    await client.from('files').update({ audio_sha256: sha }).eq('storage_path', storagePath);
+  } catch (error) {
+    console.error(`Could not record the audio hash: ${error}`);
+  }
+}
+
 async function sha256OfUrl(url: string): Promise<string | null> {
   try {
     const response = await fetch(url);
@@ -710,6 +728,12 @@ Deno.serve(async (req) => {
     if (acceptsCachedAnalysis) {
       const audioSha256 = await sha256OfUrl(signedUrlData.signedUrl);
       if (audioSha256) {
+        // Written back against the file, not only into the cache. The hash
+        // has been computed here since 0024 and thrown away everywhere except
+        // the cache key, which meant nothing could say "this exact audio
+        // existed in this account on this date" — the one fact a provenance
+        // record most wants and the one nobody can reconstruct later.
+        await rememberAudioHash(adminClient, storagePath, audioSha256);
         const reused = await reuseCachedAnalysis(audioSha256);
         if (reused) return json(reused);
       }
@@ -867,6 +891,7 @@ Deno.serve(async (req) => {
     // analyzed successfully should reach the user whether or not it could
     // also be filed away.
     if (audioSha256) {
+      await rememberAudioHash(adminClient, storagePath, audioSha256);
       // hit_count is deliberately absent — an upsert only overwrites the
       // columns it names, so a re-analysis of the same recording under the
       // same pipeline keeps the running total rather than resetting it.
