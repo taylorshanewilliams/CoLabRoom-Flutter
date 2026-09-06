@@ -127,6 +127,7 @@ jobs:
         # which point the branch is already merged. Two seconds here closes
         # that gap for all of them.
         run: |
+          pip install --quiet pyyaml
           python - <<'CHECK'
           import glob, sys, yaml
           broken = []
