@@ -704,4 +704,70 @@ begin
 end $$;
 
 
+-- Finding a musician (0058).
+--
+-- Three things worth proving, and the second is the one that would go wrong
+-- silently: that a private take counts for nothing, that the search reads the
+-- record rather than only the declaration, and that a city nobody made public
+-- does not come back from the open browse surface.
+update public.profiles
+set discoverable = true,
+    plays = array['vocal'],
+    city = 'Glasgow',
+    location_visibility = 'collaborators'
+where id = :'writer';
+
+do $$
+declare
+  found record;
+begin
+  select * into found from public.find_musicians('lead', null, 10)
+  where id = '11111111-1111-1111-1111-111111111111';
+
+  if found.id is null then
+    raise exception 'somebody who has recorded a lead take was not found by "lead"';
+  end if;
+
+  -- Declared 'vocal', recorded 'lead' and 'rhythm'. Both routes have to work
+  -- or half of everybody is invisible to the search.
+  if (found.parts_recorded ->> 'lead') is null then
+    raise exception 'the record of what they have played is missing';
+  end if;
+
+  -- collaborators, not public. An open browse surface must not hand out a
+  -- city its owner only offered to people they have made music with.
+  if found.city is not null then
+    raise exception 'a collaborators-only city leaked into the open search (got %)',
+      found.city;
+  end if;
+end $$;
+
+do $$
+begin
+  -- Found by what they said, as well as by what they did.
+  if not exists (
+    select 1 from public.find_musicians('vocal', null, 10)
+    where id = '11111111-1111-1111-1111-111111111111'
+  ) then
+    raise exception 'a declared instrument did not find its owner';
+  end if;
+
+  -- And not found by a city they never made public.
+  if exists (
+    select 1 from public.find_musicians(null, 'Glasgow', 10)
+    where id = '11111111-1111-1111-1111-111111111111'
+  ) then
+    raise exception 'searching a city found somebody who never published one';
+  end if;
+
+  -- Nobody who has not opted in appears at all.
+  if exists (
+    select 1 from public.find_musicians(null, null, 50)
+    where id = '22222222-2222-2222-2222-222222222222'
+  ) then
+    raise exception 'a profile that never opted in was listed';
+  end if;
+end $$;
+
+
 commit;
