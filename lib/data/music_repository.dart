@@ -211,6 +211,17 @@ abstract interface class MusicRepository {
 
   Future<void> answerRoomInvite(String inviteId, {required bool accept});
 
+  /// Songs on the Open Mic, newest first.
+  Future<List<OpenMicSong>> openMicSongs({String? part, int limit});
+
+  /// One of them, as somebody outside the room sees it.
+  Future<OpenMicSong?> openMicSong(String projectId);
+
+  /// Offers a song to everybody, or takes it back. Owner only, and only ever
+  /// the takes the room has already heard.
+  Future<void> putOnOpenMic(String projectId);
+  Future<void> takeOffOpenMic(String projectId);
+
   /// The catalog a recording lands in when nobody has said where it goes.
   ///
   /// Created on first use rather than at signup, so an account that never

@@ -820,6 +820,58 @@ class InMemoryMusicRepository implements MusicRepository {
 
   final List<BlockedPerson> _blocked = <BlockedPerson>[];
 
+  final Set<String> _onOpenMic = <String>{};
+
+  /// Enough on the preview's Open Mic to show the two states that matter: a
+  /// song asking for something, and one simply out there to be heard.
+  List<OpenMicSong> get _previewOpenMic => <OpenMicSong>[
+        OpenMicSong(
+          id: 'preview-open-1',
+          title: 'Ladder Of Life',
+          ownerName: 'Mara Ellison',
+          putUpAt: DateTime.now().subtract(const Duration(hours: 5)),
+          takeCount: 3,
+          askingFor: const <String>['bass'],
+          musicalKey: 'G',
+          bpm: 96,
+          askNote: 'Needs something simple under the chorus.',
+        ),
+        OpenMicSong(
+          id: 'preview-open-2',
+          title: 'Kitchen Window',
+          ownerName: 'Dev Okonjo',
+          putUpAt: DateTime.now().subtract(const Duration(days: 2)),
+          takeCount: 1,
+          musicalKey: 'D',
+        ),
+      ];
+
+  @override
+  Future<List<OpenMicSong>> openMicSongs({String? part, int limit = 30}) async {
+    return <OpenMicSong>[
+      for (final song in _previewOpenMic)
+        if (part == null || song.askingFor.contains(part)) song,
+    ];
+  }
+
+  @override
+  Future<OpenMicSong?> openMicSong(String projectId) async {
+    for (final song in _previewOpenMic) {
+      if (song.id == projectId) return song;
+    }
+    return null;
+  }
+
+  @override
+  Future<void> putOnOpenMic(String projectId) async {
+    _onOpenMic.add(projectId);
+  }
+
+  @override
+  Future<void> takeOffOpenMic(String projectId) async {
+    _onOpenMic.remove(projectId);
+  }
+
   @override
   Future<MusicRoom> ideasCatalog() async {
     for (final room in _rooms) {

@@ -266,6 +266,46 @@ extension ReportReasonWords on ReportReason {
   }
 }
 
+/// A song somebody put on the Open Mic.
+///
+/// The other half of Open Mic. It has been a list of people since it shipped;
+/// this is the thing a person can actually be asked to play on.
+class OpenMicSong {
+  const OpenMicSong({
+    required this.id,
+    required this.title,
+    required this.ownerName,
+    required this.putUpAt,
+    this.ownerId,
+    this.takeCount = 0,
+    this.askingFor = const <String>[],
+    this.musicalKey,
+    this.bpm,
+    this.askNote = '',
+  });
+
+  final String id;
+  final String title;
+  final String? ownerId;
+  final String ownerName;
+  final DateTime putUpAt;
+
+  /// Shared takes only. A private draft is not part of what a stranger hears.
+  final int takeCount;
+
+  /// The parts this song has open asks for — the one thing that decides
+  /// whether somebody taps.
+  final List<String> askingFor;
+
+  final String? musicalKey;
+  final double? bpm;
+
+  /// What the person who put it up said, if they said anything.
+  final String askNote;
+
+  bool get isAsking => askingFor.isNotEmpty || askNote.trim().isNotEmpty;
+}
+
 /// A catalog you own, as an option in the "invite them" picker.
 class InvitableRoom {
   const InvitableRoom({
