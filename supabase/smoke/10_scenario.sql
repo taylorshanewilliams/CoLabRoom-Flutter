@@ -963,7 +963,7 @@ begin
   if not exists (
     select 1 from public.notifications n
     where n.user_id = '22222222-2222-2222-2222-222222222222'
-      and n.kind = 'song_ask'
+      and n.type = 'song_ask'
   ) then
     raise exception 'nobody told the person who was asked';
   end if;
