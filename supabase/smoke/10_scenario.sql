@@ -20,6 +20,14 @@
 
 begin;
 
+-- Push delivery configured before anything happens, so every notification
+-- this file causes runs the 0051 trigger down its real path rather than
+-- returning early. net.http_post is the shim in 00_shim.sql: the request is
+-- never made, but the trigger body, the jsonb it builds and the columns it
+-- reads are all executed.
+insert into private.push_config (function_url, hook_secret)
+values ('https://smoke.invalid/functions/v1/send-push', 'smoke-secret');
+
 -- Two accounts. Fires on_auth_user_created, which creates the profiles, and
 -- claim_pending_invitations_on_profile behind it.
 insert into auth.users (id, email, raw_user_meta_data) values

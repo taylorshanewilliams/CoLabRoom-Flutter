@@ -108,3 +108,32 @@ end;
 $$;
 
 grant all on all tables in schema storage to service_role;
+
+-- ---------------------------------------------------------------------
+-- pg_net, which is a Supabase extension and not a Postgres one.
+-- ---------------------------------------------------------------------
+
+-- 0051 hands every new notification to the push sender through
+-- net.http_post. That call has to exist here or the trigger raises the first
+-- time the scenario invites somebody -- and it has to be a no-op, because the
+-- point of the smoke test is the database, not Google's servers.
+--
+-- Matching pg_net's real signature exactly, defaults included. A shim with a
+-- shorter argument list would let a migration that calls it wrongly pass here
+-- and fail in production, which is the failure this whole file exists to
+-- prevent.
+create schema if not exists net;
+
+create or replace function net.http_post(
+  url text,
+  body jsonb default '{}'::jsonb,
+  params jsonb default '{}'::jsonb,
+  headers jsonb default '{"Content-Type": "application/json"}'::jsonb,
+  timeout_milliseconds integer default 5000
+)
+returns bigint
+language sql
+as $$
+  select 1::bigint;
+$$;
+
