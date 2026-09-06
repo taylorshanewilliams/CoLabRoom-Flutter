@@ -921,8 +921,11 @@ end $$;
 do $$
 begin
   begin
+    -- Spelled out rather than :'project': psql does not substitute its
+    -- variables inside a dollar-quoted body, so the reference would reach
+    -- the server literally and fail on the colon.
     perform public.ask_musician(
-      :'project'::uuid,
+      '44444444-4444-4444-4444-444444444444',
       '22222222-2222-2222-2222-222222222222', 'bass', '');
     raise exception 'a song in somebody else''s catalog was offered';
   exception when insufficient_privilege then null;
