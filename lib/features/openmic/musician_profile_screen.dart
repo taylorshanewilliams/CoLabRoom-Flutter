@@ -9,6 +9,7 @@ import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import 'ask_musician_sheet.dart';
+import 'invite_to_catalog_sheet.dart';
 
 /// Somebody's own room.
 ///
@@ -199,6 +200,35 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
     }
   }
 
+  /// The bigger of the two doors: a whole catalog rather than one song.
+  ///
+  /// Both exist because they are genuinely different sizes, and an app with
+  /// only the big one would make every "want to try this?" into "here is my
+  /// band's entire library".
+  Future<void> _invite() async {
+    final musician = _musician;
+    if (musician == null) return;
+    final sent = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: AppColors.deepNavy,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+        ),
+        child: InviteToCatalogSheet(
+          musician: musician,
+          repository: widget.repository,
+        ),
+      ),
+    );
+    if (sent == true && mounted) {
+      _say('Invited ${musician.displayName}. They see nothing until they '
+          'say yes.');
+    }
+  }
+
   Future<void> _editPresence() async {
     final me = _musician;
     if (me == null) return;
@@ -283,6 +313,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
                 onOpen: (link) => unawaited(_open(link)),
                 onEditPresence: () => unawaited(_editPresence()),
                 onAsk: _isMe ? null : () => unawaited(_ask()),
+                onInvite: _isMe ? null : () => unawaited(_invite()),
               ),
       ),
     );
@@ -301,6 +332,7 @@ class _Body extends StatelessWidget {
     required this.onOpen,
     required this.onEditPresence,
     required this.onAsk,
+    required this.onInvite,
   });
 
   final Musician musician;
@@ -315,6 +347,7 @@ class _Body extends StatelessWidget {
 
   /// Null on your own page, where asking yourself is not a thing.
   final VoidCallback? onAsk;
+  final VoidCallback? onInvite;
 
   @override
   Widget build(BuildContext context) {
@@ -385,15 +418,33 @@ class _Body extends StatelessWidget {
                   fontSize: 14.5, fontWeight: FontWeight.w800),
             ),
           ),
+          const SizedBox(height: 8),
+          // Secondary on purpose. One song is the right size for meeting
+          // somebody; a whole catalog is what you offer once you know them,
+          // so the small door is the loud one.
+          if (onInvite != null)
+            OutlinedButton.icon(
+              onPressed: onInvite,
+              icon: const Icon(Icons.library_music_outlined, size: 17),
+              label: const Text('Invite to a catalog'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(44),
+                foregroundColor: AppColors.text,
+                side: const BorderSide(color: AppColors.line),
+                textStyle: const TextStyle(
+                    fontSize: 13.5, fontWeight: FontWeight.w700),
+              ),
+            ),
           const SizedBox(height: 7),
           // Said before they tap, not after. Somebody about to contact a
           // stranger about their unfinished song wants to know what it costs
           // them, and the answer is nothing.
           const Text(
-            'They hear about it. Nothing of yours opens up unless they '
-            'say yes.',
+            'Either way, they hear about it and nothing of yours opens up '
+            'unless they say yes.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: AppColors.muted, fontSize: 11.5),
+            style: TextStyle(
+                color: AppColors.muted, fontSize: 11.5, height: 1.4),
           ),
         ],
         if (isMe && musician.discoverable == false) ...<Widget>[

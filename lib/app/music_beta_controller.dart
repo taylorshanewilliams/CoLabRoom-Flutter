@@ -66,6 +66,7 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   List<MusicRoom> _rooms = const <MusicRoom>[];
   List<BetaInvite> _invites = const <BetaInvite>[];
   List<AskForMe> _asksForMe = const <AskForMe>[];
+  List<RoomInviteForMe> _roomInvitesForMe = const <RoomInviteForMe>[];
   List<Setlist> _setlists = const <Setlist>[];
   List<AppNotification> _notifications = const <AppNotification>[];
   NotificationPreferences _notificationPreferences = const NotificationPreferences();
@@ -88,6 +89,11 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// waiting on an answer — even though it grants a song rather than a
   /// catalog.
   List<AskForMe> get asksForMe => List<AskForMe>.unmodifiable(_asksForMe);
+
+  /// Somebody inviting you into a whole catalog of theirs, by name rather
+  /// than by emailing you a code.
+  List<RoomInviteForMe> get roomInvitesForMe =>
+      List<RoomInviteForMe>.unmodifiable(_roomInvitesForMe);
   List<Setlist> get setlists => List<Setlist>.unmodifiable(_setlists);
   List<AppNotification> get notifications => List<AppNotification>.unmodifiable(_notifications);
   NotificationPreferences get notificationPreferences => _notificationPreferences;
@@ -203,6 +209,11 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       // that one query failed.
       try {
         _asksForMe = await repository.asksForMe();
+      } catch (_) {
+        // Left as it was.
+      }
+      try {
+        _roomInvitesForMe = await repository.roomInvitesForMe();
       } catch (_) {
         // Left as it was.
       }
@@ -640,6 +651,39 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> declineInvite(BetaInvite invite) async {
     await repository.declineInvite(invite);
+    await load();
+  }
+
+  Future<void> removeRoomMember({
+    required String roomId,
+    required String userId,
+  }) async {
+    await repository.removeRoomMember(roomId: roomId, userId: userId);
+    await load();
+  }
+
+  Future<void> leaveRoom(String roomId) async {
+    await repository.leaveRoom(roomId);
+    await load();
+  }
+
+  Future<void> inviteMusicianToRoom({
+    required String roomId,
+    required String profileId,
+    String note = '',
+  }) {
+    return repository.inviteMusicianToRoom(
+      roomId: roomId,
+      profileId: profileId,
+      note: note,
+    );
+  }
+
+  Future<void> answerRoomInvite(
+    RoomInviteForMe invite, {
+    required bool accept,
+  }) async {
+    await repository.answerRoomInvite(invite.id, accept: accept);
     await load();
   }
 
