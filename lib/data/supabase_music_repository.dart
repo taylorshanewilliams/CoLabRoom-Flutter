@@ -917,6 +917,25 @@ class SupabaseMusicRepository implements MusicRepository {
   String get currentUserId => _userId;
 
   @override
+  Future<List<ProvenanceEvent>> loadProvenance(String projectId) async {
+    final rows = await client.rpc<dynamic>(
+      'song_provenance',
+      params: <String, dynamic>{'target_project': projectId},
+    );
+    return <ProvenanceEvent>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        ProvenanceEvent(
+          at: DateTime.parse((row as Map<String, dynamic>)['at'] as String)
+              .toLocal(),
+          event: row['event'] as String? ?? '',
+          who: row['who'] as String?,
+          whoName: row['who_name'] as String? ?? 'someone',
+          detail: row['detail'] as String? ?? '',
+        ),
+    ];
+  }
+
+  @override
   Future<List<SongAsk>> loadAsks(String projectId) async {
     final rows = await client
         .from('project_asks')

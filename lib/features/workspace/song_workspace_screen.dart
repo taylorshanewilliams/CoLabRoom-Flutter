@@ -23,6 +23,7 @@ import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/microphone_disclosure.dart';
 import 'continuous_song_editor.dart';
 import 'ask_bar.dart';
+import 'song_history_screen.dart';
 import 'cowork_panel.dart';
 import 'live_performance_screen.dart';
 import 'lyric_import_flow.dart';
@@ -38,7 +39,7 @@ enum _VoiceNoteAction { play, rerecord, delete }
 /// the always-visible toolbar instead. They used to appear in both places
 /// under two different names — the "Recording" pill and the "Analyze Song"
 /// menu item pushed the exact same screen.
-enum _SongMenuAction { importLyrics, invite, color, print, share }
+enum _SongMenuAction { importLyrics, invite, color, history, print, share }
 
 class SongWorkspaceScreen extends StatefulWidget {
   const SongWorkspaceScreen({required this.projectId, super.key});
@@ -476,6 +477,22 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     }
     if (action == _SongMenuAction.color) {
       await _showColorPicker();
+      return;
+    }
+    if (action == _SongMenuAction.history) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          // Named, unlike almost every other push in this app, because a
+          // failure on a screen about evidence should say which screen it
+          // was on.
+          settings: const RouteSettings(name: 'Song history'),
+          builder: (_) => SongHistoryScreen(
+            projectId: project.id,
+            songTitle: project.title,
+            repository: BetaScope.of(context, listen: false).repository,
+          ),
+        ),
+      );
       return;
     }
     if (action == _SongMenuAction.invite) {
@@ -1141,6 +1158,15 @@ class _PortraitProjectHeader extends StatelessWidget {
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.person_add_alt_1_rounded),
                   title: Text('Invite to This Song'),
+                ),
+              ),
+              PopupMenuItem<_SongMenuAction>(
+                value: _SongMenuAction.history,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.receipt_long_outlined),
+                  title: Text('History'),
+                  subtitle: Text('Who did what, and when'),
                 ),
               ),
               PopupMenuDivider(),
