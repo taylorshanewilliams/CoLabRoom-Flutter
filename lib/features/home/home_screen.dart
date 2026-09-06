@@ -74,12 +74,22 @@ class HomeScreen extends StatelessWidget {
           sliver: SliverToBoxAdapter(
             child: Row(
               children: <Widget>[
-                // Flexible, not fixed. The wordmark beside the mark is text,
-                // so it grows with the reader's font setting, and a Spacer
-                // cannot give back space that was never free — the bell went
-                // off the right edge instead.
-                const Flexible(child: BrandMark()),
-                const Spacer(),
+                // Expanded, and no Spacer after it.
+                //
+                // This was Flexible plus a Spacer, and those are both flex
+                // children — so they split the free space between them and
+                // the wordmark was squeezed to half the row while the other
+                // half sat empty beside it. It rendered as "CoL…" with
+                // obvious room to its right, which is a worse failure than
+                // the overflow it was fixing: an app whose own name is cut
+                // off on its first screen.
+                //
+                // Expanded gives the mark everything left after the bell and
+                // the avatar. BrandMark's own Row is mainAxisSize.min, so it
+                // draws at its natural width and leaves the slack to the
+                // right; the ellipsis inside it only ever engages when the
+                // space is genuinely too small.
+                const Expanded(child: BrandMark()),
                 Semantics(
                   button: true,
                   label: 'Notifications',
