@@ -74,7 +74,11 @@ class HomeScreen extends StatelessWidget {
           sliver: SliverToBoxAdapter(
             child: Row(
               children: <Widget>[
-                const BrandMark(),
+                // Flexible, not fixed. The wordmark beside the mark is text,
+                // so it grows with the reader's font setting, and a Spacer
+                // cannot give back space that was never free — the bell went
+                // off the right edge instead.
+                const Flexible(child: BrandMark()),
                 const Spacer(),
                 Semantics(
                   button: true,
@@ -173,7 +177,13 @@ class HomeScreen extends StatelessWidget {
                   semanticLabel: 'Start a new song',
                   borderRadius: BorderRadius.circular(19),
                   child: SizedBox(
-                    height: 84,
+                    // No fixed height. This card holds two lines of text at
+                    // 17 and 12.5 points, which is 84 pixels on the phone the
+                    // number was measured on and more than that on a phone
+                    // whose owner reads at 1.3x — the same defect as the take
+                    // strip's 30px name box. A minimum keeps the tap target
+                    // honest; the content decides the rest.
+                    constraints: const BoxConstraints(minHeight: 84),
                     child: AppSurface(
                       child: Row(
                         children: <Widget>[
@@ -264,8 +274,18 @@ class HomeScreen extends StatelessWidget {
             sliver: SliverToBoxAdapter(
               child: Row(
                 children: <Widget>[
-                  Text('Jump back in', style: Theme.of(context).textTheme.titleLarge),
-                  const Spacer(),
+                  // Expanded with an ellipsis rather than Text beside a
+                  // Spacer. A Spacer only distributes space that is left over,
+                  // so when the heading and the button together want more than
+                  // the row has, nothing shrinks and the button is pushed out.
+                  Expanded(
+                    child: Text(
+                      'Jump back in',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
                   TextButton(onPressed: onSeeSongs, child: const Text('All songs  ›')),
                 ],
               ),
@@ -310,32 +330,54 @@ class HomeScreen extends StatelessWidget {
             // the button down with it.
             //
             // This is the Rooms surface now, so the action belongs here.
-            // Expanded on the title rather than a Spacer so a long heading
-            // ellipsizes instead of shoving the button off the edge.
-            child: Row(
+            //
+            // A Wrap, because three controls do not fit on one line of a
+            // 360-pixel phone and no amount of Expanded makes them. The row
+            // wanted 390 pixels of the 324 it had: a heading, a "See all" and
+            // a "New catalog", each of which grows again with the reader's
+            // font size.
+            //
+            // Ellipsizing the heading was the previous attempt and it does
+            // not help — the two buttons alone are wider than the row once
+            // their labels are drawn, so the heading shrinks to nothing and
+            // the overflow is unchanged.
+            //
+            // Wrap lets the buttons drop to a second line when they must, and
+            // keeps them side by side when there is room. Neither label is
+            // abbreviated to an unexplained icon, which is the other way this
+            // could have been solved and the way this app has been bitten
+            // before.
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 4,
               children: <Widget>[
-                Expanded(
-                  child: Text(
-                    'Your catalogs',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
+                Text(
+                  'Your catalogs',
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
                 // Goes to the Rooms list now. It used to jump to the Songs
                 // tab, which showed songs — a link labelled "see all" under a
                 // heading that says Rooms should show all the Rooms.
-                TextButton(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const RoomsScreen()),
-                  ),
-                  child: const Text('See all  ›'),
-                ),
-                const SizedBox(width: 4),
-                FilledButton.tonalIcon(
-                  onPressed: () => showCreateRoomDialog(context, controller),
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('New catalog'),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const RoomsScreen(),
+                        ),
+                      ),
+                      child: const Text('See all  ›'),
+                    ),
+                    const SizedBox(width: 4),
+                    FilledButton.tonalIcon(
+                      onPressed: () => showCreateRoomDialog(context, controller),
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      label: const Text('New catalog'),
+                    ),
+                  ],
                 ),
               ],
             ),
