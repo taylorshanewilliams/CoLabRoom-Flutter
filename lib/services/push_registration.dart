@@ -129,6 +129,11 @@ abstract final class PushRegistration {
   /// this device would move the row anyway — but somebody who signs out and
   /// hands the phone back should not have to rely on that.
   static Future<void> forget() async {
+    // First, and outside the availability check: a listener registered for the
+    // account that is leaving has no business surviving into the next one's
+    // session, handing them a token refresh for somebody else's row.
+    await _refresh?.cancel();
+    _refresh = null;
     if (!_available) return;
     try {
       final token = await FirebaseMessaging.instance.getToken();
