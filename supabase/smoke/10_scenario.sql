@@ -1479,9 +1479,31 @@ begin
   end if;
 
   -- And it is not theirs to take down.
+  --
+  -- This is the assertion that found the null trap in 0068: room_role_for is
+  -- null for a stranger, `null <> 'owner'` is null, and `if null then` does
+  -- not fire — so every owner-only guard in the app was open to exactly the
+  -- person it existed to stop. Nine of them, since migration 0001.
   begin
     perform public.take_off_open_mic('aaaaaaaa-0000-0000-0000-00000000000a');
     raise exception 'a stranger took somebody else''s song off the Open Mic';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- The same trap, on the two that could empty somebody's band.
+  begin
+    perform public.remove_room_member(
+      '33333333-3333-3333-3333-333333333333',
+      '11111111-1111-1111-1111-111111111111');
+    raise exception 'a stranger removed a member from somebody else''s catalog';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    perform public.invite_musician_to_room(
+      '33333333-3333-3333-3333-333333333333',
+      '99999999-9999-9999-9999-999999999999', '');
+    raise exception 'a stranger invited somebody to a catalog they are not in';
   exception when insufficient_privilege then null;
   end;
 end $$;

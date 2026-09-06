@@ -61,7 +61,7 @@ begin
   -- The catalog owner only. An editor can record on a song; deciding that
   -- strangers may hear it is a different size of decision and belongs to
   -- whoever owns the catalog it lives in.
-  if private.room_role_for(song.room_id) <> 'owner' then
+  if private.room_role_for(song.room_id) is distinct from 'owner' then
     raise exception 'Only the catalog owner can put a song on the Open Mic.'
       using errcode = '42501';
   end if;
@@ -85,9 +85,13 @@ security definer
 set search_path = public
 as $$
 begin
+  -- `is distinct from`, not `<>`. room_role_for is null for somebody who is
+  -- not in the room, and `null <> 'owner'` is null, and `if null then` does
+  -- not fire — so the plain comparison waves through the exact person the
+  -- check exists to stop. See 0068.
   if private.room_role_for(
        (select room_id from public.projects where id = target_project)
-     ) <> 'owner' then
+     ) is distinct from 'owner' then
     raise exception 'Only the catalog owner can take a song off the Open Mic.'
       using errcode = '42501';
   end if;
