@@ -1,0 +1,84 @@
+name: Deploy the public chord tool
+
+# Manual only. Deploys the analyze-public Edge Function — the free chord tool
+# on colabroom.com — and pushes the secret it needs into Supabase.
+#
+# Its own workflow rather than a step in deploy-analyze-chords, for the same
+# reason the push sender got one: that workflow redeploys the analysis
+# pipeline, which is the slowest and most breakable part of this project, and
+# a change to a free web page has no business being able to disturb it.
+#
+# CHORD_SERVICE_URL and CHORD_SERVICE_API_KEY are set here too even though
+# deploy-analyze-chords already sets them. Supabase function secrets are
+# project-wide, so this is a no-op when that workflow has run — and the
+# difference between a no-op and a 503 nobody can explain is whether this file
+# can be run on its own by somebody who has never run the other one.
+on:
+  workflow_dispatch:
+
+env:
+  CHORD_SERVICE_URL: https://colabroom-chord-service-7nvccxceca-uc.a.run.app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link the project
+        run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Refuse to deploy half a configuration
+        # Without the salt the function answers 503 and the website says
+        # "that upload did not reach us" — which looks exactly like a network
+        # problem and sends whoever debugs it in the wrong direction.
+        env:
+          PUBLIC_TOOL_SALT: ${{ secrets.PUBLIC_TOOL_SALT }}
+          CHORD_SERVICE_API_KEY: ${{ secrets.CHORD_SERVICE_API_KEY }}
+        run: |
+          test -n "$PUBLIC_TOOL_SALT" \
+            || { echo "::error::PUBLIC_TOOL_SALT is not set"; exit 1; }
+          test -n "$CHORD_SERVICE_API_KEY" \
+            || { echo "::error::CHORD_SERVICE_API_KEY is not set"; exit 1; }
+
+      - name: Push the secrets into Supabase
+        # Through env: rather than inline interpolation. A secret with a quote
+        # in it closes the shell string early and the failure is reported
+        # against the wrong thing entirely — that cost an evening once already.
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          PUBLIC_TOOL_SALT: ${{ secrets.PUBLIC_TOOL_SALT }}
+          CHORD_SERVICE_API_KEY: ${{ secrets.CHORD_SERVICE_API_KEY }}
+        run: |
+          supabase secrets set \
+            PUBLIC_TOOL_SALT="$PUBLIC_TOOL_SALT" \
+            CHORD_SERVICE_URL="$CHORD_SERVICE_URL" \
+            CHORD_SERVICE_API_KEY="$CHORD_SERVICE_API_KEY" \
+            --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Deploy analyze-public
+        # --no-verify-jwt because the entire point is that the caller has no
+        # account. The endpoint protects itself with a per-requester daily
+        # quota claimed before it reads the upload, rather than with a token
+        # nobody visiting a website would have.
+        run: |
+          supabase functions deploy analyze-public \
+            --no-verify-jwt \
+            --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Done
+        run: |
+          echo "The chord tool is live at:"
+          echo "  https://${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co/functions/v1/analyze-public"
+          echo
+          echo "It needs migration 0054 applied, or every request fails on the"
+          echo "quota check with a missing-function error."
