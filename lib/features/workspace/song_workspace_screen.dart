@@ -19,6 +19,7 @@ import '../../services/error_reporter.dart';
 import '../../services/project_export_service.dart';
 import '../../services/cowork_service.dart';
 import '../../services/song_analysis_service.dart';
+import '../../services/user_facing_error.dart';
 import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/microphone_disclosure.dart';
 import 'continuous_song_editor.dart';
@@ -510,10 +511,19 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         case _SongMenuAction.importLyrics:
         case _SongMenuAction.invite:
         case _SongMenuAction.color:
+        case _SongMenuAction.history:
           break; // handled above
       }
     } catch (error) {
-      if (mounted) _showMessage(error.toString());
+      if (mounted) {
+        _showMessage(reportAndDescribe(
+          error,
+          service: 'app',
+          stage: 'song_menu',
+          route: 'Song',
+          projectId: project.id,
+        ));
+      }
     }
   }
 
