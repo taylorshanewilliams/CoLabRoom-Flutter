@@ -40,7 +40,15 @@ enum _VoiceNoteAction { play, rerecord, delete }
 /// the always-visible toolbar instead. They used to appear in both places
 /// under two different names — the "Recording" pill and the "Analyze Song"
 /// menu item pushed the exact same screen.
-enum _SongMenuAction { importLyrics, invite, color, history, print, share }
+enum _SongMenuAction {
+  importLyrics,
+  invite,
+  openMic,
+  color,
+  history,
+  print,
+  share,
+}
 
 class SongWorkspaceScreen extends StatefulWidget {
   const SongWorkspaceScreen({required this.projectId, super.key});
@@ -500,6 +508,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       await _inviteToSong(project);
       return;
     }
+    if (action == _SongMenuAction.openMic) {
+      await _openMic(project);
+      return;
+    }
     try {
       switch (action) {
         case _SongMenuAction.print:
@@ -510,6 +522,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           break;
         case _SongMenuAction.importLyrics:
         case _SongMenuAction.invite:
+        case _SongMenuAction.openMic:
         case _SongMenuAction.color:
         case _SongMenuAction.history:
           break; // handled above
@@ -530,6 +543,63 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   /// Invites someone to just this one song rather than the whole Room —
   /// the narrower alternative to the Room's own "Invite collaborator",
   /// which grants every song in the Room at once.
+  /// Offering a song to everybody who is signed in.
+  ///
+  /// Confirmed, and the confirmation says the two things somebody actually
+  /// wants to know: that only the takes the room has already heard become
+  /// audible, and that it can be taken down again. An app where publishing
+  /// feels irreversible is one where nobody publishes.
+  Future<void> _openMic(SongProject project) async {
+    final controller = BetaScope.of(context, listen: false);
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.raised,
+        title: Text('Put ${project.title} on the Open Mic?'),
+        content: const Text(
+          'Anybody signed in can find it, listen to it, and offer to play on '
+          'it. Only the takes your room has already heard become audible — '
+          'nothing anybody is still working on privately.'
+          '\n\n'
+          'You can take it down again whenever you like.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not yet'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Put it up'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    try {
+      await controller.repository.putOnOpenMic(project.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text('${project.title} is on the Open Mic.'),
+        ));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(reportAndDescribe(
+            error,
+            service: 'app',
+            stage: 'put_on_open_mic',
+            projectId: project.id,
+            route: 'Song',
+          )),
+        ));
+    }
+  }
+
   Future<void> _inviteToSong(SongProject project) async {
     final draft = await showDialog<InviteDraft>(
       context: context,
@@ -1168,6 +1238,14 @@ class _PortraitProjectHeader extends StatelessWidget {
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.person_add_alt_1_rounded),
                   title: Text('Invite to This Song'),
+                ),
+              ),
+              PopupMenuItem<_SongMenuAction>(
+                value: _SongMenuAction.openMic,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.mic_external_on_rounded),
+                  title: Text('Put it on the Open Mic'),
                 ),
               ),
               PopupMenuItem<_SongMenuAction>(

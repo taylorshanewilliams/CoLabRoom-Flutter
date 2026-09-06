@@ -1,6 +1,7 @@
 import 'package:colabroom/app/colabroom_app.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
+import 'package:colabroom/features/openmic/open_mic_song_screen.dart';
 import 'package:colabroom/features/workspace/song_analysis_screen.dart';
 import 'package:colabroom/widgets/brand_mark.dart';
 import 'package:flutter/material.dart';
@@ -394,6 +395,51 @@ void main() {
       await _frames(tester);
       expect(tester.takeException(), isNull, reason: _why('the $chip filter'));
     }
+  });
+
+  testWidgets('Open Mic has both halves, and the songs one draws',
+      (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.3);
+
+    await _tapText(tester, 'Open Mic');
+    expect(tester.takeException(), isNull, reason: _why('Open Mic'));
+
+    // Two things are on an open mic: who is here, and what is being played.
+    // It only knew about the first until the public song page existed.
+    expect(find.text('People'), findsOneWidget);
+    expect(find.text('Songs'), findsWidgets);
+
+    // Targeted, not by text: "Songs" is also the name of a tab, and the
+    // tolerant helper taps the last match — which switched tab instead and
+    // made this test pass by looking at the wrong screen.
+    final songsSegment = find.descendant(
+      of: find.byType(SegmentedButton<bool>),
+      matching: find.text('Songs'),
+    );
+    expect(songsSegment, findsOneWidget);
+    await tester.tap(songsSegment);
+    await _frames(tester);
+    expect(tester.takeException(), isNull,
+        reason: _why('the songs half of Open Mic'));
+
+    // Cards lead with what a song is asking for, because that is the only
+    // thing that decides whether somebody taps. A list of titles is a list
+    // nobody can act on.
+    expect(find.textContaining('Asking for'), findsWidgets,
+        reason: 'a song on the Open Mic did not say what it wants');
+
+    expect(await _tapText(tester, 'Ladder Of Life'), isTrue);
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+    expect(tester.takeException(), isNull, reason: _why('an Open Mic song'));
+    expect(find.byType(OpenMicSongScreen), findsOneWidget,
+        reason: 'tapping a song did not open it');
+    expect(find.text('Offer to play on this'), findsOneWidget,
+        reason: 'the song page had no way to answer it');
   });
 
   testWidgets('the app says its own name in full', (tester) async {
