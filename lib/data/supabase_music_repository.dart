@@ -982,6 +982,84 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> removeRoomMember({
+    required String roomId,
+    required String userId,
+  }) async {
+    await client.rpc<dynamic>(
+      'remove_room_member',
+      params: <String, dynamic>{'target_room': roomId, 'target_user': userId},
+    );
+  }
+
+  @override
+  Future<void> leaveRoom(String roomId) async {
+    await client.rpc<dynamic>(
+      'leave_room',
+      params: <String, dynamic>{'target_room': roomId},
+    );
+  }
+
+  @override
+  Future<List<InvitableRoom>> roomsICanInviteTo(String profileId) async {
+    final rows = await client.rpc<dynamic>(
+      'rooms_i_can_invite_to',
+      params: <String, dynamic>{'target_person': profileId},
+    );
+    return <InvitableRoom>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        InvitableRoom(
+          id: (row as Map)['id'] as String,
+          name: row['name'] as String? ?? 'Catalog',
+          songCount: (row['song_count'] as num?)?.toInt() ?? 0,
+          alreadyIn: row['already_in'] as bool? ?? false,
+          alreadyInvited: row['already_invited'] as bool? ?? false,
+        ),
+    ];
+  }
+
+  @override
+  Future<void> inviteMusicianToRoom({
+    required String roomId,
+    required String profileId,
+    String note = '',
+  }) async {
+    await client.rpc<dynamic>(
+      'invite_musician_to_room',
+      params: <String, dynamic>{
+        'target_room': roomId,
+        'target_person': profileId,
+        'in_note': note,
+      },
+    );
+  }
+
+  @override
+  Future<List<RoomInviteForMe>> roomInvitesForMe() async {
+    final rows = await client.rpc<dynamic>('room_invites_for_me');
+    return <RoomInviteForMe>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        RoomInviteForMe(
+          id: (row as Map)['id'] as String,
+          roomId: row['room_id'] as String,
+          roomName: row['room_name'] as String? ?? 'A catalog',
+          invitedByName: row['invited_by_name'] as String? ?? 'Somebody',
+          note: row['note'] as String? ?? '',
+          createdAt: DateTime.tryParse('${row['created_at']}')?.toLocal() ??
+              DateTime.now(),
+        ),
+    ];
+  }
+
+  @override
+  Future<void> answerRoomInvite(String inviteId, {required bool accept}) async {
+    await client.rpc<dynamic>(
+      'answer_room_invite',
+      params: <String, dynamic>{'target_invite': inviteId, 'accept': accept},
+    );
+  }
+
+  @override
   Future<List<OfferableSong>> songsICanOffer(String profileId) async {
     final rows = await client.rpc<dynamic>(
       'songs_i_can_offer',

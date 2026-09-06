@@ -15,6 +15,7 @@ import '../../widgets/music_tiles.dart';
 import '../home/new_song_flow.dart';
 import '../workspace/song_workspace_screen.dart';
 import '../../services/user_facing_error.dart';
+import 'room_members_screen.dart';
 
 enum _ProjectSort { manual, updatedRecent, alphabetical, createdNewest, createdOldest }
 
@@ -529,7 +530,37 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Text('${room.members.length} members · ${room.projects.length} projects'),
+                        // The member count was a dead number for the whole
+                        // life of the app: it said three and could not say
+                        // which three. Now it is the door to the list, and to
+                        // the only place somebody can be removed.
+                        InkWell(
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              settings:
+                                  const RouteSettings(name: 'Catalog members'),
+                              builder: (_) =>
+                                  RoomMembersScreen(roomId: room.id),
+                            ),
+                          ),
+                          borderRadius: BorderRadius.circular(6),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                Text(
+                                  '${room.members.length} '
+                                  '${room.members.length == 1 ? 'member' : 'members'}'
+                                  ' · ${room.projects.length} projects',
+                                ),
+                                const SizedBox(width: 3),
+                                const Icon(Icons.chevron_right_rounded,
+                                    size: 16, color: AppColors.muted),
+                              ],
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),

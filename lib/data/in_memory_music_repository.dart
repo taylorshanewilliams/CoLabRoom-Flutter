@@ -753,6 +753,71 @@ class InMemoryMusicRepository implements MusicRepository {
     ),
   ];
 
+  final List<RoomInviteForMe> _roomInvitesForMe = <RoomInviteForMe>[
+    RoomInviteForMe(
+      id: 'preview-room-invite-1',
+      roomId: 'preview-room-2',
+      roomName: 'South Dean',
+      invitedByName: 'Dev Okonjo',
+      note: 'Come see what we have been working on.',
+      createdAt: DateTime(2026, 9, 5, 20, 10),
+    ),
+  ];
+
+  @override
+  Future<void> removeRoomMember({
+    required String roomId,
+    required String userId,
+  }) async {
+    final room = _rooms.firstWhere((r) => r.id == roomId);
+    if (room.accountId == userId) {
+      // The preview refuses what the server refuses, and with the same
+      // sentence — a debug build that allowed it would be somebody testing a
+      // message they never see.
+      throw StateError(
+        'The owner cannot leave their own catalog. Hand it over or delete it.',
+      );
+    }
+    _replaceRoom(room.copyWith(
+      members: room.members
+          .where((m) => m.userId != userId)
+          .toList(growable: false),
+    ));
+  }
+
+  @override
+  Future<void> leaveRoom(String roomId) =>
+      removeRoomMember(roomId: roomId, userId: currentUserId);
+
+  @override
+  Future<List<InvitableRoom>> roomsICanInviteTo(String profileId) async {
+    return <InvitableRoom>[
+      for (final room in _rooms)
+        InvitableRoom(
+          id: room.id,
+          name: room.name,
+          songCount: room.projects.length,
+          alreadyIn: room.members.any((m) => m.userId == profileId),
+        ),
+    ];
+  }
+
+  @override
+  Future<void> inviteMusicianToRoom({
+    required String roomId,
+    required String profileId,
+    String note = '',
+  }) async {}
+
+  @override
+  Future<List<RoomInviteForMe>> roomInvitesForMe() async =>
+      List<RoomInviteForMe>.unmodifiable(_roomInvitesForMe);
+
+  @override
+  Future<void> answerRoomInvite(String inviteId, {required bool accept}) async {
+    _roomInvitesForMe.removeWhere((invite) => invite.id == inviteId);
+  }
+
   @override
   Future<List<OfferableSong>> songsICanOffer(String profileId) async {
     final now = DateTime.now();
