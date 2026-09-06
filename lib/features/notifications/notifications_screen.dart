@@ -6,6 +6,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/problem_report.dart';
 import '../../widgets/app_surface.dart';
 
 /// The single inbox: pending invitations you can act on, then everything
@@ -37,9 +38,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // room came to be shown a Postgres unique-constraint violation. The
       // detail now goes to the error table instead, where it is the diagnosis
       // rather than an obstacle.
-      messenger.showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(error, service: 'app', stage: 'invite')),
-      ));
+      // Reported, described, and offered a way to say more — the moment
+      // somebody has just been let down is the only moment they will
+      // describe what they were doing.
+      showProblem(context, error,
+          service: 'app', stage: 'invite', route: 'Inbox');
     } finally {
       if (mounted) setState(() => _busy = false);
     }

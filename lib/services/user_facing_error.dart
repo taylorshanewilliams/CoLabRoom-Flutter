@@ -70,6 +70,7 @@ String reportAndDescribe(
   required String service,
   String? stage,
   String? projectId,
+  String? route,
   ErrorReporter? reporter,
 }) {
   unawaited((reporter ?? ErrorReporter()).reportError(
@@ -79,6 +80,7 @@ String reportAndDescribe(
     // the table, and losing the constraint name is losing the diagnosis.
     message: error.toString(),
     projectId: projectId,
+    route: route,
   ));
   return describeForUser(error);
 }
