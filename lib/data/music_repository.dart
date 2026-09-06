@@ -163,6 +163,38 @@ abstract interface class MusicRepository {
   /// stop trusting.
   Future<void> restoreActivity(String eventId);
 
+  /// Who is signed in, for the handful of places the UI has to tell this
+  /// person's own row apart from everybody else's — whether *you* have nodded,
+  /// not merely whether somebody has.
+  String get currentUserId;
+
+  /// Everything [projectId] is currently asking for, newest first. Closed
+  /// asks are left out — a song only asks for what it still wants.
+  Future<List<SongAsk>> loadAsks(String projectId);
+
+  /// Ask for something on this song. A null [part] is an open ask.
+  ///
+  /// Anybody in the room can ask, not only whoever uploaded the song: a
+  /// bandmate saying "this wants drums" is a normal thing to happen in a band.
+  Future<SongAsk> askFor({
+    required String projectId,
+    String? part,
+    String note = '',
+  });
+
+  /// Stop asking, because somebody answered or because it stopped mattering.
+  Future<void> closeAsk(SongAsk ask);
+
+  /// The ids of people who have said they heard this song.
+  ///
+  /// Nothing like [markProjectSeen], which records that somebody *opened* a
+  /// song so a badge can be cleared and is private to them by design. This is
+  /// a thing a person chooses to say, and the room is meant to see it.
+  Future<List<String>> loadNods(String projectId);
+
+  /// Say you heard it, or take it back.
+  Future<void> setNod({required String projectId, required bool heard});
+
   Future<InviteResult> createInvite({
     required MusicRoom room,
     required String email,

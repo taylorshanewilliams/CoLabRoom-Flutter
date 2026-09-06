@@ -205,6 +205,51 @@ class SongProject {
 /// in `copyWith` methods that need to support clearing a nullable field.
 const Object _unset = Object();
 
+/// Something a song is asking for.
+///
+/// Two shapes, one object, and the difference is whether [part] is null.
+///
+/// A null part is an **open ask** — "I don't know what this needs, what do you
+/// hear?" — which is the honest state of most unfinished songs and the shape
+/// that costs the person posting it no decision at all. A named part is a
+/// **specific ask** — "this needs a bridge" — for when you know exactly what
+/// you want and only need somebody who can play it.
+///
+/// They are one class because everything downstream treats them identically:
+/// the same audience, the same answering flow, the same closing. A product
+/// that only carried the specific one would be a gig board.
+class SongAsk {
+  const SongAsk({
+    required this.id,
+    required this.projectId,
+    required this.askedBy,
+    required this.createdAt,
+    this.part,
+    this.note = '',
+    this.closed = false,
+  });
+
+  final String id;
+  final String projectId;
+
+  /// Null for an open ask. Free text otherwise, so a band can name a part the
+  /// app has never heard of.
+  final String? part;
+
+  /// What they'd say about it out loud. Often empty, and that is fine.
+  final String note;
+
+  final String askedBy;
+  final DateTime createdAt;
+  final bool closed;
+
+  /// Whether this ask names what it wants.
+  bool get isSpecific => part != null && part!.trim().isNotEmpty;
+
+  /// What to put on a chip, in the words somebody would actually use.
+  String get label => isSpecific ? 'needs ${part!.trim()}' : 'open to ideas';
+}
+
 class Setlist {
   const Setlist({
     required this.id,

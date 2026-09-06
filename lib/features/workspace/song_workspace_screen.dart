@@ -22,6 +22,7 @@ import '../../services/song_analysis_service.dart';
 import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/microphone_disclosure.dart';
 import 'continuous_song_editor.dart';
+import 'ask_bar.dart';
 import 'cowork_panel.dart';
 import 'live_performance_screen.dart';
 import 'lyric_import_flow.dart';
@@ -1005,6 +1006,19 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     onOpenCowork: () => _scaffoldKey.currentState?.openEndDrawer(),
                     othersHere: _othersHere,
                   ),
+                  // Under the toolbar, above the words. High enough that
+                  // somebody sees what the song is asking for without
+                  // scrolling, and out of the way when it is asking nothing —
+                  // which is most songs, most of the time, and is fine.
+                  //
+                  // Hidden while the keyboard is up: somebody mid-line does
+                  // not need the room's requests competing for the space their
+                  // lyrics are in.
+                  if (!keyboardOpen)
+                    AskBar(
+                      projectId: widget.projectId,
+                      repository: controller.repository,
+                    ),
                   const Divider(height: 1),
                   Expanded(child: editor),
                 ],
