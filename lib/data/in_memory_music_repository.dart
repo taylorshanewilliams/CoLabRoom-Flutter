@@ -741,6 +741,56 @@ class InMemoryMusicRepository implements MusicRepository {
     locationVisibility: 'collaborators',
   );
 
+  final List<AskForMe> _asksForMe = <AskForMe>[
+    AskForMe(
+      id: 'preview-ask-1',
+      projectId: 'preview-project-1',
+      songTitle: 'Ladder Of Life',
+      askedByName: 'Mara Ellison',
+      part: 'bass',
+      note: 'Something simple under the chorus — you would nail it.',
+      createdAt: DateTime(2026, 9, 5, 19, 40),
+    ),
+  ];
+
+  @override
+  Future<List<OfferableSong>> songsICanOffer(String profileId) async {
+    final now = DateTime.now();
+    return <OfferableSong>[
+      OfferableSong(
+        id: 'preview-project-1',
+        title: 'Midnight Signal',
+        updatedAt: now.subtract(const Duration(hours: 3)),
+      ),
+      OfferableSong(
+        id: 'preview-project-2',
+        title: 'Paper Moon',
+        updatedAt: now.subtract(const Duration(days: 2)),
+        // The preview shows this state on purpose: it is the one a picker
+        // usually gets wrong by hiding the row and letting somebody wonder
+        // where their song went.
+        alreadyAsked: true,
+      ),
+    ];
+  }
+
+  @override
+  Future<void> askMusician({
+    required String projectId,
+    required String profileId,
+    String? part,
+    String note = '',
+  }) async {}
+
+  @override
+  Future<List<AskForMe>> asksForMe() async =>
+      List<AskForMe>.unmodifiable(_asksForMe);
+
+  @override
+  Future<void> answerAsk(String askId, {required bool accept}) async {
+    _asksForMe.removeWhere((ask) => ask.id == askId);
+  }
+
   @override
   Future<Musician?> loadMusician(String profileId) async {
     if (profileId == currentUserId) return _me;

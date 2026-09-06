@@ -71,8 +71,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Widget build(BuildContext context) {
     final controller = BetaScope.of(context);
     final invites = controller.invites;
+    final asks = controller.asksForMe;
     final notifications = controller.notifications;
-    final empty = invites.isEmpty && notifications.isEmpty;
+    final empty = invites.isEmpty && asks.isEmpty && notifications.isEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -116,6 +117,29 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             : ListView(
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
                 children: <Widget>[
+                  // First, above invitations. Somebody has asked *you*, by
+                  // name, to play something — that is the most personal thing
+                  // this inbox can hold and the one thing in it that another
+                  // musician is waiting on.
+                  if (asks.isNotEmpty) ...<Widget>[
+                    const _SectionLabel('Asked of you'),
+                    for (final ask in asks) ...<Widget>[
+                      _AskCard(
+                        ask: ask,
+                        busy: _busy,
+                        onAccept: () => _run(
+                          () => controller.answerAsk(ask, accept: true),
+                          '${ask.songTitle} is under Songs now.',
+                        ),
+                        onDecline: () => _run(
+                          () => controller.answerAsk(ask, accept: false),
+                          'Passed. They have been told.',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    const SizedBox(height: 8),
+                  ],
                   if (invites.isNotEmpty) ...<Widget>[
                     const _SectionLabel('Invitations'),
                     for (final invite in invites) ...<Widget>[
@@ -161,6 +185,95 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ],
                 ],
               ),
+      ),
+    );
+  }
+}
+
+/// Somebody asking you, by name, to play on their song.
+///
+/// The card carries the song's title and what they said, and nothing else —
+/// which is not a design choice about density but the literal extent of what
+/// the person asked is allowed to see. Deciding does not require access;
+/// accepting is what grants it, and it grants that one song rather than the
+/// catalog it sits in.
+class _AskCard extends StatelessWidget {
+  const _AskCard({
+    required this.ask,
+    required this.busy,
+    required this.onAccept,
+    required this.onDecline,
+  });
+
+  final AskForMe ask;
+  final bool busy;
+  final VoidCallback onAccept;
+  final VoidCallback onDecline;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 15, 16, 12),
+      decoration: BoxDecoration(
+        color: AppColors.raised,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.cyan.withValues(alpha: 0.45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            ask.headline,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              height: 1.3,
+            ),
+          ),
+          if (ask.note.trim().isNotEmpty) ...<Widget>[
+            const SizedBox(height: 7),
+            Text(
+              '“${ask.note.trim()}”',
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 13.5,
+                height: 1.4,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+          const SizedBox(height: 6),
+          const Text(
+            'Saying yes puts this one song in your library. Nothing else of '
+            'theirs opens up.',
+            style: TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.4),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: FilledButton(
+                  onPressed: busy ? null : onAccept,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.cyan,
+                    foregroundColor: AppColors.ink,
+                  ),
+                  child: const Text("I'm in"),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // A real answer, not a dismissal. Somebody who asked deserves
+              // to hear no rather than nothing, and an ask that can only be
+              // answered with silence is one nobody sends twice.
+              TextButton(
+                onPressed: busy ? null : onDecline,
+                style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+                child: const Text('Not this one'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

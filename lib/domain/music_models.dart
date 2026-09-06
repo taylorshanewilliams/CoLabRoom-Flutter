@@ -218,6 +218,55 @@ const Object _unset = Object();
 /// They are one class because everything downstream treats them identically:
 /// the same audience, the same answering flow, the same closing. A product
 /// that only carried the specific one would be a gig board.
+/// A song of yours, as an option in the "ask them to play on…" picker.
+class OfferableSong {
+  const OfferableSong({
+    required this.id,
+    required this.title,
+    required this.updatedAt,
+    this.alreadyAsked = false,
+  });
+
+  final String id;
+  final String title;
+  final DateTime updatedAt;
+
+  /// This person already has an open ask about this song. Shown rather than
+  /// hidden — "you asked them this yesterday" is more useful than a song
+  /// quietly missing from the list.
+  final bool alreadyAsked;
+}
+
+/// Somebody asking you, specifically, to play on something.
+///
+/// Carries the song's title without carrying the song: until it is accepted,
+/// the title and the note are the only things about that project the person
+/// asked is allowed to see. Deciding does not require access, and access is
+/// what accepting is for.
+class AskForMe {
+  const AskForMe({
+    required this.id,
+    required this.projectId,
+    required this.songTitle,
+    required this.askedByName,
+    required this.createdAt,
+    this.part,
+    this.note = '',
+  });
+
+  final String id;
+  final String projectId;
+  final String songTitle;
+  final String askedByName;
+  final String? part;
+  final String note;
+  final DateTime createdAt;
+
+  String get headline => part == null
+      ? '$askedByName asked you to play on $songTitle'
+      : '$askedByName asked you to play $part on $songTitle';
+}
+
 class SongAsk {
   const SongAsk({
     required this.id,
