@@ -33,6 +33,19 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// Overflow is an exception in a widget test, so `takeException` catches the
 /// yellow stripes as well as the crashes.
+/// Lets a few frames go by, without requiring the app to ever stop moving.
+///
+/// `pumpAndSettle` waits for no animation to be in flight and throws when one
+/// never ends — and this app has controls that pulse on purpose. That is not a
+/// defect, and a sweep like this one should not treat it as one, so the
+/// harness advances a fixed number of frames instead: long enough for a route
+/// transition and a rebuild, indifferent to anything still ticking.
+Future<void> _frames(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 350));
+  await tester.pump(const Duration(milliseconds: 350));
+}
+
 Future<MusicBetaController> _controller() async {
   final controller = MusicBetaController(InMemoryMusicRepository.seeded());
   await controller.load();
@@ -61,7 +74,7 @@ Future<void> _boot(
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 
   await tester.pumpWidget(CoLabRoomApp.preview(controller: controller));
-  await tester.pumpAndSettle();
+  await _frames(tester);
 }
 
 /// What the app actually believes it is being drawn into.
@@ -89,7 +102,7 @@ Future<bool> _tapText(WidgetTester tester, String label) async {
   final finder = find.text(label);
   if (finder.evaluate().isEmpty) return false;
   await tester.tap(finder.last, warnIfMissed: false);
-  await tester.pumpAndSettle();
+  await _frames(tester);
   return true;
 }
 
@@ -177,7 +190,7 @@ void main() {
     // stops fitting, and it is a state the app spends a lot of its life in.
     tester.view.viewInsets = const FakeViewPadding(bottom: 345);
     addTearDown(tester.view.reset);
-    await tester.pumpAndSettle();
+    await _frames(tester);
 
     expect(
       tester.takeException(),
