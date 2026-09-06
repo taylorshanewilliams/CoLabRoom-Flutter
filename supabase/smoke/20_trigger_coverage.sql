@@ -38,7 +38,10 @@ insert into smoke_covered (name) values
   -- The scenario has two accounts accept invitations to one Room and
   -- asserts they came out with distinct colours.
   ('room_members_assign_colour'),
-  ('project_members_assign_colour');
+  ('project_members_assign_colour'),
+  -- The scenario posts an open ask and a specific one, and asserts both
+  -- reached the song activity stream and the rest of the room.
+  ('project_asks_announce');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario
