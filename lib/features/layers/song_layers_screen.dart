@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -22,6 +23,7 @@ import '../../services/error_reporter.dart';
 import '../../services/song_layer_service.dart';
 import '../../services/take_export.dart';
 import '../../services/take_naming.dart';
+import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
 import 'layer_console.dart';
 import 'song_level_store.dart';
@@ -1084,6 +1086,108 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     }
   }
 
+  /// Bring a take back in from somewhere else.
+  ///
+  /// The other half of "Save a copy", and the half that makes the export
+  /// worth anything. Two people who find each other here will not do all the
+  /// work here — the good version of this is somebody taking the mix into a
+  /// DAW, cutting a proper vocal against it with a real microphone and a real
+  /// room, and bringing it back. Without this, that bounce has nowhere to go
+  /// and the collaboration stops at the point it got serious.
+  ///
+  /// It is deliberately the same shape as a recorded take once it lands: same
+  /// naming sheet, same silence check, same upload. The only difference is
+  /// where the audio came from, and nothing downstream needs to care.
+  Future<void> _importTake() async {
+    if (_busy || _recording) return;
+    final picked = await FilePicker.pickFile(
+      type: FileType.custom,
+      allowedExtensions: const <String>[
+        'wav', 'mp3', 'm4a', 'aac', 'flac', 'aiff', 'aif', 'ogg', 'opus',
+      ],
+    );
+    final path = picked?.path;
+    if (path == null || !mounted) return;
+
+    setState(() {
+      _busy = true;
+      _error = null;
+      _status = 'Reading the file';
+    });
+    try {
+      // The same two questions asked of a recording, for the same reasons: a
+      // container that will not decode is not a take, and a file of digital
+      // silence is the failure this feature spent three rounds of testing
+      // learning to catch. An import can be silent just as easily — a bounce
+      // of a muted track looks exactly like a good one until somebody plays
+      // it back.
+      final samples = await Multitrack.readRecording(path);
+      if (samples == null || samples.isEmpty) {
+        throw StateError(
+          'That file could not be read as audio. A wav or mp3 bounced from '
+          'your DAW is the safest thing to bring in.',
+        );
+      }
+      if (Multitrack.peakOf(samples) < Multitrack.silenceFloor) {
+        throw StateError(
+          'That file is silent all the way through, so it was not added. '
+          'Check the right track was soloed when it was bounced.',
+        );
+      }
+
+      final described = mounted
+          ? await askWhatThatWas(context, performer: _performer)
+          : null;
+      if (described?.performer != null) _performer = described!.performer;
+      final part = described?.part ?? TakePart.other;
+
+      final take = Take(
+        id: path,
+        path: path,
+        label: TakeNaming.nextLabel(_takes, part, described?.performer),
+        recordedAt: DateTime.now(),
+        durationMs:
+            (samples.length / Multitrack.rate * 1000).round(),
+        // Both zero, and that is a decision rather than a default. A recorded
+        // take is corrected for the phone's own latency and may be punched in
+        // partway through the song; a file bounced somewhere else is already
+        // exactly where its author put it, and the export's own note tells
+        // them to line everything up at zero. Applying a trim to it here
+        // would move audio somebody has already placed.
+        offsetMs: 0,
+        startMs: 0,
+        part: part,
+        performer: described?.performer,
+      );
+
+      if (mounted) setState(() => _status = 'Sharing it with the room');
+      await _service.upload(
+        roomId: widget.roomId,
+        projectId: widget.projectId,
+        take: take,
+      );
+      // Not deleted afterwards, unlike a recording. That file is the
+      // musician's own, sitting in their own storage, and it is not this
+      // app's to remove.
+      await _load();
+    } catch (error) {
+      unawaited(ErrorReporter().reportError(
+        service: 'layers',
+        stage: 'import',
+        message: 'Importing a take failed: $error',
+        projectId: widget.projectId,
+      ));
+      if (mounted) setState(() => _error = describeForUser(error));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _status = null;
+        });
+      }
+    }
+  }
+
   Future<void> _export() async {
     final takes = _takes;
     if (takes.isEmpty || _busy) return;
@@ -1098,15 +1202,18 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
             ListTile(
               leading: const Icon(Icons.graphic_eq_rounded, color: AppColors.gold),
               title: const Text('The mix'),
-              subtitle: const Text('One file of what you hear now.'),
+              subtitle: const Text(
+                'The song and every take you can hear, together as one audio '
+                'file.',
+              ),
               onTap: () => Navigator.pop(sheetContext, 'mix'),
             ),
             ListTile(
               leading: const Icon(Icons.folder_zip_outlined, color: AppColors.cyan),
-              title: const Text('Every take'),
+              title: const Text('Every take, separately'),
               subtitle: const Text(
-                'Each one on its own, with the volumes and timing written '
-                'down. Yours to keep.',
+                'One file each, plus the volumes and timing written down — '
+                'for opening in a DAW. Yours to keep.',
               ),
               onTap: () => Navigator.pop(sheetContext, 'layers'),
             ),
@@ -1184,10 +1291,37 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           ],
         ),
         actions: <Widget>[
-          IconButton(
-            onPressed: !hasLayers || _busy ? null : () => unawaited(_export()),
-            tooltip: 'Save a copy',
-            icon: const Icon(Icons.ios_share_rounded),
+          // Labelled, and not gated on there being shared takes.
+          //
+          // This was a bare share glyph whose only explanation was a tooltip,
+          // and a tooltip on a phone requires knowing to long-press something
+          // you have not noticed. The band recorded a take, listened to it
+          // together, and concluded the app had no way to get the audio out —
+          // while this button sat in the corner of the screen they were
+          // looking at. A feature nobody can find is not a feature.
+          //
+          // `hasLayers` counted only *shared* takes, so a song with none at
+          // all could not be saved either. The song's own recording is in
+          // `_takes`, and wanting a copy of your own song is not a stranger
+          // request than wanting a copy of the mix. `_export` already refuses
+          // when there is genuinely nothing.
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: TextButton.icon(
+              onPressed: !hasSomethingToHear || _busy
+                  ? null
+                  : () => unawaited(_export()),
+              icon: const Icon(Icons.ios_share_rounded, size: 18),
+              label: const Text('Save'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.cyan,
+                disabledForegroundColor: AppColors.line,
+                textStyle: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -1330,55 +1464,83 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              if (hasSomethingToHear) ...<Widget>[
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _recording || _busy
-                        ? null
-                        : () => unawaited(_togglePlay()),
-                    icon: Icon(_playing
-                        ? Icons.stop_rounded
-                        : Icons.play_arrow_rounded),
-                    label: Text(_playing ? 'Stop' : 'Play'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.cyan,
-                      minimumSize: const Size.fromHeight(52),
+              Row(
+                children: <Widget>[
+                  if (hasSomethingToHear) ...<Widget>[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _recording || _busy
+                            ? null
+                            : () => unawaited(_togglePlay()),
+                        icon: Icon(_playing
+                            ? Icons.stop_rounded
+                            : Icons.play_arrow_rounded),
+                        label: Text(_playing ? 'Stop' : 'Play'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.cyan,
+                          minimumSize: const Size.fromHeight(52),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton.icon(
+                      key: const Key('layers_record_button'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor:
+                            _recording ? const Color(0xFFFF718B) : AppColors.gold,
+                        foregroundColor: AppColors.ink,
+                        minimumSize: const Size.fromHeight(52),
+                      ),
+                      onPressed:
+                          _busy ? null : () => unawaited(_recording ? _stop() : _record()),
+                      icon: Icon(_recording
+                          ? Icons.stop_rounded
+                          : Icons.fiber_manual_record_rounded),
+                      label: Text(
+                        _recording
+                            ? 'Stop  ${_elapsed.inMinutes}:${(_elapsed.inSeconds % 60).toString().padLeft(2, '0')}'
+                            : _position > Duration.zero
+                                // Says where it will land. Punching in is only
+                                // useful if somebody can see that it is about to
+                                // happen — an unlabelled record button at 2:40
+                                // looks exactly like one at 0:00.
+                                ? 'Punch in at ${_clock(_position)}'
+                                : hasLayers
+                                    ? 'Add a take'
+                                    : 'Record the first take',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-              ],
-              Expanded(
-                flex: 2,
-                child: FilledButton.icon(
-                  key: const Key('layers_record_button'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor:
-                        _recording ? const Color(0xFFFF718B) : AppColors.gold,
-                    foregroundColor: AppColors.ink,
-                    minimumSize: const Size.fromHeight(52),
+                ],
+              ),
+              // The way back in, said in the words somebody would use for it.
+              //
+              // A phone in a room is the right tool for catching an idea and
+              // the wrong one for a finished vocal. The moment two people
+              // decide they are actually making something, one of them opens
+              // a DAW — and until now that was where the song left CoLabRoom
+              // for good, because a bounce had nowhere to return to.
+              TextButton.icon(
+                onPressed: _busy || _recording
+                    ? null
+                    : () => unawaited(_importTake()),
+                icon: const Icon(Icons.file_upload_outlined, size: 17),
+                label: const Text('Recorded it elsewhere? Add a file'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.muted,
+                  disabledForegroundColor: AppColors.line,
+                  textStyle: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
                   ),
-                  onPressed:
-                      _busy ? null : () => unawaited(_recording ? _stop() : _record()),
-                  icon: Icon(_recording
-                      ? Icons.stop_rounded
-                      : Icons.fiber_manual_record_rounded),
-                  label: Text(
-                    _recording
-                        ? 'Stop  ${_elapsed.inMinutes}:${(_elapsed.inSeconds % 60).toString().padLeft(2, '0')}'
-                        : _position > Duration.zero
-                            // Says where it will land. Punching in is only
-                            // useful if somebody can see that it is about to
-                            // happen — an unlabelled record button at 2:40
-                            // looks exactly like one at 0:00.
-                            ? 'Punch in at ${_clock(_position)}'
-                            : hasLayers
-                                ? 'Add a take'
-                                : 'Record the first take',
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
+                  minimumSize: const Size.fromHeight(36),
                 ),
               ),
             ],
