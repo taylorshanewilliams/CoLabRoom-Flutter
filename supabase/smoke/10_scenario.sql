@@ -357,4 +357,130 @@ begin
   end if;
 end $$;
 
+-- Two people accepting an invitation to the same Room (0047).
+--
+-- This file used to hand-write two distinct colours into room_members with a
+-- comment reading "two members sharing the default is not a state the app can
+-- produce". The app produced it in every Room it had: 0018 rewrote
+-- accept_room_invitation_by_id and dropped the palette pick, so the first
+-- person to accept took the column default and the second collided with them
+-- on room_members_room_color_unique and could not join at all.
+--
+-- The scenario missed it by never running the accept path — it built the
+-- membership rows directly, the way no user can. So build this one the way
+-- the app does: an owner row with no colour of its own, then two real
+-- invitations accepted by two real accounts.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('88888888-8888-8888-8888-888888888888', 'joiner.one@smoke.test', '{"display_name": "Joiner One"}'),
+  ('99999999-9999-9999-9999-999999999999', 'joiner.two@smoke.test', '{"display_name": "Joiner Two"}');
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+insert into public.rooms (id, account_id, name)
+values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'writer', 'The Invite Room');
+
+-- No color_value on purpose: the owner takes the table default, which is the
+-- production shape — the colour every later joiner used to be handed too.
+insert into public.room_members (room_id, user_id, display_name, role)
+values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', :'writer', 'The Writer', 'owner');
+
+select public.create_room_invitation(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'joiner.one@smoke.test', 'editor');
+select public.create_room_invitation(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'joiner.two@smoke.test', 'editor');
+
+-- Each invitee accepts as themselves. The email claim matters: the function
+-- refuses an invitation addressed to a different address.
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+select public.accept_room_invitation_by_id(i.id)
+from public.invitations i
+where i.room_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  and lower(i.email) = 'joiner.one@smoke.test'
+  and i.status = 'pending';
+
+-- The one that used to raise 23505. If 0047 is missing or wrong, the
+-- statement above succeeded and this one fails the build here.
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
+select public.accept_room_invitation_by_id(i.id)
+from public.invitations i
+where i.room_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  and lower(i.email) = 'joiner.two@smoke.test'
+  and i.status = 'pending';
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+do $$
+declare
+  members int;
+  colours int;
+begin
+  select count(*), count(distinct color_value)
+    into members, colours
+  from public.room_members
+  where room_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+  if members <> 3 then
+    raise exception 'both invitees should have joined the Room (got % members)', members;
+  end if;
+  -- The unique index would have caught a duplicate on its own; asserting it
+  -- here says the trigger is what kept them apart, not luck.
+  if colours <> 3 then
+    raise exception 'members of a Room must hold distinct colours (got % across % members)',
+      colours, members;
+  end if;
+
+  if exists (
+    select 1 from public.invitations
+    where room_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+      and status <> 'accepted'
+  ) then
+    raise exception 'accepting an invitation should mark it accepted';
+  end if;
+end $$;
+
+-- Re-accepting keeps the colour you already have rather than spending a new
+-- one. Cheap to assert and the reason the trigger looks for an existing row
+-- before it looks at the palette.
+do $$
+declare
+  before_colour bigint;
+  after_colour bigint;
+begin
+  select color_value into before_colour
+  from public.room_members
+  where room_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    and user_id = '88888888-8888-8888-8888-888888888888';
+
+  insert into public.room_members (room_id, user_id, display_name, role)
+  values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+          '88888888-8888-8888-8888-888888888888', 'Joiner One', 'editor')
+  on conflict (room_id, user_id) do update set role = excluded.role;
+
+  select color_value into after_colour
+  from public.room_members
+  where room_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    and user_id = '88888888-8888-8888-8888-888888888888';
+
+  if before_colour is distinct from after_colour then
+    raise exception 're-joining changed a member colour (% -> %)',
+      before_colour, after_colour;
+  end if;
+end $$;
+
+-- project_members gets the same trigger, and had the same defect without a
+-- unique index to make it loud: everyone invited to a single song was handed
+-- the identical colour.
+insert into public.project_members (project_id, user_id, display_name, role) values
+  ('44444444-4444-4444-4444-444444444444', '88888888-8888-8888-8888-888888888888', 'Joiner One', 'editor'),
+  ('44444444-4444-4444-4444-444444444444', '99999999-9999-9999-9999-999999999999', 'Joiner Two', 'editor');
+
+do $$
+begin
+  if (select count(distinct color_value) from public.project_members
+      where project_id = '44444444-4444-4444-4444-444444444444') <> 2 then
+    raise exception 'members of a song must hold distinct colours';
+  end if;
+end $$;
+
+
 commit;

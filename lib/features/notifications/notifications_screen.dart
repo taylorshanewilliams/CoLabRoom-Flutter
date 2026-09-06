@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
+import '../../services/user_facing_error.dart';
 import '../../widgets/app_surface.dart';
 
 /// The single inbox: pending invitations you can act on, then everything
@@ -32,7 +33,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       await action();
       messenger.showSnackBar(SnackBar(content: Text(success)));
     } catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text(error.toString())));
+      // Was `Text(error.toString())`, which is how a musician standing in a
+      // room came to be shown a Postgres unique-constraint violation. The
+      // detail now goes to the error table instead, where it is the diagnosis
+      // rather than an obstacle.
+      messenger.showSnackBar(SnackBar(
+        content: Text(reportAndDescribe(error, service: 'app', stage: 'invite')),
+      ));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

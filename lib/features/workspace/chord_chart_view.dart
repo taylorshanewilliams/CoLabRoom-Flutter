@@ -111,8 +111,23 @@ class _ChartRowView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
+      // Deliberately not CrossAxisAlignment.stretch. Stretch copies the
+      // incoming maxHeight down as a *tight* constraint, and the chart is laid
+      // out inside the song sheet's scroll view, where that height is
+      // Infinity. Every row of every chart threw "BoxConstraints forces an
+      // infinite height" on the bar number and the closing line — the two
+      // children with no height of their own — and the Chart tab failed to lay
+      // out at all.
+      //
+      // The fix is not to keep stretch and pin a height here: the row's real
+      // height is whatever the chord text comes to, which moves with fontScale
+      // and with the reader's OS text size. Instead nothing in this row asks
+      // to be stretched. The bar cells size to their own content, they are all
+      // built the same way so they agree on a height, and the lines are drawn
+      // as their borders rather than as separate widgets that would need a
+      // height handed to them.
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           // The bar number in the margin, like a printed chart. Only on the
           // first bar of the line — numbering every bar turns the page into
@@ -132,13 +147,17 @@ class _ChartRowView extends StatelessWidget {
               ),
             ),
           ),
-          for (final bar in row.bars)
+          for (var i = 0; i < row.bars.length; i += 1)
             Expanded(
-              child: _BarCell(bar: bar, transpose: transpose, fontScale: fontScale),
+              child: _BarCell(
+                bar: row.bars[i],
+                transpose: transpose,
+                fontScale: fontScale,
+                // Every bar draws its own opening line, so the last one has to
+                // close the row or it hangs open.
+                closing: i == row.bars.length - 1,
+              ),
             ),
-          // The closing line. Every bar draws its own opening line, so
-          // without this the last bar of a row is left hanging open.
-          Container(width: 1.5, color: AppColors.line),
         ],
       ),
     );
@@ -150,11 +169,16 @@ class _BarCell extends StatelessWidget {
     required this.bar,
     required this.transpose,
     required this.fontScale,
+    required this.closing,
   });
 
   final ChartBar bar;
   final int transpose;
   final double fontScale;
+
+  /// Whether this is the last bar of its row, and so draws the line that
+  /// closes it.
+  final bool closing;
 
   @override
   Widget build(BuildContext context) {
@@ -166,8 +190,13 @@ class _BarCell extends StatelessWidget {
       byBeat[chord.beat] = chordDisplay(transposeChord(chord.chord, transpose));
     }
     return Container(
-      decoration: const BoxDecoration(
-        border: Border(left: BorderSide(color: AppColors.line, width: 1.5)),
+      decoration: BoxDecoration(
+        border: Border(
+          left: const BorderSide(color: AppColors.line, width: 1.5),
+          right: closing
+              ? const BorderSide(color: AppColors.line, width: 1.5)
+              : BorderSide.none,
+        ),
       ),
       padding: EdgeInsets.symmetric(vertical: 9 * fontScale, horizontal: 4),
       child: Row(
