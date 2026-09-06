@@ -106,6 +106,36 @@ Future<bool> _tapText(WidgetTester tester, String label) async {
   return true;
 }
 
+/// Taps a keyed control if it is on screen, and settles.
+///
+/// Keys rather than labels for the destinations that have them: a key is a
+/// promise the screen makes to its tests, and a label is copy somebody will
+/// reword. widget_test.dart is where a rename is supposed to fail; this file
+/// is only ever asking whether what is there can be drawn.
+Future<bool> _tapKey(WidgetTester tester, String key) async {
+  final finder = find.byKey(Key(key));
+  if (finder.evaluate().isEmpty) return false;
+  await tester.tap(finder.last, warnIfMissed: false);
+  await _frames(tester);
+  return true;
+}
+
+Future<bool> _back(WidgetTester tester) async {
+  final finder = find.byTooltip('Back');
+  if (finder.evaluate().isEmpty) {
+    // No AppBar back button — a sheet, or a screen that owns its own
+    // navigation. Pop the route directly so the sweep can carry on.
+    final state = tester.state<NavigatorState>(find.byType(Navigator).first);
+    if (!state.canPop()) return false;
+    state.pop();
+    await _frames(tester);
+    return true;
+  }
+  await tester.tap(finder.last, warnIfMissed: false);
+  await _frames(tester);
+  return true;
+}
+
 void main() {
   // Proves the harness before any of it is believed. If the viewport is not
   // what was asked for, every result below is meaningless — and meaningless
@@ -197,5 +227,84 @@ void main() {
       isNull,
       reason: 'the workspace did not survive the keyboard opening',
     );
+  });
+
+  // Past the four tabs and one song: the destinations somebody actually
+  // reaches in a session. Each is checked on the small phone at 1.3x, which
+  // is where the last five defects were and where fixed pixel heights are
+  // most wrong.
+  testWidgets('the workspace destinations draw', (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.3);
+
+    await _tapText(tester, 'Songs');
+    await _tapText(tester, 'Midnight Signal');
+    expect(tester.takeException(), isNull, reason: 'the workspace did not draw');
+
+    for (final entry in <String, String>{
+      'workspace_analyze_button': 'Analyze',
+      'workspace_layers_button': 'Takes',
+      'workspace_live_button': 'Live',
+    }.entries) {
+      if (!await _tapKey(tester, entry.key)) continue;
+      expect(tester.takeException(), isNull,
+          reason: '${entry.value} did not draw');
+      await _back(tester);
+      expect(tester.takeException(), isNull,
+          reason: 'coming back from ${entry.value} did not draw');
+    }
+  });
+
+  testWidgets('the inbox and the account screen draw', (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.3);
+
+    // The bell on Home. Reached by its Semantics label because it is an
+    // InkResponse rather than a keyed button.
+    final bell = find.bySemanticsLabel('Notifications');
+    if (bell.evaluate().isNotEmpty) {
+      await tester.tap(bell.last, warnIfMissed: false);
+      await _frames(tester);
+      expect(tester.takeException(), isNull, reason: 'the Inbox did not draw');
+      await _back(tester);
+    }
+
+    for (final label in <String>['Account', 'Settings']) {
+      if (await _tapText(tester, label)) {
+        expect(tester.takeException(), isNull, reason: '$label did not draw');
+        break;
+      }
+    }
+  });
+
+  testWidgets('starting a song draws', (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.3);
+
+    // The single most important path in the app for somebody new, and the one
+    // Home leads with.
+    if (await _tapKey(tester, 'home_new_song')) {
+      expect(tester.takeException(), isNull,
+          reason: 'the new song flow did not draw');
+    }
+  });
+
+  testWidgets('the Studio and the Control Room draw their contents',
+      (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.3);
+
+    for (final tab in <String>['Studio', 'Control Room']) {
+      await _tapText(tester, tab);
+      expect(tester.takeException(), isNull, reason: '$tab did not draw');
+    }
   });
 }
