@@ -36,11 +36,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     } catch (error) {
       // Was `Text(error.toString())`, which is how a musician standing in a
       // room came to be shown a Postgres unique-constraint violation. The
-      // detail now goes to the error table instead, where it is the diagnosis
-      // rather than an obstacle.
-      // Reported, described, and offered a way to say more — the moment
-      // somebody has just been let down is the only moment they will
-      // describe what they were doing.
+      // detail goes to the error table now, and the moment somebody has just
+      // been let down is the only moment they will describe what they were
+      // doing — so there is a way to say more, right there.
+      if (!mounted) {
+        // Nobody left to tell, and still worth recording. An error that only
+        // exists while somebody is looking at it is the state this app spent
+        // three weeks in.
+        reportAndDescribe(error,
+            service: 'app', stage: 'invite', route: 'Inbox');
+        return;
+      }
       showProblem(context, error,
           service: 'app', stage: 'invite', route: 'Inbox');
     } finally {

@@ -38,10 +38,14 @@ class InvitesScreen extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(success)));
       }
     } catch (error) {
-      if (context.mounted) {
-        showProblem(context, error,
+      if (!context.mounted) {
+        // Recorded even with nobody to show it to.
+        reportAndDescribe(error,
             service: 'app', stage: 'invite', route: 'Invites');
+        return;
       }
+      showProblem(context, error,
+          service: 'app', stage: 'invite', route: 'Invites');
     }
   }
 
