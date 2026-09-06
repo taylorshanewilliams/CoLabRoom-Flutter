@@ -1355,4 +1355,65 @@ begin
 end $$;
 
 
+-- Account deletion (0065).
+--
+-- Last, because it removes an account and everything under it. The bug it
+-- fixes: anybody who recorded a take on somebody else's song could not delete
+-- their account at all — song_layers.recorded_by referenced profiles with NO
+-- ACTION, so the final delete raised a foreign key violation and the person
+-- got a Postgres error after tapping "Delete Permanently".
+--
+-- The bandmate is in exactly that position here: they answered an ask and
+-- joined one of the writer's songs.
+insert into public.song_layers
+  (project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values
+  ('aaaaaaaa-0000-0000-0000-00000000000a',
+   '22222222-2222-2222-2222-222222222222',
+   'aaaaaaaa/layers/heard.m4a', 'Bass', 'bass', 30000, now()),
+  ('aaaaaaaa-0000-0000-0000-00000000000a',
+   '22222222-2222-2222-2222-222222222222',
+   'aaaaaaaa/layers/never-heard.m4a', 'Scratch', 'bass', 12000, null);
+
+set local request.jwt.claims = '{"sub": "22222222-2222-2222-2222-222222222222"}';
+
+do $$
+begin
+  -- The delete itself. Before 0065 this line raised
+  -- foreign_key_violation and the whole feature was broken.
+  perform public.delete_my_account();
+
+  if exists (select 1 from auth.users
+             where id = '22222222-2222-2222-2222-222222222222') then
+    raise exception 'the account was not deleted';
+  end if;
+
+  -- The take the room heard is still in the song, because the band cannot
+  -- re-record it — but nothing says who played it.
+  if not exists (
+    select 1 from public.song_layers
+    where storage_path = 'aaaaaaaa/layers/heard.m4a'
+  ) then
+    raise exception 'a shared take was destroyed with its recorder';
+  end if;
+  if exists (
+    select 1 from public.song_layers
+    where storage_path = 'aaaaaaaa/layers/heard.m4a'
+      and (recorded_by is not null or performer is not null)
+  ) then
+    raise exception 'a deleted account is still named on a take';
+  end if;
+
+  -- The one nobody ever heard is gone, because it was only ever theirs.
+  if exists (
+    select 1 from public.song_layers
+    where storage_path = 'aaaaaaaa/layers/never-heard.m4a'
+  ) then
+    raise exception 'an unshared private take survived the account that made it';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+
 commit;
