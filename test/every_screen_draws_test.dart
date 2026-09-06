@@ -361,10 +361,16 @@ void main() {
     expect(wordmark, findsWidgets, reason: 'the wordmark is not on Home');
 
     final paragraph = tester.renderObject<RenderParagraph>(wordmark.first);
+    final markWidth = tester.getSize(find.byType(BrandMark).first).width;
+    final wanted = paragraph.getMaxIntrinsicWidth(double.infinity);
     expect(
       paragraph.didExceedMaxLines,
       isFalse,
-      reason: 'the wordmark is being truncated on a phone that has room for it',
+      // Measured, not asserted blind. The first attempt at this fix was
+      // reasoned about rather than measured and was wrong, so the failure
+      // says what the widths actually were.
+      reason: 'the wordmark is truncated. BrandMark got ${markWidth}px, '
+          'the text was given ${paragraph.size.width}px and wanted ${wanted}px',
     );
   });
 }
