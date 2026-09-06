@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import '../domain/activity.dart';
 import '../data/music_repository.dart';
 import '../domain/music_models.dart';
+import '../services/user_facing_error.dart';
 
 class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   MusicBetaController(this.repository) {
@@ -194,7 +195,11 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       // anybody who never went, the picture they uploaded never appeared.
       unawaited(loadAvatar());
     } catch (error) {
-      _error = error.toString();
+      // The most consequential failure in the app: nothing loaded, so from
+      // the outside it simply did not open. It has never been reported —
+      // a tester saying "it's broken" produced no row, which is
+      // indistinguishable from nothing having gone wrong.
+      _error = reportAndDescribe(error, service: 'app', stage: 'load');
     } finally {
       _loading = false;
       notifyListeners();

@@ -4,6 +4,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/problem_report.dart';
 import '../../widgets/app_surface.dart';
 
 class InvitesScreen extends StatelessWidget {
@@ -37,12 +38,14 @@ class InvitesScreen extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(success)));
       }
     } catch (error) {
-      final described =
-          reportAndDescribe(error, service: 'app', stage: 'invite');
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(described)));
+      if (!context.mounted) {
+        // Recorded even with nobody to show it to.
+        reportAndDescribe(error,
+            service: 'app', stage: 'invite', route: 'Invites');
+        return;
       }
+      showProblem(context, error,
+          service: 'app', stage: 'invite', route: 'Invites');
     }
   }
 

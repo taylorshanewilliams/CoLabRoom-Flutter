@@ -9,6 +9,7 @@ import '../notifications/notifications_screen.dart';
 import '../songs/songs_screen.dart';
 import '../studio/studio_home_screen.dart';
 import '../control_room/control_room_screen.dart';
+import '../../services/current_route.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({required this.displayName, this.supabase, super.key});
@@ -28,13 +29,17 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     _index = 0;
+    // So a crash on Home says Home. Thirty-four of this app's route pushes
+    // are unnamed, so a navigator observer alone would record nothing; the
+    // destination is the cheap fact that is always true.
+    CurrentRoute.enter(_destinations.first.label);
     if (kIsWeb && Uri.base.queryParameters['deleteAccount'] == '1') {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openAccount());
     }
     _screens = <Widget>[
       HomeScreen(
         displayName: widget.displayName,
-        onSeeSongs: () => setState(() => _index = 1),
+        onSeeSongs: () => _go(1),
         onOpenAccount: _openAccount,
         onOpenNotifications: _openNotifications,
       ),
@@ -101,6 +106,13 @@ class _AppShellState extends State<AppShell> {
           _LazyTab(active: _index == i, child: _screens[i]),
       ];
 
+  /// Moves to a destination and says so, so a failure anywhere under it is
+  /// reported against the right quarter of the app.
+  void _go(int value) {
+    setState(() => _index = value);
+    CurrentRoute.enter(_destinations[value].label);
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -116,7 +128,7 @@ class _AppShellState extends State<AppShell> {
                     child: _NavigationRail(
                       index: _index,
                       destinations: _destinations,
-                      onSelect: (value) => setState(() => _index = value),
+                      onSelect: _go,
                     ),
                   ),
                   Expanded(child: IndexedStack(index: _index, children: _lazyScreens)),

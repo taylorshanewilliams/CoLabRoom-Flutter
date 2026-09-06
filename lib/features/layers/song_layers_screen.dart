@@ -244,7 +244,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = error.toString();
+        _error = reportAndDescribe(error, service: 'layers', route: 'Takes');
         // An empty list rather than null, which is the difference between
         // "nothing came back" and "we are still waiting".
         //
@@ -675,7 +675,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _error = error.toString();
+          _error = reportAndDescribe(error, service: 'layers', route: 'Takes');
           _busy = false;
         });
       }
@@ -866,7 +866,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         message: 'Saving a take failed: $error',
         projectId: widget.projectId,
       ));
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = reportAndDescribe(error, service: 'layers', route: 'Takes'));
     } finally {
       if (mounted) {
         setState(() {
@@ -1041,7 +1041,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // the audio, which is the same complaint as muting.
       await _applyMixChange();
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = reportAndDescribe(error, service: 'layers', route: 'Takes'));
     }
   }
 
@@ -1242,7 +1242,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         ShareParams(files: <XFile>[XFile(file.path)], subject: widget.songTitle),
       );
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = reportAndDescribe(error, service: 'layers', route: 'Takes'));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

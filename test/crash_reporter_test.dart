@@ -17,6 +17,7 @@ class _CapturingReporter extends ErrorReporter {
     required String message,
     String? stage,
     String? projectId,
+    String? route,
   }) async {
     if (failEveryTime) throw StateError('telemetry is down');
     messages.add(message);

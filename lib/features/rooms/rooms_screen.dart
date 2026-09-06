@@ -12,6 +12,7 @@ import '../../domain/name_policy.dart';
 import '../../widgets/music_tiles.dart';
 import '../home/new_song_flow.dart';
 import 'room_detail_screen.dart';
+import '../../services/user_facing_error.dart';
 
 /// Every Room you are in, with search and drag-to-reorder.
 ///
@@ -182,7 +183,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
       await controller.setRoomLogo(room, bytes);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Rooms'))));
       }
     }
   }
@@ -237,7 +238,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
         await controller.clearRoomLogo(room);
       } catch (error) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Rooms'))));
         }
       }
       return;
@@ -253,7 +254,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
         await controller.renameRoom(room, value);
       } catch (error) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Rooms'))));
         }
       }
       return;
@@ -281,7 +282,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
       await controller.deleteRoom(room);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Rooms'))));
       }
     }
   }

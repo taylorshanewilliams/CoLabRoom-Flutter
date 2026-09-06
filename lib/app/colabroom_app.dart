@@ -6,6 +6,7 @@ import 'beta_config.dart';
 import 'colabroom_theme.dart';
 import 'music_beta_controller.dart';
 import 'workspace_shell.dart';
+import '../services/current_route.dart';
 
 class CoLabRoomApp extends StatelessWidget {
   const CoLabRoomApp.preview({required MusicBetaController controller, super.key})
@@ -27,6 +28,9 @@ class CoLabRoomApp extends StatelessWidget {
     return MaterialApp(
       title: BetaConfig.appName,
       debugShowCheckedModeBanner: false,
+      // Costs nothing until a route names itself, and then that name reaches
+      // every error report without anybody remembering to pass it.
+      navigatorObservers: <NavigatorObserver>[RouteTracker()],
       theme: CoLabRoomTheme.dark(),
       // Clamp system font scaling so a user's accessibility text-size
       // setting can't blow past what our fixed-width dialogs/tiles were

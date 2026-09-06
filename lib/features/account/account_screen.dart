@@ -11,6 +11,7 @@ import '../../app/beta_config.dart';
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
+import '../../services/current_route.dart';
 import '../../services/push_registration.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/audio_privacy_note.dart';
@@ -170,7 +171,13 @@ class _AccountScreenState extends State<AccountScreen> {
       FeedbackDraft(
         category: 'general',
         message: result.message,
-        route: 'account',
+        // 'account' was hardcoded here, so every report this form could ever
+        // have produced would have claimed the problem was on this screen —
+        // the one screen it definitely was not, since the person had to
+        // navigate here to write it. This form is for unprompted thoughts;
+        // a report about something that just broke comes through
+        // showProblem, which knows where it happened.
+        route: CurrentRoute.name ?? 'Account',
         platform: platform,
         appVersion: BetaConfig.appVersion,
         screenshot: result.screenshot,

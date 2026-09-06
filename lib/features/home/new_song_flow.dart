@@ -5,6 +5,7 @@ import '../../app/music_beta_controller.dart';
 import '../../domain/music_models.dart';
 import '../../domain/name_policy.dart';
 import '../../widgets/app_surface.dart';
+import '../../services/user_facing_error.dart';
 
 Future<MusicRoom?> showCreateRoomDialog(
   BuildContext context,
@@ -63,7 +64,7 @@ Future<SongProject?> _askForSongTitle(
 }
 
 void _showError(BuildContext context, Object error) {
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'New song'))));
 }
 
 class _RoomDraft {

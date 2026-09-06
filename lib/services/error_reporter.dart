@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app/beta_config.dart';
+import 'current_route.dart';
 
 /// Records analysis failures and degradations into `analysis_errors` so they
 /// can be counted instead of discovered one screenshot at a time.
@@ -32,6 +33,9 @@ class ErrorReporter {
     required String message,
     String? stage,
     String? projectId,
+    /// Where this happened. Defaults to whatever the app last knew; pass a
+    /// better answer when the call site has one.
+    String? route,
   }) {
     return _report(
       severity: 'error',
@@ -39,6 +43,7 @@ class ErrorReporter {
       message: message,
       stage: stage,
       projectId: projectId,
+      route: route,
     );
   }
 
@@ -47,6 +52,9 @@ class ErrorReporter {
     required String message,
     String? stage,
     String? projectId,
+    /// Where this happened. Defaults to whatever the app last knew; pass a
+    /// better answer when the call site has one.
+    String? route,
   }) {
     return _report(
       severity: 'warning',
@@ -54,6 +62,7 @@ class ErrorReporter {
       message: message,
       stage: stage,
       projectId: projectId,
+      route: route,
     );
   }
 
@@ -63,8 +72,10 @@ class ErrorReporter {
     required String message,
     String? stage,
     String? projectId,
+    String? route,
   }) async {
     final cleaned = message.trim();
+    final where = route ?? CurrentRoute.name;
     if (cleaned.isEmpty) return;
     try {
       // Nobody signed in yet, which used to mean the report was simply lost.
@@ -100,6 +111,7 @@ class ErrorReporter {
         // here would cost the most diagnostic part.
         'message': cleaned.length > 8000 ? cleaned.substring(0, 8000) : cleaned,
         'project_id': projectId,
+        'route': where,
         'app_version': BetaConfig.appVersion,
         'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
       });

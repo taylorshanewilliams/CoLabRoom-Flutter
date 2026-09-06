@@ -13,6 +13,7 @@ import '../home/new_song_flow.dart';
 import '../rooms/setlist_detail_screen.dart';
 import '../workspace/song_workspace_screen.dart';
 import 'song_search.dart';
+import '../../services/user_facing_error.dart';
 
 /// Songs, or the sets they're grouped into for a specific occasion.
 enum _SongsView { songs, sets }
@@ -76,7 +77,7 @@ class _SongsScreenState extends State<SongsScreen> {
       if (mounted) _openSet(setlist);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Songs'))));
       }
     }
   }

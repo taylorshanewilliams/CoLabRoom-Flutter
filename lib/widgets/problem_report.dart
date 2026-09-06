@@ -1,0 +1,242 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+
+import '../app/beta_config.dart';
+import '../app/beta_scope.dart';
+import '../app/colabroom_theme.dart';
+import '../domain/music_models.dart';
+import '../services/current_route.dart';
+import '../services/user_facing_error.dart';
+
+/// Says that something failed, records it, and offers to hear about it.
+///
+/// Three things happen at once here because they belong together and were
+/// previously done separately, badly, in about thirty places: the person is
+/// told in a sentence they can read, the detail goes to `analysis_errors`
+/// where it can be counted, and — because the moment somebody has just been
+/// let down is the only moment they will ever describe what they were doing —
+/// there is a way to say more, right there.
+///
+/// The Account screen has had a feedback form since the first build. It has
+/// **never been used**: no rows, three weeks, four people, at least three real
+/// problems that all reached Taylor by conversation instead. A form on one
+/// screen is a form somebody has to go and find after the moment has passed,
+/// which is the moment they decide a text message is easier.
+void showProblem(
+  BuildContext context,
+  Object error, {
+  required String service,
+  String? stage,
+  String? projectId,
+  String? route,
+}) {
+  final described = reportAndDescribe(
+    error,
+    service: service,
+    stage: stage,
+    projectId: projectId,
+    route: route,
+  );
+  final where = route ?? CurrentRoute.name;
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(described),
+      duration: const Duration(seconds: 6),
+      action: SnackBarAction(
+        label: 'Tell us',
+        onPressed: () => unawaited(showProblemReport(
+          context,
+          route: where,
+          // Carried into the report so nobody has to describe an error
+          // message they have already been shown and dismissed.
+          detail: error.toString(),
+        )),
+      ),
+    ),
+  );
+}
+
+/// The report sheet, openable from anywhere.
+///
+/// [detail] is the machine's half — the exception, already captured. The
+/// person writes the half only they have: what they were trying to do.
+Future<void> showProblemReport(
+  BuildContext context, {
+  String? route,
+  String? detail,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    backgroundColor: AppColors.deepNavy,
+    builder: (sheetContext) => Padding(
+      // The keyboard, which on a small phone takes more room than the sheet.
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+      ),
+      child: _ProblemReportSheet(route: route, detail: detail),
+    ),
+  );
+}
+
+class _ProblemReportSheet extends StatefulWidget {
+  const _ProblemReportSheet({this.route, this.detail});
+
+  final String? route;
+  final String? detail;
+
+  @override
+  State<_ProblemReportSheet> createState() => _ProblemReportSheetState();
+}
+
+class _ProblemReportSheetState extends State<_ProblemReportSheet> {
+  final TextEditingController _message = TextEditingController();
+  // Bug first, because this sheet is reached most often from something having
+  // just gone wrong. It is a choice rather than a constant: the old form
+  // filed everything as 'general', so nothing in the table could ever be
+  // sorted into what is broken and what is merely wanted.
+  String _category = 'bug';
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _message.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    final text = _message.text.trim();
+    if (text.isEmpty || _sending) return;
+    setState(() => _sending = true);
+
+    final controller = BetaScope.of(context, listen: false);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await controller.submitFeedback(FeedbackDraft(
+        category: _category,
+        // The exception rides along under what the person wrote, rather than
+        // in a separate field they cannot see. A report that quietly carries
+        // something the sender was not shown is not a report they agreed to.
+        message: widget.detail == null
+            ? text
+            : '$text\n\n— what the app said —\n${widget.detail}',
+        // The screen they were on, not the screen the form lives on. The old
+        // form hardcoded 'account' and would have mislabelled every report it
+        // ever received.
+        route: widget.route ?? CurrentRoute.name ?? 'unknown',
+        platform: kIsWeb ? 'web' : defaultTargetPlatform.name,
+        appVersion: BetaConfig.appVersion,
+      ));
+      if (mounted) Navigator.of(context).pop();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Sent. Thank you — that genuinely helps.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      // Reported but not offered a "Tell us" of its own, which would be a
+      // loop somebody could not get out of.
+      messenger.showSnackBar(SnackBar(
+        content: Text(reportAndDescribe(
+          error,
+          service: 'app',
+          stage: 'feedback',
+          route: widget.route,
+        )),
+      ));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            const Text(
+              'What happened?',
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            if (widget.route != null || CurrentRoute.name != null) ...<Widget>[
+              const SizedBox(height: 4),
+              Text(
+                'On ${widget.route ?? CurrentRoute.name}',
+                style: const TextStyle(color: AppColors.muted, fontSize: 12),
+              ),
+            ],
+            const SizedBox(height: 14),
+            SegmentedButton<String>(
+              segments: const <ButtonSegment<String>>[
+                ButtonSegment<String>(value: 'bug', label: Text('Broken')),
+                ButtonSegment<String>(value: 'idea', label: Text('Idea')),
+                ButtonSegment<String>(value: 'general', label: Text('Other')),
+              ],
+              selected: <String>{_category},
+              onSelectionChanged: (selection) =>
+                  setState(() => _category = selection.first),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _message,
+              autofocus: true,
+              minLines: 3,
+              maxLines: 6,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                hintText: 'What were you trying to do?',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            if (widget.detail != null) ...<Widget>[
+              const SizedBox(height: 10),
+              // Shown, not hidden. Somebody sending a report is entitled to
+              // see everything it contains before it leaves their phone.
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.raised,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  widget.detail!,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.muted,
+                    fontSize: 11,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Sent with your message, so nobody has to reproduce it.',
+                style: TextStyle(color: AppColors.muted, fontSize: 11),
+              ),
+            ],
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: _sending ? null : () => unawaited(_send()),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(50),
+              ),
+              child: Text(_sending ? 'Sending…' : 'Send'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

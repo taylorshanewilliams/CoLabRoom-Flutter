@@ -14,6 +14,7 @@ import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/music_tiles.dart';
 import '../home/new_song_flow.dart';
 import '../workspace/song_workspace_screen.dart';
+import '../../services/user_facing_error.dart';
 
 enum _ProjectSort { manual, updatedRecent, alphabetical, createdNewest, createdOldest }
 
@@ -414,7 +415,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
         await controller.renameRoom(room, value);
       } catch (error) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Room'))));
         }
       }
     }
@@ -448,7 +449,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
         }
       } catch (error) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Room'))));
         }
       }
     }

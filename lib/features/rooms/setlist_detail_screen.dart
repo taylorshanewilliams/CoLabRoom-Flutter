@@ -8,6 +8,7 @@ import '../../domain/music_models.dart';
 import '../../services/project_export_service.dart';
 import '../../widgets/app_surface.dart';
 import '../workspace/song_workspace_screen.dart';
+import '../../services/user_facing_error.dart';
 
 enum _SetlistMenuAction { print, share }
 
@@ -72,7 +73,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
         }
       } catch (error) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Setlist'))));
         }
       }
     }
@@ -93,7 +94,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
         await controller.addProjectsToSetlist(setlist, selected);
       } catch (error) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Setlist'))));
         }
       }
     }

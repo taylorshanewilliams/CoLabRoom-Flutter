@@ -6,6 +6,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/problem_report.dart';
 import '../../widgets/app_surface.dart';
 
 /// The single inbox: pending invitations you can act on, then everything
@@ -35,11 +36,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     } catch (error) {
       // Was `Text(error.toString())`, which is how a musician standing in a
       // room came to be shown a Postgres unique-constraint violation. The
-      // detail now goes to the error table instead, where it is the diagnosis
-      // rather than an obstacle.
-      messenger.showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(error, service: 'app', stage: 'invite')),
-      ));
+      // detail goes to the error table now, and the moment somebody has just
+      // been let down is the only moment they will describe what they were
+      // doing — so there is a way to say more, right there.
+      if (!mounted) {
+        // Nobody left to tell, and still worth recording. An error that only
+        // exists while somebody is looking at it is the state this app spent
+        // three weeks in.
+        reportAndDescribe(error,
+            service: 'app', stage: 'invite', route: 'Inbox');
+        return;
+      }
+      showProblem(context, error,
+          service: 'app', stage: 'invite', route: 'Inbox');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
