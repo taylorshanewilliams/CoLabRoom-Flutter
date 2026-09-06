@@ -40,20 +40,43 @@ jobs:
         # 503 and looks, from the database side, exactly like a function that
         # is working and finding nobody to notify. Fail here instead, where
         # the reason is written down.
+        #
+        # Every secret arrives through env: rather than ${{ }} inside the
+        # script, and that is why this step had to be fixed before it ever
+        # caught anything. A service-account JSON is multi-line and full of
+        # double quotes; interpolated into a shell command it closes the
+        # string early and leaves the remainder as stray words, so `test -n`
+        # was handed garbage and reported a correctly-set secret as missing.
+        # As an environment variable its contents cannot be read as syntax.
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          PUSH_HOOK_SECRET: ${{ secrets.PUSH_HOOK_SECRET }}
         run: |
-          test -n "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" \
+          test -n "$FIREBASE_SERVICE_ACCOUNT" \
             || { echo "::error::FIREBASE_SERVICE_ACCOUNT is not set"; exit 1; }
-          test -n "${{ secrets.PUSH_HOOK_SECRET }}" \
+          test -n "$PUSH_HOOK_SECRET" \
             || { echo "::error::PUSH_HOOK_SECRET is not set"; exit 1; }
+          # The other half of the same class of problem: a value truncated or
+          # re-wrapped on its way through a clipboard is still non-empty, and
+          # would deploy happily and then fail to sign a single token at
+          # runtime — where the only symptom is a 503 nobody is watching.
+          python3 -c "import json,os; json.loads(os.environ['FIREBASE_SERVICE_ACCOUNT'])" \
+            || { echo "::error::FIREBASE_SERVICE_ACCOUNT is not valid JSON"; exit 1; }
 
       - name: Push the secrets into Supabase
-        run: |
-          supabase secrets set \
-            FIREBASE_SERVICE_ACCOUNT="${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" \
-            PUSH_HOOK_SECRET="${{ secrets.PUSH_HOOK_SECRET }}" \
-            --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+        # Same reason. Built as a shell argument the JSON would be re-split on
+        # its own quotes; expanded from an environment variable inside quotes
+        # it reaches the CLI whole, newlines and all.
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          PUSH_HOOK_SECRET: ${{ secrets.PUSH_HOOK_SECRET }}
+        run: |
+          supabase secrets set \
+            FIREBASE_SERVICE_ACCOUNT="$FIREBASE_SERVICE_ACCOUNT" \
+            PUSH_HOOK_SECRET="$PUSH_HOOK_SECRET" \
+            --project-ref "$SUPABASE_PROJECT_REF"
 
       - name: Deploy send-push
         # --no-verify-jwt because the caller is the database, not a signed-in
