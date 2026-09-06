@@ -529,7 +529,9 @@ returns table (
   url text,
   title text,
   platform text,
-  position integer
+  -- Not `position`: that is a reserved word in Postgres — legal as a column
+  -- on a table, a syntax error as an output column here.
+  sort_position integer
 )
 language sql
 stable
