@@ -10,6 +10,7 @@ import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import 'ask_musician_sheet.dart';
 import 'invite_to_catalog_sheet.dart';
+import 'report_sheet.dart';
 
 /// Somebody's own room.
 ///
@@ -229,6 +230,71 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
     }
   }
 
+  Future<void> _report() async {
+    final musician = _musician;
+    if (musician == null) return;
+    final sent = await showReportSheet(
+      context,
+      repository: widget.repository,
+      kind: 'profile',
+      about: musician.displayName,
+      profileId: musician.id,
+    );
+    if (sent && mounted) {
+      _say('Report sent. Thank you — somebody reads every one of these.');
+    }
+  }
+
+  /// Blocking, and saying what it does before it does it.
+  ///
+  /// Quiet on their side and symmetric on both: after this neither of you
+  /// turns up in the other's Open Mic, and nobody is told. It stops new
+  /// contact rather than tearing up a catalog you are both already in —
+  /// wanting out of a room is a different action, and it has its own.
+  Future<void> _block() async {
+    final musician = _musician;
+    if (musician == null) return;
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.raised,
+        title: Text('Block ${musician.displayName}?'),
+        content: const Text(
+          'They will not be able to find you, ask you, or invite you to '
+          'anything, and you will not see them either. They are not told.'
+          '\n\n'
+          'If you are in a catalog together this does not remove either of '
+          'you from it. You can undo this in Account.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.orange),
+            child: const Text('Block'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    try {
+      await widget.repository.blockUser(musician.id);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } catch (error) {
+      if (!mounted) return;
+      _say(reportAndDescribe(
+        error,
+        service: 'app',
+        stage: 'block_user',
+        route: 'Profile',
+      ));
+    }
+  }
+
   Future<void> _editPresence() async {
     final me = _musician;
     if (me == null) return;
@@ -284,6 +350,37 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
               onPressed:
                   musician == null ? null : () => unawaited(_editPresence()),
               icon: const Icon(Icons.tune_rounded),
+            )
+          // On every page but your own, and in the overflow rather than
+          // beside the friendly buttons — reachable in two taps from the
+          // thing being complained about, which is what makes it usable, and
+          // not so prominent that it reads as the expected response to a
+          // stranger.
+          else if (musician != null)
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              onSelected: (value) => unawaited(
+                  value == 'block' ? _block() : _report()),
+              itemBuilder: (_) => const <PopupMenuEntry<String>>[
+                PopupMenuItem<String>(
+                  value: 'report',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.flag_outlined, size: 19),
+                    title: Text('Report'),
+                  ),
+                ),
+                PopupMenuItem<String>(
+                  value: 'block',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.block_rounded, size: 19),
+                    title: Text('Block'),
+                  ),
+                ),
+              ],
             ),
         ],
       ),

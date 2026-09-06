@@ -16,6 +16,7 @@ import '../../services/push_registration.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/audio_privacy_note.dart';
 import '../dev/latency_probe_screen.dart';
+import 'blocked_people_screen.dart';
 import '../notifications/notification_settings_screen.dart';
 import '../openmic/musician_profile_screen.dart';
 
@@ -333,6 +334,24 @@ class _AccountScreenState extends State<AccountScreen> {
                 icon: Icons.shield_outlined,
                 label: 'Privacy & Data',
                 onTap: () => _showPrivacy(context),
+              ),
+              // Findable rather than buried. A block you cannot review is one
+              // people hesitate to use, and a safety control people hesitate
+              // to use is no safety control.
+              _AccountRow(
+                icon: Icons.block_rounded,
+                label: 'Blocked people',
+                onTap: () {
+                  final controller = BetaScope.of(context, listen: false);
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      settings: const RouteSettings(name: 'Blocked people'),
+                      builder: (_) => BlockedPeopleScreen(
+                        repository: controller.repository,
+                      ),
+                    ),
+                  );
+                },
               ),
               // Debug builds only. A measurement tool, not a feature — it
               // exists to find out whether overdubbing is possible on real

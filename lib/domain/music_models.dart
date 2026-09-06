@@ -218,6 +218,54 @@ const Object _unset = Object();
 /// They are one class because everything downstream treats them identically:
 /// the same audience, the same answering flow, the same closing. A product
 /// that only carried the specific one would be a gig board.
+/// Somebody you have blocked, so the setting can be undone.
+///
+/// Nobody wants a switch they can turn on and never find again — and a block
+/// list you cannot read is one people are afraid to use in the first place.
+class BlockedPerson {
+  const BlockedPerson({
+    required this.id,
+    required this.displayName,
+    required this.blockedAt,
+  });
+
+  final String id;
+  final String displayName;
+  final DateTime blockedAt;
+}
+
+/// Why something was reported. The short list exists so a queue can be
+/// sorted; free-text-only reports are ones nobody can triage.
+///
+/// `copyright` is here deliberately: it is the first step of a takedown, and
+/// it needs somewhere to arrive other than an inbox.
+enum ReportReason { copyright, abuse, harassment, spam, sexual, violence, other }
+
+extension ReportReasonWords on ReportReason {
+  String get id => name;
+
+  /// Said the way somebody reporting would say it, not the way a policy
+  /// document would.
+  String get label {
+    switch (this) {
+      case ReportReason.copyright:
+        return 'It uses music that is not theirs';
+      case ReportReason.abuse:
+        return 'Abusive or hateful';
+      case ReportReason.harassment:
+        return 'They are harassing somebody';
+      case ReportReason.spam:
+        return 'Spam or a scam';
+      case ReportReason.sexual:
+        return 'Sexual content';
+      case ReportReason.violence:
+        return 'Violence or a threat';
+      case ReportReason.other:
+        return 'Something else';
+    }
+  }
+}
+
 /// A catalog you own, as an option in the "invite them" picker.
 class InvitableRoom {
   const InvitableRoom({

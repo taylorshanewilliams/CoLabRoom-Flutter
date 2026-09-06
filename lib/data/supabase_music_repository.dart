@@ -918,14 +918,15 @@ class SupabaseMusicRepository implements MusicRepository {
 
   @override
   Future<List<ShowcaseLink>> loadShowcase(String profileId) async {
-    final rows = await client
-        .from('profile_links')
-        .select('id, url, platform, title')
-        .eq('profile_id', profileId)
-        .order('position')
-        .order('created_at');
+    // Through the function rather than the table, so a blocked profile's
+    // links are gone with the rest of them. A direct select would have been
+    // the one surface that survived a block.
+    final rows = await client.rpc<dynamic>(
+      'showcase_for',
+      params: <String, dynamic>{'target_profile': profileId},
+    );
     return <ShowcaseLink>[
-      for (final row in rows as List<dynamic>)
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
         ShowcaseLink(
           id: (row as Map<String, dynamic>)['id'] as String,
           url: row['url'] as String? ?? '',
@@ -1056,6 +1057,60 @@ class SupabaseMusicRepository implements MusicRepository {
     await client.rpc<dynamic>(
       'answer_room_invite',
       params: <String, dynamic>{'target_invite': inviteId, 'accept': accept},
+    );
+  }
+
+  @override
+  Future<void> blockUser(String profileId) async {
+    await client.rpc<dynamic>(
+      'block_user',
+      params: <String, dynamic>{'target_person': profileId},
+    );
+  }
+
+  @override
+  Future<void> unblockUser(String profileId) async {
+    await client.rpc<dynamic>(
+      'unblock_user',
+      params: <String, dynamic>{'target_person': profileId},
+    );
+  }
+
+  @override
+  Future<List<BlockedPerson>> peopleIBlocked() async {
+    final rows = await client.rpc<dynamic>('people_i_blocked');
+    return <BlockedPerson>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        BlockedPerson(
+          id: (row as Map)['id'] as String,
+          displayName: row['display_name'] as String? ?? 'Someone',
+          blockedAt: DateTime.tryParse('${row['blocked_at']}')?.toLocal() ??
+              DateTime.now(),
+        ),
+    ];
+  }
+
+  @override
+  Future<void> reportContent({
+    required String kind,
+    required String reason,
+    String detail = '',
+    String? profileId,
+    String? projectId,
+    String? layerId,
+    String? linkId,
+  }) async {
+    await client.rpc<dynamic>(
+      'report_content',
+      params: <String, dynamic>{
+        'in_kind': kind,
+        'in_reason': reason,
+        'in_detail': detail,
+        'in_profile': profileId,
+        'in_project': projectId,
+        'in_layer': layerId,
+        'in_link': linkId,
+      },
     );
   }
 

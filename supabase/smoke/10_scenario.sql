@@ -1163,4 +1163,136 @@ end $$;
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 
+-- Blocking and reporting (0063).
+--
+-- The property worth testing is that a block *does* something. A block that
+-- only removes a row from one list is theatre: the person is still in search,
+-- can still open the profile, can still send an ask. Every surface a stranger
+-- reaches somebody through is checked here.
+
+-- Both are discoverable first, so "gone" means gone rather than never there.
+update public.profiles
+set discoverable = true, location_visibility = 'public', city = 'Glasgow'
+where id in ('11111111-1111-1111-1111-111111111111',
+             '22222222-2222-2222-2222-222222222222');
+
+do $$
+begin
+  if not exists (
+    select 1 from public.find_musicians(null, null, 50)
+    where id = '22222222-2222-2222-2222-222222222222'
+  ) then
+    raise exception 'the bandmate was not findable before the block';
+  end if;
+end $$;
+
+select public.block_user('22222222-2222-2222-2222-222222222222');
+
+do $$
+begin
+  -- Gone from search.
+  if exists (
+    select 1 from public.find_musicians(null, null, 50)
+    where id = '22222222-2222-2222-2222-222222222222'
+  ) then
+    raise exception 'a blocked person is still in find_musicians';
+  end if;
+
+  -- No page.
+  if exists (
+    select 1 from public.musician_profile(
+      '22222222-2222-2222-2222-222222222222')
+  ) then
+    raise exception 'a blocked person still has a profile page';
+  end if;
+
+  -- No showcase either, which is the surface that read the table directly
+  -- and would have been the one thing to survive.
+  if exists (
+    select 1 from public.showcase_for(
+      '22222222-2222-2222-2222-222222222222')
+  ) then
+    raise exception 'a blocked person still shows their links';
+  end if;
+
+  -- Cannot be asked.
+  begin
+    perform public.ask_musician(
+      'aaaaaaaa-0000-0000-0000-00000000000a',
+      '22222222-2222-2222-2222-222222222222', 'keys', '');
+    raise exception 'a blocked person could still be asked';
+  exception when sqlstate '22023' then null;
+  end;
+
+  -- Cannot be invited.
+  begin
+    perform public.invite_musician_to_room(
+      '33333333-3333-3333-3333-333333333333',
+      '22222222-2222-2222-2222-222222222222', '');
+    raise exception 'a blocked person could still be invited';
+  exception when sqlstate '22023' then null;
+  end;
+end $$;
+
+-- Symmetric: from the other side it looks the same, and nothing says why.
+set local request.jwt.claims = '{"sub": "22222222-2222-2222-2222-222222222222"}';
+
+do $$
+begin
+  if exists (
+    select 1 from public.find_musicians(null, null, 50)
+    where id = '11111111-1111-1111-1111-111111111111'
+  ) then
+    raise exception 'the block was one-directional, so the blocked person can still watch';
+  end if;
+
+  -- And they cannot read who blocked them. people_i_blocked answers only
+  -- about the caller, which is what keeps a block quiet.
+  if exists (select 1 from public.people_i_blocked()) then
+    raise exception 'the blocked person can see a block they did not make';
+  end if;
+end $$;
+
+-- Reporting, from the side that would actually do it.
+select public.report_content(
+  'profile', 'harassment', 'Kept messaging after I asked them to stop.',
+  '11111111-1111-1111-1111-111111111111');
+
+do $$
+begin
+  if not exists (
+    select 1 from public.content_reports
+    where reporter_id = '22222222-2222-2222-2222-222222222222'
+      and kind = 'profile' and reason = 'harassment' and status = 'open'
+  ) then
+    raise exception 'the report was not filed';
+  end if;
+
+  -- Exactly one target, enforced by the table rather than by the client.
+  begin
+    insert into public.content_reports (kind, reason, target_profile, target_project)
+    values ('profile', 'spam',
+            '11111111-1111-1111-1111-111111111111',
+            '44444444-4444-4444-4444-444444444444');
+    raise exception 'a report pointing at two things was accepted';
+  exception when check_violation then null;
+  end;
+end $$;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+-- Undoing it puts everything back.
+select public.unblock_user('22222222-2222-2222-2222-222222222222');
+
+do $$
+begin
+  if not exists (
+    select 1 from public.find_musicians(null, null, 50)
+    where id = '22222222-2222-2222-2222-222222222222'
+  ) then
+    raise exception 'unblocking did not restore them';
+  end if;
+end $$;
+
+
 commit;

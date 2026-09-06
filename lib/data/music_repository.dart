@@ -211,6 +211,33 @@ abstract interface class MusicRepository {
 
   Future<void> answerRoomInvite(String inviteId, {required bool accept});
 
+  /// Stops somebody finding you, asking you, or inviting you to anything.
+  ///
+  /// Symmetric in effect and quiet in fact: neither of you appears to the
+  /// other afterwards, and nobody is told. It prevents new contact rather
+  /// than tearing up a band you are both already in — wanting out of a
+  /// catalog is [leaveRoom], which is a different thing.
+  Future<void> blockUser(String profileId);
+
+  Future<void> unblockUser(String profileId);
+
+  /// Who you have blocked. You cannot see who has blocked you.
+  Future<List<BlockedPerson>> peopleIBlocked();
+
+  /// Says that something should not be here.
+  ///
+  /// Write-only from the app's side: the person reported never sees it, and
+  /// neither does anybody else.
+  Future<void> reportContent({
+    required String kind,
+    required String reason,
+    String detail,
+    String? profileId,
+    String? projectId,
+    String? layerId,
+    String? linkId,
+  });
+
   /// Songs you are on and could offer to [profileId], newest first.
   Future<List<OfferableSong>> songsICanOffer(String profileId);
 
