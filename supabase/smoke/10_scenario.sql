@@ -1416,4 +1416,95 @@ end $$;
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 
+-- A song on the Open Mic (0067).
+--
+-- Three policies have to agree or the page is visible and silent. The one
+-- worth proving is the third: a stranger can hear what the room has heard,
+-- and a private take stays private even on a published song.
+insert into public.song_layers
+  (project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values
+  ('aaaaaaaa-0000-0000-0000-00000000000a', :'writer',
+   :'room' || '/aaaaaaaa-0000-0000-0000-00000000000a/layers/heard.m4a',
+   'Guitar', 'rhythm', 40000, now()),
+  ('aaaaaaaa-0000-0000-0000-00000000000a', :'writer',
+   :'room' || '/aaaaaaaa-0000-0000-0000-00000000000a/layers/secret.m4a',
+   'Scratch', 'rhythm', 9000, null);
+
+-- A stranger: joiner one is in another catalog entirely.
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+
+do $$
+begin
+  if exists (select 1 from public.open_mic_songs(null, 50)) then
+    raise exception 'something was on the Open Mic before anything was put there';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+select public.put_on_open_mic('aaaaaaaa-0000-0000-0000-00000000000a');
+
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+
+do $$
+declare
+  song record;
+  audible int;
+begin
+  select * into song
+  from public.open_mic_song('aaaaaaaa-0000-0000-0000-00000000000a');
+  if song.id is null then
+    raise exception 'a song on the Open Mic was invisible to a stranger';
+  end if;
+  if song.owner_name is null then
+    raise exception 'the Open Mic song did not say who made it';
+  end if;
+
+  -- The heart of it. One take was shared; one never was.
+  select count(*) into audible from public.song_layers
+  where project_id = 'aaaaaaaa-0000-0000-0000-00000000000a';
+
+  if audible <> 1 then
+    raise exception 'a stranger could see % takes; exactly one was shared', audible;
+  end if;
+  if exists (
+    select 1 from public.song_layers
+    where project_id = 'aaaaaaaa-0000-0000-0000-00000000000a'
+      and storage_path like '%secret%'
+  ) then
+    raise exception 'a private take was published with the song';
+  end if;
+
+  -- And it is not theirs to publish or unpublish.
+  begin
+    perform public.take_off_open_mic('aaaaaaaa-0000-0000-0000-00000000000a');
+    raise exception 'a stranger took somebody else''s song off the Open Mic';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+select public.take_off_open_mic('aaaaaaaa-0000-0000-0000-00000000000a');
+
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+
+do $$
+begin
+  if exists (
+    select 1 from public.open_mic_song('aaaaaaaa-0000-0000-0000-00000000000a')
+  ) then
+    raise exception 'taking a song off the Open Mic did not hide it again';
+  end if;
+  -- And the takes go with it, or the audio outlives the page.
+  if exists (
+    select 1 from public.song_layers
+    where project_id = 'aaaaaaaa-0000-0000-0000-00000000000a'
+  ) then
+    raise exception 'a stranger could still see takes after the song came down';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+
 commit;
