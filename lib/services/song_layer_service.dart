@@ -78,6 +78,32 @@ class SongLayerService {
   /// with no row is invisible and costs only storage, which the retention
   /// sweep reclaims. Of the two ways this can half-fail, the second is much
   /// the kinder.
+  /// Lets the room hear a take that was until now only yours.
+  ///
+  /// The one moment the rest of the band is told anything about it. Recording
+  /// says nothing to anybody: an app that announces every attempt is one
+  /// nobody experiments in, and a room for writing songs where only finished
+  /// work appears has stopped being a room for writing songs.
+  Future<void> share(String layerId) async {
+    await _client.rpc<void>(
+      'share_layer',
+      params: <String, dynamic>{'target_layer': layerId},
+    );
+  }
+
+  /// Takes it back.
+  ///
+  /// Somebody who shared by accident, or heard it again in the morning and
+  /// thought better of it, should be able to. Sharing that cannot be undone
+  /// teaches people to share less, which costs far more than the occasional
+  /// withdrawn take.
+  Future<void> unshare(String layerId) async {
+    await _client.rpc<void>(
+      'unshare_layer',
+      params: <String, dynamic>{'target_layer': layerId},
+    );
+  }
+
   Future<SharedLayer> upload({
     required String roomId,
     required String projectId,
@@ -259,11 +285,22 @@ class SharedLayer {
     this.startMs = 0,
     this.gain = 1.0,
     this.byteSize,
+    this.sharedAt,
   });
 
   final String id;
   final String projectId;
   final String recordedBy;
+
+  /// When the person who recorded this let the room hear it.
+  ///
+  /// Null means it is still theirs alone. The read policy already hides it
+  /// from everybody else, so a null here on somebody else's take cannot
+  /// happen — it only ever describes your own.
+  final DateTime? sharedAt;
+
+  /// Whether the room can hear this.
+  bool get isShared => sharedAt != null;
   final String storagePath;
   final String label;
   final TakePart part;
@@ -350,6 +387,9 @@ class SharedLayer {
       byteSize: (row['byte_size'] as num?)?.toInt(),
       createdAt:
           DateTime.tryParse(row['created_at'] as String? ?? '') ?? DateTime.now(),
+      sharedAt: row['shared_at'] == null
+          ? null
+          : DateTime.tryParse(row['shared_at'] as String)?.toLocal(),
     );
   }
 }

@@ -1594,6 +1594,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // No delete on the reference: it is what every chord and lyric on the
       // song sheet came from, and a mixer should not be able to break those.
       onDelete: layer == null ? null : () => unawaited(_delete(layer)),
+      // Only on your own take, and only while the room has not heard it.
+      onShare: layer != null && mine && !layer.isShared
+          ? () => unawaited(_share(layer))
+          : null,
       onAdjust: layer != null
           ? (mine ? () => unawaited(_showLevels(layer, take)) : null)
           // The song itself. Not a take and not anybody's to re-balance for
@@ -1601,6 +1605,55 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           // play along, and until now nobody could.
           : (take.id == _referenceId ? () => unawaited(_showSongLevel()) : null),
     );
+  }
+
+  /// Lets the room hear a take that was until now only yours.
+  ///
+  /// Confirmed, briefly, because it is the one action on this screen that
+  /// other people find out about. Everything else here — recording again,
+  /// muting, adjusting, deleting — happens in private, and an action that
+  /// crosses that line should ask once rather than surprise somebody who
+  /// mis-tapped while scrolling.
+  Future<void> _share(SharedLayer layer) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.raised,
+        title: const Text('Let the room hear this?'),
+        content: const Text(
+          'Everybody in the room gets told, and it plays for them from now '
+          'on. You can take it back afterwards.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not yet'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Share it'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      await _service.share(layer.id);
+      await _load();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = reportAndDescribe(
+            error,
+            service: 'layers',
+            stage: 'share',
+            route: 'Takes',
+            projectId: widget.projectId,
+          ));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   /// How loud the song sits while somebody plays over it.
