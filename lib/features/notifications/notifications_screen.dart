@@ -72,8 +72,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final controller = BetaScope.of(context);
     final invites = controller.invites;
     final asks = controller.asksForMe;
+    final roomInvites = controller.roomInvitesForMe;
     final notifications = controller.notifications;
-    final empty = invites.isEmpty && asks.isEmpty && notifications.isEmpty;
+    final empty = invites.isEmpty &&
+        asks.isEmpty &&
+        roomInvites.isEmpty &&
+        notifications.isEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -134,6 +138,31 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         onDecline: () => _run(
                           () => controller.answerAsk(ask, accept: false),
                           'Passed. They have been told.',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    const SizedBox(height: 8),
+                  ],
+                  // Somebody inviting you into a catalog by name, rather
+                  // than by emailing you a code. Same section as the coded
+                  // invitations below, because to a person they are the same
+                  // thing: somebody wants you in their band.
+                  if (roomInvites.isNotEmpty) ...<Widget>[
+                    const _SectionLabel('Invitations'),
+                    for (final invite in roomInvites) ...<Widget>[
+                      _RoomInviteCard(
+                        invite: invite,
+                        busy: _busy,
+                        onAccept: () => _run(
+                          () => controller.answerRoomInvite(invite,
+                              accept: true),
+                          '${invite.roomName} is under Songs now.',
+                        ),
+                        onDecline: () => _run(
+                          () => controller.answerRoomInvite(invite,
+                              accept: false),
+                          'Declined. They have been told.',
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -270,6 +299,87 @@ class _AskCard extends StatelessWidget {
                 onPressed: busy ? null : onDecline,
                 style: TextButton.styleFrom(foregroundColor: AppColors.muted),
                 child: const Text('Not this one'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Somebody inviting you into a catalog of theirs.
+///
+/// Bigger than an ask and drawn to say so: an ask is one song, this is
+/// everything in a catalog and everything added to it later. The card names
+/// the catalog rather than counting its songs, because the count somebody
+/// sees before accepting would be out of date the moment they did.
+class _RoomInviteCard extends StatelessWidget {
+  const _RoomInviteCard({
+    required this.invite,
+    required this.busy,
+    required this.onAccept,
+    required this.onDecline,
+  });
+
+  final RoomInviteForMe invite;
+  final bool busy;
+  final VoidCallback onAccept;
+  final VoidCallback onDecline;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 15, 16, 12),
+      decoration: BoxDecoration(
+        color: AppColors.raised,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            invite.headline,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              height: 1.3,
+            ),
+          ),
+          if (invite.note.trim().isNotEmpty) ...<Widget>[
+            const SizedBox(height: 7),
+            Text(
+              '“${invite.note.trim()}”',
+              style: const TextStyle(
+                color: AppColors.muted,
+                fontSize: 13.5,
+                height: 1.4,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+          const SizedBox(height: 6),
+          const Text(
+            'Joining puts every song in that catalog in your library, '
+            'including ones added later. You can leave whenever you like.',
+            style: TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.4),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: FilledButton(
+                  onPressed: busy ? null : onAccept,
+                  child: const Text('Join'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: busy ? null : onDecline,
+                style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+                child: const Text('No thanks'),
               ),
             ],
           ),

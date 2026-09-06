@@ -218,6 +218,53 @@ const Object _unset = Object();
 /// They are one class because everything downstream treats them identically:
 /// the same audience, the same answering flow, the same closing. A product
 /// that only carried the specific one would be a gig board.
+/// A catalog you own, as an option in the "invite them" picker.
+class InvitableRoom {
+  const InvitableRoom({
+    required this.id,
+    required this.name,
+    required this.songCount,
+    this.alreadyIn = false,
+    this.alreadyInvited = false,
+  });
+
+  final String id;
+  final String name;
+  final int songCount;
+  final bool alreadyIn;
+  final bool alreadyInvited;
+
+  /// Why this row cannot be picked, or null when it can. Shown rather than
+  /// hidden: a catalog missing from the list is somebody wondering where it
+  /// went.
+  String? get blockedBecause {
+    if (alreadyIn) return 'already in';
+    if (alreadyInvited) return 'already invited';
+    return null;
+  }
+}
+
+/// Somebody inviting you into a catalog of theirs.
+class RoomInviteForMe {
+  const RoomInviteForMe({
+    required this.id,
+    required this.roomId,
+    required this.roomName,
+    required this.invitedByName,
+    required this.createdAt,
+    this.note = '',
+  });
+
+  final String id;
+  final String roomId;
+  final String roomName;
+  final String invitedByName;
+  final String note;
+  final DateTime createdAt;
+
+  String get headline => '$invitedByName invited you to $roomName';
+}
+
 /// A song of yours, as an option in the "ask them to play on…" picker.
 class OfferableSong {
   const OfferableSong({
