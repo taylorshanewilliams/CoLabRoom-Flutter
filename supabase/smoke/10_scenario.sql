@@ -904,4 +904,112 @@ begin
 end $$;
 
 
+-- Asking one person (0061).
+--
+-- The security property is the whole feature: an ask must grant nothing. If
+-- sending one gave a stranger a read on the song, Open Mic would be a way to
+-- hand out other people's unfinished work.
+select public.ask_musician(
+  :'project',
+  '22222222-2222-2222-2222-222222222222',
+  'bass',
+  'Something simple under the chorus.'
+);
+
+do $$
+declare
+  sent record;
+begin
+  select * into sent from public.project_asks
+  where asked_of = '22222222-2222-2222-2222-222222222222';
+
+  if sent.id is null then
+    raise exception 'the ask was not written';
+  end if;
+  if sent.status <> 'open' or sent.part <> 'bass' then
+    raise exception 'the ask was written wrong: % / %', sent.status, sent.part;
+  end if;
+
+  -- The person asked was told, and the notification carries the title, which
+  -- is the only thing about the song they can see before answering.
+  if not exists (
+    select 1 from public.notifications n
+    where n.user_id = '22222222-2222-2222-2222-222222222222'
+      and n.kind = 'song_ask'
+  ) then
+    raise exception 'nobody told the person who was asked';
+  end if;
+
+  -- And nothing was granted.
+  if exists (
+    select 1 from public.project_members m
+    where m.project_id = sent.project_id
+      and m.user_id = '22222222-2222-2222-2222-222222222222'
+  ) then
+    raise exception 'asking somebody put them on the song before they agreed';
+  end if;
+
+  -- Asking twice about the same song is refused rather than queued.
+  begin
+    perform public.ask_musician(
+      sent.project_id, '22222222-2222-2222-2222-222222222222', 'keys', '');
+    raise exception 'a second open ask to the same person was accepted';
+  exception when unique_violation then null;
+  end;
+end $$;
+
+-- Now the bandmate answers, the way a second request would.
+set local request.jwt.claims = '{"sub": "22222222-2222-2222-2222-222222222222"}';
+
+do $$
+declare
+  mine record;
+  the_ask uuid;
+begin
+  select * into mine from public.asks_for_me() limit 1;
+  if mine.id is null then
+    raise exception 'asks_for_me showed the asked person nothing';
+  end if;
+  if mine.song_title is null then
+    raise exception 'the ask did not carry the song title';
+  end if;
+  the_ask := mine.id;
+
+  perform public.answer_ask(the_ask, true);
+
+  if not exists (
+    select 1 from public.project_members m
+    where m.user_id = '22222222-2222-2222-2222-222222222222'
+  ) then
+    raise exception 'saying yes did not put them on the song';
+  end if;
+
+  if (select status from public.project_asks where id = the_ask) <> 'closed' then
+    raise exception 'answering did not close the ask';
+  end if;
+
+  -- Answering twice is not an error, and does not undo anything.
+  perform public.answer_ask(the_ask, false);
+  if (select status from public.project_asks where id = the_ask) <> 'closed' then
+    raise exception 'a second answer overwrote the first';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+-- Somebody else's ask is not yours to answer.
+do $$
+declare
+  the_ask uuid;
+begin
+  select id into the_ask from public.project_asks
+  where asked_of = '22222222-2222-2222-2222-222222222222' limit 1;
+  begin
+    perform public.answer_ask(the_ask, true);
+    raise exception 'a stranger answered an ask aimed at somebody else';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+
 commit;

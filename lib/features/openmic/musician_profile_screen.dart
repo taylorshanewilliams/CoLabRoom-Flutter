@@ -8,6 +8,7 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
+import 'ask_musician_sheet.dart';
 
 /// Somebody's own room.
 ///
@@ -168,6 +169,36 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
     }
   }
 
+  /// The verb this page did not have.
+  ///
+  /// Open Mic could find you a bass player in your city and then the app
+  /// stopped — you could look at somebody and do nothing about it, which made
+  /// the whole feature a browsing exercise and is why nobody had turned
+  /// themselves on. There was nothing on the other side of being listed.
+  Future<void> _ask() async {
+    final musician = _musician;
+    if (musician == null) return;
+    final sent = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: AppColors.deepNavy,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+        ),
+        child: AskMusicianSheet(
+          musician: musician,
+          repository: widget.repository,
+        ),
+      ),
+    );
+    if (sent == true && mounted) {
+      _say('Asked ${musician.displayName}. They will hear about it, and '
+          'nothing of yours opens up unless they say yes.');
+    }
+  }
+
   Future<void> _editPresence() async {
     final me = _musician;
     if (me == null) return;
@@ -251,6 +282,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
                 onRemove: (link) => unawaited(_remove(link)),
                 onOpen: (link) => unawaited(_open(link)),
                 onEditPresence: () => unawaited(_editPresence()),
+                onAsk: _isMe ? null : () => unawaited(_ask()),
               ),
       ),
     );
@@ -268,6 +300,7 @@ class _Body extends StatelessWidget {
     required this.onRemove,
     required this.onOpen,
     required this.onEditPresence,
+    required this.onAsk,
   });
 
   final Musician musician;
@@ -279,6 +312,9 @@ class _Body extends StatelessWidget {
   final ValueChanged<ShowcaseLink> onRemove;
   final ValueChanged<ShowcaseLink> onOpen;
   final VoidCallback onEditPresence;
+
+  /// Null on your own page, where asking yourself is not a thing.
+  final VoidCallback? onAsk;
 
   @override
   Widget build(BuildContext context) {
@@ -333,6 +369,31 @@ class _Body extends StatelessWidget {
           Text(
             error!,
             style: const TextStyle(color: AppColors.orange, fontSize: 12.5),
+          ),
+        ],
+        if (onAsk != null) ...<Widget>[
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: onAsk,
+            icon: const Icon(Icons.piano_rounded, size: 18),
+            label: const Text('Ask them to play on…'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+              backgroundColor: AppColors.cyan,
+              foregroundColor: AppColors.ink,
+              textStyle: const TextStyle(
+                  fontSize: 14.5, fontWeight: FontWeight.w800),
+            ),
+          ),
+          const SizedBox(height: 7),
+          // Said before they tap, not after. Somebody about to contact a
+          // stranger about their unfinished song wants to know what it costs
+          // them, and the answer is nothing.
+          const Text(
+            'They hear about it. Nothing of yours opens up unless they '
+            'say yes.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.muted, fontSize: 11.5),
           ),
         ],
         if (isMe && musician.discoverable == false) ...<Widget>[

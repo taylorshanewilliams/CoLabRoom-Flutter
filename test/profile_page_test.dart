@@ -157,6 +157,77 @@ void main() {
     expect(find.text('Anybody in Open Mic'), findsOneWidget);
   });
 
+  testWidgets('a stranger can be asked, and is told what it costs them',
+      (tester) async {
+    final repository = InMemoryMusicRepository.seeded();
+    const mara = Musician(
+      id: 'preview-mara',
+      displayName: 'Mara Ellison',
+      city: 'Glasgow',
+      plays: <String>['vocal', 'harmony'],
+      partsRecorded: <String, int>{'vocal': 9, 'harmony': 4},
+      songsPlayedOn: 7,
+      peopleWorkedWith: 5,
+    );
+
+    await _boot(
+      tester,
+      MusicianProfileScreen(
+        profileId: mara.id,
+        repository: repository,
+        initial: mara,
+      ),
+    );
+
+    // The verb this page did not have. Open Mic could find you a bass player
+    // and then the app stopped.
+    expect(find.text('Ask them to play on…'), findsOneWidget);
+    // Said before the tap, because somebody about to contact a stranger about
+    // an unfinished song wants to know what it costs them.
+    expect(
+      find.text('They hear about it. Nothing of yours opens up unless they '
+          'say yes.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Ask them to play on…'));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+    expect(tester.takeException(), isNull,
+        reason: 'the ask sheet did not draw');
+
+    expect(find.text('Ask Mara Ellison'), findsWidgets);
+    expect(find.text('WHICH SONG'), findsOneWidget);
+    expect(find.text('Midnight Signal'), findsOneWidget);
+
+    // A song this person already has an open ask about is shown and disabled,
+    // not hidden — a row quietly missing is somebody wondering where their
+    // song went.
+    expect(find.text('already asked'), findsOneWidget);
+
+    // Naming a part is optional on purpose: not knowing what a song needs is
+    // the normal case, and often the reason for asking at all.
+    expect(find.text('optional'), findsWidgets);
+    expect(
+      find.text('Leave it blank if you would rather hear what they think '
+          'it needs.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('your own page has no ask button on it', (tester) async {
+    final repository = InMemoryMusicRepository.seeded();
+    await _boot(
+      tester,
+      MusicianProfileScreen(
+        profileId: repository.currentUserId,
+        repository: repository,
+      ),
+    );
+    expect(find.text('Ask them to play on…'), findsNothing);
+  });
+
   group('the preview refuses exactly what the server refuses', () {
     test('a host on the list is accepted', () async {
       final repository = InMemoryMusicRepository.seeded();

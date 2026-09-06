@@ -982,6 +982,70 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<OfferableSong>> songsICanOffer(String profileId) async {
+    final rows = await client.rpc<dynamic>(
+      'songs_i_can_offer',
+      params: <String, dynamic>{'target_person': profileId},
+    );
+    return <OfferableSong>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        OfferableSong(
+          id: (row as Map)['id'] as String,
+          title: row['title'] as String? ?? 'Untitled',
+          updatedAt:
+              DateTime.tryParse('${row['updated_at']}')?.toLocal() ??
+                  DateTime.now(),
+          alreadyAsked: row['already_asked'] as bool? ?? false,
+        ),
+    ];
+  }
+
+  @override
+  Future<void> askMusician({
+    required String projectId,
+    required String profileId,
+    String? part,
+    String note = '',
+  }) async {
+    await client.rpc<dynamic>(
+      'ask_musician',
+      params: <String, dynamic>{
+        'target_project': projectId,
+        'target_person': profileId,
+        'in_part': part,
+        'in_note': note,
+      },
+    );
+  }
+
+  @override
+  Future<List<AskForMe>> asksForMe() async {
+    final rows = await client.rpc<dynamic>('asks_for_me');
+    return <AskForMe>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        AskForMe(
+          id: (row as Map)['id'] as String,
+          projectId: row['project_id'] as String,
+          songTitle: row['song_title'] as String? ?? 'A song',
+          askedByName: row['asked_by_name'] as String? ?? 'Somebody',
+          part: row['part'] as String?,
+          note: row['note'] as String? ?? '',
+          createdAt:
+              DateTime.tryParse('${row['created_at']}')?.toLocal() ??
+                  DateTime.now(),
+        ),
+    ];
+  }
+
+  @override
+  Future<void> answerAsk(String askId, {required bool accept}) async {
+    await client.rpc<dynamic>(
+      'answer_ask',
+      params: <String, dynamic>{'target_ask': askId, 'accept': accept},
+    );
+  }
+
+  @override
   Future<Musician?> loadMusician(String profileId) async {
     final rows = await client.rpc<dynamic>(
       'musician_profile',

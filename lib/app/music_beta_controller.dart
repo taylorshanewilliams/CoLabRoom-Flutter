@@ -65,6 +65,7 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
 
   List<MusicRoom> _rooms = const <MusicRoom>[];
   List<BetaInvite> _invites = const <BetaInvite>[];
+  List<AskForMe> _asksForMe = const <AskForMe>[];
   List<Setlist> _setlists = const <Setlist>[];
   List<AppNotification> _notifications = const <AppNotification>[];
   NotificationPreferences _notificationPreferences = const NotificationPreferences();
@@ -81,6 +82,12 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
 
   List<MusicRoom> get rooms => List<MusicRoom>.unmodifiable(_rooms);
   List<BetaInvite> get invites => List<BetaInvite>.unmodifiable(_invites);
+
+  /// Somebody asking you by name to play on one of their songs. Kept beside
+  /// invitations because it is the same kind of thing to a person — a request
+  /// waiting on an answer — even though it grants a song rather than a
+  /// catalog.
+  List<AskForMe> get asksForMe => List<AskForMe>.unmodifiable(_asksForMe);
   List<Setlist> get setlists => List<Setlist>.unmodifiable(_setlists);
   List<AppNotification> get notifications => List<AppNotification>.unmodifiable(_notifications);
   NotificationPreferences get notificationPreferences => _notificationPreferences;
@@ -190,6 +197,14 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
         _unheardTakes = await repository.loadUnheardTakeCounts();
       } catch (_) {
         // Left as it was. A stale count is better than a list that failed.
+      }
+      // Also best-effort, and for the same reason: somebody who has been
+      // asked to play on a song should not lose their own library because
+      // that one query failed.
+      try {
+        _asksForMe = await repository.asksForMe();
+      } catch (_) {
+        // Left as it was.
       }
       try {
         _activity = await repository.loadActivity(limit: 20);
@@ -625,6 +640,16 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> declineInvite(BetaInvite invite) async {
     await repository.declineInvite(invite);
+    await load();
+  }
+
+  /// Says yes or no to being asked to play on somebody's song.
+  ///
+  /// Yes puts you on that one song — not the catalog it sits in. Reloading
+  /// afterwards is what makes it appear under Songs, which is the whole
+  /// visible result of saying yes.
+  Future<void> answerAsk(AskForMe ask, {required bool accept}) async {
+    await repository.answerAsk(ask.id, accept: accept);
     await load();
   }
 

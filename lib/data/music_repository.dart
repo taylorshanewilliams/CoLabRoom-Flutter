@@ -182,6 +182,26 @@ abstract interface class MusicRepository {
   /// normal case and not an error.
   Future<String?> sharedCityWith(String profileId);
 
+  /// Songs you are on and could offer to [profileId], newest first.
+  Future<List<OfferableSong>> songsICanOffer(String profileId);
+
+  /// Asks one particular musician to play on one particular song.
+  ///
+  /// Grants them nothing. It is a message; accepting is what gives access,
+  /// and only they can do that.
+  Future<void> askMusician({
+    required String projectId,
+    required String profileId,
+    String? part,
+    String note,
+  });
+
+  /// Open asks aimed at you by name.
+  Future<List<AskForMe>> asksForMe();
+
+  /// Says yes or no to one. Yes puts you on that song — and only that song.
+  Future<void> answerAsk(String askId, {required bool accept});
+
   /// One musician, including yourself.
   ///
   /// Null when there is nobody you are allowed to see at that id, which is
