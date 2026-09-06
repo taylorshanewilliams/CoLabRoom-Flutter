@@ -13,6 +13,11 @@ dependencies:
   archive: ^4.0.9
   audio_decoder: ^0.8.1
   cross_file: 0.3.5+4
+  # Push. firebase_core is only here because firebase_messaging needs a
+  # configured app to attach to; nothing else in this project uses Firebase,
+  # and Analytics/Crashlytics are deliberately not installed.
+  firebase_core: ^3.8.0
+  firebase_messaging: ^15.1.5
   csv: 6.0.0
   fftea: ^1.5.0+1
   file_picker: 12.0.0

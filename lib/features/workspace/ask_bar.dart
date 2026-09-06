@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
+import '../../services/push_registration.dart';
 import '../../services/user_facing_error.dart';
 
 /// What this song is asking for, and whether anybody has heard it.
@@ -139,6 +140,7 @@ class _AskBarState extends State<AskBar> {
             ? 'Asked the room what it needs.'
             : 'Asked the room for $choice.'),
       ));
+      await _offerNotifications();
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -147,6 +149,49 @@ class _AskBarState extends State<AskBar> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// The moment notifications have earned the right to ask.
+  ///
+  /// Somebody who has just asked their room for a bridge has an obvious
+  /// reason to want to know when one arrives. That is a completely different
+  /// question from the same dialog on a launch screen, before they know what
+  /// the app is or why it would interrupt them.
+  ///
+  /// Our own dialog comes first, and the system one is only reached through a
+  /// yes. On iOS the permission prompt can be shown exactly once for the life
+  /// of an install — a "no" there is permanent and can only be undone in
+  /// Settings, which nobody does. So the cheap, reversible question gets asked
+  /// first, and the expensive irreversible one is spent only on people who
+  /// have already said they want it.
+  Future<void> _offerNotifications() async {
+    if (!PushRegistration.isAvailable) return;
+    if (await PushRegistration.isAllowed()) return;
+    if (!mounted) return;
+
+    final wants = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.raised,
+        title: const Text('Tell you when somebody answers?'),
+        content: const Text(
+          "Your room has been asked. We can let you know on your phone when "
+          "a take lands, instead of you having to come back and check.",
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Yes, tell me'),
+          ),
+        ],
+      ),
+    );
+    if (wants != true) return;
+    await PushRegistration.enable();
   }
 
   Future<void> _close(SongAsk ask) async {
