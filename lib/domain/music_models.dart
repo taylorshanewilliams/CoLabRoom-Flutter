@@ -277,6 +277,31 @@ class ProvenanceEvent {
   final String detail;
 }
 
+/// A piece of work somebody made somewhere else.
+///
+/// Shown and never counted. Anybody can paste a link to anything, so these
+/// say what a person sounds like rather than what they have done here — the
+/// same line the profile draws between a declaration and a recording.
+class ShowcaseLink {
+  const ShowcaseLink({
+    required this.id,
+    required this.url,
+    required this.platform,
+    this.title = '',
+  });
+
+  final String id;
+  final String url;
+
+  /// Derived from the host by the server, never sent by the client — which is
+  /// what stops a link to anywhere being labelled Spotify.
+  final String platform;
+
+  final String title;
+
+  String get displayTitle => title.trim().isEmpty ? platform : title.trim();
+}
+
 /// Somebody you might work with.
 ///
 /// Carries the two kinds of truth separately and refuses to average them.
@@ -293,6 +318,8 @@ class Musician {
     required this.peopleWorkedWith,
     this.avatarPath,
     this.city,
+    this.discoverable,
+    this.locationVisibility,
   });
 
   final String id;
@@ -311,6 +338,14 @@ class Musician {
 
   final int songsPlayedOn;
   final int peopleWorkedWith;
+
+  /// Whether this person appears in Open Mic, and who may see their city.
+  ///
+  /// Both are null for everybody except you. Somebody else's settings are
+  /// their business, and a client that could read them could assemble the
+  /// list of people who chose not to be listed.
+  final bool? discoverable;
+  final String? locationVisibility;
 
   /// Whether there is a record behind the claim.
   bool get hasRecord => songsPlayedOn > 0;

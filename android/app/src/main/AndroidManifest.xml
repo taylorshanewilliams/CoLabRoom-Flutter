@@ -51,5 +51,12 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Showcase links open outside the app. Without this, Android 11 and
+             later hide every browser from us and the link silently does
+             nothing. https only: the link allowlist admits no other scheme. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>

@@ -917,6 +917,51 @@ class SupabaseMusicRepository implements MusicRepository {
   String get currentUserId => _userId;
 
   @override
+  Future<List<ShowcaseLink>> loadShowcase(String profileId) async {
+    final rows = await client
+        .from('profile_links')
+        .select('id, url, platform, title')
+        .eq('profile_id', profileId)
+        .order('position')
+        .order('created_at');
+    return <ShowcaseLink>[
+      for (final row in rows as List<dynamic>)
+        ShowcaseLink(
+          id: (row as Map<String, dynamic>)['id'] as String,
+          url: row['url'] as String? ?? '',
+          platform: row['platform'] as String? ?? '',
+          title: row['title'] as String? ?? '',
+        ),
+    ];
+  }
+
+  @override
+  Future<void> addShowcaseLink({required String url, String title = ''}) async {
+    await client.from('profile_links').insert(<String, dynamic>{
+      'profile_id': _userId,
+      'url': url.trim(),
+      'title': title.trim(),
+      // platform is deliberately absent: the trigger derives it from the
+      // host, and a client that could name it could label anything Spotify.
+    });
+  }
+
+  @override
+  Future<void> removeShowcaseLink(String linkId) async {
+    await client.from('profile_links').delete().eq('id', linkId);
+  }
+
+  @override
+  Future<String?> sharedCityWith(String profileId) async {
+    final city = await client.rpc<dynamic>(
+      'shared_city_with',
+      params: <String, dynamic>{'other_profile': profileId},
+    );
+    final value = city is String ? city.trim() : '';
+    return value.isEmpty ? null : value;
+  }
+
+  @override
   Future<List<Musician>> findMusicians({
     String? part,
     String? city,
@@ -934,6 +979,35 @@ class SupabaseMusicRepository implements MusicRepository {
       for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
         _musician(Map<String, dynamic>.from(row as Map)),
     ];
+  }
+
+  @override
+  Future<Musician?> loadMusician(String profileId) async {
+    final rows = await client.rpc<dynamic>(
+      'musician_profile',
+      params: <String, dynamic>{'target': profileId},
+    );
+    final list = rows as List<dynamic>? ?? const <dynamic>[];
+    if (list.isEmpty) return null;
+    return _musician(Map<String, dynamic>.from(list.first as Map));
+  }
+
+  @override
+  Future<void> setOpenMicPresence({
+    required bool discoverable,
+    String? city,
+    String? locationVisibility,
+    List<String>? plays,
+  }) async {
+    await client.rpc<dynamic>(
+      'set_open_mic_presence',
+      params: <String, dynamic>{
+        'in_discoverable': discoverable,
+        'in_city': city,
+        'in_location_visibility': locationVisibility,
+        'in_plays': plays,
+      },
+    );
   }
 
   Musician _musician(Map<String, dynamic> row) {
@@ -957,6 +1031,9 @@ class SupabaseMusicRepository implements MusicRepository {
       partsRecorded: counts,
       songsPlayedOn: (row['songs_played_on'] as num?)?.toInt() ?? 0,
       peopleWorkedWith: (row['people_worked_with'] as num?)?.toInt() ?? 0,
+      // Absent from find_musicians rows, and present only on your own.
+      discoverable: row['discoverable'] as bool?,
+      locationVisibility: row['location_visibility'] as String?,
     );
   }
 

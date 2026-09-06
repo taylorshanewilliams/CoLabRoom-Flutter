@@ -1,0 +1,948 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../app/colabroom_theme.dart';
+import '../../data/music_repository.dart';
+import '../../domain/music_models.dart';
+import '../../services/current_route.dart';
+import '../../services/user_facing_error.dart';
+
+/// Somebody's own room.
+///
+/// Three kinds of thing about a musician, and the page keeps them apart on
+/// purpose, because each is worth a different amount:
+///
+///   * **Played here** — counted from takes a room actually kept. Nobody
+///     declared it and nobody can inflate it. It is the record.
+///   * **Also plays** — what they would like to be asked for. Aspiration is
+///     welcome, and it is a hope rather than a fact.
+///   * **Elsewhere** — a link to work they made somewhere else. Shown and
+///     never counted, because anybody can paste a link to anything. It says
+///     what somebody sounds like, not what they have done.
+///
+/// Every profile design that goes wrong goes wrong by averaging those into one
+/// impression — a star rating, a score, a level. Kept apart, a beginner with
+/// four honest takes and a session player with two hundred both have a page
+/// worth reading, and neither has to lose to the other.
+class MusicianProfileScreen extends StatefulWidget {
+  const MusicianProfileScreen({
+    required this.profileId,
+    required this.repository,
+    this.initial,
+    super.key,
+  });
+
+  final String profileId;
+  final MusicRepository repository;
+
+  /// The row Open Mic already had. Drawn immediately so that tapping a card
+  /// does not open an empty screen with a spinner in it; replaced by the full
+  /// load a moment later.
+  final Musician? initial;
+
+  @override
+  State<MusicianProfileScreen> createState() => _MusicianProfileScreenState();
+}
+
+class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
+  Musician? _musician;
+  List<ShowcaseLink>? _links;
+  String? _sharedCity;
+  String? _error;
+  bool _missing = false;
+
+  bool get _isMe => widget.repository.currentUserId == widget.profileId;
+
+  @override
+  void initState() {
+    super.initState();
+    _musician = widget.initial;
+    CurrentRoute.enter('Profile');
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    try {
+      final musician = await widget.repository.loadMusician(widget.profileId);
+      final links = await widget.repository.loadShowcase(widget.profileId);
+      String? shared;
+      if (!_isMe) {
+        // Only ever a nice surprise, never a filter. Null is the normal answer
+        // and is not worth putting an error on the page for.
+        try {
+          shared = await widget.repository.sharedCityWith(widget.profileId);
+        } catch (_) {
+          shared = null;
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _missing = musician == null && widget.initial == null;
+        if (musician != null) _musician = musician;
+        _links = links;
+        _sharedCity = shared;
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _links = const <ShowcaseLink>[];
+        _error = reportAndDescribe(
+          error,
+          service: 'app',
+          stage: 'load_profile',
+          route: 'Profile',
+        );
+      });
+    }
+  }
+
+  Future<void> _open(ShowcaseLink link) async {
+    final uri = Uri.tryParse(link.url);
+    if (uri == null) return;
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) {
+        throw StateError('nothing on this phone opened ${uri.host}');
+      }
+    } catch (error) {
+      if (!mounted) return;
+      _say(reportAndDescribe(
+        error,
+        service: 'app',
+        stage: 'open_showcase_link',
+        route: 'Profile',
+      ));
+    }
+  }
+
+  void _say(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _add() async {
+    final result = await showModalBottomSheet<({String url, String title})>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: AppColors.deepNavy,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+        ),
+        child: const _AddLinkSheet(),
+      ),
+    );
+    if (result == null || result.url.isEmpty || !mounted) return;
+    try {
+      await widget.repository
+          .addShowcaseLink(url: result.url, title: result.title);
+      await _load();
+    } catch (error) {
+      if (!mounted) return;
+      _say(reportAndDescribe(
+        error,
+        service: 'app',
+        stage: 'add_showcase_link',
+        route: 'Profile',
+      ));
+    }
+  }
+
+  Future<void> _remove(ShowcaseLink link) async {
+    try {
+      await widget.repository.removeShowcaseLink(link.id);
+      await _load();
+    } catch (error) {
+      if (!mounted) return;
+      _say(reportAndDescribe(
+        error,
+        service: 'app',
+        stage: 'remove_showcase_link',
+        route: 'Profile',
+      ));
+    }
+  }
+
+  Future<void> _editPresence() async {
+    final me = _musician;
+    if (me == null) return;
+    final changed = await showModalBottomSheet<_Presence>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: AppColors.deepNavy,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+        ),
+        child: _PresenceSheet(me: me),
+      ),
+    );
+    if (changed == null || !mounted) return;
+    try {
+      await widget.repository.setOpenMicPresence(
+        discoverable: changed.discoverable,
+        city: changed.city,
+        locationVisibility: changed.locationVisibility,
+        plays: changed.plays,
+      );
+      await _load();
+    } catch (error) {
+      if (!mounted) return;
+      _say(reportAndDescribe(
+        error,
+        service: 'app',
+        stage: 'set_open_mic_presence',
+        route: 'Profile',
+      ));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final musician = _musician;
+    return Scaffold(
+      backgroundColor: AppColors.deepNavy,
+      appBar: AppBar(
+        backgroundColor: AppColors.deepNavy,
+        title: Text(
+          _isMe ? 'Your profile' : (musician?.displayName ?? 'Profile'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 17),
+        ),
+        actions: <Widget>[
+          if (_isMe)
+            IconButton(
+              tooltip: 'Open Mic settings',
+              onPressed:
+                  musician == null ? null : () => unawaited(_editPresence()),
+              icon: const Icon(Icons.tune_rounded),
+            ),
+        ],
+      ),
+      body: SafeArea(
+        child: musician == null
+            ? Center(
+                child: _missing
+                    ? const Padding(
+                        padding: EdgeInsets.all(28),
+                        child: Text(
+                          'There is no profile here to show you.',
+                          textAlign: TextAlign.center,
+                          style:
+                              TextStyle(color: AppColors.muted, fontSize: 13.5),
+                        ),
+                      )
+                    : const CircularProgressIndicator(color: AppColors.gold),
+              )
+            : _Body(
+                musician: musician,
+                links: _links,
+                sharedCity: _sharedCity,
+                error: _error,
+                isMe: _isMe,
+                onAdd: () => unawaited(_add()),
+                onRemove: (link) => unawaited(_remove(link)),
+                onOpen: (link) => unawaited(_open(link)),
+                onEditPresence: () => unawaited(_editPresence()),
+              ),
+      ),
+    );
+  }
+}
+
+class _Body extends StatelessWidget {
+  const _Body({
+    required this.musician,
+    required this.links,
+    required this.sharedCity,
+    required this.error,
+    required this.isMe,
+    required this.onAdd,
+    required this.onRemove,
+    required this.onOpen,
+    required this.onEditPresence,
+  });
+
+  final Musician musician;
+  final List<ShowcaseLink>? links;
+  final String? sharedCity;
+  final String? error;
+  final bool isMe;
+  final VoidCallback onAdd;
+  final ValueChanged<ShowcaseLink> onRemove;
+  final ValueChanged<ShowcaseLink> onOpen;
+  final VoidCallback onEditPresence;
+
+  @override
+  Widget build(BuildContext context) {
+    final top = musician.topParts;
+    final shown = links;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
+      children: <Widget>[
+        Text(
+          musician.displayName,
+          style: const TextStyle(
+            color: AppColors.text,
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
+            height: 1.15,
+          ),
+        ),
+        if (sharedCity != null || musician.city != null) ...<Widget>[
+          const SizedBox(height: 6),
+          Row(
+            children: <Widget>[
+              Icon(
+                Icons.place_outlined,
+                size: 14,
+                color: sharedCity != null ? AppColors.green : AppColors.muted,
+              ),
+              const SizedBox(width: 4),
+              // The nicest thing this app can say, and it appears only after
+              // two people have actually made something together. Discovery
+              // that comes after the music beats a postcode filter, and it is
+              // safer: nobody's city is offered to a stranger browsing.
+              Expanded(
+                child: Text(
+                  sharedCity != null
+                      ? '$sharedCity — same city as you'
+                      : musician.city!,
+                  style: TextStyle(
+                    color:
+                        sharedCity != null ? AppColors.green : AppColors.muted,
+                    fontSize: 12.5,
+                    fontWeight:
+                        sharedCity != null ? FontWeight.w700 : FontWeight.w400,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+        if (error != null) ...<Widget>[
+          const SizedBox(height: 14),
+          Text(
+            error!,
+            style: const TextStyle(color: AppColors.orange, fontSize: 12.5),
+          ),
+        ],
+        if (isMe && musician.discoverable == false) ...<Widget>[
+          const SizedBox(height: 16),
+          _NotListedYet(onEdit: onEditPresence),
+        ],
+        const SizedBox(height: 24),
+        const _Heading('Played here', note: 'counted, not claimed'),
+        const SizedBox(height: 9),
+        if (top.isEmpty)
+          Text(
+            isMe
+                ? 'Nothing of yours has been shared to a room yet. This fills '
+                    'itself in as you record.'
+                : 'Nothing recorded here yet.',
+            style: const TextStyle(
+                color: AppColors.muted, fontSize: 12.5, height: 1.45),
+          )
+        else ...<Widget>[
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: <Widget>[
+              for (final entry in top)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.cyan.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${entry.key} · ${entry.value}',
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '${musician.songsPlayedOn} '
+            '${musician.songsPlayedOn == 1 ? 'song' : 'songs'} · '
+            'with ${musician.peopleWorkedWith} '
+            '${musician.peopleWorkedWith == 1 ? 'person' : 'people'}',
+            style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+          ),
+        ],
+        if (musician.plays.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 28),
+          const _Heading('Also plays', note: 'their own words'),
+          const SizedBox(height: 9),
+          Text(
+            musician.plays.join(' · '),
+            style: const TextStyle(color: AppColors.text, fontSize: 13.5),
+          ),
+        ],
+        const SizedBox(height: 28),
+        Row(
+          children: <Widget>[
+            const Expanded(
+              child: _Heading('Elsewhere', note: 'linked, not hosted'),
+            ),
+            if (isMe)
+              TextButton.icon(
+                onPressed: onAdd,
+                icon: const Icon(Icons.add_rounded, size: 17),
+                label: const Text('Add'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.cyan,
+                  visualDensity: VisualDensity.compact,
+                  textStyle: const TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w700),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 9),
+        if (shown == null)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: LinearProgressIndicator(minHeight: 2),
+          )
+        else if (shown.isEmpty)
+          Text(
+            isMe
+                ? 'Link a track from SoundCloud, Spotify, YouTube or Bandcamp '
+                    'so people can hear what you sound like before they ask '
+                    'you to play on something.'
+                : 'Nothing linked yet.',
+            style: const TextStyle(
+                color: AppColors.muted, fontSize: 12.5, height: 1.45),
+          )
+        else
+          for (final link in shown)
+            _LinkRow(
+              link: link,
+              onOpen: () => onOpen(link),
+              onRemove: isMe ? () => onRemove(link) : null,
+            ),
+      ],
+    );
+  }
+}
+
+/// Your own page, before anybody else can see it.
+///
+/// Said here rather than buried in settings, because the profile is where you
+/// find out whether it is worth turning on — and because somebody who does not
+/// know they are invisible will conclude the feature is broken.
+class _NotListedYet extends StatelessWidget {
+  const _NotListedYet({required this.onEdit});
+
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.raised,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            'Only you can see this page',
+            style: TextStyle(
+              color: AppColors.text,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            'You are not listed in Open Mic. Turn it on when the page looks '
+            'like you — and turn it off again whenever you like.',
+            style:
+                TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.45),
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton(
+              onPressed: onEdit,
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                textStyle:
+                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+              child: const Text('Open Mic settings'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Heading extends StatelessWidget {
+  const _Heading(this.text, {this.note});
+
+  final String text;
+  final String? note;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: <Widget>[
+        Flexible(
+          child: Text(
+            text.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.3,
+            ),
+          ),
+        ),
+        if (note != null) ...<Widget>[
+          const SizedBox(width: 8),
+          // The label that keeps the three sections from blurring together.
+          // "Counted, not claimed" beside a number is the whole difference
+          // between a record and a boast.
+          Flexible(
+            child: Text(
+              note!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: AppColors.muted, fontSize: 10.5),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _LinkRow extends StatelessWidget {
+  const _LinkRow({
+    required this.link,
+    required this.onOpen,
+    required this.onRemove,
+  });
+
+  final ShowcaseLink link;
+  final VoidCallback onOpen;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: AppColors.raised,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: ListTile(
+        onTap: onOpen,
+        leading:
+            const Icon(Icons.play_circle_outline_rounded, color: AppColors.cyan),
+        title: Text(
+          link.displayTitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: AppColors.text,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        // The platform is said out loud. Tapping this leaves the app, and
+        // somebody is entitled to know where they are about to be sent.
+        subtitle: Text(
+          link.platform,
+          style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
+        ),
+        trailing: onRemove == null
+            ? const Icon(Icons.open_in_new_rounded,
+                size: 16, color: AppColors.muted)
+            : IconButton(
+                tooltip: 'Remove',
+                onPressed: onRemove,
+                icon: const Icon(Icons.close_rounded,
+                    size: 17, color: AppColors.muted),
+              ),
+      ),
+    );
+  }
+}
+
+class _AddLinkSheet extends StatefulWidget {
+  const _AddLinkSheet();
+
+  @override
+  State<_AddLinkSheet> createState() => _AddLinkSheetState();
+}
+
+class _AddLinkSheetState extends State<_AddLinkSheet> {
+  final TextEditingController _url = TextEditingController();
+  final TextEditingController _title = TextEditingController();
+
+  @override
+  void dispose() {
+    _url.dispose();
+    _title.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            const Text(
+              'Link something you made',
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 5),
+            // Said before the field rather than after a rejection. Naming what
+            // is allowed is friendlier than an error explaining what was not.
+            const Text(
+              'SoundCloud, Spotify, YouTube, Bandcamp, Apple Music, Vimeo or '
+              'Audiomack. We only link to it — the audio stays where you put '
+              'it, and stays yours.',
+              style:
+                  TextStyle(color: AppColors.muted, fontSize: 12, height: 1.45),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _url,
+              autofocus: true,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                labelText: 'Link',
+                hintText: 'https://…',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _title,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'What to call it (optional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 18),
+            FilledButton(
+              onPressed: () => Navigator.pop(
+                context,
+                (url: _url.text.trim(), title: _title.text.trim()),
+              ),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(50),
+              ),
+              child: const Text('Add it'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Presence {
+  const _Presence({
+    required this.discoverable,
+    required this.city,
+    required this.locationVisibility,
+    required this.plays,
+  });
+
+  final bool discoverable;
+  final String city;
+  final String locationVisibility;
+  final List<String> plays;
+}
+
+class _PresenceSheet extends StatefulWidget {
+  const _PresenceSheet({required this.me});
+
+  final Musician me;
+
+  @override
+  State<_PresenceSheet> createState() => _PresenceSheetState();
+}
+
+class _PresenceSheetState extends State<_PresenceSheet> {
+  /// The same vocabulary Open Mic filters on, so what you tick is exactly what
+  /// somebody searching sees. Free text on one side and a fixed list of chips
+  /// on the other is how a search quietly stops matching.
+  static const List<({String part, String label})> _parts =
+      <({String part, String label})>[
+    (part: 'vocal', label: 'Singer'),
+    (part: 'harmony', label: 'Harmony'),
+    (part: 'lead', label: 'Lead'),
+    (part: 'rhythm', label: 'Rhythm'),
+    (part: 'bass', label: 'Bass'),
+    (part: 'drums', label: 'Drums'),
+    (part: 'keys', label: 'Keys'),
+    (part: 'percussion', label: 'Percussion'),
+  ];
+
+  static const List<({String value, String label, String why})> _visibilities =
+      <({String value, String label, String why})>[
+    (
+      value: 'nobody',
+      label: 'Keep it to myself',
+      why: 'Nobody sees your city. You can still be found by what you play.',
+    ),
+    (
+      value: 'collaborators',
+      label: 'People I have made something with',
+      why: 'They find out you are in the same city after the music, which is '
+          'the better order.',
+    ),
+    (
+      value: 'public',
+      label: 'Anybody in Open Mic',
+      why: 'You turn up when somebody browses your city.',
+    ),
+  ];
+
+  late bool _discoverable;
+  late String _visibility;
+  late final TextEditingController _city;
+  late final Set<String> _plays;
+
+  @override
+  void initState() {
+    super.initState();
+    _discoverable = widget.me.discoverable ?? false;
+    _visibility = widget.me.locationVisibility ?? 'nobody';
+    _city = TextEditingController(text: widget.me.city ?? '');
+    _plays = widget.me.plays.toSet();
+  }
+
+  @override
+  void dispose() {
+    _city.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              'Open Mic settings',
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _discoverable,
+              onChanged: (on) => setState(() => _discoverable = on),
+              title: const Text(
+                'List me in Open Mic',
+                style: TextStyle(
+                  color: AppColors.text,
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              subtitle: const Text(
+                'Off by default. Nobody appears there without choosing to.',
+                style: TextStyle(color: AppColors.muted, fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const _SheetHeading('What you play'),
+            const SizedBox(height: 4),
+            const Text(
+              'How people find you for work you actually want. Tick what you '
+              'would like to be asked for, not only what you have done.',
+              style:
+                  TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 7,
+              runSpacing: 7,
+              children: <Widget>[
+                for (final entry in _parts)
+                  FilterChip(
+                    label: Text(entry.label),
+                    selected: _plays.contains(entry.part),
+                    onSelected: (on) => setState(() {
+                      if (on) {
+                        _plays.add(entry.part);
+                      } else {
+                        _plays.remove(entry.part);
+                      }
+                    }),
+                    showCheckmark: false,
+                    selectedColor: AppColors.cyan.withValues(alpha: 0.18),
+                    backgroundColor: AppColors.raised,
+                    side: BorderSide(
+                      color: _plays.contains(entry.part)
+                          ? AppColors.cyan
+                          : AppColors.line,
+                    ),
+                    labelStyle: TextStyle(
+                      color: _plays.contains(entry.part)
+                          ? AppColors.cyan
+                          : AppColors.text,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const _SheetHeading('Where you are'),
+            const SizedBox(height: 4),
+            // Says the limit out loud. A location field that could mean a
+            // street address is one people fill in and then worry about; a
+            // field that says "a city, nothing finer" is one they can answer
+            // without thinking twice.
+            const Text(
+              'A city, nothing finer. We never ask your phone where you are.',
+              style:
+                  TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _city,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'City',
+                hintText: 'Glasgow',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final option in _visibilities)
+              InkWell(
+                onTap: () => setState(() => _visibility = option.value),
+                borderRadius: BorderRadius.circular(10),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Icon(
+                        _visibility == option.value
+                            ? Icons.radio_button_checked_rounded
+                            : Icons.radio_button_unchecked_rounded,
+                        size: 19,
+                        color: _visibility == option.value
+                            ? AppColors.cyan
+                            : AppColors.muted,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              option.label,
+                              style: const TextStyle(
+                                color: AppColors.text,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              option.why,
+                              style: const TextStyle(
+                                color: AppColors.muted,
+                                fontSize: 11.5,
+                                height: 1.35,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 18),
+            FilledButton(
+              onPressed: () => Navigator.pop(
+                context,
+                _Presence(
+                  discoverable: _discoverable,
+                  city: _city.text.trim(),
+                  locationVisibility: _visibility,
+                  plays: _plays.toList(growable: false),
+                ),
+              ),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(50),
+              ),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetHeading extends StatelessWidget {
+  const _SheetHeading(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text.toUpperCase(),
+      style: const TextStyle(
+        color: AppColors.text,
+        fontSize: 11,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 1.3,
+      ),
+    );
+  }
+}
