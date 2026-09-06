@@ -11,6 +11,7 @@ import '../../app/beta_config.dart';
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
+import '../../services/push_registration.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/audio_privacy_note.dart';
 import '../dev/latency_probe_screen.dart';
@@ -149,6 +150,7 @@ class _AccountScreenState extends State<AccountScreen> {
       final client = widget.supabase;
       if (client == null) return;
       await client.rpc<void>('delete_my_account');
+      await PushRegistration.forget();
       await client.auth.signOut();
     } on PostgrestException catch (error) {
       if (context.mounted) {
@@ -179,6 +181,19 @@ class _AccountScreenState extends State<AccountScreen> {
         const SnackBar(content: Text('Thank you—your beta feedback was saved.')),
       );
     }
+  }
+
+  /// Signing out takes this phone off the list first.
+  ///
+  /// Otherwise the notifications of the account that just left keep arriving
+  /// on a phone somebody may well have handed back. The token row would be
+  /// moved by the next account signing in, but "somebody else signs in
+  /// eventually" is not a plan for whose messages appear on a lock screen.
+  Future<void> _signOut() async {
+    final client = widget.supabase;
+    if (client == null) return;
+    await PushRegistration.forget();
+    await client.auth.signOut();
   }
 
   @override
@@ -325,7 +340,7 @@ class _AccountScreenState extends State<AccountScreen> {
         const SizedBox(height: 18),
         if (user != null) ...<Widget>[
           OutlinedButton.icon(
-            onPressed: () => widget.supabase?.auth.signOut(),
+            onPressed: () => unawaited(_signOut()),
             icon: const Icon(Icons.logout_rounded),
             label: const Text('Sign Out'),
           ),

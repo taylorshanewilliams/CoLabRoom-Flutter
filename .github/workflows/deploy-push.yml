@@ -1,0 +1,82 @@
+name: Deploy the push sender
+
+# Manual only. Deploys the send-push Edge Function and pushes the two secrets
+# it reads into Supabase's own secret store, which is separate from GitHub's
+# and is what the deployed function actually sees at runtime.
+#
+# Kept apart from deploy-analyze-chords rather than folded into it. That
+# workflow redeploys the analysis pipeline, which is the expensive, slow and
+# most-likely-to-break part of this project; a change to how a notification
+# reaches a phone has no business being able to disturb it, and vice versa.
+#
+# Required repository secrets:
+#   FIREBASE_SERVICE_ACCOUNT  the whole service-account JSON from
+#                             Firebase console -> Project settings ->
+#                             Service accounts -> Generate new private key
+#   PUSH_HOOK_SECRET          any long random string. The database trigger
+#                             sends it as a header and the function checks it,
+#                             so that this endpoint cannot be used by anybody
+#                             who happens to find its URL.
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link the project
+        run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Refuse to deploy half a configuration
+        # A function deployed without its secrets answers every request with
+        # 503 and looks, from the database side, exactly like a function that
+        # is working and finding nobody to notify. Fail here instead, where
+        # the reason is written down.
+        run: |
+          test -n "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" \
+            || { echo "::error::FIREBASE_SERVICE_ACCOUNT is not set"; exit 1; }
+          test -n "${{ secrets.PUSH_HOOK_SECRET }}" \
+            || { echo "::error::PUSH_HOOK_SECRET is not set"; exit 1; }
+
+      - name: Push the secrets into Supabase
+        run: |
+          supabase secrets set \
+            FIREBASE_SERVICE_ACCOUNT="${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" \
+            PUSH_HOOK_SECRET="${{ secrets.PUSH_HOOK_SECRET }}" \
+            --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy send-push
+        # --no-verify-jwt because the caller is the database, not a signed-in
+        # person. It authenticates with the shared secret in the x-push-secret
+        # header instead, which the function checks before it does anything at
+        # all; without this flag every trigger call would be rejected as
+        # unauthenticated.
+        run: |
+          supabase functions deploy send-push \
+            --no-verify-jwt \
+            --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: What is still needed
+        run: |
+          echo "Deployed. One thing remains, and it is done once by hand:"
+          echo
+          echo "  insert into private.push_config (function_url, hook_secret)"
+          echo "  values ("
+          echo "    'https://<project-ref>.supabase.co/functions/v1/send-push',"
+          echo "    '<the same value as the PUSH_HOOK_SECRET secret>'"
+          echo "  );"
+          echo
+          echo "Until that row exists the trigger does nothing and"
+          echo "notifications behave exactly as they did before."
