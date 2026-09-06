@@ -130,9 +130,19 @@ class _AccountScreenState extends State<AccountScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete Account?'),
+        // Says what happens to work inside other people's songs, which the
+        // old copy did not mention at all. Somebody in a band deserves to
+        // know before they tap that their bandmates keep the parts they
+        // already heard, and that their name comes off them.
         content: const Text(
-          'This permanently deletes your profile, your contributions, and every catalog '
-          'you own—including its song projects. This cannot be undone.',
+          'This permanently deletes your account, your profile, and every '
+          'catalog you own — including its songs. It cannot be undone.'
+          '\n\n'
+          'Takes you recorded on other people\'s songs stay with those '
+          'songs, because their bands cannot re-record them. '
+          'Your name comes off them. Anything you recorded but never '
+          'shared is deleted with '
+          'everything else.',
         ),
         actions: <Widget>[
           TextButton(
