@@ -1418,9 +1418,18 @@ set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}'
 
 -- A song on the Open Mic (0067).
 --
--- Three policies have to agree or the page is visible and silent. The one
--- worth proving is the third: a stranger can hear what the room has heard,
--- and a private take stays private even on a published song.
+-- **This block runs as `authenticated`, and it is the first one that does.**
+--
+-- Everything above runs as the superuser the migrations are replayed by,
+-- which bypasses row level security entirely. That is fine for the rest of
+-- this file — every other assertion is about a security-definer function's
+-- own WHERE clause — but it means the policies in this repo have never once
+-- been executed by the harness that exists to execute things. The first
+-- version of this block asserted a stranger saw one take, was told they saw
+-- three, and was right to complain: it was counting rows with RLS switched
+-- off.
+--
+-- 0067 is three policies that have to agree, so it is worth the role switch.
 insert into public.song_layers
   (project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
 values
@@ -1431,25 +1440,16 @@ values
    :'room' || '/aaaaaaaa-0000-0000-0000-00000000000a/layers/secret.m4a',
    'Scratch', 'rhythm', 9000, null);
 
--- A stranger: joiner one is in another catalog entirely.
-set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
-
-do $$
-begin
-  if exists (select 1 from public.open_mic_songs(null, 50)) then
-    raise exception 'something was on the Open Mic before anything was put there';
-  end if;
-end $$;
-
-set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 select public.put_on_open_mic('aaaaaaaa-0000-0000-0000-00000000000a');
 
+-- A stranger: joiner one is in another catalog entirely.
 set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+set local role authenticated;
 
 do $$
 declare
   song record;
-  audible int;
+  unshared int;
 begin
   select * into song
   from public.open_mic_song('aaaaaaaa-0000-0000-0000-00000000000a');
@@ -1460,22 +1460,25 @@ begin
     raise exception 'the Open Mic song did not say who made it';
   end if;
 
-  -- The heart of it. One take was shared; one never was.
-  select count(*) into audible from public.song_layers
-  where project_id = 'aaaaaaaa-0000-0000-0000-00000000000a';
+  -- The heart of it, and now actually enforced. A published song does not
+  -- publish somebody's unheard draft.
+  select count(*) into unshared from public.song_layers
+  where project_id = 'aaaaaaaa-0000-0000-0000-00000000000a'
+    and shared_at is null;
 
-  if audible <> 1 then
-    raise exception 'a stranger could see % takes; exactly one was shared', audible;
+  if unshared <> 0 then
+    raise exception 'a stranger could see % private take(s)', unshared;
   end if;
-  if exists (
+
+  if not exists (
     select 1 from public.song_layers
     where project_id = 'aaaaaaaa-0000-0000-0000-00000000000a'
-      and storage_path like '%secret%'
+      and shared_at is not null
   ) then
-    raise exception 'a private take was published with the song';
+    raise exception 'a stranger could see none of the shared takes';
   end if;
 
-  -- And it is not theirs to publish or unpublish.
+  -- And it is not theirs to take down.
   begin
     perform public.take_off_open_mic('aaaaaaaa-0000-0000-0000-00000000000a');
     raise exception 'a stranger took somebody else''s song off the Open Mic';
@@ -1483,10 +1486,12 @@ begin
   end;
 end $$;
 
+reset role;
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 select public.take_off_open_mic('aaaaaaaa-0000-0000-0000-00000000000a');
 
 set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+set local role authenticated;
 
 do $$
 begin
@@ -1495,7 +1500,7 @@ begin
   ) then
     raise exception 'taking a song off the Open Mic did not hide it again';
   end if;
-  -- And the takes go with it, or the audio outlives the page.
+  -- The takes go with it, or the audio outlives the page.
   if exists (
     select 1 from public.song_layers
     where project_id = 'aaaaaaaa-0000-0000-0000-00000000000a'
@@ -1504,7 +1509,7 @@ begin
   end if;
 end $$;
 
+reset role;
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
-
 
 commit;
