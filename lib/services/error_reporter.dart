@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app/beta_config.dart';
+import 'app_session.dart';
 import 'current_route.dart';
 
 /// Records analysis failures and degradations into `analysis_errors` so they
@@ -112,6 +113,11 @@ class ErrorReporter {
         'message': cleaned.length > 8000 ? cleaned.substring(0, 8000) : cleaned,
         'project_id': projectId,
         'route': where,
+        // Which run of the app this came from. A join on time would be
+        // guesswork — sessions overlap, a phone can run two builds in a day,
+        // and a background upload finishing an hour later is not part of the
+        // session that began it.
+        'session_id': AppSession.id,
         'app_version': BetaConfig.appVersion,
         'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
       });

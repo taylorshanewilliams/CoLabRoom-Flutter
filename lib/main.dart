@@ -8,6 +8,7 @@ import 'app/colabroom_app.dart';
 import 'app/colabroom_theme.dart';
 import 'app/music_beta_controller.dart';
 import 'data/in_memory_music_repository.dart';
+import 'services/app_session.dart';
 import 'services/crash_reporter.dart';
 import 'services/push_registration.dart';
 
@@ -30,6 +31,10 @@ Future<void> main() async {
     // PushRegistration.enable.
     await PushRegistration.start();
     unawaited(PushRegistration.refreshIfAllowed());
+    // The denominator for every error rate. Unawaited: a session that cannot
+    // be recorded costs one missing count, and an app that will not open
+    // because its analytics failed costs a user.
+    unawaited(AppSession.start());
     runApp(CoLabRoomApp.supabase(client: Supabase.instance.client));
   } else {
     final controller = MusicBetaController(InMemoryMusicRepository.seeded());

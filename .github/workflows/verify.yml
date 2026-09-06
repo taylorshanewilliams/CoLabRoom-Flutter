@@ -145,7 +145,7 @@ jobs:
       - name: Compile-check Python
         run: |
           python -m compileall -q \
-            tools/set_push_config.py \
+            tools/set_push_config.py \n            tools/crash_free_rate.py \
             inference/separation_service/handler.py \
             inference/separation_service/smoke_test.py \
             inference/chord_service/app.py \

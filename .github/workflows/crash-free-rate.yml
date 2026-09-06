@@ -1,0 +1,44 @@
+name: Crash-free rate
+
+# Reads the crash-free rate for the last seven days, prints it per app
+# version, prunes old sessions, and fails when the rate drops below a floor.
+#
+# A failed workflow is the alerting. It is the crudest thing that works: it
+# uses machinery this project already has rather than adding a service, and
+# GitHub emails on failure, so a regression that would otherwise sit in a
+# table until somebody thought to look becomes a message and a red mark
+# against the day it started.
+#
+# The floor is a starting guess, not a law. Move it once there is enough real
+# traffic to know what normal looks like — a floor set too high teaches people
+# to ignore this workflow, which is the only way an alert genuinely breaks.
+on:
+  schedule:
+    # Once a day, mid-morning UTC. Nothing here is urgent enough to warrant
+    # hourly, and a daily rate is the granularity the number is meaningful at.
+    - cron: '25 9 * * *'
+  workflow_dispatch:
+    inputs:
+      floor:
+        description: 'Fail below this crash-free percentage'
+        type: string
+        required: false
+        default: '99.0'
+
+jobs:
+  rate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Read the rate, and prune
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          CRASH_FREE_FLOOR: ${{ inputs.floor || '99.0' }}
+          SESSION_KEEP_DAYS: '90'
+        run: python tools/crash_free_rate.py
