@@ -70,6 +70,7 @@ void main() {
         ),
         service: 'app',
         stage: 'invite',
+        route: 'Inbox',
         reporter: reporter,
       );
 
@@ -81,6 +82,9 @@ void main() {
       expect(reporter.messages.single, contains('room_members_room_color_unique'));
       expect(reporter.services.single, 'app');
       expect(reporter.stages.single, 'invite');
+      // The screen, which is the fact every report in this app has been
+      // missing and the one the triage agent kept asking for.
+      expect(reporter.routes.single, 'Inbox');
     });
   });
 }
@@ -91,6 +95,7 @@ class _RecordingReporter extends ErrorReporter {
   final List<String> messages = <String>[];
   final List<String> services = <String>[];
   final List<String?> stages = <String?>[];
+  final List<String?> routes = <String?>[];
 
   @override
   Future<void> reportError({
@@ -98,9 +103,11 @@ class _RecordingReporter extends ErrorReporter {
     required String message,
     String? stage,
     String? projectId,
+    String? route,
   }) async {
     services.add(service);
     messages.add(message);
     stages.add(stage);
+    routes.add(route);
   }
 }
