@@ -41,10 +41,13 @@ Future<MusicBetaController> _controller() async {
 
 /// Pumps the app at a given phone size and text scale.
 ///
-/// The MediaQuery goes inside the app rather than around it: MaterialApp
-/// installs its own from the test window, so a scale wrapped outside would be
-/// silently overwritten and every "large text" case here would quietly be
-/// testing 1.0 again.
+/// Both go on the view and the dispatcher rather than into a MediaQuery
+/// wrapped around the app, and that is the only way this works. CoLabRoomApp
+/// owns the MaterialApp, MaterialApp builds its own MediaQuery from the test
+/// window, and anything wrapped outside is discarded — so a scale set that way
+/// looks applied, changes nothing, and every "large text" case silently tests
+/// 1.0 instead. Setting it on the dispatcher puts it where MaterialApp reads
+/// from.
 Future<void> _boot(
   WidgetTester tester,
   MusicBetaController controller, {
@@ -53,19 +56,26 @@ Future<void> _boot(
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
+  tester.platformDispatcher.textScaleFactorTestValue = textScale;
   addTearDown(tester.view.reset);
+  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 
-  await tester.pumpWidget(
-    Builder(
-      builder: (context) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(
-          textScaler: TextScaler.linear(textScale),
-        ),
-        child: CoLabRoomApp.preview(controller: controller),
-      ),
-    ),
-  );
+  await tester.pumpWidget(CoLabRoomApp.preview(controller: controller));
   await tester.pumpAndSettle();
+}
+
+/// What the app actually believes it is being drawn into.
+///
+/// Asserted rather than assumed. A harness that silently runs at the test
+/// binding's default 800x600 would pass everything and prove nothing, and the
+/// failure would look exactly like a clean bill of health.
+MediaQueryData _observed(WidgetTester tester) {
+  return tester.widget<MediaQuery>(
+    find.descendant(
+      of: find.byType(MaterialApp),
+      matching: find.byType(MediaQuery),
+    ).first,
+  ).data;
 }
 
 /// Taps something by its visible text, if it is there, and settles.
@@ -84,6 +94,24 @@ Future<bool> _tapText(WidgetTester tester, String label) async {
 }
 
 void main() {
+  // Proves the harness before any of it is believed. If the viewport is not
+  // what was asked for, every result below is meaningless — and meaningless
+  // in the worst direction, because it would look like everything passes.
+  testWidgets('the harness actually resizes the app', (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.0);
+
+    final observed = _observed(tester);
+    expect(
+      observed.size.width,
+      360,
+      reason: 'the app is being drawn at ${observed.size}, not a phone width',
+    );
+    expect(observed.size.height, 690);
+  });
+
   // A small phone and a large one. 360x690 is roughly the smallest Android
   // still in real use; 390x844 is an iPhone the beta is actually running on.
   const phones = <String, Size>{
