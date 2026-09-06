@@ -176,13 +176,15 @@ class HomeScreen extends StatelessWidget {
                   onTap: startSong,
                   semanticLabel: 'Start a new song',
                   borderRadius: BorderRadius.circular(19),
-                  child: SizedBox(
-                    // No fixed height. This card holds two lines of text at
-                    // 17 and 12.5 points, which is 84 pixels on the phone the
-                    // number was measured on and more than that on a phone
-                    // whose owner reads at 1.3x — the same defect as the take
-                    // strip's 30px name box. A minimum keeps the tap target
-                    // honest; the content decides the rest.
+                  // ConstrainedBox rather than the SizedBox that was here.
+                  // This card holds two lines of text at 17 and 12.5 points:
+                  // 84 pixels on the phone the number was measured on, and
+                  // more than that on a phone whose owner reads at 1.3x —
+                  // the same defect as the take strip's 30px name box. A
+                  // minimum keeps the tap target honest and lets the content
+                  // decide the rest. (SizedBox has no constraints parameter,
+                  // which is why this is not simply a changed argument.)
+                  child: ConstrainedBox(
                     constraints: const BoxConstraints(minHeight: 84),
                     child: AppSurface(
                       child: Row(
