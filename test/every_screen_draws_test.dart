@@ -1,7 +1,6 @@
 import 'package:colabroom/app/colabroom_app.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -46,11 +45,12 @@ final List<FlutterErrorDetails> _complaints = <FlutterErrorDetails>[];
 String _why(String what) {
   if (_complaints.isEmpty) return '$what did not draw';
   final first = _complaints.first.toString();
-  return '$what did not draw
+  final detail = first.length > 2600 ? first.substring(0, 2600) : first;
+  return '''$what did not draw:
 
-'
-      '${first.length > 2600 ? first.substring(0, 2600) : first}';
+$detail''';
 }
+
 
 /// Lets a few frames go by, without requiring the app to ever stop moving.
 ///
