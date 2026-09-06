@@ -44,7 +44,10 @@ insert into smoke_covered (name) values
   ('project_asks_announce'),
   -- Fires on every notification the scenario causes, with push_config
   -- set at the top of it so the delivery path actually runs.
-  ('notifications_deliver');
+  ('notifications_deliver'),
+  -- The scenario adds a good link and is refused a bad one.
+  ('profile_links_platform'),
+  ('profile_links_capped');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario

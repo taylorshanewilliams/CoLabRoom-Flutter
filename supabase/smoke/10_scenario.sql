@@ -770,4 +770,51 @@ begin
 end $$;
 
 
+-- Showcase links (0059).
+--
+-- The allowlist is the security-relevant part of this migration, so it is
+-- tested from the hostile side as well as the friendly one. A profile that
+-- renders arbitrary user-supplied URLs is a phishing surface with a
+-- musician's name on it.
+insert into public.profile_links (profile_id, url, title)
+values (:'writer', 'https://open.spotify.com/track/abc123', 'Ladder Of Life');
+
+do $$
+begin
+  if (select platform from public.profile_links
+      where profile_id = '11111111-1111-1111-1111-111111111111') <> 'Spotify' then
+    raise exception 'the platform was not derived from the host';
+  end if;
+end $$;
+
+do $$
+begin
+  -- A host nobody named.
+  begin
+    insert into public.profile_links (profile_id, url)
+    values ('11111111-1111-1111-1111-111111111111', 'https://evil.example/track');
+    raise exception 'a link to an unlisted host was accepted';
+  exception when sqlstate '22023' then null;
+  end;
+
+  -- The classic disguise: credentials in front of a friendly-looking host.
+  begin
+    insert into public.profile_links (profile_id, url)
+    values ('11111111-1111-1111-1111-111111111111',
+            'https://open.spotify.com@evil.example/track');
+    raise exception 'a URL with credentials in the host was accepted';
+  exception when sqlstate '22023' then null;
+  end;
+
+  -- Not https.
+  begin
+    insert into public.profile_links (profile_id, url)
+    values ('11111111-1111-1111-1111-111111111111',
+            'javascript:alert(1)//soundcloud.com');
+    raise exception 'a javascript: URL was accepted';
+  exception when sqlstate '22023' then null;
+  end;
+end $$;
+
+
 commit;
