@@ -28,32 +28,36 @@ class BrandMark extends StatelessWidget {
           child: const CustomPaint(painter: _CoLabRoomMarkPainter()),
         ),
         const SizedBox(width: 12),
-        // Flexible, and it has to be here rather than only at the call site.
+        // FittedBox, not an ellipsis, and not a fixed size.
         //
-        // The mark is a fixed square but the wordmark beside it is text at 26
-        // points, so it grows with the reader's font setting — and a Row with
-        // mainAxisSize.min hands its children their natural width and lets
-        // them run off the end. Wrapping the whole BrandMark in a Flexible
-        // outside does not help: that constrains the Row, and the Row then
-        // overflows internally instead, which is exactly what happened.
+        // Measured rather than guessed: at 26 points the wordmark wants
+        // 236 pixels, and the whole header on a 360-pixel phone can only give
+        // the mark and the name 230 between them. It has never fitted. Before
+        // this it ran off the right edge; the first attempt at a fix
+        // ellipsized it and the app introduced itself as "CoL..." on its own
+        // home screen, which is worse.
         //
-        // Softwrap off with an ellipsis, because a brand that breaks onto two
-        // lines in a header looks like a bug, and one that is quietly clipped
-        // mid-letter looks like a worse one.
+        // scaleDown draws the name at full size wherever there is room and
+        // shrinks it proportionally where there is not. The name is always
+        // whole, which is the only property that actually matters for a brand
+        // in a header — a smaller CoLabRoom still says CoLabRoom.
         Flexible(
-          child: Text.rich(
-            const TextSpan(
-              children: <InlineSpan>[
-                TextSpan(text: 'CoLab', style: TextStyle(color: AppColors.text)),
-                TextSpan(text: 'Room', style: TextStyle(color: AppColors.cyan)),
-              ],
-            ),
-            maxLines: 1,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: compact ? 20 : 26,
-              fontWeight: FontWeight.w800,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text.rich(
+              const TextSpan(
+                children: <InlineSpan>[
+                  TextSpan(text: 'CoLab', style: TextStyle(color: AppColors.text)),
+                  TextSpan(text: 'Room', style: TextStyle(color: AppColors.cyan)),
+                ],
+              ),
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(
+                fontSize: compact ? 20 : 26,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ),
