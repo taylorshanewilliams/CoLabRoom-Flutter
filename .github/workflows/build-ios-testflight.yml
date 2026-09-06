@@ -117,6 +117,64 @@ jobs:
               magick "$ICONSET/icon-$size.png" -background '#06101F' -alpha remove -alpha off "$ICONSET/icon-$size.png"
             done
             printf '%s' '{"images":[{"idiom":"iphone","scale":"2x","size":"20x20","filename":"icon-40.png"},{"idiom":"iphone","scale":"3x","size":"20x20","filename":"icon-60.png"},{"idiom":"iphone","scale":"2x","size":"29x29","filename":"icon-58.png"},{"idiom":"iphone","scale":"3x","size":"29x29","filename":"icon-87.png"},{"idiom":"iphone","scale":"2x","size":"40x40","filename":"icon-80.png"},{"idiom":"iphone","scale":"3x","size":"40x40","filename":"icon-120.png"},{"idiom":"iphone","scale":"2x","size":"60x60","filename":"icon-120.png"},{"idiom":"iphone","scale":"3x","size":"60x60","filename":"icon-180.png"},{"idiom":"ipad","scale":"1x","size":"20x20","filename":"icon-20.png"},{"idiom":"ipad","scale":"2x","size":"20x20","filename":"icon-40.png"},{"idiom":"ipad","scale":"1x","size":"29x29","filename":"icon-29.png"},{"idiom":"ipad","scale":"2x","size":"29x29","filename":"icon-58.png"},{"idiom":"ipad","scale":"1x","size":"40x40","filename":"icon-40.png"},{"idiom":"ipad","scale":"2x","size":"40x40","filename":"icon-80.png"},{"idiom":"ipad","scale":"1x","size":"76x76","filename":"icon-76.png"},{"idiom":"ipad","scale":"2x","size":"76x76","filename":"icon-152.png"},{"idiom":"ipad","scale":"2x","size":"83.5x83.5","filename":"icon-167.png"},{"idiom":"ios-marketing","scale":"1x","size":"1024x1024","filename":"icon-1024.png"}],"info":{"author":"xcode","version":1}}' > "$ICONSET/Contents.json"
+
+            # ---- Push -------------------------------------------------
+            #
+            # Everything below has to happen here rather than in a committed
+            # Xcode project, because there isn't one: this folder is thrown
+            # away and rebuilt on every run. A GoogleService-Info.plist merely
+            # copied into place is not enough — a file Xcode does not know
+            # about is a file that never reaches the bundle, and
+            # Firebase.initializeApp then fails at launch on a build that
+            # compiled perfectly.
+            if [ -f ../GoogleService-Info.plist ] || [ -f GoogleService-Info.plist ]; then
+              cp GoogleService-Info.plist ios/Runner/GoogleService-Info.plist
+
+              # aps-environment is what actually turns push on for a signed
+              # build. 'production' because this workflow only ever produces
+              # TestFlight and App Store builds — those talk to Apple's
+              # production APNs servers, and a build entitled for the sandbox
+              # silently receives nothing there.
+              cat > ios/Runner/Runner.entitlements <<'ENTITLEMENTS'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>aps-environment</key>
+  <string>production</string>
+</dict>
+</plist>
+ENTITLEMENTS
+
+              # xcodeproj rather than sed. project.pbxproj is a generated
+              # graph with its own object ids, and hand-editing it is how a
+              # build starts failing in a way nobody can read.
+              gem list -i xcodeproj > /dev/null 2>&1 || sudo gem install xcodeproj --no-document
+              ruby -e '
+                require "xcodeproj"
+                project = Xcodeproj::Project.open("ios/Runner.xcodeproj")
+                target = project.targets.find { |t| t.name == "Runner" }
+                abort("::error::No Runner target") if target.nil?
+
+                group = project.main_group["Runner"]
+                unless group.files.any? { |f| f.path == "GoogleService-Info.plist" }
+                  target.add_resources([group.new_reference("GoogleService-Info.plist")])
+                end
+
+                target.build_configurations.each do |config|
+                  config.build_settings["CODE_SIGN_ENTITLEMENTS"] = "Runner/Runner.entitlements"
+                end
+                project.save
+              '
+
+              # A capability the provisioning profile does not carry is a
+              # signing failure two minutes into an archive, with a message
+              # about entitlements rather than about push. Say so plainly if
+              # the file did not land.
+              grep -q "CODE_SIGN_ENTITLEMENTS" ios/Runner.xcodeproj/project.pbxproj                 || { echo "::error::Push entitlement was not attached to the Runner target"; exit 1; }
+            else
+              echo "::warning::No GoogleService-Info.plist in the repo — this build will have no push."
+            fi
           else
             echo "ios/ folder already present, using it as-is."
           fi

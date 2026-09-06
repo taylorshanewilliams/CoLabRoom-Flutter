@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -7,6 +9,7 @@ import 'app/colabroom_theme.dart';
 import 'app/music_beta_controller.dart';
 import 'data/in_memory_music_repository.dart';
 import 'services/crash_reporter.dart';
+import 'services/push_registration.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +24,12 @@ Future<void> main() async {
       url: BetaConfig.supabaseUrl,
       publishableKey: BetaConfig.supabaseAnonKey,
     );
+    // Brings Firebase up so a device that has already been allowed can
+    // re-register its token. It does not ask anybody for anything: the
+    // permission dialog is spent later, at a moment that has earned it. See
+    // PushRegistration.enable.
+    await PushRegistration.start();
+    unawaited(PushRegistration.refreshIfAllowed());
     runApp(CoLabRoomApp.supabase(client: Supabase.instance.client));
   } else {
     final controller = MusicBetaController(InMemoryMusicRepository.seeded());

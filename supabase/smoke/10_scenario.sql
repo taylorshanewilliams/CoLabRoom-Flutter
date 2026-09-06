@@ -20,6 +20,14 @@
 
 begin;
 
+-- Push delivery configured before anything happens, so every notification
+-- this file causes runs the 0051 trigger down its real path rather than
+-- returning early. net.http_post is the shim in 00_shim.sql: the request is
+-- never made, but the trigger body, the jsonb it builds and the columns it
+-- reads are all executed.
+insert into private.push_config (function_url, hook_secret)
+values ('https://smoke.invalid/functions/v1/send-push', 'smoke-secret');
+
 -- Two accounts. Fires on_auth_user_created, which creates the profiles, and
 -- claim_pending_invitations_on_profile behind it.
 insert into auth.users (id, email, raw_user_meta_data) values
@@ -479,6 +487,119 @@ begin
   if (select count(distinct color_value) from public.project_members
       where project_id = '44444444-4444-4444-4444-444444444444') <> 2 then
     raise exception 'members of a song must hold distinct colours';
+  end if;
+end $$;
+
+
+-- A song asking for something, in both shapes (0049).
+--
+-- Run through the real insert rather than hand-built, for the reason the
+-- member-colour bug taught: a trigger nobody exercises is a trigger that can
+-- be broken from the first line of its body. announce_project_ask writes a
+-- project_events row and notifies every other member of the room, and both of
+-- those reach into tables it does not own.
+--
+-- A song of its own, in Smoke Room, on purpose. The song this file has been
+-- carrying around gets moved into 'The Other Band' by the account-follows-room
+-- case above, and that room has no members — so asking on it would run the
+-- notification loop against an empty room and quietly assert nothing.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+insert into public.projects (id, room_id, account_id, title, created_by)
+values (
+  'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+  :'room',
+  :'writer',
+  'A Song That Asks',
+  :'writer'
+);
+
+-- Open: no part named. The honest state of most unfinished songs, and the
+-- shape that costs the person posting it no decision at all.
+insert into public.project_asks (project_id, asked_by, part, note)
+values ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', :'writer', null,
+        'Not sure where this goes.');
+
+-- Specific: a named part on the same song.
+insert into public.project_asks (project_id, asked_by, part)
+values ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', :'writer', 'drums');
+
+do $$
+begin
+  if not exists (
+    select 1 from public.project_events
+    where project_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+      and kind = 'asked' and body like '%is asking what%'
+  ) then
+    raise exception 'an open ask did not reach the song activity stream';
+  end if;
+
+  if not exists (
+    select 1 from public.project_events
+    where project_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+      and kind = 'asked' and body like '%needs drums%'
+  ) then
+    raise exception 'a specific ask did not reach the song activity stream';
+  end if;
+
+  -- The bandmate is the other member of Smoke Room and should have been told
+  -- twice. The person asking should never be told about their own ask.
+  if (select count(*) from public.notifications
+      where type = 'song_ask'
+        and user_id = '22222222-2222-2222-2222-222222222222') <> 2 then
+    raise exception 'the room was not told about both asks (got %)',
+      (select count(*) from public.notifications
+       where type = 'song_ask'
+         and user_id = '22222222-2222-2222-2222-222222222222');
+  end if;
+
+  if exists (
+    select 1 from public.notifications
+    where type = 'song_ask'
+      and user_id = '11111111-1111-1111-1111-111111111111'
+  ) then
+    raise exception 'the person asking was notified about their own ask';
+  end if;
+end $$;
+
+-- One open ask per part, so a song cannot ask twice for the same thing.
+do $$
+begin
+  begin
+    insert into public.project_asks (project_id, asked_by, part)
+    values ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+            '11111111-1111-1111-1111-111111111111', 'drums');
+    raise exception 'a second open ask for drums was allowed';
+  exception when unique_violation then
+    null;
+  end;
+end $$;
+
+-- Closed, then asked for again. A part answered months ago can be asked for a
+-- second time, and the partial index has to allow that rather than making the
+-- first ask permanent.
+update public.project_asks
+set status = 'closed', closed_at = now()
+where project_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' and part = 'drums';
+
+insert into public.project_asks (project_id, asked_by, part)
+values ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        '11111111-1111-1111-1111-111111111111', 'drums');
+
+-- Heard it: the cheap answer to the cheap ask, and visible to the room in the
+-- way read state deliberately is not.
+insert into public.project_nods (project_id, profile_id)
+values ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        '22222222-2222-2222-2222-222222222222');
+
+do $$
+begin
+  if not exists (
+    select 1 from public.project_nods
+    where project_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+      and profile_id = '22222222-2222-2222-2222-222222222222'
+  ) then
+    raise exception 'a nod did not land';
   end if;
 end $$;
 

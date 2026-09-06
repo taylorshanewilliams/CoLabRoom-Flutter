@@ -905,6 +905,100 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  String get currentUserId => _userId;
+
+  @override
+  Future<List<SongAsk>> loadAsks(String projectId) async {
+    final rows = await client
+        .from('project_asks')
+        .select('id, project_id, asked_by, part, note, created_at, status')
+        .eq('project_id', projectId)
+        .eq('status', 'open')
+        .order('created_at', ascending: false);
+    return <SongAsk>[
+      for (final row in rows as List<dynamic>) _ask(row as Map<String, dynamic>),
+    ];
+  }
+
+  @override
+  Future<SongAsk> askFor({
+    required String projectId,
+    String? part,
+    String note = '',
+  }) async {
+    final cleaned = part?.trim();
+    final row = await client
+        .from('project_asks')
+        .insert(<String, dynamic>{
+          'project_id': projectId,
+          'asked_by': _userId,
+          // Null rather than an empty string: null is what makes this an open
+          // ask, and '' would be a specific ask for a part with no name.
+          'part': cleaned == null || cleaned.isEmpty ? null : cleaned,
+          'note': note.trim(),
+        })
+        .select('id, project_id, asked_by, part, note, created_at, status')
+        .single();
+    return _ask(row);
+  }
+
+  @override
+  Future<void> closeAsk(SongAsk ask) async {
+    await client
+        .from('project_asks')
+        .update(<String, dynamic>{
+          'status': 'closed',
+          'closed_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', ask.id);
+  }
+
+  @override
+  Future<List<String>> loadNods(String projectId) async {
+    final rows = await client
+        .from('project_nods')
+        .select('profile_id')
+        .eq('project_id', projectId);
+    return <String>[
+      for (final row in rows as List<dynamic>)
+        (row as Map<String, dynamic>)['profile_id'] as String,
+    ];
+  }
+
+  @override
+  Future<void> setNod({required String projectId, required bool heard}) async {
+    if (heard) {
+      // Upsert rather than insert: tapping it twice quickly should be the same
+      // as tapping it once, not a primary key violation shown to a musician.
+      await client.from('project_nods').upsert(<String, dynamic>{
+        'project_id': projectId,
+        'profile_id': _userId,
+      });
+      return;
+    }
+    await client
+        .from('project_nods')
+        .delete()
+        .eq('project_id', projectId)
+        .eq('profile_id', _userId);
+  }
+
+  SongAsk _ask(Map<String, dynamic> row) {
+    final part = row['part'] as String?;
+    return SongAsk(
+      id: row['id'] as String,
+      projectId: row['project_id'] as String,
+      askedBy: row['asked_by'] as String? ?? '',
+      createdAt:
+          DateTime.tryParse(row['created_at'] as String? ?? '')?.toLocal() ??
+              DateTime.now(),
+      part: part,
+      note: row['note'] as String? ?? '',
+      closed: (row['status'] as String? ?? 'open') != 'open',
+    );
+  }
+
+  @override
   Future<InviteResult> createInvite({
     required MusicRoom room,
     required String email,

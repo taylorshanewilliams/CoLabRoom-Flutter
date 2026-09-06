@@ -630,6 +630,73 @@ class InMemoryMusicRepository implements MusicRepository {
     submittedFeedback.add(feedback);
   }
 
+  /// Asks and nods, kept in memory so the preview repository behaves like the
+  /// real one rather than throwing at the first tap.
+  final Map<String, List<SongAsk>> _asks = <String, List<SongAsk>>{};
+  final Map<String, Set<String>> _nods = <String, Set<String>>{};
+
+  @override
+  String get currentUserId => 'preview-user';
+
+  @override
+  Future<List<SongAsk>> loadAsks(String projectId) async {
+    return <SongAsk>[
+      ...?_asks[projectId]?.where((ask) => !ask.closed),
+    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  @override
+  Future<SongAsk> askFor({
+    required String projectId,
+    String? part,
+    String note = '',
+  }) async {
+    final cleaned = part?.trim();
+    final ask = SongAsk(
+      id: 'ask-${DateTime.now().microsecondsSinceEpoch}',
+      projectId: projectId,
+      askedBy: 'preview-user',
+      createdAt: DateTime.now(),
+      part: cleaned == null || cleaned.isEmpty ? null : cleaned,
+      note: note.trim(),
+    );
+    _asks.putIfAbsent(projectId, () => <SongAsk>[]).add(ask);
+    return ask;
+  }
+
+  @override
+  Future<void> closeAsk(SongAsk ask) async {
+    final list = _asks[ask.projectId];
+    if (list == null) return;
+    final index = list.indexWhere((candidate) => candidate.id == ask.id);
+    if (index < 0) return;
+    final existing = list[index];
+    list[index] = SongAsk(
+      id: existing.id,
+      projectId: existing.projectId,
+      askedBy: existing.askedBy,
+      createdAt: existing.createdAt,
+      part: existing.part,
+      note: existing.note,
+      closed: true,
+    );
+  }
+
+  @override
+  Future<List<String>> loadNods(String projectId) async {
+    return _nods[projectId]?.toList(growable: false) ?? const <String>[];
+  }
+
+  @override
+  Future<void> setNod({required String projectId, required bool heard}) async {
+    final who = _nods.putIfAbsent(projectId, () => <String>{});
+    if (heard) {
+      who.add('preview-user');
+    } else {
+      who.remove('preview-user');
+    }
+  }
+
   @override
   Future<InviteResult> createInvite({
     required MusicRoom room,
