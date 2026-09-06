@@ -639,6 +639,55 @@ class InMemoryMusicRepository implements MusicRepository {
   String get currentUserId => 'preview-user';
 
   @override
+  Future<List<Musician>> findMusicians({
+    String? part,
+    String? city,
+    int limit = 30,
+  }) async {
+    // Enough people, with enough of a record, that the preview shows the
+    // difference the design turns on: somebody who has played the thing
+    // ranks above somebody who has only said they do.
+    const everyone = <Musician>[
+      Musician(
+        id: 'preview-mara',
+        displayName: 'Mara Ellison',
+        city: 'Glasgow',
+        plays: <String>['vocal', 'harmony'],
+        partsRecorded: <String, int>{'vocal': 9, 'harmony': 4},
+        songsPlayedOn: 7,
+        peopleWorkedWith: 5,
+      ),
+      Musician(
+        id: 'preview-dev',
+        displayName: 'Dev Okonjo',
+        plays: <String>['drums', 'percussion'],
+        partsRecorded: <String, int>{'drums': 12},
+        songsPlayedOn: 11,
+        peopleWorkedWith: 6,
+      ),
+      Musician(
+        id: 'preview-sam',
+        displayName: 'Sam Reyes',
+        city: 'Glasgow',
+        plays: <String>['lead', 'rhythm'],
+        partsRecorded: <String, int>{},
+        songsPlayedOn: 0,
+        peopleWorkedWith: 0,
+      ),
+    ];
+    return <Musician>[
+      for (final m in everyone)
+        if ((part == null ||
+                m.plays.contains(part) ||
+                m.partsRecorded.containsKey(part)) &&
+            (city == null ||
+                city.trim().isEmpty ||
+                (m.city ?? '').toLowerCase() == city.trim().toLowerCase()))
+          m,
+    ];
+  }
+
+  @override
   Future<List<ProvenanceEvent>> loadProvenance(String projectId) async {
     // Enough of a record for the preview to draw a real page rather than an
     // empty state that teaches nobody anything.

@@ -17,6 +17,7 @@ import '../rooms/rooms_screen.dart';
 import '../songs/song_search.dart';
 import '../workspace/song_workspace_screen.dart';
 import 'new_song_flow.dart';
+import '../openmic/open_mic_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
@@ -384,6 +385,24 @@ class HomeScreen extends StatelessWidget {
                     MaterialPageRoute<void>(builder: (_) => const RoomsScreen()),
                   ),
                   child: const Text('See all  ›'),
+                ),
+                // Reached from Home rather than given a fifth tab. The four
+                // destinations were chosen deliberately and adding to them is
+                // a decision about the shape of the app, not a side effect of
+                // building a screen.
+                TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      settings: const RouteSettings(name: 'Open Mic'),
+                      builder: (_) => OpenMicScreen(
+                        repository:
+                            BetaScope.of(context, listen: false).repository,
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.mic_external_on_rounded, size: 17),
+                  label: const Text('Open Mic'),
+                  style: TextButton.styleFrom(foregroundColor: AppColors.gold),
                 ),
                 FilledButton.tonalIcon(
                   onPressed: () => showCreateRoomDialog(context, controller),

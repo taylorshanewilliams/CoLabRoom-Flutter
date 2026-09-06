@@ -277,6 +277,52 @@ class ProvenanceEvent {
   final String detail;
 }
 
+/// Somebody you might work with.
+///
+/// Carries the two kinds of truth separately and refuses to average them.
+/// [plays] is what they said — how they get found for work they want, and
+/// aspiration is welcome in it. [partsRecorded] is what they have actually
+/// done, counted from takes the room kept, declared by nobody.
+class Musician {
+  const Musician({
+    required this.id,
+    required this.displayName,
+    required this.plays,
+    required this.partsRecorded,
+    required this.songsPlayedOn,
+    required this.peopleWorkedWith,
+    this.avatarPath,
+    this.city,
+  });
+
+  final String id;
+  final String displayName;
+  final String? avatarPath;
+
+  /// Only ever present when its owner chose to publish it. A city they shared
+  /// with collaborators only never arrives here, even for somebody entitled
+  /// to see it.
+  final String? city;
+
+  final List<String> plays;
+
+  /// Part name to how many shared takes of it they have recorded.
+  final Map<String, int> partsRecorded;
+
+  final int songsPlayedOn;
+  final int peopleWorkedWith;
+
+  /// Whether there is a record behind the claim.
+  bool get hasRecord => songsPlayedOn > 0;
+
+  /// The parts they have played most, most first.
+  List<MapEntry<String, int>> get topParts {
+    final entries = partsRecorded.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return entries.take(4).toList(growable: false);
+  }
+}
+
 class Setlist {
   const Setlist({
     required this.id,
