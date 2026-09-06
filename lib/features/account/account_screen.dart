@@ -185,7 +185,7 @@ class _AccountScreenState extends State<AccountScreen> {
     );
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Thank you—your beta feedback was saved.')),
+        const SnackBar(content: Text('Sent. Thank you — I read all of these.')),
       );
     }
   }
@@ -319,7 +319,7 @@ class _AccountScreenState extends State<AccountScreen> {
               ),
               _AccountRow(
                 icon: Icons.chat_bubble_outline_rounded,
-                label: 'Help & Beta Feedback',
+                label: 'Help & Feedback',
                 onTap: () => _feedback(context),
               ),
               _AccountRow(
@@ -363,8 +363,13 @@ class _AccountScreenState extends State<AccountScreen> {
           ),
           const SizedBox(height: 18),
         ],
+        // The version stays — it is the first thing worth knowing when
+        // somebody reports a problem, and every error this app sends carries
+        // it. "Music Beta" went, because it was doing no work: it hedged the
+        // whole app on the one screen where somebody goes looking for
+        // reassurance that it is not broken.
         Text(
-          'CoLabRoom Music Beta · ${BetaConfig.appVersion}',
+          'CoLabRoom · ${BetaConfig.appVersion}',
           textAlign: TextAlign.center,
           style: const TextStyle(color: AppColors.muted),
         ),
@@ -476,7 +481,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
   Widget build(BuildContext context) {
     final screenshot = _screenshot;
     return AlertDialog(
-      title: const Text('Beta feedback'),
+      title: const Text('Tell us what happened'),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 460),
         child: SingleChildScrollView(

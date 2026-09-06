@@ -153,7 +153,7 @@ class StudioDraftService {
     if (!await file.exists()) throw StateError('The selected audio file is no longer available.');
     final byteSize = await file.length();
     if (byteSize > 80 * 1024 * 1024) {
-      throw StateError('For this beta, use a recording smaller than 80 MB.');
+      throw StateError('A recording has to be under 80 MB.');
     }
     // See SongAnalysisService.attachReference: length is the limit that
     // matters, and checking it before the upload is what stops somebody
