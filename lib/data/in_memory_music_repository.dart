@@ -639,6 +639,39 @@ class InMemoryMusicRepository implements MusicRepository {
   String get currentUserId => 'preview-user';
 
   @override
+  Future<List<ProvenanceEvent>> loadProvenance(String projectId) async {
+    // Enough of a record for the preview to draw a real page rather than an
+    // empty state that teaches nobody anything.
+    final now = DateTime.now();
+    return <ProvenanceEvent>[
+      ProvenanceEvent(
+        at: now.subtract(const Duration(days: 9, hours: 3)),
+        event: 'song created',
+        whoName: 'You',
+        detail: 'Midnight Signal',
+      ),
+      ProvenanceEvent(
+        at: now.subtract(const Duration(days: 9, hours: 2)),
+        event: 'recording uploaded',
+        whoName: 'You',
+        detail: 'midnight-signal.m4a',
+      ),
+      ProvenanceEvent(
+        at: now.subtract(const Duration(days: 8)),
+        event: 'lyric written',
+        whoName: 'You',
+        detail: 'the streetlight holds its breath',
+      ),
+      ProvenanceEvent(
+        at: now.subtract(const Duration(days: 2)),
+        event: 'take recorded',
+        whoName: 'Mara',
+        detail: 'Lead vocal · Mara',
+      ),
+    ];
+  }
+
+  @override
   Future<List<SongAsk>> loadAsks(String projectId) async {
     return <SongAsk>[
       ...?_asks[projectId]?.where((ask) => !ask.closed),

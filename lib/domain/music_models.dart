@@ -250,6 +250,33 @@ class SongAsk {
   String get label => isSpecific ? 'needs ${part!.trim()}' : 'open to ideas';
 }
 
+/// One dated thing that happened to a song.
+///
+/// The unit of the provenance record. Deliberately flat and deliberately
+/// plain: this gets printed, read by somebody who is upset, and possibly
+/// shown to a lawyer, and all three of those want a dated line rather than a
+/// structure.
+class ProvenanceEvent {
+  const ProvenanceEvent({
+    required this.at,
+    required this.event,
+    required this.whoName,
+    required this.detail,
+    this.who,
+  });
+
+  final DateTime at;
+
+  /// What happened, in the server's words: 'song created', 'lyric written',
+  /// 'take recorded'. Not translated on the client — the record should read
+  /// the same to everybody who is ever shown it.
+  final String event;
+
+  final String? who;
+  final String whoName;
+  final String detail;
+}
+
 class Setlist {
   const Setlist({
     required this.id,

@@ -168,6 +168,14 @@ abstract interface class MusicRepository {
   /// not merely whether somebody has.
   String get currentUserId;
 
+  /// Everything that has happened to this song, oldest first.
+  ///
+  /// Visible only to somebody the song is already visible to — the function
+  /// behind this runs under the caller's own permissions, because a record of
+  /// who wrote what must not become a way to read the history of a song you
+  /// are not part of.
+  Future<List<ProvenanceEvent>> loadProvenance(String projectId);
+
   /// Everything [projectId] is currently asking for, newest first. Closed
   /// asks are left out — a song only asks for what it still wants.
   Future<List<SongAsk>> loadAsks(String projectId);
