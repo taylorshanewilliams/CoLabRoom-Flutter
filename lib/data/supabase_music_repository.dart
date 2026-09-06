@@ -154,7 +154,7 @@ class SupabaseMusicRepository implements MusicRepository {
 
   String get _userId {
     final id = client.auth.currentUser?.id;
-    if (id == null) throw const AuthException('Sign in to use the beta workspace.');
+    if (id == null) throw const AuthException('Sign in to open your songs.');
     return id;
   }
 

@@ -217,7 +217,7 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    'Music beta · Private catalogs · Traceable contributions',
+                    'Private catalogs · Traceable contributions',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: AppColors.muted, fontSize: 12),
                   ),

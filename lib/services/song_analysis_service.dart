@@ -409,7 +409,7 @@ class SongAnalysisService {
     if (!await file.exists()) throw StateError('The selected audio file is no longer available.');
     final byteSize = await file.length();
     if (byteSize > 80 * 1024 * 1024) {
-      throw StateError('For this beta, use a reference recording smaller than 80 MB.');
+      throw StateError('A reference recording has to be under 80 MB.');
     }
     // Length matters more than size and was only being checked after the
     // upload, at analysis time — so an hour of rehearsal tape uploaded in
