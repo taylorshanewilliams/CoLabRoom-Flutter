@@ -1061,6 +1061,74 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<OpenMicSong>> openMicSongs({String? part, int limit = 30}) async {
+    final rows = await client.rpc<dynamic>(
+      'open_mic_songs',
+      params: <String, dynamic>{'in_part': part, 'in_limit': limit},
+    );
+    return <OpenMicSong>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        OpenMicSong(
+          id: (row as Map)['id'] as String,
+          title: row['title'] as String? ?? 'A song',
+          ownerId: row['owner_id'] as String?,
+          ownerName: row['owner_name'] as String? ?? 'Somebody',
+          putUpAt: DateTime.tryParse('${row['open_mic_at']}')?.toLocal() ??
+              DateTime.now(),
+          takeCount: (row['take_count'] as num?)?.toInt() ?? 0,
+          askingFor: <String>[
+            for (final p in (row['asking_for'] as List<dynamic>? ??
+                const <dynamic>[]))
+              '$p',
+          ],
+        ),
+    ];
+  }
+
+  @override
+  Future<OpenMicSong?> openMicSong(String projectId) async {
+    final rows = await client.rpc<dynamic>(
+      'open_mic_song',
+      params: <String, dynamic>{'target_project': projectId},
+    );
+    final list = rows as List<dynamic>? ?? const <dynamic>[];
+    if (list.isEmpty) return null;
+    final row = list.first as Map;
+    return OpenMicSong(
+      id: row['id'] as String,
+      title: row['title'] as String? ?? 'A song',
+      ownerId: row['owner_id'] as String?,
+      ownerName: row['owner_name'] as String? ?? 'Somebody',
+      putUpAt:
+          DateTime.tryParse('${row['open_mic_at']}')?.toLocal() ?? DateTime.now(),
+      askingFor: <String>[
+        for (final p
+            in (row['asking_for'] as List<dynamic>? ?? const <dynamic>[]))
+          '$p',
+      ],
+      musicalKey: row['musical_key'] as String?,
+      bpm: (row['bpm'] as num?)?.toDouble(),
+      askNote: row['ask_note'] as String? ?? '',
+    );
+  }
+
+  @override
+  Future<void> putOnOpenMic(String projectId) async {
+    await client.rpc<dynamic>(
+      'put_on_open_mic',
+      params: <String, dynamic>{'target_project': projectId},
+    );
+  }
+
+  @override
+  Future<void> takeOffOpenMic(String projectId) async {
+    await client.rpc<dynamic>(
+      'take_off_open_mic',
+      params: <String, dynamic>{'target_project': projectId},
+    );
+  }
+
+  @override
   Future<MusicRoom> ideasCatalog() async {
     // Through the function, not two client round trips. Find-or-create from
     // here would race two simultaneous recordings into two catalogs both
