@@ -817,4 +817,91 @@ begin
 end $$;
 
 
+-- A profile of your own (0060).
+--
+-- musician_profile() is the only way the app can show somebody their own page,
+-- and it is the one read that deliberately reaches past `discoverable`. Two
+-- things have to hold: it answers about you whatever your settings say, and it
+-- never turns somebody's private settings into an answer about them.
+do $$
+declare
+  mine record;
+  theirs record;
+begin
+  select * into mine
+  from public.musician_profile('11111111-1111-1111-1111-111111111111');
+
+  if mine.id is null then
+    raise exception 'a signed-in person could not open their own profile';
+  end if;
+
+  -- Your own settings come back as settings. Compared against the column
+  -- rather than against a literal, because whether the writer has opted in by
+  -- this point in the scenario is a detail of the block above and not the
+  -- thing being tested.
+  if mine.discoverable is distinct from
+     (select p.discoverable from public.profiles p
+      where p.id = '11111111-1111-1111-1111-111111111111') then
+    raise exception 'own discoverable came back as % rather than the stored value',
+      mine.discoverable;
+  end if;
+
+  -- The bandmate shares a room, so the page opens; their settings do not.
+  select * into theirs
+  from public.musician_profile('22222222-2222-2222-2222-222222222222');
+
+  if theirs.id is null then
+    raise exception 'a roommate profile could not be opened';
+  end if;
+  if theirs.discoverable is not null or theirs.location_visibility is not null then
+    raise exception 'somebody else''s Open Mic settings were readable';
+  end if;
+end $$;
+
+-- Turning yourself on, and the check that stops a bad value getting in.
+select public.set_open_mic_presence(true, 'Glasgow', 'public',
+                                    array['bass', 'keys']);
+
+do $$
+declare
+  mine record;
+begin
+  select * into mine
+  from public.musician_profile('11111111-1111-1111-1111-111111111111');
+
+  if not mine.discoverable then
+    raise exception 'set_open_mic_presence did not list the writer';
+  end if;
+  if mine.city <> 'Glasgow' or mine.plays <> array['bass', 'keys'] then
+    raise exception 'set_open_mic_presence wrote % / %', mine.city, mine.plays;
+  end if;
+
+  -- And now they are in the open list, which they were not two blocks ago.
+  if not exists (
+    select 1 from public.find_musicians('bass', 'Glasgow', 50)
+    where id = '11111111-1111-1111-1111-111111111111'
+  ) then
+    raise exception 'somebody who opted in did not appear in find_musicians';
+  end if;
+
+  begin
+    perform public.set_open_mic_presence(true, null, 'everyone', null);
+    raise exception 'an unknown location visibility was accepted';
+  exception when sqlstate '22023' then null;
+  end;
+
+  -- A setting you can turn on and not off is not a setting: an empty city
+  -- clears it, where a null one would have left it alone.
+  perform public.set_open_mic_presence(false, '', null, null);
+  select * into mine
+  from public.musician_profile('11111111-1111-1111-1111-111111111111');
+  if mine.city is not null then
+    raise exception 'an empty city did not clear the city';
+  end if;
+  if mine.plays <> array['bass', 'keys'] then
+    raise exception 'a null plays overwrote what was there';
+  end if;
+end $$;
+
+
 commit;

@@ -17,6 +17,7 @@ import '../../widgets/app_surface.dart';
 import '../../widgets/audio_privacy_note.dart';
 import '../dev/latency_probe_screen.dart';
 import '../notifications/notification_settings_screen.dart';
+import '../openmic/musician_profile_screen.dart';
 import '../toolbox/toolbox_screen.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -297,6 +298,26 @@ class _AccountScreenState extends State<AccountScreen> {
           padding: EdgeInsets.zero,
           child: Column(
             children: <Widget>[
+              // Your own page, reachable before anybody else can see it.
+              // Somebody deciding whether to be listed in Open Mic wants to
+              // look at what would be listed first, and the only honest way
+              // to show them that is the real page.
+              _AccountRow(
+                icon: Icons.person_outline_rounded,
+                label: 'Your Open Mic profile',
+                onTap: () {
+                  final controller = BetaScope.of(context, listen: false);
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      settings: const RouteSettings(name: 'Profile'),
+                      builder: (_) => MusicianProfileScreen(
+                        profileId: controller.repository.currentUserId,
+                        repository: controller.repository,
+                      ),
+                    ),
+                  );
+                },
+              ),
               _AccountRow(
                 icon: Icons.chat_bubble_outline_rounded,
                 label: 'Help & Beta Feedback',

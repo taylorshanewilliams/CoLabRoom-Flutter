@@ -638,45 +638,179 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   String get currentUserId => 'preview-user';
 
+  final List<ShowcaseLink> _showcase = <ShowcaseLink>[
+    ShowcaseLink(
+      id: 'preview-link-1',
+      url: 'https://open.spotify.com/track/preview',
+      platform: 'Spotify',
+      title: 'Ladder Of Life',
+    ),
+    ShowcaseLink(
+      id: 'preview-link-2',
+      url: 'https://soundcloud.com/preview/demo',
+      platform: 'SoundCloud',
+      title: 'Kitchen demo, 2024',
+    ),
+  ];
+
+  @override
+  Future<List<ShowcaseLink>> loadShowcase(String profileId) async =>
+      List<ShowcaseLink>.unmodifiable(_showcase);
+
+  @override
+  Future<void> addShowcaseLink({required String url, String title = ''}) async {
+    // The preview refuses what the server refuses, with the same words. A
+    // debug build that quietly accepted a link production rejects would send
+    // somebody to test a message they never see.
+    final platform = _platformOf(url);
+    if (platform == null) {
+      throw StateError(
+        'Links can point to SoundCloud, Spotify, YouTube, Bandcamp, '
+        'Apple Music, Vimeo or Audiomack.',
+      );
+    }
+    _showcase.add(ShowcaseLink(
+      id: 'preview-link-${_showcase.length + 1}',
+      url: url.trim(),
+      platform: platform,
+      title: title.trim(),
+    ));
+  }
+
+  /// The client-side twin of `private.link_platform` in migration 0059.
+  ///
+  /// Matched on the host, never on the URL as a whole. `contains('spotify')`
+  /// would happily accept `https://evil.example/open.spotify.com`, and a
+  /// preview that is more permissive than the server is a preview that teaches
+  /// the wrong lesson about the one surface where user-supplied URLs are shown
+  /// under somebody's name.
+  static String? _platformOf(String url) {
+    final trimmed = url.trim();
+    if (!trimmed.toLowerCase().startsWith('https://')) return null;
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null || uri.userInfo.isNotEmpty) return null;
+    final host = uri.host.toLowerCase();
+    switch (host) {
+      case 'soundcloud.com':
+      case 'www.soundcloud.com':
+      case 'on.soundcloud.com':
+        return 'SoundCloud';
+      case 'open.spotify.com':
+      case 'spotify.link':
+        return 'Spotify';
+      case 'youtube.com':
+      case 'www.youtube.com':
+      case 'm.youtube.com':
+      case 'youtu.be':
+        return 'YouTube';
+      case 'music.apple.com':
+      case 'embed.music.apple.com':
+        return 'Apple Music';
+      case 'vimeo.com':
+      case 'player.vimeo.com':
+        return 'Vimeo';
+      case 'audiomack.com':
+      case 'www.audiomack.com':
+        return 'Audiomack';
+    }
+    if (host == 'bandcamp.com' || host.endsWith('.bandcamp.com')) {
+      return 'Bandcamp';
+    }
+    return null;
+  }
+
+  @override
+  Future<void> removeShowcaseLink(String linkId) async {
+    _showcase.removeWhere((link) => link.id == linkId);
+  }
+
+  @override
+  Future<String?> sharedCityWith(String profileId) async => 'Glasgow';
+
+  /// The preview's own profile, mutable so the settings actually do
+  /// something when somebody is looking at the app without a server.
+  Musician _me = const Musician(
+    id: 'preview-user',
+    displayName: 'You',
+    city: 'Glasgow',
+    plays: <String>['rhythm', 'vocal'],
+    partsRecorded: <String, int>{'rhythm': 3, 'vocal': 1},
+    songsPlayedOn: 3,
+    peopleWorkedWith: 2,
+    discoverable: false,
+    locationVisibility: 'collaborators',
+  );
+
+  @override
+  Future<Musician?> loadMusician(String profileId) async {
+    if (profileId == currentUserId) return _me;
+    for (final m in _everyone) {
+      if (m.id == profileId) return m;
+    }
+    return null;
+  }
+
+  @override
+  Future<void> setOpenMicPresence({
+    required bool discoverable,
+    String? city,
+    String? locationVisibility,
+    List<String>? plays,
+  }) async {
+    _me = Musician(
+      id: _me.id,
+      displayName: _me.displayName,
+      avatarPath: _me.avatarPath,
+      city: city == null ? _me.city : (city.trim().isEmpty ? null : city.trim()),
+      plays: plays ?? _me.plays,
+      partsRecorded: _me.partsRecorded,
+      songsPlayedOn: _me.songsPlayedOn,
+      peopleWorkedWith: _me.peopleWorkedWith,
+      discoverable: discoverable,
+      locationVisibility: locationVisibility ?? _me.locationVisibility,
+    );
+  }
+
+  // Enough people, with enough of a record, that the preview shows the
+  // difference the design turns on: somebody who has played the thing ranks
+  // above somebody who has only said they do.
+  static const List<Musician> _everyone = <Musician>[
+    Musician(
+      id: 'preview-mara',
+      displayName: 'Mara Ellison',
+      city: 'Glasgow',
+      plays: <String>['vocal', 'harmony'],
+      partsRecorded: <String, int>{'vocal': 9, 'harmony': 4},
+      songsPlayedOn: 7,
+      peopleWorkedWith: 5,
+    ),
+    Musician(
+      id: 'preview-dev',
+      displayName: 'Dev Okonjo',
+      plays: <String>['drums', 'percussion'],
+      partsRecorded: <String, int>{'drums': 12},
+      songsPlayedOn: 11,
+      peopleWorkedWith: 6,
+    ),
+    Musician(
+      id: 'preview-sam',
+      displayName: 'Sam Reyes',
+      city: 'Glasgow',
+      plays: <String>['lead', 'rhythm'],
+      partsRecorded: <String, int>{},
+      songsPlayedOn: 0,
+      peopleWorkedWith: 0,
+    ),
+  ];
+
   @override
   Future<List<Musician>> findMusicians({
     String? part,
     String? city,
     int limit = 30,
   }) async {
-    // Enough people, with enough of a record, that the preview shows the
-    // difference the design turns on: somebody who has played the thing
-    // ranks above somebody who has only said they do.
-    const everyone = <Musician>[
-      Musician(
-        id: 'preview-mara',
-        displayName: 'Mara Ellison',
-        city: 'Glasgow',
-        plays: <String>['vocal', 'harmony'],
-        partsRecorded: <String, int>{'vocal': 9, 'harmony': 4},
-        songsPlayedOn: 7,
-        peopleWorkedWith: 5,
-      ),
-      Musician(
-        id: 'preview-dev',
-        displayName: 'Dev Okonjo',
-        plays: <String>['drums', 'percussion'],
-        partsRecorded: <String, int>{'drums': 12},
-        songsPlayedOn: 11,
-        peopleWorkedWith: 6,
-      ),
-      Musician(
-        id: 'preview-sam',
-        displayName: 'Sam Reyes',
-        city: 'Glasgow',
-        plays: <String>['lead', 'rhythm'],
-        partsRecorded: <String, int>{},
-        songsPlayedOn: 0,
-        peopleWorkedWith: 0,
-      ),
-    ];
     return <Musician>[
-      for (final m in everyone)
+      for (final m in _everyone)
         if ((part == null ||
                 m.plays.contains(part) ||
                 m.partsRecorded.containsKey(part)) &&

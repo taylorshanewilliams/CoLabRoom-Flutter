@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
+import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
+import 'musician_profile_screen.dart';
 
 /// Open Mic — where you meet somebody you have not met.
 ///
@@ -91,6 +93,17 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _openProfile(Musician musician) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => MusicianProfileScreen(
+        profileId: musician.id,
+        repository: widget.repository,
+        initial: musician,
+      ),
+    ));
+    if (mounted) CurrentRoute.enter('Open Mic');
   }
 
   void _choose(String? part) {
@@ -181,7 +194,11 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
                           const _Empty()
                         else
                           for (final musician in found)
-                            _MusicianCard(musician: musician, filter: _part),
+                            _MusicianCard(
+                              musician: musician,
+                              filter: _part,
+                              onTap: () => _openProfile(musician),
+                            ),
                       ],
                     ),
             ),
@@ -251,97 +268,114 @@ class _PartChip extends StatelessWidget {
 }
 
 class _MusicianCard extends StatelessWidget {
-  const _MusicianCard({required this.musician, required this.filter});
+  const _MusicianCard({
+    required this.musician,
+    required this.filter,
+    required this.onTap,
+  });
 
   final Musician musician;
   final String? filter;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final top = musician.topParts;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
+    // Material rather than a decorated Container, so the tap is visible. An
+    // InkWell paints its splash on the nearest Material ancestor, and an
+    // opaque box in between hides it — the card would take the tap and look
+    // like it had not.
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
         color: AppColors.raised,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.line),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  musician.displayName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.text,
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              if (musician.city != null) ...<Widget>[
-                const Icon(Icons.place_outlined, size: 13, color: AppColors.muted),
-                const SizedBox(width: 3),
-                Text(
-                  musician.city!,
-                  style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 8),
-
-          // What they have actually played, first and in the app's own colour.
-          // A recording is a fact; the list below it is a hope, and the two
-          // are never merged into one impression.
-          if (top.isNotEmpty)
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: AppColors.line),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                for (final entry in top)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: AppColors.cyan.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${entry.key} · ${entry.value}',
-                      style: TextStyle(
-                        color: entry.key == filter ? AppColors.cyan : AppColors.text,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        musician.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
-                  ),
-              ],
-            )
-          else
-            Text(
-              musician.plays.isEmpty
-                  ? 'Has not recorded anything here yet'
-                  : 'Says they play ${musician.plays.join(', ')} · '
-                      'nothing recorded here yet',
-              style: const TextStyle(color: AppColors.muted, fontSize: 12),
-            ),
+                    if (musician.city != null) ...<Widget>[
+                      const Icon(Icons.place_outlined, size: 13, color: AppColors.muted),
+                      const SizedBox(width: 3),
+                      Text(
+                        musician.city!,
+                        style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 8),
 
-          if (musician.hasRecord) ...<Widget>[
-            const SizedBox(height: 9),
-            Text(
-              '${musician.songsPlayedOn} '
-              '${musician.songsPlayedOn == 1 ? 'song' : 'songs'} · '
-              '${musician.peopleWorkedWith} '
-              '${musician.peopleWorkedWith == 1 ? 'person' : 'people'}',
-              style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
+                // What they have actually played, first and in the app's own colour.
+                // A recording is a fact; the list below it is a hope, and the two
+                // are never merged into one impression.
+                if (top.isNotEmpty)
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: <Widget>[
+                      for (final entry in top)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppColors.cyan.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            '${entry.key} · ${entry.value}',
+                            style: TextStyle(
+                              color: entry.key == filter ? AppColors.cyan : AppColors.text,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                    ],
+                  )
+                else
+                  Text(
+                    musician.plays.isEmpty
+                        ? 'Has not recorded anything here yet'
+                        : 'Says they play ${musician.plays.join(', ')} · '
+                            'nothing recorded here yet',
+                    style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                  ),
+
+                if (musician.hasRecord) ...<Widget>[
+                  const SizedBox(height: 9),
+                  Text(
+                    '${musician.songsPlayedOn} '
+                    '${musician.songsPlayedOn == 1 ? 'song' : 'songs'} · '
+                    '${musician.peopleWorkedWith} '
+                    '${musician.peopleWorkedWith == 1 ? 'person' : 'people'}',
+                    style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
+                  ),
+                ],
+              ],
             ),
-          ],
-        ],
+          ),
+        ),
       ),
     );
   }

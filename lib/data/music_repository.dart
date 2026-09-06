@@ -168,6 +168,37 @@ abstract interface class MusicRepository {
   /// not merely whether somebody has.
   String get currentUserId;
 
+  /// The work somebody has linked from elsewhere.
+  Future<List<ShowcaseLink>> loadShowcase(String profileId);
+
+  /// Adds a link to your own showcase. The server decides the platform from
+  /// the host and refuses anything not on the allowlist.
+  Future<void> addShowcaseLink({required String url, String title});
+
+  Future<void> removeShowcaseLink(String linkId);
+
+  /// The city you and [profileId] turn out to share, if you have made
+  /// something together and they allow it. Null otherwise, which is the
+  /// normal case and not an error.
+  Future<String?> sharedCityWith(String profileId);
+
+  /// One musician, including yourself.
+  ///
+  /// Null when there is nobody you are allowed to see at that id, which is
+  /// not an error — somebody who has not opted in and shares no room with you
+  /// simply has no page as far as you are concerned.
+  Future<Musician?> loadMusician(String profileId);
+
+  /// Turning yourself on or off in Open Mic, and what strangers may know.
+  ///
+  /// A null [city] leaves the existing one alone; an empty one removes it.
+  Future<void> setOpenMicPresence({
+    required bool discoverable,
+    String? city,
+    String? locationVisibility,
+    List<String>? plays,
+  });
+
   /// People who play [part], optionally in [city].
   ///
   /// A coarse filter on purpose. An instrument narrows thousands to dozens

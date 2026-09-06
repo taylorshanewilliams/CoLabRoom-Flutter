@@ -33,6 +33,10 @@ dependencies:
   shared_preferences: ^2.3.0
   speech_to_text: ^7.0.0
   supabase_flutter: ^2.0.0
+  # Opens showcase links in the browser or the platform's own app. Nothing
+  # else in this project leaves the app, and nothing here uses a custom
+  # scheme — https only, which is also all the link allowlist admits.
+  url_launcher: ^6.3.1
   xml: ^7.0.1
 
 dev_dependencies:
