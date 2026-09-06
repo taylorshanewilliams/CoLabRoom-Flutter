@@ -477,8 +477,14 @@ class SongAnalysisService {
       try {
         await client.storage.from('room-files').remove(<String>[old.storagePath]);
         await client.from('files').delete().eq('id', old.fileId);
-      } catch (_) {
-        // The new reference is already valid. Old-file cleanup can be retried later.
+      } catch (error) {
+        // The new reference is already valid. Old-file cleanup can be retried
+        // later — but nothing retries it, and nothing counted it either, so
+        // "later" has never happened. Storage is billed monthly on everything
+        // ever uploaded; a cleanup failing quietly is a bill that only grows.
+        unawaited(ErrorReporter().reportWarning(
+          service: 'analysis', stage: 'old_file_cleanup',
+          message: error.toString()));
       }
     }
 
@@ -556,9 +562,13 @@ class SongAnalysisService {
         await client.storage.from('room-files').remove(paths);
       }
       await client.from('project_stems').delete().eq('project_id', projectId);
-    } catch (_) {
+    } catch (error) {
       // Non-fatal: orphaned stems cost storage but don't affect correctness,
-      // and the next analysis clears the rows anyway.
+      // and the next analysis clears the rows anyway. Counted, because stems
+      // are the largest objects this app writes and "the next analysis" only
+      // happens for songs somebody analyses again.
+      unawaited(ErrorReporter().reportWarning(
+        service: 'analysis', stage: 'stem_cleanup', message: error.toString()));
     }
   }
 

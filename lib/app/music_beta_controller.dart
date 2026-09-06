@@ -7,6 +7,7 @@ import '../domain/activity.dart';
 import '../data/music_repository.dart';
 import '../domain/music_models.dart';
 import '../services/user_facing_error.dart';
+import '../services/error_reporter.dart';
 
 class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   MusicBetaController(this.repository) {
@@ -109,9 +110,12 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     try {
       await repository.dismissActivity(eventId);
-    } catch (_) {
+    } catch (error) {
       // Put back, because it is still there for everyone else and will
-      // reappear on the next load anyway.
+      // reappear on the next load anyway — and counted, because somebody
+      // whose dismissals never stick experiences a feed that will not listen.
+      unawaited(ErrorReporter().reportWarning(
+        service: 'app', stage: 'dismiss_activity', message: error.toString()));
       _activity = <ActivityItem>[...removed, ..._activity]
         ..sort((a, b) => b.at.compareTo(a.at));
       notifyListeners();
@@ -155,9 +159,13 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     }
     try {
       await repository.markProjectSeen(projectId);
-    } catch (_) {
-      // Recording that somebody listened must never interrupt listening. The
-      // next load re-reads the truth from the server.
+    } catch (error) {
+      // Recording that somebody listened must never interrupt listening, and
+      // the next load re-reads the truth from the server. Counted anyway: if
+      // this fails for everybody, every unread badge in the app stops
+      // clearing and there is no other symptom.
+      unawaited(ErrorReporter().reportWarning(
+        service: 'app', stage: 'mark_seen', message: error.toString()));
     }
   }
   Iterable<SongProject> get projects => _rooms.expand((room) => room.projects);
@@ -645,8 +653,12 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     try {
       await repository.deleteNotification(notification);
-    } catch (_) {
-      // Back on the next load. Better than a row that will not go away.
+    } catch (error) {
+      // Back on the next load. Better than a row that will not go away — but
+      // a notification that keeps returning is exactly the kind of small
+      // wrongness people stop reporting and start resenting.
+      unawaited(ErrorReporter().reportWarning(
+        service: 'app', stage: 'delete_notification', message: error.toString()));
     }
   }
 
