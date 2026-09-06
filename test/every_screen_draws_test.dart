@@ -33,6 +33,25 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// Overflow is an exception in a widget test, so `takeException` catches the
 /// yellow stripes as well as the crashes.
+/// Everything Flutter complained about since the last boot, in full.
+///
+/// `takeException` hands back only the one-line summary — "A RenderFlex
+/// overflowed by 107 pixels on the right" — and the creator chain that says
+/// *which* RenderFlex never reaches the CI log. A finding that costs an
+/// investigation to locate is a finding people stop chasing, so the harness
+/// keeps the details and puts them in the failure message.
+final List<FlutterErrorDetails> _complaints = <FlutterErrorDetails>[];
+
+String _why(String what) {
+  if (_complaints.isEmpty) return '$what did not draw';
+  final first = _complaints.first.toString();
+  final detail = first.length > 2600 ? first.substring(0, 2600) : first;
+  return '''$what did not draw:
+
+$detail''';
+}
+
+
 /// Lets a few frames go by, without requiring the app to ever stop moving.
 ///
 /// `pumpAndSettle` waits for no animation to be in flight and throws when one
@@ -67,6 +86,17 @@ Future<void> _boot(
   required Size size,
   required double textScale,
 }) async {
+  _complaints.clear();
+  final previous = FlutterError.onError;
+  FlutterError.onError = (FlutterErrorDetails details) {
+    _complaints.add(details);
+    // Chained, not replaced: the binding's own handler is what makes
+    // takeException work, and swallowing it would turn every assertion in
+    // this file into a pass.
+    previous?.call(details);
+  };
+  addTearDown(() => FlutterError.onError = previous);
+
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   tester.platformDispatcher.textScaleFactorTestValue = textScale;
@@ -101,6 +131,36 @@ MediaQueryData _observed(WidgetTester tester) {
 Future<bool> _tapText(WidgetTester tester, String label) async {
   final finder = find.text(label);
   if (finder.evaluate().isEmpty) return false;
+  await tester.tap(finder.last, warnIfMissed: false);
+  await _frames(tester);
+  return true;
+}
+
+/// Taps a keyed control if it is on screen, and settles.
+///
+/// Keys rather than labels for the destinations that have them: a key is a
+/// promise the screen makes to its tests, and a label is copy somebody will
+/// reword. widget_test.dart is where a rename is supposed to fail; this file
+/// is only ever asking whether what is there can be drawn.
+Future<bool> _tapKey(WidgetTester tester, String key) async {
+  final finder = find.byKey(Key(key));
+  if (finder.evaluate().isEmpty) return false;
+  await tester.tap(finder.last, warnIfMissed: false);
+  await _frames(tester);
+  return true;
+}
+
+Future<bool> _back(WidgetTester tester) async {
+  final finder = find.byTooltip('Back');
+  if (finder.evaluate().isEmpty) {
+    // No AppBar back button — a sheet, or a screen that owns its own
+    // navigation. Pop the route directly so the sweep can carry on.
+    final state = tester.state<NavigatorState>(find.byType(Navigator).first);
+    if (!state.canPop()) return false;
+    state.pop();
+    await _frames(tester);
+    return true;
+  }
   await tester.tap(finder.last, warnIfMissed: false);
   await _frames(tester);
   return true;
@@ -144,11 +204,11 @@ void main() {
         final controller = await _controller();
         addTearDown(controller.dispose);
         await _boot(tester, controller, size: phone.value, textScale: scale);
-        expect(tester.takeException(), isNull, reason: 'Home did not draw');
+        expect(tester.takeException(), isNull, reason: _why('Home'));
 
         for (final tab in <String>['Songs', 'Studio', 'Control Room', 'Home']) {
           await _tapText(tester, tab);
-          expect(tester.takeException(), isNull, reason: '$tab did not draw');
+          expect(tester.takeException(), isNull, reason: _why('$tab'));
         }
       });
 
@@ -158,7 +218,7 @@ void main() {
         await _boot(tester, controller, size: phone.value, textScale: scale);
 
         await _tapText(tester, 'Songs');
-        expect(tester.takeException(), isNull, reason: 'Songs did not draw');
+        expect(tester.takeException(), isNull, reason: _why('Songs'));
 
         // The seeded song. Opening one is the single most-used path in the
         // app and the one carrying the most layout: a toolbar, the ask bar,
@@ -167,7 +227,7 @@ void main() {
         expect(
           tester.takeException(),
           isNull,
-          reason: 'the song workspace did not draw',
+          reason: _why('the song workspace'),
         );
       });
     }
@@ -197,5 +257,84 @@ void main() {
       isNull,
       reason: 'the workspace did not survive the keyboard opening',
     );
+  });
+
+  // Past the four tabs and one song: the destinations somebody actually
+  // reaches in a session. Each is checked on the small phone at 1.3x, which
+  // is where the last five defects were and where fixed pixel heights are
+  // most wrong.
+  testWidgets('the workspace destinations draw', (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.3);
+
+    await _tapText(tester, 'Songs');
+    await _tapText(tester, 'Midnight Signal');
+    expect(tester.takeException(), isNull, reason: _why('the workspace'));
+
+    for (final entry in <String, String>{
+      'workspace_analyze_button': 'Analyze',
+      'workspace_layers_button': 'Takes',
+      'workspace_live_button': 'Live',
+    }.entries) {
+      if (!await _tapKey(tester, entry.key)) continue;
+      expect(tester.takeException(), isNull,
+          reason: _why('${entry.value}'));
+      await _back(tester);
+      expect(tester.takeException(), isNull,
+          reason: _why('coming back from ${entry.value}'));
+    }
+  });
+
+  testWidgets('the inbox and the account screen draw', (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.3);
+
+    // The bell on Home. Reached by its Semantics label because it is an
+    // InkResponse rather than a keyed button.
+    final bell = find.bySemanticsLabel('Notifications');
+    if (bell.evaluate().isNotEmpty) {
+      await tester.tap(bell.last, warnIfMissed: false);
+      await _frames(tester);
+      expect(tester.takeException(), isNull, reason: _why('the Inbox'));
+      await _back(tester);
+    }
+
+    for (final label in <String>['Account', 'Settings']) {
+      if (await _tapText(tester, label)) {
+        expect(tester.takeException(), isNull, reason: _why('$label'));
+        break;
+      }
+    }
+  });
+
+  testWidgets('starting a song draws', (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.3);
+
+    // The single most important path in the app for somebody new, and the one
+    // Home leads with.
+    if (await _tapKey(tester, 'home_new_song')) {
+      expect(tester.takeException(), isNull,
+          reason: _why('the new song flow'));
+    }
+  });
+
+  testWidgets('the Studio and the Control Room draw their contents',
+      (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.3);
+
+    for (final tab in <String>['Studio', 'Control Room']) {
+      await _tapText(tester, tab);
+      expect(tester.takeException(), isNull, reason: _why('$tab'));
+    }
   });
 }
