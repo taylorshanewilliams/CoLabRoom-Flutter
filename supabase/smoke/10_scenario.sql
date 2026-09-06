@@ -909,8 +909,33 @@ end $$;
 -- The security property is the whole feature: an ask must grant nothing. If
 -- sending one gave a stranger a read on the song, Open Mic would be a way to
 -- hand out other people's unfinished work.
+-- The refusal first, and on a song that genuinely is not the writer's to
+-- offer: line 398 moves :'project' into The Other Band, which the writer is
+-- not a member of.
+--
+-- This is here because of how the test was written the first time. It asked
+-- about :'project', was refused, and looked like a bug in ask_musician — it
+-- was the check working on a song that had moved. Keeping it as an assertion
+-- turns that accident into the only proof in this file that the refusal is
+-- reachable at all.
+do $$
+begin
+  begin
+    perform public.ask_musician(
+      :'project'::uuid,
+      '22222222-2222-2222-2222-222222222222', 'bass', '');
+    raise exception 'a song in somebody else''s catalog was offered';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- And a song of the writer's own, to offer for real.
+insert into public.projects (id, room_id, account_id, title, created_by)
+values ('aaaaaaaa-0000-0000-0000-00000000000a', :'room', :'writer',
+        'Song To Offer', :'writer');
+
 select public.ask_musician(
-  :'project',
+  'aaaaaaaa-0000-0000-0000-00000000000a',
   '22222222-2222-2222-2222-222222222222',
   'bass',
   'Something simple under the chorus.'
