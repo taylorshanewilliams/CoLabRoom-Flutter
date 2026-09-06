@@ -359,27 +359,26 @@ class HomeScreen extends StatelessWidget {
                   'Your catalogs',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                // Goes to the Rooms list now. It used to jump to the Songs
-                // tab, which showed songs — a link labelled "see all" under a
-                // heading that says Rooms should show all the Rooms.
-                    TextButton(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const RoomsScreen(),
-                        ),
-                      ),
-                      child: const Text('See all  ›'),
-                    ),
-                    const SizedBox(width: 4),
-                    FilledButton.tonalIcon(
-                      onPressed: () => showCreateRoomDialog(context, controller),
-                      icon: const Icon(Icons.add_rounded, size: 18),
-                      label: const Text('New catalog'),
-                    ),
-                  ],
+                // Direct children of the Wrap, not grouped in a Row of their
+                // own. Grouped, the pair had to fit on one line together or
+                // not at all — and they did not, so the Wrap moved an
+                // over-wide Row onto a line by itself where it overflowed
+                // exactly as before. Separately, each can take the line it
+                // needs.
+                //
+                // "See all" goes to the Rooms list. It used to jump to the
+                // Songs tab, which showed songs — a link under a heading
+                // about catalogs should show catalogs.
+                TextButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const RoomsScreen()),
+                  ),
+                  child: const Text('See all  ›'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: () => showCreateRoomDialog(context, controller),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('New catalog'),
                 ),
               ],
             ),
