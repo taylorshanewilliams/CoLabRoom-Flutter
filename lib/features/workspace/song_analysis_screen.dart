@@ -537,10 +537,22 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                           ),
                         ),
                       ),
-                      const Spacer(),
-                      Text(
-                        widget.project.title,
-                        style: const TextStyle(color: AppColors.muted, fontSize: 11),
+                      // Expanded and right-aligned rather than a Spacer with
+                      // a Text after it. A Spacer only hands back space that
+                      // is already free, so a long song title beside the badge
+                      // simply ran off the edge — 107 pixels of it, on a
+                      // 360-pixel phone at the reader's largest text.
+                      Expanded(
+                        child: Text(
+                          widget.project.title,
+                          textAlign: TextAlign.end,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 11,
+                          ),
+                        ),
                       ),
                     ],
                   ),
