@@ -35,6 +35,7 @@ class TakeLane extends StatelessWidget {
     this.playerPhoto,
     this.onDelete,
     this.onAdjust,
+    this.onShare,
     this.subtitle,
     super.key,
   });
@@ -44,6 +45,13 @@ class TakeLane extends StatelessWidget {
   /// Peaks from [Multitrack.envelope], or empty while they are still being
   /// read. An empty lane draws a flat rule rather than nothing, so the row
   /// does not change height when the shape arrives.
+  /// Offered only on a take of your own that the room has not heard.
+  ///
+  /// Its presence is the signal as much as its label: a lane with a Share
+  /// button on it is one nobody else can hear yet, and a lane without one has
+  /// either been shared or belongs to somebody else.
+  final VoidCallback? onShare;
+
   final List<double> wave;
 
   /// How far through the *song* the playhead is, 0..1.
@@ -169,17 +177,43 @@ class TakeLane extends StatelessWidget {
                     const SizedBox(width: 5),
                     Expanded(
                       child: Text(
-                        silent ? 'silent' : (subtitle ?? _length),
+                        silent
+                            ? 'silent'
+                            : (onShare != null
+                                ? 'only you'
+                                : (subtitle ?? _length)),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color:
-                              silent ? AppColors.orange : AppColors.muted,
+                          color: silent
+                              ? AppColors.orange
+                              : (onShare != null
+                                  ? AppColors.cyan
+                                  : AppColors.muted),
                           fontSize: 9.5,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
+                    // Said in the lane rather than only in a menu. Somebody
+                    // deciding whether to record again needs to know at a
+                    // glance that nobody has heard the last one — the whole
+                    // value of a private take is knowing it is private.
+                    if (onShare != null)
+                      TextButton(
+                        onPressed: onShare,
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.cyan,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          minimumSize: const Size(0, 26),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          textStyle: const TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        child: const Text('Share'),
+                      ),
                   ],
                 ),
               ],
