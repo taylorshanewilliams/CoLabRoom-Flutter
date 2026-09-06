@@ -14,7 +14,7 @@
 
 \set writer   '11111111-1111-1111-1111-111111111111'
 \set bandmate '22222222-2222-2222-2222-222222222222'
-\set room     '33333333-3333-3333-3333-333333333333'
+\set room     '44444444-4444-4444-4444-444444444444'
 \set project  '44444444-4444-4444-4444-444444444444'
 \set reffile  '55555555-5555-5555-5555-555555555555'
 
@@ -909,6 +909,19 @@ end $$;
 -- The security property is the whole feature: an ask must grant nothing. If
 -- sending one gave a stranger a read on the song, Open Mic would be a way to
 -- hand out other people's unfinished work.
+-- Printed before the call, because the check inside ask_musician has three
+-- inputs and a bare "that is not your song to offer" in a CI log names none
+-- of them.
+do $$
+begin
+  raise notice 'ask precheck: uid=% project_room=% is_room_member=% is_project_member=%',
+    auth.uid(),
+    (select room_id from public.projects where id = '44444444-4444-4444-4444-444444444444'),
+    private.is_room_member(
+      (select room_id from public.projects where id = '44444444-4444-4444-4444-444444444444')),
+    private.is_project_member('44444444-4444-4444-4444-444444444444');
+end $$;
+
 select public.ask_musician(
   :'project',
   '22222222-2222-2222-2222-222222222222',
