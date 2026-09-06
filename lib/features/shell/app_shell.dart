@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,8 +11,9 @@ import '../home/home_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../openmic/open_mic_screen.dart';
 import '../songs/songs_screen.dart';
-import '../studio/studio_home_screen.dart';
+import '../workspace/song_analysis_screen.dart';
 import '../../services/current_route.dart';
+import '../../services/user_facing_error.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({required this.displayName, this.supabase, super.key});
@@ -103,15 +106,32 @@ class _AppShellState extends State<AppShell> {
   /// tab it cost a permanent quarter of the navigation to hold a list of
   /// unfiled takes; as a button it is one tap from all three tabs instead of
   /// one tap from whichever one you happened to be on.
-  void _record() {
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      settings: const RouteSettings(name: 'Studio'),
-      builder: (_) => Scaffold(
-        backgroundColor: AppColors.deepNavy,
-        appBar: AppBar(backgroundColor: AppColors.deepNavy),
-        body: const SafeArea(child: StudioHomeScreen()),
-      ),
-    ));
+  Future<void> _record() async {
+    final controller = BetaScope.of(context, listen: false);
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    try {
+      // The song exists before the recording does. That is the whole change:
+      // there is no holding pen a recording sits in until somebody converts
+      // it, because conversion is what once forked a song into two projects
+      // with the same name and half the words each.
+      final project = await controller.startIdea();
+      await navigator.push(MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'Song sheet'),
+        builder: (_) => SongAnalysisScreen(project: project, autoRecord: true),
+      ));
+    } catch (error) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(reportAndDescribe(
+            error,
+            service: 'app',
+            stage: 'start_idea',
+            route: 'Home',
+          )),
+        ));
+    }
   }
 
   /// The tab contents, but each one only constructed once it has actually
@@ -158,13 +178,13 @@ class _AppShellState extends State<AppShell> {
                 ],
               ),
             ),
-            floatingActionButton: _RecordButton(onTap: _record, extended: true),
+            floatingActionButton: _RecordButton(onTap: () => unawaited(_record()), extended: true),
           );
         }
 
         return Scaffold(
           body: SafeArea(bottom: false, child: IndexedStack(index: _index, children: _lazyScreens)),
-          floatingActionButton: _RecordButton(onTap: _record, extended: false),
+          floatingActionButton: _RecordButton(onTap: () => unawaited(_record()), extended: false),
           bottomNavigationBar: SafeArea(
             top: false,
             child: _BottomNavigation(

@@ -54,8 +54,6 @@ insert into smoke_covered (name) values
 -- has no reason to build. If one of them ever grows a real body, move it up.
 insert into smoke_acknowledged (name, reason) values
   ('setlists_set_updated_at',                'timestamp only; setlists are not on the song write path'),
-  ('studio_drafts_set_updated_at',           'timestamp only; studio drafts have their own service'),
-  ('studio_chord_cues_set_updated_at',       'timestamp only'),
   ('chord_cues_set_updated_at',              'timestamp only; written by the analysis pipeline'),
   ('lyric_sync_cues_set_updated_at',         'timestamp only; written by the analysis pipeline');
 

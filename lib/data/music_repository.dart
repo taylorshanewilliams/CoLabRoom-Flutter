@@ -211,6 +211,20 @@ abstract interface class MusicRepository {
 
   Future<void> answerRoomInvite(String inviteId, {required bool accept});
 
+  /// The catalog a recording lands in when nobody has said where it goes.
+  ///
+  /// Created on first use rather than at signup, so an account that never
+  /// records never grows an empty catalog it has to look at.
+  Future<MusicRoom> ideasCatalog();
+
+  /// Starts a song for a recording that has no home yet.
+  ///
+  /// The whole of what the Studio's "Use in a song" button used to do, moved
+  /// to the front. A recording *is* a song from the moment it exists — moving
+  /// it somewhere else afterwards means picking a catalog, never converting
+  /// one kind of object into another.
+  Future<SongProject> startIdea({String? title});
+
   /// Stops somebody finding you, asking you, or inviting you to anything.
   ///
   /// Symmetric in effect and quiet in fact: neither of you appears to the

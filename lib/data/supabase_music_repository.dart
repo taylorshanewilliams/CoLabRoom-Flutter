@@ -1061,6 +1061,42 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<MusicRoom> ideasCatalog() async {
+    // Through the function, not two client round trips. Find-or-create from
+    // here would race two simultaneous recordings into two catalogs both
+    // called Ideas; the function takes an advisory lock and cannot.
+    final id = await client.rpc<dynamic>('ideas_catalog');
+    final rooms = await loadRooms();
+    return rooms.firstWhere(
+      (room) => room.id == id,
+      orElse: () => throw StateError('The Ideas catalog could not be opened.'),
+    );
+  }
+
+  @override
+  Future<SongProject> startIdea({String? title}) async {
+    final room = await ideasCatalog();
+    final wanted = (title ?? '').trim();
+    return createSong(
+      room: room,
+      title: wanted.isEmpty ? _ideaName() : wanted,
+    );
+  }
+
+  /// A name that is not "Untitled".
+  ///
+  /// Recordings arrive before anybody has decided what the song is, and a
+  /// library of things called Untitled is a library nobody can search. The
+  /// date and time is at least a fact somebody can recognise, and the app
+  /// renames it from what was sung as soon as it knows.
+  String _ideaName() {
+    final now = DateTime.now();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return 'Idea ${two(now.month)}/${two(now.day)} '
+        '${two(now.hour)}:${two(now.minute)}';
+  }
+
+  @override
   Future<void> blockUser(String profileId) async {
     await client.rpc<dynamic>(
       'block_user',

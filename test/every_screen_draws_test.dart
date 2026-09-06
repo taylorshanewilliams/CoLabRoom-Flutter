@@ -1,6 +1,7 @@
 import 'package:colabroom/app/colabroom_app.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
+import 'package:colabroom/features/workspace/song_analysis_screen.dart';
 import 'package:colabroom/widgets/brand_mark.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -355,10 +356,14 @@ void main() {
           reason: 'no record button on $tab');
     }
 
+    // What the button does now: makes a song and opens its sheet. There is no
+    // holding pen in between, which is the whole of retiring studio_drafts —
+    // the conversion step was where a song once forked into two projects with
+    // the same name and half the words each.
     expect(await _tapKey(tester, 'shell_record_button'), isTrue);
-    expect(tester.takeException(), isNull, reason: _why('the Studio'));
-    expect(find.text('The Studio'), findsWidgets,
-        reason: 'the record button did not open the Studio');
+    expect(tester.takeException(), isNull, reason: _why('the song sheet'));
+    expect(find.byType(SongAnalysisScreen), findsOneWidget,
+        reason: 'the record button did not open a song');
   });
 
   testWidgets('the song sheet queue is a filter, not a destination',
@@ -371,7 +376,13 @@ void main() {
     await _tapText(tester, 'Songs');
     // The Control Room's two piles, now questions asked of one list. Sets
     // joins them rather than sitting at the weight of the whole library.
-    for (final chip in <String>['All', 'Needs a sheet', 'Has a sheet', 'Sets']) {
+    for (final chip in <String>[
+      'All',
+      'Ideas',
+      'Needs a sheet',
+      'Has a sheet',
+      'Sets'
+    ]) {
       final finder = find.text(chip);
       expect(finder, findsOneWidget, reason: '$chip chip is gone');
       // Scrolled into view first. The row scrolls sideways on a small phone
