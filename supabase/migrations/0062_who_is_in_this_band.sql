@@ -172,9 +172,13 @@ begin
   values (target_room, target_person, left(trim(coalesce(in_note, '')), 280))
   returning id into new_invite;
 
+  -- The enum from 0018 already had the right word for each direction, which
+  -- is better than one generic 'invitation' for all three: somebody reading
+  -- their inbox wants "you were invited" and "they joined" to be different
+  -- kinds of thing, and the client already styles them differently.
   perform private.notify_user(
     target_person,
-    'invitation',
+    'invite_received',
     coalesce(inviter_name, 'Somebody') || ' invited you to ' ||
       coalesce(room_name, 'a catalog'),
     case
@@ -248,7 +252,10 @@ begin
 
   perform private.notify_user(
     the_invite.invited_by,
-    'invitation',
+    -- Cast spelled out: a CASE over two literals is text, and text does not
+    -- implicitly become an enum the way a bare literal does.
+    (case when accept then 'invite_accepted' else 'invite_declined' end)
+      ::public.notification_type,
     coalesce(my_name, 'Somebody') ||
       case when accept then ' joined ' else ' passed on ' end ||
       coalesce(room_name, 'your catalog'),
