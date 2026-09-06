@@ -138,6 +138,20 @@ begin
   end if;
 end $$;
 
+-- The cost record keeps its column and loses its constraint.
+--
+-- `usage_events` is the only table outside this family that points at a
+-- draft, and it is the record of what every analysis cost — not something to
+-- drop or cascade. The id stays, and it still resolves: the drafts were
+-- archived above with the same ids, so a historical usage row can still be
+-- traced to what it was spent on.
+alter table public.usage_events
+  drop constraint if exists usage_events_draft_id_fkey;
+
+comment on column public.usage_events.draft_id is
+  'Historical. Points at retired_studio_drafts.id for anything spent before '
+  'the Studio kept a second library; null for everything since.';
+
 -- The whole family, and explicitly rather than by cascade. `drop ... cascade`
 -- removes the dependent *constraints* and leaves the dependent tables behind
 -- as orphans with no parent and no purpose, which is a worse mess than the
