@@ -818,6 +818,42 @@ class InMemoryMusicRepository implements MusicRepository {
     _roomInvitesForMe.removeWhere((invite) => invite.id == inviteId);
   }
 
+  final List<BlockedPerson> _blocked = <BlockedPerson>[];
+
+  @override
+  Future<void> blockUser(String profileId) async {
+    if (_blocked.any((b) => b.id == profileId)) return;
+    _blocked.add(BlockedPerson(
+      id: profileId,
+      displayName: _everyone
+              .where((m) => m.id == profileId)
+              .map((m) => m.displayName)
+              .firstOrNull ??
+          'Someone',
+      blockedAt: DateTime.now(),
+    ));
+  }
+
+  @override
+  Future<void> unblockUser(String profileId) async {
+    _blocked.removeWhere((b) => b.id == profileId);
+  }
+
+  @override
+  Future<List<BlockedPerson>> peopleIBlocked() async =>
+      List<BlockedPerson>.unmodifiable(_blocked);
+
+  @override
+  Future<void> reportContent({
+    required String kind,
+    required String reason,
+    String detail = '',
+    String? profileId,
+    String? projectId,
+    String? layerId,
+    String? linkId,
+  }) async {}
+
   @override
   Future<List<OfferableSong>> songsICanOffer(String profileId) async {
     final now = DateTime.now();
@@ -924,8 +960,12 @@ class InMemoryMusicRepository implements MusicRepository {
     String? city,
     int limit = 30,
   }) async {
+    final hidden = _blocked.map((b) => b.id).toSet();
     return <Musician>[
-      for (final m in _everyone)
+      // The preview hides blocked people the way the server does. A debug
+      // build where blocking visibly did nothing would be somebody testing a
+      // feature that looks broken.
+      for (final m in _everyone.where((m) => !hidden.contains(m.id)))
         if ((part == null ||
                 m.plays.contains(part) ||
                 m.partsRecorded.containsKey(part)) &&
