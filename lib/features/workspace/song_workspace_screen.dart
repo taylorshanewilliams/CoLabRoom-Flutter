@@ -20,6 +20,7 @@ import '../../services/project_export_service.dart';
 import '../../services/cowork_service.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/offer_notifications.dart';
 import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/microphone_disclosure.dart';
 import 'continuous_song_editor.dart';
@@ -852,6 +853,16 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         ..showSnackBar(SnackBar(
           content: Text('${project.title} is on the Open Mic.'),
         ));
+      // The moment somebody starts waiting on other people. Offered here
+      // rather than in settings, because nobody goes looking in settings for
+      // a thing they have not missed yet.
+      await offerNotifications(
+        context,
+        title: 'Tell you when somebody offers?',
+        because: 'It is out there now. We can let you know on your phone '
+            'when somebody offers to play on it, instead of you having to '
+            'come back and check.',
+      );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)

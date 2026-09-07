@@ -129,6 +129,18 @@ class NotificationSettingsScreen extends StatelessWidget {
                   ),
                   const Divider(height: 1),
                   SwitchListTile(
+                    title: const Text('Being asked'),
+                    subtitle: const Text(
+                        'When somebody asks you to play on their song. An ask '
+                        'made of you still waits in your inbox — this is '
+                        'about being told the moment it arrives.'),
+                    value: preferences.asks,
+                    onChanged: (value) => controller.updateNotificationPreferences(
+                      preferences.copyWith(asks: value),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  SwitchListTile(
                     title: const Text('New takes'),
                     subtitle: const Text(
                         "When somebody records a part on a song you're in. "

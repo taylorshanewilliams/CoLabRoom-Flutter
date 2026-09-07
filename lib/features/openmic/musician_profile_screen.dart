@@ -10,6 +10,7 @@ import '../../domain/musical_roles.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/demo_chip.dart';
+import '../../widgets/offer_notifications.dart';
 import '../../widgets/play_button.dart';
 import 'ask_musician_sheet.dart';
 import 'invite_to_room_sheet.dart';
@@ -216,6 +217,14 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
     if (sent == true && mounted) {
       _say('Asked ${musician.displayName}. They will hear about it, and '
           'nothing of yours opens up unless they say yes.');
+      // Waiting on one particular person, which is the sharpest version of
+      // the condition a notification is for.
+      await offerNotifications(
+        context,
+        title: 'Tell you when they answer?',
+        because: 'We can let you know on your phone when they say yes or no, '
+            'instead of you having to come back and check.',
+      );
     }
   }
 
@@ -380,6 +389,13 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
             'they say yes.',
           ),
         ));
+      if (!mounted) return;
+      await offerNotifications(
+        context,
+        title: 'Tell you when they join?',
+        because: 'We can let you know on your phone the moment they accept, '
+            'so you are both in the room at the same time.',
+      );
     } catch (error) {
       if (!mounted) return;
       setState(() => _starting = false);

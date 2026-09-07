@@ -606,6 +606,57 @@ begin
   end if;
 end $$;
 
+-- 0092: an ask you can silence.
+--
+-- Being asked is the one kind of other people's activity that had no switch,
+-- and it is the type most likely to arrive often if this app works. The
+-- assertion that matters is the second half: silencing it must not silence
+-- anything else, and turning it back on must actually turn it back on. A
+-- one-way switch would be worse than no switch.
+insert into public.notification_preferences (user_id, asks)
+values ('22222222-2222-2222-2222-222222222222', false)
+on conflict (user_id) do update set asks = false;
+
+insert into public.project_asks (project_id, asked_by, part)
+values ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', :'writer', 'percussion');
+
+do $$
+begin
+  if (select count(*) from public.notifications
+      where type = 'song_ask'
+        and user_id = '22222222-2222-2222-2222-222222222222') <> 2 then
+    raise exception 'an ask was delivered to somebody who had turned asks off';
+  end if;
+end $$;
+
+update public.notification_preferences
+set asks = true
+where user_id = '22222222-2222-2222-2222-222222222222';
+
+insert into public.project_asks (project_id, asked_by, part)
+values ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', :'writer', 'harmony');
+
+do $$
+begin
+  if (select count(*) from public.notifications
+      where type = 'song_ask'
+        and user_id = '22222222-2222-2222-2222-222222222222') <> 3 then
+    raise exception 'turning asks back on did not start delivering them again';
+  end if;
+
+  -- And the switch is about being asked, nothing else. An invitation still
+  -- arrives for somebody who only silenced asks.
+  if not private.wants_invites('22222222-2222-2222-2222-222222222222') then
+    raise exception 'silencing asks reached the other preferences';
+  end if;
+end $$;
+
+-- Leaving nothing open behind, so the unique index tests below start clean.
+update public.project_asks
+set status = 'closed', closed_at = now()
+where project_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+  and part in ('percussion', 'harmony');
+
 -- One open ask per part, so a song cannot ask twice for the same thing.
 do $$
 begin

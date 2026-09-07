@@ -902,21 +902,31 @@ class NotificationPreferences {
     this.invites = true,
     this.inviteResponses = true,
     this.projectUpdates = true,
+    this.asks = true,
   });
 
   final bool invites;
   final bool inviteResponses;
   final bool projectUpdates;
 
+  /// Being asked to play on somebody's song.
+  ///
+  /// The only kind of other people's activity that had no switch, and the one
+  /// most likely to arrive often if this app works — the whole design points
+  /// at more people asking each other for help.
+  final bool asks;
+
   NotificationPreferences copyWith({
     bool? invites,
     bool? inviteResponses,
     bool? projectUpdates,
+    bool? asks,
   }) {
     return NotificationPreferences(
       invites: invites ?? this.invites,
       inviteResponses: inviteResponses ?? this.inviteResponses,
       projectUpdates: projectUpdates ?? this.projectUpdates,
+      asks: asks ?? this.asks,
     );
   }
 }
