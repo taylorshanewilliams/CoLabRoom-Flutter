@@ -2223,6 +2223,29 @@ end $$;
 
 reset role;
 
+-- Old apps still ask for one part (0084).
+--
+-- 0083 dropped the single-part signature in the same migration that added
+-- the list one, and a phone running a build from an hour earlier lost the
+-- whole People half of the Open Mic. A migration cannot assume the app
+-- matching it is installed: the two ship by completely separate paths.
+do $$
+declare
+  n bigint;
+begin
+  -- The shape an older build sends.
+  select count(*) into n from public.find_musicians('bass', null, 50);
+  if n = 0 then
+    raise exception 'the single-part form returned nobody';
+  end if;
+
+  -- And it agrees with the list form, or the shim is its own bug.
+  if n <> (select count(*) from public.find_musicians(array['bass'], null, 50))
+  then
+    raise exception 'the single-part shim disagrees with the list version';
+  end if;
+end $$;
+
 -- More than one thing (0083).
 --
 -- The rule that matters: asking for three things must not empty the room.
