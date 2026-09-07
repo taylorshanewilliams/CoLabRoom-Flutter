@@ -847,10 +847,16 @@ class InMemoryMusicRepository implements MusicRepository {
       ];
 
   @override
-  Future<List<OpenMicSong>> openMicSongs({String? part, int limit = 30}) async {
+  Future<List<OpenMicSong>> openMicSongs({
+    String? part,
+    int limit = 30,
+    bool includeNotAsking = false,
+  }) async {
     return <OpenMicSong>[
       for (final song in _previewOpenMic)
-        if (part == null || song.askingFor.contains(part)) song,
+        if ((part == null || song.askingFor.contains(part)) &&
+            (includeNotAsking || song.isAsking))
+          song,
     ];
   }
 

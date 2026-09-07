@@ -1061,10 +1061,18 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<List<OpenMicSong>> openMicSongs({String? part, int limit = 30}) async {
+  Future<List<OpenMicSong>> openMicSongs({
+    String? part,
+    int limit = 30,
+    bool includeNotAsking = false,
+  }) async {
     final rows = await client.rpc<dynamic>(
       'open_mic_songs',
-      params: <String, dynamic>{'in_part': part, 'in_limit': limit},
+      params: <String, dynamic>{
+        'in_part': part,
+        'in_limit': limit,
+        'include_not_asking': includeNotAsking,
+      },
     );
     return <OpenMicSong>[
       for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
