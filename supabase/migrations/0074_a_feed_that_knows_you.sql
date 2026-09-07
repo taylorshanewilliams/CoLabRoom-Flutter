@@ -157,7 +157,15 @@ as $fn$
           where a.project_id = p.id
             and a.status = 'open'
             and a.part is not null
-            and a.part = any((select plays from me))
+            -- coalesce, not a bare scalar subquery. `= any((select ...))`
+            -- is read as the *subquery* form of ANY, which compares a text
+            -- to a whole text[] row and will not type-check; wrapping it
+            -- makes it an array expression and the array form applies. The
+            -- empty default also covers somebody who has not said what they
+            -- play, for whom nothing should match rather than everything.
+            and a.part = any(
+              coalesce((select m.plays from me m), '{}'::text[])
+            )
           limit 1) as needs_you,
         exists (select 1 from played_with w where w.id = p.created_by)
           as known,
@@ -205,38 +213,44 @@ as $fn$
       ) as wild_rank
     from candidates c
   )
+  -- Every column qualified with `rk`, deliberately.
+  --
+  -- `returns table (...)` puts every one of those names — id, title,
+  -- open_mic_at, storage_path — in scope inside the body as output
+  -- parameters. An unqualified `id` here matches both the output name and
+  -- the column, and Postgres refuses it as ambiguous rather than guessing.
   select
-    id,
-    title,
-    created_by,
-    owner_name,
-    owner_avatar,
-    open_mic_at,
-    asking_for,
-    ask_note,
-    musical_key,
-    bpm,
-    duration_ms,
-    storage_path,
+    rk.id,
+    rk.title,
+    rk.created_by,
+    rk.owner_name,
+    rk.owner_avatar,
+    rk.open_mic_at,
+    rk.asking_for,
+    rk.ask_note,
+    rk.musical_key,
+    rk.bpm,
+    rk.duration_ms,
+    rk.storage_path,
     case
-      when needs_you is not null then 'Needs a ' || needs_you
-      when tier = 1 then 'You have played together'
-      when tier = 2 then 'Nearby'
+      when rk.needs_you is not null then 'Needs a ' || rk.needs_you
+      when rk.tier = 1 then 'You have played together'
+      when rk.tier = 2 then 'Nearby'
       when (select yes from knows_me)
         then 'Nothing like what you play'
       else ''
     end
-  from ranked
+  from ranked rk
   -- Slots 1,2,3, 5,6,7, 9,10,11 … for the fit; 4, 8, 12 … for the strangers.
   -- Neither collides with the other, and a gap where a queue runs dry is
   -- harmless: the order simply closes up.
   order by
     case
-      when tier < 3
-        then fit_rank + ((fit_rank - 1) / 3)
-      else wild_rank * 4
+      when rk.tier < 3
+        then rk.fit_rank + ((rk.fit_rank - 1) / 3)
+      else rk.wild_rank * 4
     end,
-    open_mic_at desc
+    rk.open_mic_at desc
   limit greatest(least(in_limit, 24), 1);
 $fn$;
 
