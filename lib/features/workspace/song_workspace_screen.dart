@@ -142,6 +142,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         await _takeOffOpenMic(project);
       case SongAudienceChoice.invite:
         await _inviteToSong(project);
+      case SongAudienceChoice.showFinished:
+        await _showFinished(project);
     }
     if (mounted) await _loadAudience();
   }
@@ -191,6 +193,66 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
             error,
             service: 'app',
             stage: 'delete_song',
+            projectId: project.id,
+            route: 'Song',
+          )),
+        ));
+    }
+  }
+
+  /// Done, and on the showcase.
+  ///
+  /// Confirmed, because it is the one move in this sheet that says something
+  /// about the work rather than about who can see it — and because the two
+  /// halves are worth stating: it stops asking for help, and it goes where
+  /// finished things are.
+  Future<void> _showFinished(SongProject project) async {
+    final controller = BetaScope.of(context, listen: false);
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.raised,
+        title: Text('Show ${project.title} as finished?'),
+        content: const Text(
+          'It goes where finished work is played, and stops asking for help '
+          'on the Open Mic. Anybody signed in can hear it.\n\n'
+          'You can take it back off, and finishing does not change anything '
+          'about the song itself.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not yet'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.gold,
+              foregroundColor: AppColors.ink,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Show it'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    try {
+      await controller.repository.showSong(project.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text('${project.title} is on the showcase.'),
+        ));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(reportAndDescribe(
+            error,
+            service: 'app',
+            stage: 'show_song',
             projectId: project.id,
             route: 'Song',
           )),

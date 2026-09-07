@@ -270,6 +270,24 @@ Future<SongAudienceChoice?> showAudienceSheet(
               ),
             ),
             const SizedBox(height: 8),
+            // Finishing lives here because "who can hear this" is exactly the
+            // question it answers: a finished song shown on the showcase is
+            // a different audience from one asking for help on the Open Mic,
+            // and putting it anywhere else would make it look like a filing
+            // status rather than a reach.
+            OutlinedButton.icon(
+              key: const Key('audience_show_finished'),
+              onPressed: () =>
+                  Navigator.pop(sheetContext, SongAudienceChoice.showFinished),
+              icon: const Icon(Icons.workspace_premium_outlined, size: 18),
+              label: const Text('It is finished — show it'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(46),
+                foregroundColor: AppColors.gold,
+                side: BorderSide(color: AppColors.gold.withValues(alpha: 0.45)),
+              ),
+            ),
+            const SizedBox(height: 8),
             OutlinedButton.icon(
               key: const Key('audience_invite'),
               onPressed: () =>
@@ -296,7 +314,16 @@ Future<SongAudienceChoice?> showAudienceSheet(
   );
 }
 
-enum SongAudienceChoice { putOnOpenMic, takeOffOpenMic, invite }
+enum SongAudienceChoice {
+  putOnOpenMic,
+  takeOffOpenMic,
+  invite,
+
+  /// Done, and shown. Two acts in one press because they are one intention —
+  /// but two columns underneath, because finishing something privately must
+  /// never publish it.
+  showFinished,
+}
 
 class _Step extends StatelessWidget {
   const _Step({

@@ -1142,6 +1142,33 @@ class InMemoryMusicRepository implements MusicRepository {
       const MyPlan(member: false, sheetsThisMonth: 3, sheetsAllowed: 20);
 
   @override
+  Future<List<ShowcaseSong>> showcase({int limit = 24}) async => <ShowcaseSong>[
+        ShowcaseSong(
+          id: 'preview-done-1',
+          title: 'Long Way Down',
+          ownerName: 'Mara Ellison',
+          shownAt: DateTime.now().subtract(const Duration(days: 2)),
+          storagePath: 'preview/ladder.m4a',
+          durationMs: 184000,
+          musicalKey: 'G',
+          players: const <SongListener>[
+            SongListener(id: 'preview-dev', name: 'Dev Okonjo'),
+          ],
+          madeHere: true,
+          metHere: true,
+        ),
+      ];
+
+  @override
+  Future<void> finishSong(String projectId) async {}
+
+  @override
+  Future<void> showSong(String projectId) async {}
+
+  @override
+  Future<void> unshowSong(String projectId) async {}
+
+  @override
   Future<void> claimPart(String part) async {
     if (_me.plays.contains(part)) return;
     _me = Musician(

@@ -378,6 +378,17 @@ abstract interface class MusicRepository {
   /// What this account is allowed to do, asked of the one place that knows.
   Future<MyPlan> myPlan();
 
+  /// Finished songs somebody chose to show, newest first.
+  Future<List<ShowcaseSong>> showcase({int limit});
+
+  /// Marks a song done. Private: this alone shows it to nobody.
+  Future<void> finishSong(String projectId);
+
+  /// Shows the finished song publicly. Separate consent, like the Open Mic.
+  Future<void> showSong(String projectId);
+
+  Future<void> unshowSong(String projectId);
+
   Future<void> claimPart(String part);
 
   Future<Musician?> loadMusician(String profileId);

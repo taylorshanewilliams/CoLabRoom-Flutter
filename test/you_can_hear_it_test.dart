@@ -36,11 +36,13 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      final songsSegment = find.descendant(
-        of: find.byType(SegmentedButton<bool>),
-        matching: find.text('Songs'),
-      );
-      await tester.tap(songsSegment);
+      // By text, and safely. The old version had to scope this to the
+      // SegmentedButton because "Songs" was also a tab name and the tolerant
+      // helper tapped the last match. "Asking" appears once — the cards say
+      // "Asking for bass", which an exact-text finder does not match — and
+      // the segmented button's type argument is private to the screen, so
+      // byType cannot name it.
+      await tester.tap(find.text('Asking'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
