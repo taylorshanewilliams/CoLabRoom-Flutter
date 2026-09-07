@@ -175,7 +175,13 @@ grant execute on function public.find_musicians(text[], text, integer, text)
 
 -- The compatibility shim from 0084 delegates to the above and has to be
 -- rebuilt with it, or it returns the old column list and fails on the join.
-create or replace function public.find_musicians(
+--
+-- Dropped first. `create or replace` cannot change the shape of a
+-- `returns table`, which has now caught this project in 0073, 0076, 0079 and
+-- here — every migration that grows a column on an existing function.
+drop function if exists public.find_musicians(text, text, integer, text);
+
+create function public.find_musicians(
   in_part text default null,
   in_city text default null,
   in_limit integer default 30,
