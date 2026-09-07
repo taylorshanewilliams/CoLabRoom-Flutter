@@ -190,6 +190,45 @@ def make_clip(path: Path, seed: int) -> None:
     )
 
 
+def storage_key(project_ref: str, token: str, configured: str) -> str:
+    """The key the Storage API will actually accept.
+
+    Storage authenticates with a JWT and says so plainly when handed anything
+    else: "Invalid Compact JWS", which is a JSON Web Signature parser
+    complaining, not a permissions problem. Supabase's newer `sb_secret_…`
+    keys work against the auth admin endpoint and PostgREST and are refused
+    here — so this tool created seventy-five accounts and then could not
+    upload a single file, twice.
+
+    The Management API can hand over the project's legacy service_role JWT,
+    and this already holds a token for it. Asking is better than requiring
+    somebody to find and paste a second secret, and better than failing three
+    hundred uploads to discover the first one was the wrong shape.
+    """
+    if configured.count(".") == 2:
+        # Already a JWT: header.payload.signature.
+        return configured
+
+    status, body = request(
+        f"https://api.supabase.com/v1/projects/{project_ref}/api-keys?reveal=true",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        },
+    )
+    if status == 200:
+        for key in json.loads(body):
+            if key.get("name") == "service_role" and key.get("api_key"):
+                print("  using the project's service_role JWT for storage")
+                return key["api_key"]
+
+    print(
+        "WARNING: SUPABASE_SERVICE_ROLE_KEY is not a JWT and the Management "
+        "API would not reveal one.\n         Storage uploads will be refused."
+    )
+    return configured
+
+
 def sweep(project_ref: str, service_key: str, bucket: str, prefix: str) -> int:
     """Deletes everything under a prefix, through the Storage API.
 
@@ -315,7 +354,10 @@ def main() -> int:
 
     token = env("SUPABASE_ACCESS_TOKEN")
     project_ref = env("SUPABASE_PROJECT_REF")
-    service_key = env("SUPABASE_SERVICE_ROLE_KEY")
+    admin_key = env("SUPABASE_SERVICE_ROLE_KEY")
+    # Auth admin takes either shape; storage insists on a JWT. Resolved once,
+    # up front, rather than discovered three hundred uploads in.
+    service_key = storage_key(project_ref, token, admin_key)
 
     if args.purge:
         # Files first, and through the API, because SQL is not allowed to
@@ -363,7 +405,7 @@ def main() -> int:
     for index in range(args.people):
         name = f"{rng.choice(FIRST)} {rng.choice(LAST)}"
         email = f"demo+{run}-{index}@colabroom.invalid"
-        user_id = make_account(project_ref, service_key, email, name)
+        user_id = make_account(project_ref, admin_key, email, name)
         if user_id is None:
             continue
         people.append({
