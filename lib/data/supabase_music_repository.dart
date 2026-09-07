@@ -1244,6 +1244,7 @@ class SupabaseMusicRepository implements MusicRepository {
       roomName: row['room_name'] as String? ?? '',
       roomIcon: row['room_icon'] as String? ?? '',
       onOpenMic: row['on_open_mic'] as bool? ?? false,
+      onShowcase: row['on_showcase'] as bool? ?? false,
       openMicAt: DateTime.tryParse('${row['open_mic_at']}')?.toLocal(),
       listeners: <SongListener>[
         for (final entry

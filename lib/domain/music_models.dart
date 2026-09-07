@@ -956,6 +956,7 @@ class SongAudience {
     required this.reach,
     required this.listeners,
     required this.onOpenMic,
+    this.onShowcase = false,
     this.roomName = '',
     this.roomIcon = '',
     this.openMicAt,
@@ -970,6 +971,11 @@ class SongAudience {
   final List<SongListener> listeners;
 
   final bool onOpenMic;
+
+  /// Shown as finished work. Separate from being on the Open Mic — one is
+  /// asking for help, the other is saying it is done.
+  final bool onShowcase;
+
   final String roomName;
   final String roomIcon;
   final DateTime? openMicAt;
