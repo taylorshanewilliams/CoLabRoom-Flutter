@@ -19,7 +19,7 @@ import '../../services/song_search.dart';
 ///
 /// Reachable again. This screen was written when Rooms were a tab, stopped
 /// being instantiated when they folded into Songs as a filter, and sat
-/// unreferenced ever since — carrying the only "New catalog" button in the
+/// unreferenced ever since — carrying the only "New room" button in the
 /// codebase and the only way to reorder Rooms, neither of which existed in
 /// the running app.
 ///
@@ -38,9 +38,9 @@ class _RoomsScreenState extends State<RoomsScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = BetaScope.of(context);
-    // "Search catalogs or songs" now means it. The song half was a title
-    // check, so a catalog you could only remember a line from did not come
-    // back — the same gap the catalog and set screens had.
+    // "Search rooms or songs" now means it. The song half was a title
+    // check, so a room you could only remember a line from did not come
+    // back — the same gap the room and set screens had.
     final needle = NamePolicy.normalized(_query);
     final rooms = controller.rooms.where((room) {
       if (needle.isEmpty) return true;
@@ -52,14 +52,14 @@ class _RoomsScreenState extends State<RoomsScreen> {
     return Scaffold(
       backgroundColor: AppColors.deepNavy,
       appBar: AppBar(
-        title: const Text('Catalogs'),
+        title: const Text('Rooms'),
         actions: <Widget>[
           Padding(
             padding: const EdgeInsets.only(right: 10),
             child: FilledButton.tonalIcon(
               onPressed: () => showCreateRoomDialog(context, controller),
               icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('New catalog'),
+              label: const Text('New room'),
             ),
           ),
         ],
@@ -72,7 +72,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
             child: TextField(
               onChanged: (value) => setState(() => _query = value),
               decoration: InputDecoration(
-                hintText: 'Search catalogs or songs',
+                hintText: 'Search rooms or songs',
                 prefixIcon: const Icon(Icons.search_rounded),
               ),
             ),
@@ -86,8 +86,8 @@ class _RoomsScreenState extends State<RoomsScreen> {
                 padding: const EdgeInsets.all(30),
                 child: Text(
                   _query.isEmpty
-                      ? 'Create your first catalog.'
-                      : 'No catalogs match “$_query”.',
+                      ? 'Create your first room.'
+                      : 'No rooms match “$_query”.',
                 ),
               ),
             ),
@@ -207,23 +207,23 @@ class _RoomsScreenState extends State<RoomsScreen> {
             children: <Widget>[
               ListTile(
                 leading: const Icon(Icons.edit_rounded, color: AppColors.cyan),
-                title: const Text('Rename catalog'),
+                title: const Text('Rename room'),
                 onTap: () => Navigator.pop(context, 'rename'),
               ),
               ListTile(
                 leading: const Icon(Icons.image_outlined, color: AppColors.cyan),
-                title: Text(room.logoPath == null ? 'Set catalog logo' : 'Replace catalog logo'),
+                title: Text(room.logoPath == null ? 'Set room logo' : 'Replace room logo'),
                 onTap: () => Navigator.pop(context, 'set_logo'),
               ),
               if (room.logoPath != null)
                 ListTile(
                   leading: const Icon(Icons.hide_image_outlined, color: AppColors.muted),
-                  title: const Text('Remove catalog logo'),
+                  title: const Text('Remove room logo'),
                   onTap: () => Navigator.pop(context, 'remove_logo'),
                 ),
               ListTile(
                 leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFF9AA9)),
-                title: const Text('Delete catalog'),
+                title: const Text('Delete room'),
                 onTap: () => Navigator.pop(context, 'delete'),
               ),
             ],
@@ -270,7 +270,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
       builder: (dialogContext) => AlertDialog(
         title: Text('Delete "${room.name}"?'),
         content: const Text(
-          'This permanently deletes the catalog and everything in it — every song, lyric, and recording. This cannot be undone.',
+          'This permanently deletes the room and everything in it — every song, lyric, and recording. This cannot be undone.',
         ),
         actions: <Widget>[
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
@@ -320,7 +320,7 @@ class _RenameRoomDialogState extends State<_RenameRoomDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Rename catalog'),
+      title: const Text('Rename room'),
       content: TextField(
         controller: _name,
         autofocus: true,

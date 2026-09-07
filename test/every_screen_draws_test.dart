@@ -391,13 +391,13 @@ void main() {
 
     await _tapText(tester, 'Your music');
 
-    // This row was byCatalog / all / ideas / needsSheet / hasSheet / sets —
+    // This row was byRoom / all / ideas / needsSheet / hasSheet / sets —
     // a query builder wearing a segmented control, and the single clearest
     // piece of evidence that the app was laid out by whoever wrote the
     // queries. What survives is the one distinction that is not a filter:
     // a song and a set are different things.
     for (final gone in <String>[
-      'By catalog',
+      'By room',
       'Everything',
       'Needs a sheet',
       'Has a sheet',
@@ -420,12 +420,12 @@ void main() {
     await tester.tap(find.text('Songs').first, warnIfMissed: false);
     await _frames(tester);
 
-    // Catalogs are still how the library is drawn — they stopped being a
+    // Rooms are still how the library is drawn — they stopped being a
     // chip because they are a place, not a filter, and the grouping is now
     // simply what you get when you are not searching. Revealed rather than
     // found where it sits: a lazy list does not build what is below the fold.
     expect(await _reveal(tester, find.text('Midnight Signal')), findsWidgets,
-        reason: 'the library did not draw grouped by catalog');
+        reason: 'the library did not draw grouped by room');
   });
 
   testWidgets('Open Mic has both halves, and the songs one draws',
@@ -512,18 +512,18 @@ void main() {
     await _tapText(tester, 'Songs');
     expect(tester.takeException(), isNull, reason: _why('Songs'));
 
-    // The thing that faded. A catalog carries an emoji, a name and a set of
+    // The thing that faded. A room carries an emoji, a name and a set of
     // faces; none of it was on the screen where you look for songs.
     final rooms = controller.rooms;
-    expect(rooms, isNotEmpty, reason: 'the preview has no catalogs');
+    expect(rooms, isNotEmpty, reason: 'the preview has no rooms');
     expect(
       await _reveal(tester, find.text(rooms.first.name)),
       findsWidgets,
-      reason: 'the catalog a song lives in is invisible again',
+      reason: 'the room a song lives in is invisible again',
     );
 
     // "just you" is the most reassuring thing this screen says about a
-    // catalog, and it is the default for most of them.
+    // room, and it is the default for most of them.
     final solo = rooms.where((r) => r.members.length <= 1);
     if (solo.isNotEmpty) {
       expect(await _reveal(tester, find.text('just you')), findsWidgets);

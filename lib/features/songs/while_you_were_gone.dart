@@ -13,7 +13,7 @@ import '../workspace/song_workspace_screen.dart';
 ///
 /// This was the one thing on the old Home screen that existed nowhere else.
 /// Home's other five sections — start a song, recent songs, an Open Mic
-/// preview, your catalogs — were each a summary of somewhere else in the app,
+/// preview, your rooms — were each a summary of somewhere else in the app,
 /// which is what made it a dashboard rather than a place. Nobody thinks "I
 /// will go to the summary".
 ///

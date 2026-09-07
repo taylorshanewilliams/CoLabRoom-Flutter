@@ -288,7 +288,7 @@ class _AddSongsSheetState extends State<_AddSongsSheet> {
                   scrollDirection: Axis.horizontal,
                   children: <Widget>[
                     _RoomFilterChip(
-                      label: 'All catalogs',
+                      label: 'All rooms',
                       selected: _roomId == null,
                       onTap: () => setState(() => _roomId = null),
                     ),

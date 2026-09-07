@@ -677,7 +677,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       context: context,
       builder: (_) => InviteCollaboratorDialog(
         title: 'Invite to This Song',
-        subtitle: 'They\'ll get access to "${project.title}" only — not the rest of this catalog.',
+        subtitle: 'They\'ll get access to "${project.title}" only — not the rest of this room.',
       ),
     );
     if (draft == null || !mounted) return;
@@ -769,7 +769,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
               Text('Writing color', style: Theme.of(context).textTheme.headlineMedium),
               const SizedBox(height: 8),
               const Text(
-                'Each member has one color in this catalog, so collaborators are easy to follow.',
+                'Each member has one color in this room, so collaborators are easy to follow.',
               ),
               const SizedBox(height: 18),
               Wrap(
@@ -1255,7 +1255,7 @@ class _PortraitProjectHeader extends StatelessWidget {
         children: <Widget>[
           IconButton(
             onPressed: onBack,
-            tooltip: 'Back to projects',
+            tooltip: 'Back to rooms',
             icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 19),
           ),
           if (!compact) ...<Widget>[
@@ -1392,7 +1392,7 @@ class _LandscapeWorkspace extends StatelessWidget {
             children: <Widget>[
               IconButton(
                 onPressed: onBack,
-                tooltip: 'Back to projects',
+                tooltip: 'Back to rooms',
                 icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
               ),
               Expanded(
@@ -1717,14 +1717,14 @@ class _RenameProjectDialogState extends State<_RenameProjectDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Rename Project'),
+      title: const Text('Rename song'),
       content: TextField(
         controller: _title,
         autofocus: true,
         textCapitalization: TextCapitalization.words,
         onSubmitted: (value) => Navigator.pop(context, value),
         decoration: const InputDecoration(
-          helperText: 'Project names are unique across your account.',
+          helperText: 'Song names are unique across your account.',
         ),
       ),
       actions: <Widget>[

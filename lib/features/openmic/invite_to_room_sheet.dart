@@ -7,18 +7,18 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../services/user_facing_error.dart';
 
-/// Inviting somebody you met into a whole catalog.
+/// Inviting somebody you met into a whole room.
 ///
 /// The other half of the ask, and a bigger thing than it: an ask is one song,
-/// this is everything in a catalog and everything added to it afterwards. So
+/// this is everything in a room and everything added to it afterwards. So
 /// the sheet says the size out loud — the song count sits on every row — and
 /// it does not preselect anything. Somebody about to hand over their band's
 /// whole library should have to say which one.
 ///
 /// It grants nothing on its own. Same as an ask: the invitation waits, and
 /// the person invited is the only one who can turn it into access.
-class InviteToCatalogSheet extends StatefulWidget {
-  const InviteToCatalogSheet({
+class InviteToRoomSheet extends StatefulWidget {
+  const InviteToRoomSheet({
     required this.musician,
     required this.repository,
     super.key,
@@ -28,10 +28,10 @@ class InviteToCatalogSheet extends StatefulWidget {
   final MusicRepository repository;
 
   @override
-  State<InviteToCatalogSheet> createState() => _InviteToCatalogSheetState();
+  State<InviteToRoomSheet> createState() => _InviteToRoomSheetState();
 }
 
-class _InviteToCatalogSheetState extends State<InviteToCatalogSheet> {
+class _InviteToRoomSheetState extends State<InviteToRoomSheet> {
   final TextEditingController _note = TextEditingController();
   List<InvitableRoom>? _rooms;
   String? _roomId;
@@ -63,7 +63,7 @@ class _InviteToCatalogSheetState extends State<InviteToCatalogSheet> {
           error,
           service: 'app',
           stage: 'rooms_i_can_invite_to',
-          route: 'Invite to a catalog',
+          route: 'Invite to a room',
         );
       });
     }
@@ -91,7 +91,7 @@ class _InviteToCatalogSheetState extends State<InviteToCatalogSheet> {
           error,
           service: 'app',
           stage: 'invite_musician_to_room',
-          route: 'Invite to a catalog',
+          route: 'Invite to a room',
         );
       });
     }
@@ -127,13 +127,13 @@ class _InviteToCatalogSheetState extends State<InviteToCatalogSheet> {
               // The difference between this and an ask, stated before the
               // choice rather than discovered after it.
               const Text(
-                'A catalog is everything in it, now and later. If you only '
+                'A room is everything in it, now and later. If you only '
                 'want them on one song, ask them to play on it instead.',
                 style:
                     TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.45),
               ),
               const SizedBox(height: 16),
-              const _Label('Which catalog'),
+              const _Label('Which room'),
               const SizedBox(height: 8),
               if (rooms == null)
                 const Padding(
@@ -142,7 +142,7 @@ class _InviteToCatalogSheetState extends State<InviteToCatalogSheet> {
                 )
               else if (rooms.isEmpty)
                 const Text(
-                  'You do not own a catalog yet. Only an owner can invite '
+                  'You do not own a room yet. Only an owner can invite '
                   'somebody into one.',
                   style: TextStyle(
                       color: AppColors.muted, fontSize: 12.5, height: 1.45),
@@ -159,7 +159,7 @@ class _InviteToCatalogSheetState extends State<InviteToCatalogSheet> {
               if (rooms != null && rooms.isNotEmpty && invitable.isEmpty) ...[
                 const SizedBox(height: 10),
                 Text(
-                  '$name is already in, or already invited to, every catalog '
+                  '$name is already in, or already invited to, every room '
                   'you own.',
                   style: const TextStyle(
                       color: AppColors.muted, fontSize: 12.5, height: 1.45),

@@ -649,7 +649,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     const SizedBox(height: 20),
                     const _QuietNote(
                       icon: Icons.cloud_outlined,
-                      text: 'This recording is read on our machines to keep the results accurate, then stays saved to the catalog as its reference track.',
+                      text: 'This recording is read on our machines to keep the results accurate, then stays saved to the room as its reference track.',
                     ),
                   ],
                   // These two don't require the *latest* analysis attempt to

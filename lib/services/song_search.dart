@@ -27,15 +27,15 @@ class SongSearchResult {
 /// Whether one song answers a query, and why — null when it does not.
 ///
 /// The single definition of "does this song match", so that every list in the
-/// app agrees. It did not used to: the catalog, the set and the catalog list
+/// app agrees. It did not used to: the room, the set and the room list
 /// each filtered on `title.contains(...)` of their own, so a lyric you could
 /// find from the Songs tab vanished the moment you were standing inside the
-/// catalog that held it. Somebody hit exactly that during testing, and the
+/// room that held it. Somebody hit exactly that during testing, and the
 /// honest description of the bug is not "lyric search is missing here" — it
 /// is that there were five searches pretending to be one.
 ///
 /// [roomNameMatches] is passed in rather than computed, because a caller
-/// filtering one catalog usually knows the answer already and a caller
+/// filtering one room usually knows the answer already and a caller
 /// filtering a hundred should not recompute it per song.
 SongMatch? songMatch(
   SongProject project,

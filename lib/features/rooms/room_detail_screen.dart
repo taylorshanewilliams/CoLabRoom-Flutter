@@ -56,7 +56,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
 
   List<SongProject> _sortedProjects(MusicRoom room) {
     // The same matcher the Songs tab uses, so a lyric you can find from the
-    // library is still findable standing inside the catalog that holds it.
+    // library is still findable standing inside the room that holds it.
     // This filtered on the title alone until somebody hit the difference
     // while testing.
     final projects = List<SongProject>.from(
@@ -154,13 +154,13 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     final controller = BetaScope.of(context);
     final targets = controller.rooms.where((room) => room.id != currentRoom.id).toList();
     if (targets.isEmpty) {
-      _showMessage('Create another catalog before moving songs.');
+      _showMessage('Create another room before moving songs.');
       return;
     }
     final target = await showDialog<MusicRoom>(
       context: context,
       builder: (dialogContext) => SimpleDialog(
-        title: const Text('Move to a catalog'),
+        title: const Text('Move to a room'),
         children: <Widget>[
           for (final room in targets)
             SimpleDialogOption(
@@ -406,7 +406,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     final controller = BetaScope.of(context);
     final room = controller.roomById(widget.roomId);
     if (room == null) {
-      return const Scaffold(body: Center(child: Text('This catalog is no longer available.')));
+      return const Scaffold(body: Center(child: Text('This room is no longer available.')));
     }
 
     Future<void> rename() async {
@@ -461,11 +461,11 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        title: const Text('Catalogs'),
+        title: const Text('Rooms'),
         actions: <Widget>[
           IconButton(
             onPressed: rename,
-            tooltip: 'Rename catalog',
+            tooltip: 'Rename room',
             icon: const Icon(Icons.edit_rounded),
           ),
           IconButton(
@@ -541,7 +541,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute<void>(
                               settings:
-                                  const RouteSettings(name: 'Catalog members'),
+                                  const RouteSettings(name: 'Room members'),
                               builder: (_) =>
                                   RoomMembersScreen(roomId: room.id),
                             ),
@@ -555,7 +555,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                                 Text(
                                   '${room.members.length} '
                                   '${room.members.length == 1 ? 'member' : 'members'}'
-                                  ' · ${room.projects.length} projects',
+                                  ' · ${room.projects.length} songs',
                                 ),
                                 const SizedBox(width: 3),
                                 const Icon(Icons.chevron_right_rounded,
@@ -644,7 +644,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                   key: const Key('room_project_search'),
                   onChanged: (value) => setState(() => _query = value),
                   decoration: const InputDecoration(
-                    hintText: 'Search songs in this catalog',
+                    hintText: 'Search songs in this room',
                     prefixIcon: Icon(Icons.search_rounded),
                   ),
                 ),
@@ -966,7 +966,7 @@ class _RenameRoomDialogState extends State<_RenameRoomDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Rename catalog'),
+      title: const Text('Rename room'),
       content: TextField(
         controller: _name,
         autofocus: true,

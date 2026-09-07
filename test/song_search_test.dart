@@ -136,10 +136,10 @@ void main() {
     expect(results.map((r) => r.project.id), <String>['song-3', 'song-1', 'song-2']);
   });
 
-  // The catalog screen, the set picker and the catalog list each had their
+  // The room screen, the set picker and the room list each had their
   // own `title.contains(...)` and none of them read a lyric. Somebody found
   // that from the outside: a line they could search for on the Songs tab
-  // returned nothing once they were standing inside the catalog holding it.
+  // returned nothing once they were standing inside the room holding it.
   // These are what stop the app growing a sixth private definition of
   // "matches".
   group('one definition of a match, for every list', () {
@@ -161,7 +161,7 @@ void main() {
       expect(matchedLyricLine(song, 'trombone'), isNull);
     });
 
-    test('the catalog name only counts when the caller says it matched', () {
+    test('the room name only counts when the caller says it matched', () {
       expect(songMatch(song, 'after hours'), isNull);
       expect(songMatch(song, 'after hours', roomNameMatches: true),
           SongMatch.room);

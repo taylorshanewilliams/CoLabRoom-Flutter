@@ -89,15 +89,15 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// Somebody asking you by name to play on one of their songs. Kept beside
   /// invitations because it is the same kind of thing to a person — a request
   /// waiting on an answer — even though it grants a song rather than a
-  /// catalog.
+  /// room.
   List<AskForMe> get asksForMe => List<AskForMe>.unmodifiable(_asksForMe);
 
-  /// Somebody inviting you into a whole catalog of theirs, by name rather
+  /// Somebody inviting you into a whole room of theirs, by name rather
   /// than by emailing you a code.
   List<RoomInviteForMe> get roomInvitesForMe =>
       List<RoomInviteForMe>.unmodifiable(_roomInvitesForMe);
 
-  /// A slice of what is going on outside your own catalogs.
+  /// A slice of what is going on outside your own rooms.
   ///
   /// Home used to show only your own activity, which for a new account is
   /// nothing at all — you signed in and the app waited for you. These are the
@@ -408,7 +408,7 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// [notifyListeners] fires when it lands, so a face appears the frame
   /// after it arrives without any caller awaiting anything. Cached by path
   /// rather than by person, because one picture belongs to one profile and
-  /// shows up in every catalog they are in.
+  /// shows up in every room they are in.
   ///
   /// Deliberately separate from [_imageBytes]: that one identifies an image
   /// by searching the loaded rooms for something that claims the path, and a
@@ -722,7 +722,7 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Says yes or no to being asked to play on somebody's song.
   ///
-  /// Yes puts you on that one song — not the catalog it sits in. Reloading
+  /// Yes puts you on that one song — not the room it sits in. Reloading
   /// afterwards is what makes it appear under Songs, which is the whole
   /// visible result of saying yes.
   Future<void> answerAsk(AskForMe ask, {required bool accept}) async {
