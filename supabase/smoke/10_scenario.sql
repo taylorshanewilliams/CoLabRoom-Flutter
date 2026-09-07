@@ -2234,38 +2234,42 @@ reset role;
 -- that starts something with a deleted person tests the error path.
 do $$
 declare
-  made record;
+  -- Plain variables rather than a record. `made.room_id` beside an
+  -- unqualified `room_id` column makes plpgsql call the reference ambiguous,
+  -- and every table here has a column by that name.
+  new_room uuid;
+  new_project uuid;
   members bigint;
   invited bigint;
   songs bigint;
 begin
-  select * into made
-  from public.start_something_with('99999999-9999-9999-9999-999999999999');
+  select s.room_id, s.project_id into new_room, new_project
+  from public.start_something_with('99999999-9999-9999-9999-999999999999') s;
 
-  if made.room_id is null or made.project_id is null then
+  if new_room is null or new_project is null then
     raise exception 'start_something_with returned nothing to open';
   end if;
 
   -- A song to land in, or the room is an empty container somebody has to
   -- fill before anything can happen.
-  select count(*) into songs from public.projects
-  where room_id = made.room_id;
+  select count(*) into songs from public.projects p
+  where p.room_id = new_room;
   if songs <> 1 then
     raise exception 'the new room has % songs rather than one', songs;
   end if;
 
   -- Only you in it. They are invited, not added.
-  select count(*) into members from public.room_members
-  where room_id = made.room_id;
+  select count(*) into members from public.room_members m
+  where m.room_id = new_room;
   if members <> 1 then
     raise exception 'somebody was put in a room without agreeing (% members)',
       members;
   end if;
 
-  select count(*) into invited from public.room_invites
-  where room_id = made.room_id
-    and invited_profile = '99999999-9999-9999-9999-999999999999'
-    and status = 'pending';
+  select count(*) into invited from public.room_invites i
+  where i.room_id = new_room
+    and i.invited_profile = '99999999-9999-9999-9999-999999999999'
+    and i.status = 'pending';
   if invited <> 1 then
     raise exception 'no invitation was sent';
   end if;
@@ -2274,11 +2278,11 @@ end $$;
 -- Twice with the same person is the good case, not a constraint error.
 do $$
 declare
-  again record;
+  again uuid;
 begin
-  select * into again
-  from public.start_something_with('99999999-9999-9999-9999-999999999999');
-  if again.room_id is null then
+  select s.room_id into again
+  from public.start_something_with('99999999-9999-9999-9999-999999999999') s;
+  if again is null then
     raise exception 'starting something twice failed on the name';
   end if;
 end $$;
