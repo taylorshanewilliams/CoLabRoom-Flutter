@@ -1896,9 +1896,15 @@ begin
 
   select * into result from public.take_down_image(filed, 'Smoke test.');
 
+  -- The path and the bucket, because SQL may not delete the object and the
+  -- caller has to. A takedown that did not say where the bytes are is one
+  -- that cannot be finished.
   if result.cleared_path <> '11111111-1111-1111-1111-111111111111/avatar-smoke.png' then
     raise exception 'the takedown reported the wrong path: %',
       result.cleared_path;
+  end if;
+  if result.bucket <> 'avatars' then
+    raise exception 'the takedown reported the wrong bucket: %', result.bucket;
   end if;
 
   -- Gone from the profile.
@@ -1908,14 +1914,9 @@ begin
     raise exception 'the picture is still on the profile: %', still_there;
   end if;
 
-  -- And unreachable through storage, or it is still being served.
-  if exists (
-    select 1 from storage.objects
-    where bucket_id = 'avatars'
-      and name = '11111111-1111-1111-1111-111111111111/avatar-smoke.png'
-  ) then
-    raise exception 'the object survived the takedown';
-  end if;
+  -- The object itself is deliberately still here: storage refuses a delete
+  -- from SQL, so removing it is tools/take_down.py's job through the API.
+  -- What must be true is that nothing points at it any more.
 
   -- The queue must not still say open, or nobody knows it was handled.
   if (select status from public.content_reports where id = filed) <> 'actioned' then
@@ -2008,6 +2009,15 @@ begin
   select count(*) into real_songs from public.projects p
   where p.room_id <> 'dede0011-0000-0000-0000-000000000011';
 
+  -- Read the paths first, exactly as the tool must: after the purge the
+  -- rooms are gone and nothing names the objects any more.
+  if not exists (
+    select 1 from public.purge_demo_paths()
+    where prefix = 'dede0011-0000-0000-0000-000000000011/'
+  ) then
+    raise exception 'purge_demo_paths did not name the seeded room';
+  end if;
+
   perform public.purge_demo();
 
   if exists (select 1 from public.profiles where is_demo) then
@@ -2032,13 +2042,13 @@ begin
   ) then
     raise exception 'a seeded take survived the purge';
   end if;
-  -- The one that would be missed. Bytes nothing points at are bytes nobody
-  -- ever finds again, and they are still being paid for.
+  -- And nothing is left naming the files, which is the reason the tool has
+  -- to sweep them *before* calling this rather than after.
   if exists (
-    select 1 from storage.objects
-    where name like 'dede0011-0000-0000-0000-000000000011/%'
+    select 1 from public.purge_demo_paths()
+    where prefix = 'dede0011-0000-0000-0000-000000000011/'
   ) then
-    raise exception 'a seeded file survived the purge';
+    raise exception 'the seeded room survived the purge';
   end if;
 
   -- And nothing real went with it.

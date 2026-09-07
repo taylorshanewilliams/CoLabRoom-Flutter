@@ -190,6 +190,66 @@ def make_clip(path: Path, seed: int) -> None:
     )
 
 
+def sweep(project_ref: str, service_key: str, bucket: str, prefix: str) -> int:
+    """Deletes everything under a prefix, through the Storage API.
+
+    SQL cannot do this: Supabase guards `storage.objects` with a trigger that
+    raises 42501 and tells you to use the API. Two functions shipped with a
+    direct delete in them and neither could ever have run.
+
+    Listing is needed first because the delete endpoint takes names, not a
+    prefix — and it pages, so a room with more than a hundred files needs
+    more than one pass.
+    """
+    removed = 0
+    headers = {
+        "Authorization": f"Bearer {service_key}",
+        "apikey": service_key,
+        "Content-Type": "application/json",
+    }
+    folder = prefix.rstrip("/")
+    while True:
+        status, body = request(
+            f"https://{project_ref}.supabase.co/storage/v1/object/list/{bucket}",
+            method="POST",
+            headers=headers,
+            data=json.dumps({
+                "prefix": folder,
+                "limit": 100,
+                "offset": 0,
+            }).encode("utf-8"),
+        )
+        if status != 200:
+            print(f"  list failed ({status}) for {bucket}/{folder}: {body[:200]}")
+            return removed
+        entries = json.loads(body)
+        # The API lists one level at a time. An entry with no id is a folder,
+        # so recurse into it rather than trying to delete a name that is not
+        # an object.
+        names, folders = [], []
+        for entry in entries:
+            if entry.get("id"):
+                names.append(f"{folder}/{entry['name']}")
+            else:
+                folders.append(f"{folder}/{entry['name']}")
+        for child in folders:
+            removed += sweep(project_ref, service_key, bucket, child + "/")
+        if not names:
+            return removed
+        status, body = request(
+            f"https://{project_ref}.supabase.co/storage/v1/object/{bucket}",
+            method="DELETE",
+            headers=headers,
+            data=json.dumps({"prefixes": names}).encode("utf-8"),
+        )
+        if status != 200:
+            print(f"  delete failed ({status}) for {bucket}: {body[:200]}")
+            return removed
+        removed += len(names)
+        if len(entries) < 100:
+            return removed
+
+
 def upload(project_ref: str, service_key: str, bucket: str, path: str,
            body: bytes, content_type: str) -> bool:
     status, text = request(
@@ -258,6 +318,19 @@ def main() -> int:
     service_key = env("SUPABASE_SERVICE_ROLE_KEY")
 
     if args.purge:
+        # Files first, and through the API, because SQL is not allowed to
+        # delete a stored object — and because once the rooms are gone
+        # nothing names the objects any more. Bytes nothing points at are
+        # bytes nobody finds again, still being paid for every month.
+        print("Sweeping seeded files…")
+        prefixes = sql(project_ref, token,
+                       "select * from public.purge_demo_paths();")
+        swept = 0
+        for row in prefixes:
+            swept += sweep(project_ref, service_key, row["bucket"],
+                           row["prefix"])
+        print(f"  {swept} files")
+
         print("Purging every seeded account…")
         for row in sql(project_ref, token, "select * from public.purge_demo();"):
             print(f"  {row['what']:<18} {row['removed']}")
