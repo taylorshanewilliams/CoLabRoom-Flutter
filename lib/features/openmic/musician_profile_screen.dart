@@ -14,6 +14,7 @@ import 'ask_musician_sheet.dart';
 import 'invite_to_room_sheet.dart';
 import 'open_mic_song_screen.dart';
 import 'report_sheet.dart';
+import 'the_app_noticed.dart';
 
 /// Somebody's own room.
 ///
@@ -59,6 +60,8 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
   String? _sharedCity;
   String? _error;
   bool _missing = false;
+  List<Noticed> _noticed = const <Noticed>[];
+  String? _claiming;
 
   bool get _isMe => widget.repository.currentUserId == widget.profileId;
 
@@ -75,6 +78,11 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
       final musician = await widget.repository.loadMusician(widget.profileId);
       final links = await widget.repository.loadShowcase(widget.profileId);
       final songs = await widget.repository.songsBy(widget.profileId);
+      // Only about yourself. What the app has worked out about somebody else
+      // is not a thing to show anybody, including them.
+      final noticed = _isMe
+          ? await widget.repository.thingsWeNoticed()
+          : const <Noticed>[];
       String? shared;
       if (!_isMe) {
         // Only ever a nice surprise, never a filter. Null is the normal answer
@@ -91,6 +99,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
         if (musician != null) _musician = musician;
         _links = links;
         _songs = songs;
+        _noticed = noticed;
         _sharedCity = shared;
         _error = null;
       });
@@ -313,6 +322,34 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
     }
   }
 
+  /// Writing down one thing the app spotted.
+  ///
+  /// Reloaded afterwards rather than patched locally, because accepting one
+  /// suggestion usually removes it and can change the others — claiming a
+  /// part is exactly the thing that stops it being suggested.
+  Future<void> _claim(String part) async {
+    if (_claiming != null) return;
+    setState(() => _claiming = part);
+    try {
+      await widget.repository.claimPart(part);
+      await _load();
+      if (!mounted) return;
+      setState(() => _claiming = null);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('$part added to what you play.')));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _claiming = null);
+      _say(reportAndDescribe(
+        error,
+        service: 'app',
+        stage: 'claim_part',
+        route: 'Profile',
+      ));
+    }
+  }
+
   Future<void> _editPresence() async {
     final me = _musician;
     if (me == null) return;
@@ -426,6 +463,9 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
                 sharedCity: _sharedCity,
                 error: _error,
                 isMe: _isMe,
+                noticed: _noticed,
+                claiming: _claiming,
+                onClaim: (part) => unawaited(_claim(part)),
                 onAdd: () => unawaited(_add()),
                 onRemove: (link) => unawaited(_remove(link)),
                 onOpen: (link) => unawaited(_open(link)),
@@ -447,6 +487,9 @@ class _Body extends StatelessWidget {
     required this.sharedCity,
     required this.error,
     required this.isMe,
+    required this.noticed,
+    required this.claiming,
+    required this.onClaim,
     required this.onAdd,
     required this.onRemove,
     required this.onOpen,
@@ -456,6 +499,12 @@ class _Body extends StatelessWidget {
   });
 
   final Musician musician;
+
+  /// Only ever non-empty on your own page.
+  final List<Noticed> noticed;
+  final String? claiming;
+  final ValueChanged<String> onClaim;
+
   final List<ShowcaseLink>? links;
   final List<OpenMicSong>? songs;
   final ValueChanged<OpenMicSong> onOpenSong;
@@ -480,6 +529,16 @@ class _Body extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
       children: <Widget>[
+        // Above the name, because it is news rather than description — and
+        // because somebody who has just recorded something should meet the
+        // app noticing before they meet a form.
+        if (isMe && noticed.isNotEmpty)
+          TheAppNoticed(
+            noticed: noticed,
+            busy: claiming,
+            onClaim: onClaim,
+            onOpenSettings: onEditPresence,
+          ),
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[

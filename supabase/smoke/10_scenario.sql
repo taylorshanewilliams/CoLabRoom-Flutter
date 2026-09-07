@@ -2149,6 +2149,80 @@ end $$;
 reset role;
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- The app noticed (0082).
+--
+-- The point is that it only offers what it can count. A part somebody has
+-- actually recorded is a fact; anything about their taste or ability would be
+-- a guess, and there is nothing here that supports guessing either.
+--
+-- Sets up its own evidence rather than leaning on an earlier fixture. The
+-- first version assumed the writer had recorded bass and not claimed it —
+-- they had claimed it two hundred lines earlier, so the suggestion was
+-- correctly absent and the test was wrong about the app rather than the other
+-- way round.
+insert into public.song_layers
+  (project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values
+  ('aaaaaaaa-0000-0000-0000-00000000000a',
+   '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa/layers/noticed-drums.m4a', 'Drums', 'drums', 20000, now());
+
+set local role authenticated;
+
+do $$
+declare
+  found record;
+  -- Read into a variable rather than compared with `= any((select ...))`.
+  -- That form is the *subquery* ANY, which compares a text to a whole row
+  -- and fails with "malformed array literal" — the same trap 0074 hit.
+  claimed text[];
+begin
+  -- Recorded, never claimed: offered.
+  select * into found from public.things_we_noticed()
+  where kind = 'plays' and subject = 'drums';
+  if found.kind is null then
+    raise exception 'a recorded part was not noticed';
+  end if;
+  if found.amount < 1 then
+    raise exception 'the count came back as %', found.amount;
+  end if;
+
+  -- Already claimed: never offered. The writer has bass in `plays` from
+  -- earlier in this file and has recorded it.
+  if exists (
+    select 1 from public.things_we_noticed()
+    where kind = 'plays' and subject = 'bass'
+  ) then
+    raise exception 'a part already on the profile was offered again';
+  end if;
+
+  -- One tap writes it down.
+  perform public.claim_part('drums');
+  select plays into claimed from public.profiles
+  where id = '11111111-1111-1111-1111-111111111111';
+  if not ('drums' = any(claimed)) then
+    raise exception 'claim_part did not add the part';
+  end if;
+
+  -- And it stops being offered, or the card never empties.
+  if exists (
+    select 1 from public.things_we_noticed()
+    where kind = 'plays' and subject = 'drums'
+  ) then
+    raise exception 'a claimed part is still being offered';
+  end if;
+
+  -- Twice is not two entries.
+  perform public.claim_part('drums');
+  select plays into claimed from public.profiles
+  where id = '11111111-1111-1111-1111-111111111111';
+  if (select count(*) from unnest(claimed) t where t = 'drums') <> 1 then
+    raise exception 'claiming twice added the part twice';
+  end if;
+end $$;
+
+reset role;
+
 -- Nobody is ranked (0072).
 --
 -- The check is that somebody who has recorded nothing still turns up. Before
