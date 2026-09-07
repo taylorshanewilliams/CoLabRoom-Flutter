@@ -1138,6 +1138,9 @@ class InMemoryMusicRepository implements MusicRepository {
       ];
 
   @override
+  Future<List<HelpRequest>> myHelpRequests() async => const <HelpRequest>[];
+
+  @override
   Future<MyPlan> myPlan() async =>
       const MyPlan(member: false, sheetsThisMonth: 3, sheetsAllowed: 20);
 

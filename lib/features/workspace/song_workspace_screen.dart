@@ -44,6 +44,7 @@ enum _VoiceNoteAction { play, rerecord, delete }
 enum _SongMenuAction {
   importLyrics,
   invite,
+  markFinished,
   deleteSong,
   color,
   history,
@@ -255,6 +256,43 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
             error,
             service: 'app',
             stage: 'show_song',
+            projectId: project.id,
+            route: 'Song',
+          )),
+        ));
+    }
+  }
+
+  /// Done, and nobody told.
+  ///
+  /// Separate from showing it, because they are different statements. A band
+  /// marking a song finished is saying something to each other; publishing it
+  /// is saying something to everybody. The dial handles the second, and this
+  /// is the first — which is also the useful one for your own library, since
+  /// a finished song stops being something to make a song sheet for.
+  Future<void> _markFinished(SongProject project) async {
+    final controller = BetaScope.of(context, listen: false);
+    try {
+      await controller.repository.finishSong(project.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(
+            '${project.title} is marked finished. Nobody else can see that — '
+            'show it from the bar above when you want to.',
+          ),
+        ));
+      await _loadAudience();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(reportAndDescribe(
+            error,
+            service: 'app',
+            stage: 'finish_song',
             projectId: project.id,
             route: 'Song',
           )),
@@ -733,6 +771,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       await _inviteToSong(project);
       return;
     }
+    if (action == _SongMenuAction.markFinished) {
+      await _markFinished(project);
+      return;
+    }
     if (action == _SongMenuAction.deleteSong) {
       await _deleteSong(project);
       return;
@@ -747,6 +789,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           break;
         case _SongMenuAction.importLyrics:
         case _SongMenuAction.invite:
+        case _SongMenuAction.markFinished:
         case _SongMenuAction.deleteSong:
         case _SongMenuAction.color:
         case _SongMenuAction.history:
@@ -1502,6 +1545,15 @@ class _PortraitProjectHeader extends StatelessWidget {
               // cannot be undone.
               PopupMenuDivider(),
               PopupMenuItem<_SongMenuAction>(
+                value: _SongMenuAction.markFinished,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.check_circle_outline_rounded),
+                  title: Text('Mark as finished'),
+                  subtitle: Text('Just for you, until you show it'),
+                ),
+              ),
+              PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.deleteSong,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -1666,6 +1718,15 @@ class _LandscapeWorkspace extends StatelessWidget {
                     ),
                   ),
                   PopupMenuDivider(),
+                  PopupMenuItem<_SongMenuAction>(
+                    value: _SongMenuAction.markFinished,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.check_circle_outline_rounded),
+                      title: Text('Mark as finished'),
+                      subtitle: Text('Just for you, until you show it'),
+                    ),
+                  ),
                   PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.deleteSong,
                     child: ListTile(

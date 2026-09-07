@@ -1182,3 +1182,31 @@ class ShowcaseSong {
     return metHere ? 'Met here · with $who' : 'With $who';
   }
 }
+
+
+/// A question you asked, and whatever came back.
+///
+/// The help screen could send a question and never show it again — so
+/// somebody who asked something on Tuesday had no way to find out whether
+/// anybody had answered, short of an email arriving.
+class HelpRequest {
+  const HelpRequest({
+    required this.id,
+    required this.question,
+    required this.status,
+    required this.askedAt,
+    this.notes = '',
+    this.answeredAt,
+  });
+
+  final String id;
+  final String question;
+  final String status;
+  final DateTime askedAt;
+
+  /// What was said back, appended over time rather than replaced.
+  final String notes;
+  final DateTime? answeredAt;
+
+  bool get answered => status == 'answered' && notes.trim().isNotEmpty;
+}

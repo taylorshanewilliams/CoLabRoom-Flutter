@@ -376,6 +376,9 @@ abstract interface class MusicRepository {
   Future<List<OpenMicStatus>> myOpenMic();
 
   /// What this account is allowed to do, asked of the one place that knows.
+  /// Questions you have asked, newest first, with anything said back.
+  Future<List<HelpRequest>> myHelpRequests();
+
   Future<MyPlan> myPlan();
 
   /// Finished songs somebody chose to show, newest first.

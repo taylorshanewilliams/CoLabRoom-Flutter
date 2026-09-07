@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import 'help_answers.dart';
@@ -41,6 +42,13 @@ class _HelpScreenState extends State<HelpScreen> {
 
   bool _sending = false;
 
+  /// What has been asked before, and what came back. Loaded once: somebody
+  /// who asked something last week opens this screen to find out whether
+  /// anybody answered, and there was nowhere for that to be shown.
+  ///
+  /// Not `_asked`, which is the field they are typing into.
+  List<HelpRequest> _history = const <HelpRequest>[];
+
   /// The route they were on when they opened this, captured once.
   ///
   /// Read at construction rather than at send time, because by then the
@@ -52,6 +60,18 @@ class _HelpScreenState extends State<HelpScreen> {
   void initState() {
     super.initState();
     CurrentRoute.enter('Help');
+    unawaited(_loadAsked());
+  }
+
+  Future<void> _loadAsked() async {
+    try {
+      final asked =
+          await BetaScope.of(context, listen: false).repository.myHelpRequests();
+      if (mounted) setState(() => _history = asked);
+    } catch (_) {
+      // A history that will not load is not a reason to stop somebody
+      // asking something new.
+    }
   }
 
   @override
@@ -207,6 +227,29 @@ class _HelpScreenState extends State<HelpScreen> {
                           onTap: () => _ask(answer.question),
                         ),
                       ),
+
+                    // What you asked before. Below the common questions,
+                    // because most people are here with a new one — and
+                    // present at all because sending a question into a table
+                    // and never mentioning it again is not asking anybody.
+                    if (_history.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 22),
+                      const Text(
+                        'WHAT YOU ASKED',
+                        style: TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.1,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      for (final asked in _history)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _Asked(request: asked),
+                        ),
+                    ],
                   ],
                   for (final said in _said)
                     Padding(
@@ -415,6 +458,56 @@ class _Suggestion extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+
+/// A question you asked, with the answer under it when there is one.
+class _Asked extends StatelessWidget {
+  const _Asked({required this.request});
+
+  final HelpRequest request;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(13, 11, 13, 12),
+      decoration: BoxDecoration(
+        color: AppColors.raised,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: request.answered
+              ? AppColors.cyan.withValues(alpha: 0.45)
+              : AppColors.line,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            request.question,
+            style: const TextStyle(
+                color: AppColors.text, fontSize: 13, height: 1.4),
+          ),
+          const SizedBox(height: 7),
+          if (request.answered) ...<Widget>[
+            const Divider(height: 14, color: AppColors.line),
+            Text(
+              request.notes.trim(),
+              style: const TextStyle(
+                  color: AppColors.cyan, fontSize: 13, height: 1.5),
+            ),
+          ] else
+            // Said plainly rather than left blank. "Waiting" is a real state
+            // and somebody who cannot tell the difference between waiting
+            // and ignored assumes ignored.
+            const Text(
+              'Waiting for an answer.',
+              style: TextStyle(color: AppColors.muted, fontSize: 11.5),
+            ),
+        ],
       ),
     );
   }

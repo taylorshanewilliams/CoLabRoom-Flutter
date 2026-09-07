@@ -1,0 +1,13 @@
+-- The type an answered help request uses to reach the person who asked.
+--
+-- Alone in its own migration, following 0035 and 0048: `alter type ... add
+-- value` is allowed inside a transaction on PG12+, but the new value cannot
+-- be *used* in the same transaction that adds it. Splitting the value from
+-- the function that references it sidesteps the rule rather than relying on
+-- a plpgsql body not counting as use — true, and the kind of true that stops
+-- being true when somebody adds a default or a check constraint later.
+--
+-- Not wired into notification_preferences, for the reason 0035 gives: this
+-- is the answer to a question you personally asked, so silencing it would
+-- mean the app quietly not telling you the thing you asked for.
+alter type public.notification_type add value if not exists 'help_answered';

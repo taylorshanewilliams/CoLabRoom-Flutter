@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -131,6 +133,21 @@ class _SongsScreenState extends State<SongsScreen> {
     if (project != null && mounted) _open(project);
   }
 
+  /// A room of its own, without having to be making a song first.
+  ///
+  /// Somebody setting up a space for their band is not writing a song at
+  /// that moment, and making them start one to get a room is the wrong way
+  /// round.
+  Future<void> _newRoom() async {
+    final controller = BetaScope.of(context, listen: false);
+    final room = await showCreateRoomDialog(context, controller);
+    if (room == null || !mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'Room'),
+      builder: (_) => RoomDetailScreen(roomId: room.id),
+    ));
+  }
+
   Future<void> _newSet() async {
     final controller = BetaScope.of(context);
     final name = await showDialog<String>(
@@ -214,11 +231,45 @@ class _SongsScreenState extends State<SongsScreen> {
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.displaySmall),
                 ),
-                FilledButton.icon(
-                  key: const Key('songs_new_button'),
-                  onPressed: showingSongs ? _newSong : _newSet,
-                  icon: const Icon(Icons.add_rounded, size: 20),
-                  label: Text(showingSongs ? 'New song' : 'New set'),
+                // One button, three things, and the third is the point.
+                //
+                // Making a room was only possible inside the new-song flow —
+                // pick a room, or create one without leaving. So the concept
+                // this app is named after had no front door: you could only
+                // make a room as a step on the way to making a song, which
+                // is exactly backwards for somebody setting up a space for
+                // their band.
+                //
+                // It also drops an oddity: the button changed its own label
+                // depending on which segment was showing, so what "+" did
+                // depended on where you had last tapped.
+                MenuAnchor(
+                  builder: (context, controller, _) => FilledButton.icon(
+                    key: const Key('songs_new_button'),
+                    onPressed: () => controller.isOpen
+                        ? controller.close()
+                        : controller.open(),
+                    icon: const Icon(Icons.add_rounded, size: 20),
+                    label: const Text('New'),
+                  ),
+                  menuChildren: <Widget>[
+                    MenuItemButton(
+                      leadingIcon: const Icon(Icons.music_note_rounded, size: 19),
+                      onPressed: () => unawaited(_newSong()),
+                      child: const Text('Song'),
+                    ),
+                    MenuItemButton(
+                      key: const Key('songs_new_room'),
+                      leadingIcon: const Icon(Icons.meeting_room_outlined, size: 19),
+                      onPressed: () => unawaited(_newRoom()),
+                      child: const Text('Room'),
+                    ),
+                    MenuItemButton(
+                      leadingIcon: const Icon(Icons.queue_music_rounded, size: 19),
+                      onPressed: () => unawaited(_newSet()),
+                      child: const Text('Set'),
+                    ),
+                  ],
                 ),
               ],
             ),
