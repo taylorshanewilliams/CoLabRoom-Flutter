@@ -13,6 +13,7 @@ import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
 import '../../widgets/analysis_depth_sheet.dart';
 import 'instrument_chips.dart';
+import 'making_the_sheet.dart';
 import 'structure_timeline.dart';
 import 'continuous_song_editor.dart';
 import 'live_performance_screen.dart';
@@ -622,43 +623,13 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                   ],
                   if (_working && _progress != null) ...<Widget>[
                     const SizedBox(height: 18),
-                    LinearProgressIndicator(
-                      value: _progress!.fraction.clamp(0, 1),
-                      color: AppColors.gold,
-                    ),
-                    const SizedBox(height: 7),
-                    Text(
-                      _progress!.label,
-                      style: const TextStyle(color: AppColors.muted, fontSize: 10.5),
-                    ),
-                    // The wait is minutes long and songwriting is what the app
-                    // is for, so say plainly that nobody has to spend those
-                    // minutes watching a bar move.
-                    //
-                    // Worded as "this screen" rather than "the app" because
-                    // that is precisely what's true: the poll that collects the
-                    // finished job runs in this isolate, so navigating away is
-                    // fine and fully backgrounding the app pauses collection
-                    // until it is reopened. The recording and the GPU job
-                    // survive either way — only the collecting waits.
-                    const SizedBox(height: 10),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        const Icon(Icons.edit_note_rounded, size: 13, color: AppColors.muted),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            'Keep writing — this carries on if you leave this screen, and '
-                            "you'll get a notification when the song sheet is ready.",
-                            style: TextStyle(
-                              color: AppColors.muted.withValues(alpha: 0.85),
-                              fontSize: 10.5,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                      ],
+                    // The best minute in this app, given a minute's worth of
+                    // screen. It used to be a hairline bar and a ten-point
+                    // grey label — the most remarkable thing the app does,
+                    // described in a font size reserved for disclaimers.
+                    MakingTheSheet(
+                      progress: _progress!,
+                      songTitle: widget.project.title,
                     ),
                   ],
                   if (_error != null) ...<Widget>[
