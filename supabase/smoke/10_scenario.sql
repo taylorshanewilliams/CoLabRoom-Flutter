@@ -1853,6 +1853,105 @@ select public.set_open_mic_presence(
   true, null, null, null, array['folk', 'americana']
 );
 
+-- A takedown that removes (0077).
+--
+-- The property that has to hold: after a takedown, the image is gone from
+-- the column the app reads AND unreachable through storage. Either one
+-- alone is a takedown that did not take anything down.
+set local role authenticated;
+
+do $$
+declare
+  filed uuid;
+  result record;
+  still_there text;
+begin
+  -- Give the writer a picture to remove, and an object behind it.
+  update public.profiles
+  set avatar_path = '11111111-1111-1111-1111-111111111111/avatar-smoke.png'
+  where id = '11111111-1111-1111-1111-111111111111';
+
+  insert into storage.objects (bucket_id, name, owner)
+  values ('avatars',
+          '11111111-1111-1111-1111-111111111111/avatar-smoke.png',
+          '11111111-1111-1111-1111-111111111111')
+  on conflict do nothing;
+
+  -- Somebody else files it.
+  perform set_config(
+    'request.jwt.claims',
+    '{"sub": "88888888-8888-8888-8888-888888888888"}', true);
+  select public.report_content(
+    'profile', 'sexual', 'Not a face.',
+    '11111111-1111-1111-1111-111111111111'
+  ) into filed;
+
+  perform set_config(
+    'request.jwt.claims',
+    '{"sub": "11111111-1111-1111-1111-111111111111"}', true);
+
+  select * into result from public.take_down_image(filed, 'Smoke test.');
+
+  if result.cleared_path <> '11111111-1111-1111-1111-111111111111/avatar-smoke.png' then
+    raise exception 'the takedown reported the wrong path: %',
+      result.cleared_path;
+  end if;
+
+  -- Gone from the profile.
+  select avatar_path into still_there from public.profiles
+  where id = '11111111-1111-1111-1111-111111111111';
+  if still_there is not null then
+    raise exception 'the picture is still on the profile: %', still_there;
+  end if;
+
+  -- And unreachable through storage, or it is still being served.
+  if exists (
+    select 1 from storage.objects
+    where bucket_id = 'avatars'
+      and name = '11111111-1111-1111-1111-111111111111/avatar-smoke.png'
+  ) then
+    raise exception 'the object survived the takedown';
+  end if;
+
+  -- The queue must not still say open, or nobody knows it was handled.
+  if (select status from public.content_reports where id = filed) <> 'actioned' then
+    raise exception 'the report was left open after a takedown';
+  end if;
+end $$;
+
+-- Both new kinds are accepted, or the two images nobody could report still
+-- cannot be reported.
+do $$
+begin
+  perform public.report_content(
+    'room_logo', 'abuse', 'test', null, null, null, null,
+    (select id from public.rooms limit 1)
+  );
+  perform public.report_content(
+    'song_cover', 'abuse', 'test', null,
+    'dddddddd-0000-0000-0000-00000000000d'
+  );
+end $$;
+
+-- And a takedown refuses a kind it cannot act on, rather than silently
+-- closing the report having changed nothing.
+do $$
+declare
+  filed uuid;
+begin
+  select public.report_content(
+    'message', 'spam', 'test', '11111111-1111-1111-1111-111111111111'
+  ) into filed;
+  begin
+    perform public.take_down_image(filed);
+    raise exception 'take_down_image accepted a kind it cannot remove';
+  exception when sqlstate '22023' then
+    null;  -- expected
+  end;
+end $$;
+
+reset role;
+
 -- Nobody is ranked (0072).
 --
 -- The check is that somebody who has recorded nothing still turns up. Before

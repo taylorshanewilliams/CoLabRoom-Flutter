@@ -28,6 +28,7 @@ Future<bool> showReportSheet(
   String? projectId,
   String? layerId,
   String? linkId,
+  String? roomId,
 }) async {
   final sent = await showModalBottomSheet<bool>(
     context: context,
@@ -45,6 +46,7 @@ Future<bool> showReportSheet(
         projectId: projectId,
         layerId: layerId,
         linkId: linkId,
+        roomId: roomId,
       ),
     ),
   );
@@ -60,6 +62,7 @@ class _ReportSheet extends StatefulWidget {
     this.projectId,
     this.layerId,
     this.linkId,
+    this.roomId,
   });
 
   final MusicRepository repository;
@@ -69,6 +72,7 @@ class _ReportSheet extends StatefulWidget {
   final String? projectId;
   final String? layerId;
   final String? linkId;
+  final String? roomId;
 
   @override
   State<_ReportSheet> createState() => _ReportSheetState();
@@ -102,6 +106,7 @@ class _ReportSheetState extends State<_ReportSheet> {
         projectId: widget.projectId,
         layerId: widget.layerId,
         linkId: widget.linkId,
+        roomId: widget.roomId,
       );
       if (mounted) Navigator.pop(context, true);
     } catch (error) {

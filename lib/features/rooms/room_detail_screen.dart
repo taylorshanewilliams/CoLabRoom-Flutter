@@ -12,6 +12,7 @@ import '../../widgets/app_surface.dart';
 import '../../widgets/bloom_tap.dart';
 import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/music_tiles.dart';
+import '../openmic/report_sheet.dart';
 import '../songs/new_song_flow.dart';
 import '../workspace/song_workspace_screen.dart';
 import '../../services/user_facing_error.dart';
@@ -401,6 +402,23 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     }
   }
 
+  /// Reporting the room itself — its logo, its name, what is in it.
+  Future<void> _reportRoom(MusicRoom room) async {
+    final sent = await showReportSheet(
+      context,
+      repository: BetaScope.of(context, listen: false).repository,
+      kind: 'room_logo',
+      about: room.name,
+      roomId: room.id,
+    );
+    if (!mounted || !sent) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(
+        content: Text('Report sent. Thank you — somebody reads every one.'),
+      ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = BetaScope.of(context);
@@ -472,6 +490,32 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
             onPressed: invite,
             tooltip: 'Invite collaborator',
             icon: const Icon(Icons.person_add_alt_1_rounded),
+          ),
+          // A room you were invited into by somebody you met on the Open Mic
+          // is a room whose logo and covers you did not choose. Until now
+          // there was no kind of report that fitted either, so there was
+          // nothing to press.
+          //
+          // In the overflow rather than beside the friendly buttons: two taps
+          // from the thing being complained about, which is what makes it
+          // usable, and not so prominent that it reads as the expected
+          // response to a room you have just joined.
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            onSelected: (value) {
+              if (value == 'report') unawaited(_reportRoom(room));
+            },
+            itemBuilder: (_) => const <PopupMenuEntry<String>>[
+              PopupMenuItem<String>(
+                value: 'report',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.flag_outlined, size: 19),
+                  title: Text('Report this room'),
+                ),
+              ),
+            ],
           ),
         ],
       ),

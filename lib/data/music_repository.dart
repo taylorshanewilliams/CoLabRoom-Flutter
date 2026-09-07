@@ -296,6 +296,7 @@ abstract interface class MusicRepository {
     String? projectId,
     String? layerId,
     String? linkId,
+    String? roomId,
   });
 
   /// Songs you are on and could offer to [profileId], newest first.
