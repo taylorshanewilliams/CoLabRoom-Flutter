@@ -212,7 +212,15 @@ abstract interface class MusicRepository {
   Future<void> answerRoomInvite(String inviteId, {required bool accept});
 
   /// Songs on the Open Mic, newest first.
-  Future<List<OpenMicSong>> openMicSongs({String? part, int limit});
+  ///
+  /// Only songs that are *asking* for something, unless
+  /// [includeNotAsking]. The Open Mic is a noticeboard: a song somebody put
+  /// up but is not asking about is showcase, and showcase lives on a profile.
+  Future<List<OpenMicSong>> openMicSongs({
+    String? part,
+    int limit,
+    bool includeNotAsking,
+  });
 
   /// Songs on the Open Mic that [profileId] made or played on.
   ///

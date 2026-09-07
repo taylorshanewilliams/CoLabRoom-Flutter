@@ -4,12 +4,14 @@ import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../app/music_beta_controller.dart';
 import '../../widgets/player_face.dart';
 import '../../domain/music_models.dart';
 import '../../widgets/app_surface.dart';
 import '../../domain/name_policy.dart';
 import '../../widgets/music_tiles.dart';
 import '../home/new_song_flow.dart';
+import '../rooms/room_detail_screen.dart';
 import '../rooms/setlist_detail_screen.dart';
 import '../workspace/song_workspace_screen.dart';
 import '../../domain/song_analysis_models.dart' show SongAnalysisState;
@@ -26,7 +28,7 @@ import '../../services/user_facing_error.dart';
 /// equal weight to the whole library despite there being one of them. None of
 /// those is a place — they are all the same list with a different question
 /// asked of it, and a question is a chip.
-enum _SongsView { all, ideas, needsSheet, hasSheet, sets }
+enum _SongsView { byCatalog, all, ideas, needsSheet, hasSheet, sets }
 
 /// Every song the user can reach, in one place.
 ///
@@ -46,7 +48,15 @@ class _SongsScreenState extends State<SongsScreen> {
   final _searchController = TextEditingController();
   String _query = '';
   String? _roomFilterId;
-  _SongsView _view = _SongsView.all;
+  /// Opens on places rather than on a list.
+  ///
+  /// The audit was right that three tabs were three filters on one library.
+  /// It was wrong to conclude the answer was one flat list — a catalog is not
+  /// a filter, it is a *place*, and places are how people remember where
+  /// things are. Every catalog carries an emoji, a name and a set of faces,
+  /// which is everything needed to tell one from another in a second, and
+  /// none of it was on this screen.
+  _SongsView _view = _SongsView.byCatalog;
 
   @override
   void dispose() {
@@ -71,6 +81,15 @@ class _SongsScreenState extends State<SongsScreen> {
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'Song sheet'),
         builder: (_) => SongAnalysisScreen(project: project),
+      ),
+    );
+  }
+
+  void _openCatalog(MusicRoom room) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'Catalog'),
+        builder: (_) => RoomDetailScreen(roomId: room.id),
       ),
     );
   }
@@ -114,6 +133,9 @@ class _SongsScreenState extends State<SongsScreen> {
     final searching = _query.trim().isNotEmpty;
 
     final showingSongs = _view != _SongsView.sets;
+    // Searching flattens. Somebody typing a half-remembered line wants the
+    // song, not a tour of where it might live.
+    final grouped = _view == _SongsView.byCatalog && !searching;
     final queue = SongSheetQueue.from(rooms);
 
     var results = searching ? searchSongs(rooms, _query) : allSongsByRecency(rooms);
@@ -197,7 +219,8 @@ class _SongsScreenState extends State<SongsScreen> {
                   children: <Widget>[
                     for (final option
                         in const <({_SongsView view, String label})>[
-                      (view: _SongsView.all, label: 'All'),
+                      (view: _SongsView.byCatalog, label: 'By catalog'),
+                      (view: _SongsView.all, label: 'Everything'),
                       (view: _SongsView.ideas, label: 'Ideas'),
                       (view: _SongsView.needsSheet, label: 'Needs a sheet'),
                       (view: _SongsView.hasSheet, label: 'Has a sheet'),
@@ -285,7 +308,7 @@ class _SongsScreenState extends State<SongsScreen> {
                 },
               ),
             )
-        else if (rooms.length > 1)
+        else if (rooms.length > 1 && !grouped)
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
             sliver: SliverToBoxAdapter(
@@ -312,7 +335,23 @@ class _SongsScreenState extends State<SongsScreen> {
               ),
             ),
           ),
-        if (showingSongs)
+        // Grouped: the library as the places it lives in.
+        if (showingSongs && grouped)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 30),
+            sliver: SliverList.list(
+              children: <Widget>[
+                for (final room in rooms)
+                  _CatalogSection(
+                    room: room,
+                    controller: controller,
+                    onOpenSong: _open,
+                    onOpenCatalog: () => _openCatalog(room),
+                  ),
+              ],
+            ),
+          )
+        else if (showingSongs)
           if (results.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
@@ -350,6 +389,170 @@ class _SongsScreenState extends State<SongsScreen> {
               ),
             ),
       ],
+    );
+  }
+}
+
+/// One catalog, and the songs in it.
+///
+/// The thing that faded. A catalog carries an emoji, a name and a set of
+/// faces — everything needed to tell your band from your own workspace from
+/// the thing you started with somebody last week — and none of it appeared on
+/// the screen where you look for songs. Twenty-eight titles in one list is a
+/// list you have to read; four places with faces on them is one you recognise.
+///
+/// **The faces are the privacy signal, and they are always on.** Nothing here
+/// needs a lock icon: who can see a catalog is exactly who is pictured beside
+/// its name, which is a fact rather than a promise and is true at a glance.
+class _CatalogSection extends StatelessWidget {
+  const _CatalogSection({
+    required this.room,
+    required this.controller,
+    required this.onOpenSong,
+    required this.onOpenCatalog,
+  });
+
+  final MusicRoom room;
+  final MusicBetaController controller;
+  final ValueChanged<SongProject> onOpenSong;
+  final VoidCallback onOpenCatalog;
+
+  @override
+  Widget build(BuildContext context) {
+    final songs = List<SongProject>.from(room.projects)
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          InkWell(
+            onTap: onOpenCatalog,
+            borderRadius: BorderRadius.circular(9),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: <Widget>[
+                  Text(room.icon, style: const TextStyle(fontSize: 20)),
+                  const SizedBox(width: 9),
+                  Flexible(
+                    child: Text(
+                      room.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  if (room.members.length > 1)
+                    _Faces(room: room, controller: controller)
+                  else
+                    // Said plainly rather than drawn as one lonely face. "Just
+                    // you" is the most reassuring thing this screen can say
+                    // about a catalog, and it is the default for most of them.
+                    const Text(
+                      'just you',
+                      style: TextStyle(color: AppColors.muted, fontSize: 11.5),
+                    ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.chevron_right_rounded,
+                      size: 17, color: AppColors.muted),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          if (songs.isEmpty)
+            // Shown rather than hidden. An empty catalog is still a place, and
+            // a place that vanishes when you empty it is one you stop trusting
+            // to hold anything.
+            Padding(
+              padding: const EdgeInsets.only(left: 2, bottom: 2),
+              child: Text(
+                'Nothing in here yet',
+                style: TextStyle(
+                  color: AppColors.muted.withValues(alpha: 0.7),
+                  fontSize: 12.5,
+                ),
+              ),
+            )
+          else
+            for (final project in songs.take(6))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _SongRow(
+                  result: SongSearchResult(
+                    project: project,
+                    room: room,
+                    match: SongMatch.title,
+                  ),
+                  onTap: () => onOpenSong(project),
+                  owner: room.authorOf(project)?.displayName,
+                  ownerColor: room.authorOf(project) == null
+                      ? null
+                      : Color(room.authorOf(project)!.colorValue),
+                  ownerPhoto: controller
+                      .avatarBytesFor(room.authorOf(project)?.avatarPath),
+                ),
+              ),
+          if (songs.length > 6)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: onOpenCatalog,
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  foregroundColor: AppColors.cyan,
+                  textStyle: const TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w700),
+                ),
+                child: Text('All ${songs.length} in ${room.name}  ›'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Who can see this catalog, drawn as the people themselves.
+class _Faces extends StatelessWidget {
+  const _Faces({required this.room, required this.controller});
+
+  final MusicRoom room;
+  final MusicBetaController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = room.members.take(4).toList(growable: false);
+    return SizedBox(
+      height: 22,
+      width: 22 + (shown.length - 1) * 15,
+      child: Stack(
+        children: <Widget>[
+          for (var i = 0; i < shown.length; i += 1)
+            Positioned(
+              left: i * 15,
+              child: Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.deepNavy, width: 1.5),
+                ),
+                child: PlayerFace(
+                  name: shown[i].displayName,
+                  color: Color(shown[i].colorValue),
+                  photo: controller.avatarBytesFor(shown[i].avatarPath),
+                  size: 22,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

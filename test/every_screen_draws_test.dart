@@ -388,8 +388,12 @@ void main() {
     await _tapText(tester, 'Songs');
     // The Control Room's two piles, now questions asked of one list. Sets
     // joins them rather than sitting at the weight of the whole library.
+    // "By catalog" is the default and the first chip: a catalog is a place,
+    // not a filter, and places are how people remember where things are.
+    expect(find.text('By catalog'), findsOneWidget);
     for (final chip in <String>[
-      'All',
+      'By catalog',
+      'Everything',
       'Ideas',
       'Needs a sheet',
       'Has a sheet',
@@ -477,6 +481,33 @@ void main() {
       isTrue,
       reason: 'Home had a section with neither content nor an offer in it',
     );
+  });
+
+  testWidgets('Songs opens on places, with a face on each', (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.3);
+
+    await _tapText(tester, 'Songs');
+    expect(tester.takeException(), isNull, reason: _why('Songs'));
+
+    // The thing that faded. A catalog carries an emoji, a name and a set of
+    // faces; none of it was on the screen where you look for songs.
+    final rooms = controller.rooms;
+    expect(rooms, isNotEmpty, reason: 'the preview has no catalogs');
+    expect(
+      await _reveal(tester, find.text(rooms.first.name)),
+      findsWidgets,
+      reason: 'the catalog a song lives in is invisible again',
+    );
+
+    // "just you" is the most reassuring thing this screen says about a
+    // catalog, and it is the default for most of them.
+    final solo = rooms.where((r) => r.members.length <= 1);
+    if (solo.isNotEmpty) {
+      expect(await _reveal(tester, find.text('just you')), findsWidgets);
+    }
   });
 
   testWidgets('the app says its own name in full', (tester) async {

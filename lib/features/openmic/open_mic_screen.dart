@@ -209,7 +209,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
             child: Text(
               _showingSongs
                   ? (_part == null
-                      ? 'Songs anybody can listen to'
+                      ? 'Songs asking for somebody'
                       : 'Songs asking for ${_labelFor(_part!).toLowerCase()}')
                   : (_part == null
                       ? 'Everybody who is here'
@@ -351,7 +351,7 @@ class _SongList extends StatelessWidget {
                     size: 34, color: AppColors.line),
                 SizedBox(height: 12),
                 Text(
-                  'No songs up yet',
+                  'Nobody needs anything right now',
                   style: TextStyle(
                     color: AppColors.text,
                     fontSize: 15,
@@ -362,9 +362,13 @@ class _SongList extends StatelessWidget {
                 // Names the action rather than describing the mechanism.
                 // The old copy explained how a song gets here, which is a
                 // sentence about the app; this is one about them.
+                // A noticeboard with nothing on it means everybody is sorted.
+                // A feed with nothing in it is broken. They read completely
+                // differently to a person, and this is the first one.
                 Text(
-                  'Put one of yours up and let somebody find the part it '
-                  'is missing.',
+                  'This is where songs come to find the part they are '
+                  'missing. Ask for one on a song of yours and it shows up '
+                  'here.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                       color: AppColors.muted, fontSize: 12.5, height: 1.45),
