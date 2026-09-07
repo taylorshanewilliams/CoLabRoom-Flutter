@@ -44,10 +44,18 @@ jobs:
           python-version: '3.12'
 
       # The clips are built here rather than committed: generated audio is
-      # the only kind this repo can ship without a licence question, and
-      # ffmpeg is already on the runner.
-      - name: Check ffmpeg
-        run: ffmpeg -version | head -1
+      # the only kind this repo can ship without a licence question.
+      #
+      # Installed rather than assumed. The first version of this step ran
+      # `ffmpeg -version | head -1`, which reports the exit status of `head`
+      # — so it passed cleanly on a runner with no ffmpeg at all, and the
+      # failure surfaced one step later inside the tool.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          command -v ffmpeg
+          ffmpeg -version | head -1
 
       - name: Seed
         if: ${{ inputs.action == 'seed' }}
