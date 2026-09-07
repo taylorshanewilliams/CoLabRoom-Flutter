@@ -7,6 +7,7 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/app_top_bar.dart';
 import '../../widgets/play_button.dart';
 import 'listen_screen.dart';
 import 'musician_profile_screen.dart';
@@ -27,9 +28,21 @@ import 'open_mic_song_screen.dart';
 /// the filter here is deliberately coarse — it narrows thousands to dozens,
 /// and the listening does the rest.
 class OpenMicScreen extends StatefulWidget {
-  const OpenMicScreen({required this.repository, super.key});
+  const OpenMicScreen({
+    required this.repository,
+    this.displayName = '',
+    this.onOpenAccount,
+    this.onOpenNotifications,
+    super.key,
+  });
 
   final MusicRepository repository;
+
+  /// The corner. Null when this screen is shown somewhere that already has
+  /// its own chrome — a pushed route rather than a tab.
+  final String displayName;
+  final VoidCallback? onOpenAccount;
+  final VoidCallback? onOpenNotifications;
 
   @override
   State<OpenMicScreen> createState() => _OpenMicScreenState();
@@ -174,8 +187,19 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     // app that is supposed to grow.
     return Column(
       children: <Widget>[
+        // The same corner as the other tab, in the same place. Home used to
+        // be the only screen carrying the bell and the avatar, so when it
+        // stopped being a tab they had to live somewhere both tabs could
+        // reach — which is here, identically positioned, so it is a place
+        // people learn once.
+        if (widget.onOpenAccount != null && widget.onOpenNotifications != null)
+          AppTopBar(
+            displayName: widget.displayName,
+            onOpenAccount: widget.onOpenAccount!,
+            onOpenNotifications: widget.onOpenNotifications!,
+          ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(18, 20, 18, 2),
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 2),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[

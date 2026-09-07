@@ -10,11 +10,12 @@ import '../../domain/music_models.dart';
 import '../../widgets/app_surface.dart';
 import '../../domain/name_policy.dart';
 import '../../widgets/music_tiles.dart';
-import '../home/new_song_flow.dart';
+import '../../widgets/app_top_bar.dart';
+import 'new_song_flow.dart';
+import 'while_you_were_gone.dart';
 import '../rooms/room_detail_screen.dart';
 import '../rooms/setlist_detail_screen.dart';
 import '../workspace/song_workspace_screen.dart';
-import '../../domain/song_analysis_models.dart' show SongAnalysisState;
 import '../../services/song_search.dart';
 import '../workspace/song_analysis_screen.dart';
 import 'song_sheet_queue.dart';
@@ -28,7 +29,21 @@ import '../../services/user_facing_error.dart';
 /// equal weight to the whole library despite there being one of them. None of
 /// those is a place — they are all the same list with a different question
 /// asked of it, and a question is a chip.
-enum _SongsView { byCatalog, all, ideas, needsSheet, hasSheet, sets }
+/// Two kinds of thing, not six filters.
+///
+/// This was byCatalog / all / ideas / needsSheet / hasSheet / sets — a query
+/// builder wearing a segmented control, and the clearest single piece of
+/// evidence that the app was laid out by whoever wrote the queries.
+///
+/// Of the six: "by catalog" is the default and is a *place*, not a filter, so
+/// it stopped being a chip. "Ideas" filtered to a catalog that is already
+/// visible as a catalog. "Needs a sheet" and "has a sheet" are states, which
+/// is what search and the sheet queue banner are for. "Everything" is what
+/// typing in the search box already gives you.
+///
+/// What is left is the one distinction that is not a filter at all: a song
+/// and a set are different things.
+enum _SongsView { songs, sets }
 
 /// Every song the user can reach, in one place.
 ///
@@ -38,7 +53,17 @@ enum _SongsView { byCatalog, all, ideas, needsSheet, hasSheet, sets }
 /// put it. Rooms still exist and still control who can see what; they're a
 /// filter here rather than a place you have to visit first.
 class SongsScreen extends StatefulWidget {
-  const SongsScreen({super.key});
+  const SongsScreen({
+    required this.displayName,
+    required this.onOpenAccount,
+    required this.onOpenNotifications,
+    super.key,
+  });
+
+  /// For the avatar in the corner, which is also the way into the account.
+  final String displayName;
+  final VoidCallback onOpenAccount;
+  final VoidCallback onOpenNotifications;
 
   @override
   State<SongsScreen> createState() => _SongsScreenState();
@@ -56,7 +81,7 @@ class _SongsScreenState extends State<SongsScreen> {
   /// things are. Every catalog carries an emoji, a name and a set of faces,
   /// which is everything needed to tell one from another in a second, and
   /// none of it was on this screen.
-  _SongsView _view = _SongsView.byCatalog;
+  _SongsView _view = _SongsView.songs;
 
   @override
   void dispose() {
@@ -132,10 +157,13 @@ class _SongsScreenState extends State<SongsScreen> {
     final rooms = controller.rooms;
     final searching = _query.trim().isNotEmpty;
 
-    final showingSongs = _view != _SongsView.sets;
+    final showingSongs = _view == _SongsView.songs;
     // Searching flattens. Somebody typing a half-remembered line wants the
     // song, not a tour of where it might live.
-    final grouped = _view == _SongsView.byCatalog && !searching;
+    // Grouped unless you are searching. Places are how people remember
+    // where a song is; a search is the moment they have stopped remembering
+    // and want everything at once.
+    final grouped = showingSongs && !searching;
     final queue = SongSheetQueue.from(rooms);
 
     var results = searching ? searchSongs(rooms, _query) : allSongsByRecency(rooms);
@@ -148,21 +176,6 @@ class _SongsScreenState extends State<SongsScreen> {
     // Where a recording lands when nobody has said where it goes. The Studio
     // used to be a second library holding these; now they are songs like any
     // other, in a catalog, and this is the chip that finds them.
-    if (_view == _SongsView.ideas) {
-      results = results
-          .where((r) => r.room.name.trim().toLowerCase() == 'ideas')
-          .toList(growable: false);
-    } else if (_view == _SongsView.needsSheet) {
-      results = results
-          .where((r) =>
-              r.project.hasAudioReference &&
-              r.project.analysisState != SongAnalysisState.ready)
-          .toList(growable: false);
-    } else if (_view == _SongsView.hasSheet) {
-      results = results
-          .where((r) => r.project.analysisState == SongAnalysisState.ready)
-          .toList(growable: false);
-    }
     final sets = searching
         ? controller.setlists
             .where((s) => NamePolicy.normalized(s.name).contains(NamePolicy.normalized(_query)))
@@ -171,13 +184,35 @@ class _SongsScreenState extends State<SongsScreen> {
 
     return CustomScrollView(
       slivers: <Widget>[
+        SliverToBoxAdapter(
+          child: AppTopBar(
+            displayName: widget.displayName,
+            onOpenAccount: widget.onOpenAccount,
+            onOpenNotifications: widget.onOpenNotifications,
+          ),
+        ),
+        // The news, at the top of the songs somebody was going to open
+        // anyway. It was the only thing on Home that existed nowhere else.
+        if (!searching)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
+            sliver: SliverToBoxAdapter(
+              child: WhileYouWereGone(
+                activity:
+                    controller.activity.take(6).toList(growable: false),
+              ),
+            ),
+          ),
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(18, 20, 18, 10),
+          padding: const EdgeInsets.fromLTRB(18, 6, 18, 10),
           sliver: SliverToBoxAdapter(
             child: Row(
               children: <Widget>[
                 Expanded(
-                  child: Text('Songs', style: Theme.of(context).textTheme.displaySmall),
+                  child: Text('Your music',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.displaySmall),
                 ),
                 FilledButton.icon(
                   key: const Key('songs_new_button'),
@@ -219,11 +254,7 @@ class _SongsScreenState extends State<SongsScreen> {
                   children: <Widget>[
                     for (final option
                         in const <({_SongsView view, String label})>[
-                      (view: _SongsView.byCatalog, label: 'By catalog'),
-                      (view: _SongsView.all, label: 'Everything'),
-                      (view: _SongsView.ideas, label: 'Ideas'),
-                      (view: _SongsView.needsSheet, label: 'Needs a sheet'),
-                      (view: _SongsView.hasSheet, label: 'Has a sheet'),
+                      (view: _SongsView.songs, label: 'Songs'),
                       (view: _SongsView.sets, label: 'Sets'),
                     ])
                       _RoomChip(
