@@ -2228,6 +2228,10 @@ reset role;
 -- Two properties. A card must be able to play something of theirs, and
 -- starting something must invite rather than add — every other door in this
 -- app waits for a yes and this one is not an exception.
+--
+-- Joiner Two, not the bandmate: this file deletes the bandmate's account
+-- eight hundred lines earlier to prove account deletion works, and a test
+-- that starts something with a deleted person tests the error path.
 do $$
 declare
   made record;
@@ -2236,7 +2240,7 @@ declare
   songs bigint;
 begin
   select * into made
-  from public.start_something_with('22222222-2222-2222-2222-222222222222');
+  from public.start_something_with('99999999-9999-9999-9999-999999999999');
 
   if made.room_id is null or made.project_id is null then
     raise exception 'start_something_with returned nothing to open';
@@ -2260,7 +2264,7 @@ begin
 
   select count(*) into invited from public.room_invites
   where room_id = made.room_id
-    and invited_profile = '22222222-2222-2222-2222-222222222222'
+    and invited_profile = '99999999-9999-9999-9999-999999999999'
     and status = 'pending';
   if invited <> 1 then
     raise exception 'no invitation was sent';
@@ -2273,7 +2277,7 @@ declare
   again record;
 begin
   select * into again
-  from public.start_something_with('22222222-2222-2222-2222-222222222222');
+  from public.start_something_with('99999999-9999-9999-9999-999999999999');
   if again.room_id is null then
     raise exception 'starting something twice failed on the name';
   end if;
