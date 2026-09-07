@@ -30,7 +30,11 @@
 -- object must actually be deleted, and only the API can do it — so the
 -- takedown is not finished until the tool has run.
 
-create or replace function public.take_down_image(
+-- Dropped rather than replaced: it grows a `bucket` column, and
+-- `create or replace` cannot change the shape of a `returns table`.
+drop function if exists public.take_down_image(uuid, text);
+
+create function public.take_down_image(
   target_report uuid,
   in_note text default ''
 )
