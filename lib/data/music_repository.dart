@@ -341,6 +341,21 @@ abstract interface class MusicRepository {
   Future<List<Noticed>> thingsWeNoticed();
 
   /// Adds one part to what you play, leaving the rest of the profile alone.
+  /// Has a just-uploaded picture looked at before anybody else sees it.
+  ///
+  /// Avatars are readable by every signed-in account, so one vile image
+  /// reaches the whole app at once. Reporting catches it eventually; this
+  /// catches the ordinary case before it is seen.
+  ///
+  /// Never throws. A moderation call that fails must not stop somebody
+  /// having a profile picture — the report path still exists.
+  Future<void> checkPicture({
+    required String bucket,
+    required String path,
+    required String kind,
+    required String subject,
+  });
+
   Future<void> claimPart(String part);
 
   Future<Musician?> loadMusician(String profileId);

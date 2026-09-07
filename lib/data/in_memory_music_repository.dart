@@ -1101,6 +1101,16 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> checkPicture({
+    required String bucket,
+    required String path,
+    required String kind,
+    required String subject,
+  }) async {
+    // Nothing to call in the preview.
+  }
+
+  @override
   Future<void> claimPart(String part) async {
     if (_me.plays.contains(part)) return;
     _me = Musician(
