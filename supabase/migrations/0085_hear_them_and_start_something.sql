@@ -246,7 +246,12 @@ create or replace function public.start_something_with(
   target_profile uuid,
   in_note text default ''
 )
-returns table (room_id uuid, project_id uuid)
+-- The output columns are `made_room` and `made_song` rather than `room_id`
+-- and `project_id`, because in plpgsql a `returns table` name is a variable
+-- for the whole body — and `on conflict (room_id, user_id)` below is then an
+-- ambiguous reference between that variable and the actual column. Naming
+-- them something no table has is simpler than fighting it.
+returns table (made_room uuid, made_song uuid)
 language plpgsql
 security definer
 set search_path = public

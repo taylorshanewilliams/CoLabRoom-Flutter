@@ -2243,7 +2243,7 @@ declare
   invited bigint;
   songs bigint;
 begin
-  select s.room_id, s.project_id into new_room, new_project
+  select s.made_room, s.made_song into new_room, new_project
   from public.start_something_with('99999999-9999-9999-9999-999999999999') s;
 
   if new_room is null or new_project is null then
@@ -2280,7 +2280,7 @@ do $$
 declare
   again uuid;
 begin
-  select s.room_id into again
+  select s.made_room into again
   from public.start_something_with('99999999-9999-9999-9999-999999999999') s;
   if again is null then
     raise exception 'starting something twice failed on the name';

@@ -1496,8 +1496,8 @@ class SupabaseMusicRepository implements MusicRepository {
     }
     final row = list.first as Map;
     return (
-      roomId: row['room_id'] as String,
-      projectId: row['project_id'] as String,
+      roomId: row['made_room'] as String,
+      projectId: row['made_song'] as String,
     );
   }
 
