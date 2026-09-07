@@ -13,6 +13,8 @@ import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/now_playing.dart';
+import '../../services/picture_for_upload.dart';
+import '../../services/user_facing_error.dart';
 import '../../services/push_registration.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/audio_privacy_note.dart';
@@ -53,12 +55,26 @@ class _AccountScreenState extends State<AccountScreen> {
     if (file == null || !context.mounted) return;
     setState(() => _savingAvatar = true);
     try {
-      await controller.setAvatar(await file.readAsBytes());
+      final picked = await file.readAsBytes();
+      if (picked.isEmpty) {
+        throw Exception('That file was empty.');
+      }
+      // Shrunk before it goes anywhere. A phone photo is three to twelve
+      // megabytes and this draws at 44 pixels; sending the original was
+      // wasteful before the bucket had a cap and impossible afterwards.
+      await controller.setAvatar(await PictureForUpload.shrink(picked));
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text('Could not save that picture: $error')));
+          ..showSnackBar(SnackBar(
+            content: Text(reportAndDescribe(
+              error,
+              service: 'app',
+              stage: 'set_avatar',
+              route: 'Account',
+            )),
+          ));
       }
     } finally {
       if (mounted) setState(() => _savingAvatar = false);

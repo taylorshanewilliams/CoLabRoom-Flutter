@@ -127,6 +127,7 @@ class SongTile extends StatelessWidget {
   const SongTile({
     required this.project,
     required this.onTap,
+    this.matchedLine,
     this.onLongPress,
     this.onMore,
     this.selected = false,
@@ -140,6 +141,15 @@ class SongTile extends StatelessWidget {
   });
 
   final SongProject project;
+
+  /// The lyric that matched what somebody typed, shown under the title.
+  ///
+  /// The appeal of searching a lyric is "the song where I sang about the
+  /// harbour" — and a result that shows only a title has answered a
+  /// different question. Null when there is no search, or when the match
+  /// was on the title, which is already on the tile.
+  final String? matchedLine;
+
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
@@ -252,6 +262,18 @@ class SongTile extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 2),
+            if (matchedLine != null)
+              Text(
+                '“$matchedLine”',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.cyan,
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                ),
+              )
+            else
             Row(
               children: <Widget>[
                 Flexible(
