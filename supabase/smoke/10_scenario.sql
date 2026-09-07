@@ -1650,11 +1650,19 @@ values
 
 select public.put_on_open_mic('dddddddd-0000-0000-0000-00000000000d');
 
+-- Read as somebody else, because that is who a feed is for.
+--
+-- It used to be read as the writer who owns the song, which passed only
+-- while the feed still returned your own work back to you. 0074 stopped
+-- doing that — your own songs are not somebody to meet, you know how they
+-- sound — so the assertion has to stand where a stranger stands.
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+
 do $$
 declare
   track record;
 begin
-  select * into track from public.open_mic_feed(null, 20, null)
+  select * into track from public.open_mic_feed(20, null::text)
   where id = 'dddddddd-0000-0000-0000-00000000000d';
 
   if track.id is null then
@@ -1674,26 +1682,64 @@ begin
 
   -- Every row has something to play, or the feed has silent cards in it.
   if exists (
-    select 1 from public.open_mic_feed(null, 40, null)
+    select 1 from public.open_mic_feed(40, null::text)
     where storage_path is null
   ) then
     raise exception 'the feed returned a row with nothing to play';
   end if;
 end $$;
 
--- Keyset paging: asking for what is older than the newest must not return it.
+-- The three lists can play too (0073).
+--
+-- Each of these returned a title, an owner and what a song wants, and never
+-- where the audio lives — so no client could have played them. The rule for
+-- which recording is private.song_audio's, and these prove all three ask it.
 do $$
 declare
-  newest timestamptz;
+  listed record;
 begin
-  select max(open_mic_at) into newest from public.projects
-  where open_mic_at is not null;
+  select * into listed
+  from public.open_mic_songs(null::text, 40, true)
+  where id = 'dddddddd-0000-0000-0000-00000000000d';
+  if listed.storage_path not like '%phone.m4a' then
+    raise exception 'the Open Mic list could not play the song: %',
+      coalesce(listed.storage_path, '<null>');
+  end if;
 
+  select * into listed
+  from public.open_mic_song('dddddddd-0000-0000-0000-00000000000d');
+  if listed.storage_path not like '%phone.m4a' then
+    raise exception 'the public song page could not play the song: %',
+      coalesce(listed.storage_path, '<null>');
+  end if;
+
+  select * into listed
+  from public.songs_by('11111111-1111-1111-1111-111111111111')
+  where id = 'dddddddd-0000-0000-0000-00000000000d';
+  if listed.storage_path not like '%phone.m4a' then
+    raise exception 'the profile could not play the song: %',
+      coalesce(listed.storage_path, '<null>');
+  end if;
+
+  -- And none of them hand out the take nobody has shared.
   if exists (
-    select 1 from public.open_mic_feed(newest, 20, null)
-    where open_mic_at >= newest
+    select 1 from public.open_mic_songs(null::text, 40, true)
+    where storage_path like '%private.m4a'
   ) then
-    raise exception 'the cursor returned a track it had already shown';
+    raise exception 'a list offered an unshared take';
+  end if;
+end $$;
+
+-- Your own songs are not somebody to meet (0074).
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+do $$
+begin
+  if exists (
+    select 1 from public.open_mic_feed(40, null::text)
+    where id = 'dddddddd-0000-0000-0000-00000000000d'
+  ) then
+    raise exception 'the feed offered somebody their own song';
   end if;
 end $$;
 
