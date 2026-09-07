@@ -841,6 +841,8 @@ class _SongOnProfile extends StatelessWidget {
                   storagePath: song.storagePath,
                   durationMs: song.durationMs,
                   title: song.title,
+                  byline: song.ownerName,
+                  songId: song.id,
                   size: 34,
                 ),
                 const SizedBox(width: 11),

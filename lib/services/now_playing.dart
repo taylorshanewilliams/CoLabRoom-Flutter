@@ -35,6 +35,9 @@ class NowPlaying extends ChangeNotifier {
   bool _wired = false;
 
   String? _path;
+  String _title = '';
+  String _byline = '';
+  String? _songId;
   bool _playing = false;
   bool _loading = false;
   Duration _position = Duration.zero;
@@ -42,6 +45,18 @@ class NowPlaying extends ChangeNotifier {
 
   /// What is loaded, playing or paused. Null when nothing is.
   String? get path => _path;
+
+  /// What to call it, for anything drawing a bar rather than a button.
+  ///
+  /// Carried here rather than looked up, because the thing showing the bar is
+  /// the shell — which has no idea what song a path belongs to and should not
+  /// have to fetch one to draw a title.
+  String get title => _title;
+  String get byline => _byline;
+
+  /// The song this came from, so a bar can be tapped through to it. Null when
+  /// whatever started it did not say.
+  String? get songId => _songId;
 
   bool get playing => _playing;
 
@@ -86,7 +101,13 @@ class NowPlaying extends ChangeNotifier {
   ///
   /// The single entry point for every play button in the app. Anything else
   /// that was sounding stops first, without its own screen having to know.
-  Future<void> toggle(String storagePath, {Duration? knownLength}) async {
+  Future<void> toggle(
+    String storagePath, {
+    Duration? knownLength,
+    String title = '',
+    String byline = '',
+    String? songId,
+  }) async {
     if (storagePath.isEmpty) return;
     if (isCurrent(storagePath)) {
       if (_playing) {
@@ -99,15 +120,30 @@ class NowPlaying extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    await play(storagePath, knownLength: knownLength);
+    await play(
+      storagePath,
+      knownLength: knownLength,
+      title: title,
+      byline: byline,
+      songId: songId,
+    );
   }
 
   /// Starts [storagePath] from the beginning, whatever was playing before.
-  Future<void> play(String storagePath, {Duration? knownLength}) async {
+  Future<void> play(
+    String storagePath, {
+    Duration? knownLength,
+    String title = '',
+    String byline = '',
+    String? songId,
+  }) async {
     if (storagePath.isEmpty) return;
     _wire();
     await _player.stop();
     _path = storagePath;
+    _title = title;
+    _byline = byline;
+    _songId = songId;
     _position = Duration.zero;
     _length = knownLength;
     _playing = false;
@@ -169,6 +205,9 @@ class NowPlaying extends ChangeNotifier {
   Future<void> stop() async {
     await _player.stop();
     _path = null;
+    _title = '';
+    _byline = '';
+    _songId = null;
     _playing = false;
     _loading = false;
     _position = Duration.zero;

@@ -23,6 +23,8 @@ class PlayButton extends StatelessWidget {
     this.size = 40,
     this.durationMs,
     this.title,
+    this.byline = '',
+    this.songId,
     super.key,
   });
 
@@ -34,8 +36,17 @@ class PlayButton extends StatelessWidget {
   final double size;
   final int? durationMs;
 
-  /// For the screen reader, so "Play" is "Play Ladder Of Life".
+  /// For the screen reader, so "Play" is "Play Ladder Of Life" — and for the
+  /// bar at the bottom, which has to name what it is playing and has no way
+  /// to look it up from a storage path.
   final String? title;
+
+  /// Whoever made it, under the title in the bar.
+  final String byline;
+
+  /// So the bar can be tapped through to the song. Null where the caller does
+  /// not know, and the bar is then simply not tappable.
+  final String? songId;
 
   @override
   Widget build(BuildContext context) {
@@ -73,6 +84,9 @@ class PlayButton extends StatelessWidget {
                 knownLength: durationMs != null
                     ? Duration(milliseconds: durationMs!)
                     : null,
+                title: title ?? '',
+                byline: byline,
+                songId: songId,
               )),
               radius: size * 0.62,
               customBorder: const CircleBorder(),
