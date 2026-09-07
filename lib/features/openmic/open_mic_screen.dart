@@ -640,6 +640,34 @@ class _MusicianCard extends StatelessWidget {
                     ],
                   ],
                 ),
+                // What you have in common, before anything they have done.
+                //
+                // The line that turns a directory into a room: not "this
+                // person is good" but "this person is making what you are
+                // making". It is the only thing on the card that is about
+                // the two of you rather than about them.
+                if (musician.sharedSounds.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: <Widget>[
+                      const Icon(Icons.graphic_eq_rounded,
+                          size: 13, color: AppColors.gold),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Both into ${musician.sharedSounds.join(', ')}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.gold,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 8),
 
                 // What they have actually played, first and in the app's own colour.

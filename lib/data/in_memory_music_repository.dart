@@ -1074,6 +1074,7 @@ class InMemoryMusicRepository implements MusicRepository {
     String? city,
     String? locationVisibility,
     List<String>? plays,
+    List<String>? soundsLike,
   }) async {
     _me = Musician(
       id: _me.id,
@@ -1081,6 +1082,14 @@ class InMemoryMusicRepository implements MusicRepository {
       avatarPath: _me.avatarPath,
       city: city == null ? _me.city : (city.trim().isEmpty ? null : city.trim()),
       plays: plays ?? _me.plays,
+      // Five, deduplicated, the way tidy_sounds_like does it on the server —
+      // so the preview cannot show a profile the database would not accept.
+      soundsLike: soundsLike == null
+          ? _me.soundsLike
+          : <String>{
+              for (final t in soundsLike)
+                if (t.trim().isNotEmpty) t.trim().toLowerCase(),
+            }.take(5).toList(growable: false),
       partsRecorded: _me.partsRecorded,
       songsPlayedOn: _me.songsPlayedOn,
       peopleWorkedWith: _me.peopleWorkedWith,
@@ -1126,8 +1135,10 @@ class InMemoryMusicRepository implements MusicRepository {
     String? part,
     String? city,
     int limit = 30,
+    String? soundsLike,
   }) async {
     final hidden = _blocked.map((b) => b.id).toSet();
+    final wanted = soundsLike?.trim().toLowerCase();
     return <Musician>[
       // The preview hides blocked people the way the server does. A debug
       // build where blocking visibly did nothing would be somebody testing a
@@ -1138,7 +1149,10 @@ class InMemoryMusicRepository implements MusicRepository {
                 m.partsRecorded.containsKey(part)) &&
             (city == null ||
                 city.trim().isEmpty ||
-                (m.city ?? '').toLowerCase() == city.trim().toLowerCase()))
+                (m.city ?? '').toLowerCase() == city.trim().toLowerCase()) &&
+            (wanted == null ||
+                wanted.isEmpty ||
+                m.soundsLike.contains(wanted)))
           m,
     ];
   }

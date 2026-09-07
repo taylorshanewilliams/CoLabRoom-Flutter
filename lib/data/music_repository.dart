@@ -333,6 +333,7 @@ abstract interface class MusicRepository {
     String? city,
     String? locationVisibility,
     List<String>? plays,
+    List<String>? soundsLike,
   });
 
   /// People who play [part], optionally in [city].
@@ -340,7 +341,12 @@ abstract interface class MusicRepository {
   /// A coarse filter on purpose. An instrument narrows thousands to dozens
   /// and no filter can do the rest — "guitarist" does not distinguish a metal
   /// player from a jazz one, and that judgement is made by listening.
-  Future<List<Musician>> findMusicians({String? part, String? city, int limit});
+  Future<List<Musician>> findMusicians({
+    String? part,
+    String? city,
+    int limit,
+    String? soundsLike,
+  });
 
   /// Everything that has happened to this song, oldest first.
   ///

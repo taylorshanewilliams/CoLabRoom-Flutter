@@ -967,6 +967,7 @@ class SupabaseMusicRepository implements MusicRepository {
     String? part,
     String? city,
     int limit = 30,
+    String? soundsLike,
   }) async {
     final rows = await client.rpc<dynamic>(
       'find_musicians',
@@ -974,6 +975,9 @@ class SupabaseMusicRepository implements MusicRepository {
         'in_part': part,
         'in_city': (city != null && city.trim().isNotEmpty) ? city.trim() : null,
         'in_limit': limit,
+        'in_sounds_like': (soundsLike != null && soundsLike.trim().isNotEmpty)
+            ? soundsLike.trim()
+            : null,
       },
     );
     return <Musician>[
@@ -1410,6 +1414,7 @@ class SupabaseMusicRepository implements MusicRepository {
     String? city,
     String? locationVisibility,
     List<String>? plays,
+    List<String>? soundsLike,
   }) async {
     await client.rpc<dynamic>(
       'set_open_mic_presence',
@@ -1418,6 +1423,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'in_city': city,
         'in_location_visibility': locationVisibility,
         'in_plays': plays,
+        'in_sounds_like': soundsLike,
       },
     );
   }
@@ -1443,6 +1449,18 @@ class SupabaseMusicRepository implements MusicRepository {
       partsRecorded: counts,
       songsPlayedOn: (row['songs_played_on'] as num?)?.toInt() ?? 0,
       peopleWorkedWith: (row['people_worked_with'] as num?)?.toInt() ?? 0,
+      soundsLike: <String>[
+        for (final t
+            in (row['sounds_like'] as List<dynamic>? ?? const <dynamic>[]))
+          '$t',
+      ],
+      // Only find_musicians works this out; a profile row has nobody to
+      // compare against and leaves it empty.
+      sharedSounds: <String>[
+        for (final t
+            in (row['shared_sounds'] as List<dynamic>? ?? const <dynamic>[]))
+          '$t',
+      ],
       // Absent from find_musicians rows, and present only on your own.
       discoverable: row['discoverable'] as bool?,
       locationVisibility: row['location_visibility'] as String?,

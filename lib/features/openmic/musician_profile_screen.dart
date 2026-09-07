@@ -334,6 +334,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
         city: changed.city,
         locationVisibility: changed.locationVisibility,
         plays: changed.plays,
+        soundsLike: changed.soundsLike,
       );
       await _load();
     } catch (error) {
@@ -632,6 +633,36 @@ class _Body extends StatelessWidget {
               song: song,
               onTap: () => onOpenSong(song),
             ),
+        ],
+        if (musician.soundsLike.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 28),
+          const _Heading('Sounds like', note: 'their own words'),
+          const SizedBox(height: 9),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: <Widget>[
+              for (final tag in musician.soundsLike)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.gold.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color: AppColors.gold.withValues(alpha: 0.4)),
+                  ),
+                  child: Text(
+                    tag,
+                    style: const TextStyle(
+                      color: AppColors.gold,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ],
         if (musician.plays.isNotEmpty) ...<Widget>[
           const SizedBox(height: 28),
@@ -1027,12 +1058,14 @@ class _Presence {
     required this.city,
     required this.locationVisibility,
     required this.plays,
+    required this.soundsLike,
   });
 
   final bool discoverable;
   final String city;
   final String locationVisibility;
   final List<String> plays;
+  final List<String> soundsLike;
 }
 
 class _PresenceSheet extends StatefulWidget {
@@ -1080,10 +1113,28 @@ class _PresenceSheetState extends State<_PresenceSheet> {
     ),
   ];
 
+  /// Somewhere to start, not the whole world.
+  ///
+  /// Deliberately wide and deliberately not a fixed vocabulary: the field
+  /// takes whatever somebody types, and a closed list would be wrong for most
+  /// of the planet before it was wrong for anybody else. These are the
+  /// starting points that save typing, spread across traditions rather than
+  /// ranked by any of them.
+  static const List<String> _suggestions = <String>[
+    'singer-songwriter', 'folk', 'rock', 'indie', 'pop', 'punk', 'metal',
+    'blues', 'jazz', 'soul', 'r&b', 'hip hop', 'country', 'americana',
+    'bluegrass', 'gospel', 'worship', 'electronic', 'ambient', 'house',
+    'reggae', 'afrobeats', 'latin', 'k-pop', 'classical', 'experimental',
+  ];
+
+  static const int _maxSounds = 5;
+
   late bool _discoverable;
   late String _visibility;
   late final TextEditingController _city;
   late final Set<String> _plays;
+  late final Set<String> _soundsLike;
+  final TextEditingController _ownWords = TextEditingController();
 
   @override
   void initState() {
@@ -1092,10 +1143,27 @@ class _PresenceSheetState extends State<_PresenceSheet> {
     _visibility = widget.me.locationVisibility ?? 'nobody';
     _city = TextEditingController(text: widget.me.city ?? '');
     _plays = widget.me.plays.toSet();
+    _soundsLike = widget.me.soundsLike.toSet();
+  }
+
+  /// Adds whatever somebody typed, in their words.
+  ///
+  /// Lower-cased and trimmed to match what the server stores, so a tag typed
+  /// as "Folk" and one picked as "folk" are the same tag rather than two that
+  /// never match each other.
+  void _addOwnWords() {
+    final typed = _ownWords.text.trim().toLowerCase();
+    if (typed.isEmpty || typed.length > 40) return;
+    if (_soundsLike.length >= _maxSounds) return;
+    setState(() {
+      _soundsLike.add(typed);
+      _ownWords.clear();
+    });
   }
 
   @override
   void dispose() {
+    _ownWords.dispose();
     _city.dispose();
     super.dispose();
   }
@@ -1179,6 +1247,86 @@ class _PresenceSheetState extends State<_PresenceSheet> {
               ],
             ),
             const SizedBox(height: 20),
+            const _SheetHeading('What you sound like'),
+            const SizedBox(height: 4),
+            // Says what it is for, and says the thing that makes it safe to
+            // answer honestly: it moves you sideways, never up or down.
+            const Text(
+              'The one thing that makes "people like me" mean anything — '
+              '"guitarist" does not tell anybody whether you play metal or '
+              'jazz. Nobody is ranked by this. It only points you towards '
+              'people making the same kind of music.',
+              style:
+                  TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 7,
+              runSpacing: 7,
+              children: <Widget>[
+                // Whatever they typed themselves comes first, so a word that
+                // is not on the list does not look second-class.
+                for (final tag in <String>[
+                  ..._soundsLike.where((t) => !_suggestions.contains(t)),
+                  ..._suggestions,
+                ])
+                  FilterChip(
+                    label: Text(tag),
+                    selected: _soundsLike.contains(tag),
+                    onSelected: (on) => setState(() {
+                      if (on) {
+                        if (_soundsLike.length < _maxSounds) {
+                          _soundsLike.add(tag);
+                        }
+                      } else {
+                        _soundsLike.remove(tag);
+                      }
+                    }),
+                    showCheckmark: false,
+                    selectedColor: AppColors.gold.withValues(alpha: 0.18),
+                    backgroundColor: AppColors.raised,
+                    side: BorderSide(
+                      color: _soundsLike.contains(tag)
+                          ? AppColors.gold
+                          : AppColors.line,
+                    ),
+                    labelStyle: TextStyle(
+                      color: _soundsLike.contains(tag)
+                          ? AppColors.gold
+                          : AppColors.text,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _ownWords,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _addOwnWords(),
+              style: const TextStyle(fontSize: 14),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Or your own words',
+                prefixIcon: const Icon(Icons.add_rounded, size: 18),
+                suffixIcon: TextButton(
+                  onPressed: _addOwnWords,
+                  child: const Text('Add'),
+                ),
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _soundsLike.length >= _maxSounds
+                  ? 'Five is the most. Take one off to add another — a '
+                      'profile listing everything has said nothing.'
+                  : '${_maxSounds - _soundsLike.length} more if you want '
+                      'them. Fewer and sharper beats more.',
+              style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
+            ),
+            const SizedBox(height: 20),
             const _SheetHeading('Where you are'),
             const SizedBox(height: 4),
             // Says the limit out loud. A location field that could mean a
@@ -1257,6 +1405,7 @@ class _PresenceSheetState extends State<_PresenceSheet> {
                   city: _city.text.trim(),
                   locationVisibility: _visibility,
                   plays: _plays.toList(growable: false),
+                  soundsLike: _soundsLike.toList(growable: false),
                 ),
               ),
               style: FilledButton.styleFrom(
