@@ -67,6 +67,8 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   List<BetaInvite> _invites = const <BetaInvite>[];
   List<AskForMe> _asksForMe = const <AskForMe>[];
   List<RoomInviteForMe> _roomInvitesForMe = const <RoomInviteForMe>[];
+  List<OpenMicSong> _openMicSongs = const <OpenMicSong>[];
+  List<Musician> _openMicPeople = const <Musician>[];
   List<Setlist> _setlists = const <Setlist>[];
   List<AppNotification> _notifications = const <AppNotification>[];
   NotificationPreferences _notificationPreferences = const NotificationPreferences();
@@ -94,6 +96,17 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// than by emailing you a code.
   List<RoomInviteForMe> get roomInvitesForMe =>
       List<RoomInviteForMe>.unmodifiable(_roomInvitesForMe);
+
+  /// A slice of what is going on outside your own catalogs.
+  ///
+  /// Home used to show only your own activity, which for a new account is
+  /// nothing at all — you signed in and the app waited for you. These are the
+  /// two things that can be true before you have done anything: somebody put
+  /// a song up, and somebody is here to play on one.
+  List<OpenMicSong> get openMicSongs =>
+      List<OpenMicSong>.unmodifiable(_openMicSongs);
+  List<Musician> get openMicPeople =>
+      List<Musician>.unmodifiable(_openMicPeople);
   List<Setlist> get setlists => List<Setlist>.unmodifiable(_setlists);
   List<AppNotification> get notifications => List<AppNotification>.unmodifiable(_notifications);
   NotificationPreferences get notificationPreferences => _notificationPreferences;
@@ -214,6 +227,18 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       }
       try {
         _roomInvitesForMe = await repository.roomInvitesForMe();
+      } catch (_) {
+        // Left as it was.
+      }
+      // Best-effort, like the rest of this block. A quiet Open Mic must never
+      // be the reason somebody cannot see their own songs.
+      try {
+        _openMicSongs = await repository.openMicSongs(limit: 3);
+      } catch (_) {
+        // Left as it was.
+      }
+      try {
+        _openMicPeople = await repository.findMusicians(limit: 3);
       } catch (_) {
         // Left as it was.
       }

@@ -359,11 +359,12 @@ class _SongList extends StatelessWidget {
                   ),
                 ),
                 SizedBox(height: 6),
-                // Says how one gets here, because an empty list that does not
-                // is a list somebody assumes is broken.
+                // Names the action rather than describing the mechanism.
+                // The old copy explained how a song gets here, which is a
+                // sentence about the app; this is one about them.
                 Text(
-                  'A song appears here when whoever owns it puts it up. Open '
-                  'one of yours and choose "Put it on the Open Mic".',
+                  'Put one of yours up and let somebody find the part it '
+                  'is missing.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                       color: AppColors.muted, fontSize: 12.5, height: 1.45),
@@ -664,14 +665,14 @@ class _Empty extends StatelessWidget {
             ),
           ),
           SizedBox(height: 6),
-          // Says why rather than pretending it is a search problem. Everybody
-          // in this app joined a private room, and nobody is listed here
-          // until they choose to be — an empty Open Mic on the first day is
-          // the setting working, not the search failing.
+          // Offers instead of explaining. The old copy was three accurate
+          // sentences about why the list was empty, which left somebody
+          // exactly where they found them. Nobody is listed by default and
+          // that stays true — but the useful thing to tell the first person
+          // here is that they can be first.
           Text(
-            'People appear here once they choose to. Nobody is listed by '
-            'default — every account so far joined a private room to write '
-            'with people they already knew.',
+            'Be the first. List yourself and people looking for what you '
+            'play will find you.',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: AppColors.muted,

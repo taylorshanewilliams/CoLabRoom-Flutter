@@ -46,6 +46,7 @@ class _AppShellState extends State<AppShell> {
         onSeeSongs: () => _go(1),
         onOpenAccount: _openAccount,
         onOpenNotifications: _openNotifications,
+        onOpenMic: () => _go(2),
       ),
       const SongsScreen(),
       // Built through a Builder because it needs the repository, and the
