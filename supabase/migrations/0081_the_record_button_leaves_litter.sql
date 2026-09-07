@@ -29,7 +29,12 @@
 create or replace function public.discard_if_untouched(target_project uuid)
 returns boolean
 language plpgsql
-security invoker
+-- Definer, like every other operational function here, and for a plainer
+-- reason than usual: this does not need to borrow anybody's rights, because
+-- it checks ownership itself and more strictly than any policy would. The
+-- `created_by = auth.uid()` clause below is the whole permission model, and
+-- it is in the same statement as the delete rather than a policy away from it.
+security definer
 set search_path = public
 as $fn$
 declare
