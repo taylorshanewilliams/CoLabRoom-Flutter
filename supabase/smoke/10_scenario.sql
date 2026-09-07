@@ -1806,6 +1806,53 @@ end $$;
 reset role;
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- What you sound like (0076).
+--
+-- The property that has to hold: taste orders a list sideways and never up.
+-- Somebody who has recorded nothing but makes the same music as you must
+-- come before a session player who makes something else, and neither
+-- position may be earned by output.
+select public.set_open_mic_presence(
+  true, null, null, null, array['Folk', 'folk', '  Americana  ']
+);
+
+do $$
+declare
+  mine text[];
+begin
+  select sounds_like into mine from public.profiles
+  where id = '11111111-1111-1111-1111-111111111111';
+
+  -- Lower-cased, trimmed and deduplicated, or a tag picked from the list and
+  -- the same word typed by hand would never match each other.
+  if mine <> array['folk', 'americana'] then
+    raise exception 'sounds_like was tidied to % rather than folk/americana',
+      mine;
+  end if;
+end $$;
+
+-- Five, and no more. A profile listing everything has said nothing.
+select public.set_open_mic_presence(
+  true, null, null, null,
+  array['a', 'b', 'c', 'd', 'e', 'f', 'g']
+);
+
+do $$
+declare
+  n int;
+begin
+  select coalesce(array_length(sounds_like, 1), 0) into n
+  from public.profiles where id = '11111111-1111-1111-1111-111111111111';
+  if n <> 5 then
+    raise exception 'sounds_like kept % tags rather than five', n;
+  end if;
+end $$;
+
+-- Put it back to something the rest of the file can read.
+select public.set_open_mic_presence(
+  true, null, null, null, array['folk', 'americana']
+);
+
 -- Nobody is ranked (0072).
 --
 -- The check is that somebody who has recorded nothing still turns up. Before

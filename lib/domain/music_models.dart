@@ -587,11 +587,27 @@ class Musician {
     this.city,
     this.discoverable,
     this.locationVisibility,
+    this.soundsLike = const <String>[],
+    this.sharedSounds = const <String>[],
   });
 
   final String id;
   final String displayName;
   final String? avatarPath;
+
+  /// What they say their music sounds like, in their own words.
+  ///
+  /// The field that makes "like-minded" mean anything. An instrument does not
+  /// distinguish a metal player from a jazz one, and until this existed the
+  /// app was matching people on instrument and postcode alone.
+  ///
+  /// Self-declared, and that is the point: nobody earns a genre, so this can
+  /// order a list without ever ranking a person.
+  final List<String> soundsLike;
+
+  /// The tags you and they both wrote down. Empty when nothing overlaps, or
+  /// when this came from somewhere that does not compute it.
+  final List<String> sharedSounds;
 
   /// Only ever present when its owner chose to publish it. A city they shared
   /// with collaborators only never arrives here, even for somebody entitled
