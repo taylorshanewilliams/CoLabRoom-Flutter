@@ -931,6 +931,33 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<SongAudience?> songAudience(String projectId) async {
+    for (final room in _rooms) {
+      for (final project in room.projects) {
+        if (project.id != projectId) continue;
+        final others = <SongListener>[
+          for (final member in room.members)
+            if (member.userId != currentUserId)
+              SongListener(id: member.userId, name: member.displayName),
+        ];
+        final up = _onOpenMic.contains(projectId);
+        return SongAudience(
+          reach: up
+              ? SongReach.anyone
+              : others.isEmpty
+                  ? SongReach.justYou
+                  : SongReach.room,
+          roomName: room.name,
+          roomIcon: room.icon,
+          onOpenMic: up,
+          listeners: others,
+        );
+      }
+    }
+    return null;
+  }
+
+  @override
   Future<void> putOnOpenMic(String projectId) async {
     _onOpenMic.add(projectId);
   }
