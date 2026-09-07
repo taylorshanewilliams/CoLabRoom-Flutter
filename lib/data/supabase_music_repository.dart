@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../app/beta_config.dart';
 import '../domain/activity.dart';
 import '../domain/music_models.dart';
 import '../domain/name_policy.dart';
@@ -1657,6 +1659,24 @@ class SupabaseMusicRepository implements MusicRepository {
     await client.rpc<void>(
       'set_my_room_color',
       params: <String, dynamic>{'target_room': roomId, 'target_color': colorValue},
+    );
+  }
+
+  @override
+  Future<void> askForHelp({
+    required String question,
+    String? matchedAnswer,
+    String? route,
+  }) async {
+    await client.rpc<dynamic>(
+      'ask_for_help',
+      params: <String, dynamic>{
+        'in_question': question,
+        'in_matched_answer': matchedAnswer,
+        'in_route': route,
+        'in_platform': defaultTargetPlatform.name,
+        'in_app_version': BetaConfig.appVersion,
+      },
     );
   }
 

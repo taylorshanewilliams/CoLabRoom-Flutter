@@ -18,6 +18,7 @@ import '../../widgets/app_surface.dart';
 import '../../widgets/audio_privacy_note.dart';
 import '../dev/latency_probe_screen.dart';
 import 'blocked_people_screen.dart';
+import '../help/help_screen.dart';
 import '../notifications/notification_settings_screen.dart';
 import '../openmic/musician_profile_screen.dart';
 
@@ -347,6 +348,17 @@ class _AccountScreenState extends State<AccountScreen> {
                   MaterialPageRoute<void>(builder: (_) => const NotificationSettingsScreen()),
                 ),
               ),
+              // Above privacy and below notifications, because it is the
+              // row somebody looks for when they are stuck — and being
+              // stuck is more common than either of the other two.
+              _AccountRow(
+                key: const Key('account_help_row'),
+                icon: Icons.help_outline_rounded,
+                label: 'Help',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const HelpScreen()),
+                ),
+              ),
               _AccountRow(
                 icon: Icons.shield_outlined,
                 label: 'Privacy & Data',
@@ -589,7 +601,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
 }
 
 class _AccountRow extends StatelessWidget {
-  const _AccountRow({required this.icon, required this.label, required this.onTap});
+  const _AccountRow({required this.icon, required this.label, required this.onTap, super.key});
 
   final IconData icon;
   final String label;
