@@ -361,8 +361,14 @@ abstract interface class MusicRepository {
   /// A coarse filter on purpose. An instrument narrows thousands to dozens
   /// and no filter can do the rest — "guitarist" does not distinguish a metal
   /// player from a jazz one, and that judgement is made by listening.
+  /// People who do any of [parts], the ones doing most of them first.
+  ///
+  /// Ranked rather than narrowed. Requiring all of a list turns three ticked
+  /// boxes into an empty screen, and requiring any of it throws away what was
+  /// asked — the person who does all three is the answer and would land
+  /// wherever the shuffle put them.
   Future<List<Musician>> findMusicians({
-    String? part,
+    List<String>? parts,
     String? city,
     int limit,
     String? soundsLike,

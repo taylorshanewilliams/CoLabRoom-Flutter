@@ -975,7 +975,7 @@ class SupabaseMusicRepository implements MusicRepository {
 
   @override
   Future<List<Musician>> findMusicians({
-    String? part,
+    List<String>? parts,
     String? city,
     int limit = 30,
     String? soundsLike,
@@ -983,7 +983,7 @@ class SupabaseMusicRepository implements MusicRepository {
     final rows = await client.rpc<dynamic>(
       'find_musicians',
       params: <String, dynamic>{
-        'in_part': part,
+        'in_parts': (parts == null || parts.isEmpty) ? null : parts,
         'in_city': (city != null && city.trim().isNotEmpty) ? city.trim() : null,
         'in_limit': limit,
         'in_sounds_like': (soundsLike != null && soundsLike.trim().isNotEmpty)
@@ -1501,6 +1501,11 @@ class SupabaseMusicRepository implements MusicRepository {
           '$t',
       ],
       isDemo: row['is_demo'] as bool? ?? false,
+      matchedParts: <String>[
+        for (final p
+            in (row['matched_parts'] as List<dynamic>? ?? const <dynamic>[]))
+          '$p',
+      ],
       // Absent from find_musicians rows, and present only on your own.
       discoverable: row['discoverable'] as bool?,
       locationVisibility: row['location_visibility'] as String?,

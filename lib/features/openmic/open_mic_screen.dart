@@ -70,7 +70,11 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   /// what is being played — and this screen only knew about the first.
   bool _showingSongs = false;
 
-  String? _part;
+  /// What somebody is looking for. More than one, because "a singer who
+  /// plays guitar and writes lyrics" is one person and was three searches.
+  ///
+  /// Not `_parts`, which is the fixed list of roles this screen offers.
+  final Set<String> _wanted = <String>{};
   final TextEditingController _city = TextEditingController();
   List<Musician>? _found;
   List<OpenMicSong>? _songs;
@@ -96,8 +100,10 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     });
     if (_showingSongs) {
       try {
-        final songs =
-            await widget.repository.openMicSongs(part: _part, limit: 40);
+        // Songs still take one part: a song asks for a bass player, not for
+        // three things at once. The first ticked is the one it uses.
+        final songs = await widget.repository
+            .openMicSongs(part: _wanted.isEmpty ? null : _wanted.first, limit: 40);
         if (mounted) setState(() => _songs = songs);
       } catch (error) {
         if (!mounted) return;
@@ -117,7 +123,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     }
     try {
       final found = await widget.repository.findMusicians(
-        part: _part,
+        parts: _wanted.toList(growable: false),
         city: _city.text,
         limit: 40,
       );
@@ -154,7 +160,12 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   Future<void> _listen() async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
       settings: const RouteSettings(name: 'Listen'),
-      builder: (_) => ListenScreen(repository: widget.repository, part: _part),
+      builder: (_) => ListenScreen(
+        repository: widget.repository,
+        // The stage plays one filter at a time; the first ticked is the one
+        // it takes.
+        part: _wanted.isEmpty ? null : _wanted.first,
+      ),
     ));
     if (mounted) CurrentRoute.enter('Open Mic');
   }
@@ -173,8 +184,10 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     if (mounted) CurrentRoute.enter('Open Mic');
   }
 
-  void _choose(String? part) {
-    setState(() => _part = _part == part ? null : part);
+  void _choose(String part) {
+    setState(() {
+      if (!_wanted.remove(part)) _wanted.add(part);
+    });
     unawaited(_search());
   }
 
@@ -265,12 +278,17 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
             alignment: Alignment.centerLeft,
             child: Text(
               _showingSongs
-                  ? (_part == null
+                  ? (_wanted.isEmpty
                       ? 'Songs asking for somebody'
-                      : 'Songs asking for ${_labelFor(_part!).toLowerCase()}')
-                  : (_part == null
+                      : 'Songs asking for '
+                          '${_labelFor(_wanted.first).toLowerCase()}')
+                  // Says what the order means. Nobody is hidden for missing a
+                  // box; the people doing most of what you asked come first,
+                  // and saying so is what stops that reading as a ranking of
+                  // who is better.
+                  : (_wanted.isEmpty
                       ? 'Everybody who is here'
-                      : 'People who play ${_labelFor(_part!).toLowerCase()}'),
+                      : 'Closest first — everybody who does any of it'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: AppColors.muted, fontSize: 12),
@@ -289,7 +307,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
               return _PartChip(
                 label: entry.label,
                 icon: entry.icon,
-                selected: _part == entry.part,
+                selected: _wanted.contains(entry.part),
                 onTap: _busy ? null : () => _choose(entry.part),
               );
             },
@@ -349,7 +367,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
                         for (final musician in found)
                           _MusicianCard(
                             musician: musician,
-                            filter: _part,
+                            filter: null,
                             onTap: () => _openProfile(musician),
                           ),
                     ],
@@ -677,6 +695,31 @@ class _MusicianCard extends StatelessWidget {
                 // person is good" but "this person is making what you are
                 // making". It is the only thing on the card that is about
                 // the two of you rather than about them.
+                // What of your list they actually do. Without this the
+                // order is a mystery: somebody near the top looks preferred
+                // rather than closer to what was asked for.
+                if (musician.matchedParts.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: <Widget>[
+                      const Icon(Icons.check_circle_outline_rounded,
+                          size: 13, color: AppColors.cyan),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Does ${musician.matchedParts.join(', ')}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.cyan,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 if (musician.sharedSounds.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 8),
                   Row(
