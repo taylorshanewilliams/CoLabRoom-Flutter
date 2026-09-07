@@ -461,9 +461,14 @@ class InMemoryMusicRepository implements MusicRepository {
     required int durationMs,
   }) async {
     final now = DateTime.now();
-    final path = '${project.roomId}/${project.id}/voice/${contribution.id}/${now.microsecondsSinceEpoch}.wav';
+    // The file is named for the note, not for the clock. DateTime.now() only
+    // ticks every millisecond or so on some platforms, so a replacement
+    // attached straight after the note it replaced used to be handed the same
+    // path — and then delete its own bytes while clearing the old ones away.
+    final id = _id('voice');
+    final path = '${project.roomId}/${project.id}/voice/${contribution.id}/$id.wav';
     final note = VoiceNote(
-      id: _id('voice'),
+      id: id,
       projectId: project.id,
       contributionId: contribution.id,
       storagePath: path,
@@ -471,9 +476,9 @@ class InMemoryMusicRepository implements MusicRepository {
       byteSize: bytes.length,
       createdAt: now,
     );
-    _voiceNoteBytes[path] = Uint8List.fromList(bytes);
     final previous = contribution.voiceNote;
     if (previous != null) _voiceNoteBytes.remove(previous.storagePath);
+    _voiceNoteBytes[path] = Uint8List.fromList(bytes);
     final contributions = project.contributions
         .map((candidate) => candidate.id == contribution.id
             ? candidate.copyWith(voiceNote: note)
