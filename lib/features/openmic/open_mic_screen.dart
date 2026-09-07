@@ -484,6 +484,8 @@ class _SongCard extends StatelessWidget {
                     storagePath: song.storagePath,
                     durationMs: song.durationMs,
                     title: song.title,
+                    byline: song.ownerName,
+                    songId: song.id,
                   ),
                 ),
                 Expanded(

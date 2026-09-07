@@ -124,6 +124,11 @@ class _ListenScreenState extends State<ListenScreen> {
       knownLength: track.durationMs != null
           ? Duration(milliseconds: track.durationMs!)
           : null,
+      // So leaving the stage leaves the bar behind with the song still in
+      // it, rather than a bar that cannot say what it is playing.
+      title: track.title,
+      byline: track.ownerName,
+      songId: track.id,
     );
   }
 

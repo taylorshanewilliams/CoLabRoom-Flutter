@@ -9,9 +9,11 @@ import '../../app/colabroom_theme.dart';
 import '../account/account_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../openmic/open_mic_screen.dart';
+import '../openmic/open_mic_song_screen.dart';
 import '../songs/songs_screen.dart';
 import '../workspace/song_analysis_screen.dart';
 import '../../services/current_route.dart';
+import '../../widgets/now_playing_bar.dart';
 import '../../services/user_facing_error.dart';
 
 class AppShell extends StatefulWidget {
@@ -74,6 +76,17 @@ class _AppShellState extends State<AppShell> {
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => AccountScreen(supabase: widget.supabase)),
     );
+  }
+
+  /// Opens whatever is playing, when it said where it came from.
+  void _openPlayingSong(String projectId) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'Open Mic song'),
+      builder: (context) => OpenMicSongScreen(
+        projectId: projectId,
+        repository: BetaScope.of(context, listen: false).repository,
+      ),
+    ));
   }
 
   void _openNotifications() {
@@ -207,17 +220,27 @@ class _AppShellState extends State<AppShell> {
         if (wide) {
           return Scaffold(
             body: SafeArea(
-              child: Row(
+              child: Column(
                 children: <Widget>[
-                  SizedBox(
-                    width: 116,
-                    child: _NavigationRail(
-                      index: _index,
-                      destinations: _destinations,
-                      onSelect: _go,
+                  Expanded(
+                    child: Row(
+                      children: <Widget>[
+                        SizedBox(
+                          width: 116,
+                          child: _NavigationRail(
+                            index: _index,
+                            destinations: _destinations,
+                            onSelect: _go,
+                          ),
+                        ),
+                        Expanded(
+                          child: IndexedStack(
+                              index: _index, children: _lazyScreens),
+                        ),
+                      ],
                     ),
                   ),
-                  Expanded(child: IndexedStack(index: _index, children: _lazyScreens)),
+                  NowPlayingBar(onOpen: _openPlayingSong),
                 ],
               ),
             ),
@@ -230,12 +253,22 @@ class _AppShellState extends State<AppShell> {
           body: SafeArea(bottom: false, child: IndexedStack(index: _index, children: _lazyScreens)),
           floatingActionButton: _RecordButton(
               onTap: () => unawaited(_record()), extended: false),
+          // The bar sits above the tabs and below everything else, so it
+          // survives switching tabs — which is the entire point. Wrapped with
+          // the navigation rather than placed in the body, or it would scroll
+          // away with whichever list started it.
           bottomNavigationBar: SafeArea(
             top: false,
-            child: _BottomNavigation(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                NowPlayingBar(onOpen: _openPlayingSong),
+                _BottomNavigation(
               index: _index,
-              destinations: _destinations,
-              onSelect: (value) => setState(() => _index = value),
+                  destinations: _destinations,
+                  onSelect: (value) => setState(() => _index = value),
+                ),
+              ],
             ),
           ),
         );
