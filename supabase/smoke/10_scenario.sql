@@ -1858,8 +1858,12 @@ select public.set_open_mic_presence(
 -- The property that has to hold: after a takedown, the image is gone from
 -- the column the app reads AND unreachable through storage. Either one
 -- alone is a takedown that did not take anything down.
-set local role authenticated;
-
+--
+-- Run without `set local role authenticated`, deliberately. The setup writes
+-- a storage.objects row, which nobody holding a phone may do, and
+-- take_down_image is service-key by design — the same as resolve_report.
+-- What is being proved here is the function's behaviour, and the claims are
+-- what report_content actually reads.
 do $$
 declare
   filed uuid;
@@ -1949,8 +1953,6 @@ begin
     null;  -- expected
   end;
 end $$;
-
-reset role;
 
 -- Nobody is ranked (0072).
 --
