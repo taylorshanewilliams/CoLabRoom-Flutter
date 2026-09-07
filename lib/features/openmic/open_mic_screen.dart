@@ -79,6 +79,11 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   /// Not `_parts`, which is the fixed list of roles this screen offers.
   final Set<String> _wanted = <String>{};
   final TextEditingController _city = TextEditingController();
+
+  /// The kind of music, which find_musicians has accepted since 0076 and
+  /// nothing in the app ever asked for — so the one field that makes
+  /// "like-minded" mean anything could not be searched on.
+  final TextEditingController _sounds = TextEditingController();
   List<Musician>? _found;
   List<ShowcaseSong>? _finished;
 
@@ -99,6 +104,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   @override
   void dispose() {
     _city.dispose();
+    _sounds.dispose();
     super.dispose();
   }
 
@@ -164,6 +170,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
       final found = await widget.repository.findMusicians(
         parts: _wanted.toList(growable: false),
         city: _city.text,
+        soundsLike: _sounds.text,
         limit: 40,
       );
       if (mounted) setState(() => _found = found);
@@ -371,6 +378,32 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
             },
           ),
         ),
+        if (_view == _OpenMicView.people)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: TextField(
+              controller: _sounds,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (_) => unawaited(_search()),
+              style: const TextStyle(fontSize: 14),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Any kind of music',
+                prefixIcon: const Icon(Icons.graphic_eq_rounded, size: 18),
+                suffixIcon: _sounds.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear',
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        onPressed: () {
+                          _sounds.clear();
+                          unawaited(_search());
+                        },
+                      ),
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ),
         if (!_showingSongs)
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),

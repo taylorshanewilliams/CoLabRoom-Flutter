@@ -407,6 +407,12 @@ Deno.serve(async (req) => {
   const { data: userData, error: userError } = await callerClient.auth.getUser();
   if (userError || !userData?.user) return json({ error: 'Unauthorized' }, 401);
 
+  // Before anything reads `depth`, because the cache lookup is keyed on it.
+  // Downgrading after that would search the full-analysis cache, miss, and
+  // then run the quick pipeline — paying for a lookup that could never hit
+  // and storing the result under a key nothing will ask for.
+  depth = await allowedDepth(depth);
+
   // When the client identifies the project, confirm through the *caller's*
   // RLS-scoped client that they can actually see that project's reference
   // recording, and that storagePath is that recording rather than an
@@ -552,6 +558,42 @@ Deno.serve(async (req) => {
   /// usage log still records what happened either way. A safety valve that
   /// blocks the product when its own bookkeeping hiccups is worse than the
   /// runaway it guards against.
+  /// Whether this account may run the expensive pipeline.
+  ///
+  /// The plan is the money. `full` separates the recording on a GPU and
+  /// costs five to eight cents a song; `quick` costs about six tenths of one
+  /// and, measured across four songs in ANALYSIS_COST.md, agrees with it on
+  /// 93.3% of chords. A free account that could ask for `full` would make
+  /// the free tier a hundred times more expensive than it is designed to be.
+  ///
+  /// Enforced here rather than in the app, because a paywall the client
+  /// believes in and the server does not is not a paywall — a modified build
+  /// or a hand-written request would simply ask for `full` and get it.
+  ///
+  /// Quietly downgrades rather than refusing. Somebody on a free plan asked
+  /// for a song sheet and they get a song sheet; being told no would be a
+  /// worse answer than being given the 93% one, and this is not a moment to
+  /// interrupt somebody to sell to them.
+  async function allowedDepth(
+    asked: 'full' | 'quick',
+  ): Promise<'full' | 'quick'> {
+    if (asked === 'quick') return 'quick';
+    try {
+      const { data } = await adminClient
+        .from('profiles')
+        .select('plan')
+        .eq('id', userData.user!.id)
+        .maybeSingle();
+      // Fails open to `quick`, not to `full`. The two failure directions are
+      // not symmetric: one gives somebody a slightly less accurate sheet, the
+      // other spends money the account is not entitled to spend, and a
+      // lookup that hiccups should not be able to do the expensive thing.
+      return (data?.plan as string | null) === 'member' ? 'full' : 'quick';
+    } catch (_error) {
+      return 'quick';
+    }
+  }
+
   async function monthlyLimitRefusal(): Promise<string | null> {
     try {
       const { data: override } = await adminClient

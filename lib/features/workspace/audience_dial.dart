@@ -277,10 +277,26 @@ Future<SongAudienceChoice?> showAudienceSheet(
             // status rather than a reach.
             OutlinedButton.icon(
               key: const Key('audience_show_finished'),
-              onPressed: () =>
-                  Navigator.pop(sheetContext, SongAudienceChoice.showFinished),
-              icon: const Icon(Icons.workspace_premium_outlined, size: 18),
-              label: const Text('It is finished — show it'),
+              onPressed: () => Navigator.pop(
+                sheetContext,
+                audience.onShowcase
+                    ? SongAudienceChoice.takeOffShowcase
+                    : SongAudienceChoice.showFinished,
+              ),
+              icon: Icon(
+                audience.onShowcase
+                    ? Icons.remove_circle_outline_rounded
+                    : Icons.workspace_premium_outlined,
+                size: 18,
+              ),
+              // A one-way door is a door nobody walks through — the same
+              // reason the Open Mic toggle had to say which direction it
+              // goes. This shipped without a way back for exactly one day.
+              label: Text(
+                audience.onShowcase
+                    ? 'Take it off the showcase'
+                    : 'It is finished — show it',
+              ),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(46),
                 foregroundColor: AppColors.gold,
@@ -323,6 +339,9 @@ enum SongAudienceChoice {
   /// but two columns underneath, because finishing something privately must
   /// never publish it.
   showFinished,
+
+  /// Off the showcase, still finished. Unpublishing is not un-finishing.
+  takeOffShowcase,
 }
 
 class _Step extends StatelessWidget {

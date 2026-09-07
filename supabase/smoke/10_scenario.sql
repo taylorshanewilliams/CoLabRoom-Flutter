@@ -2302,6 +2302,46 @@ where account_id = '11111111-1111-1111-1111-111111111111';
 update public.profiles set plan = 'free'
 where id = '11111111-1111-1111-1111-111111111111';
 
+-- The dial knows about the showcase (0089).
+--
+-- The control whose entire job is answering "who can hear this" gave the
+-- wrong answer for the newest way to be heard. A song on the showcase
+-- reported whatever its room membership said — "Only you" for a solo writer
+-- who had just published finished work to everybody.
+--
+-- Understating reach is the one direction this must never err in.
+do $$
+declare
+  heard record;
+begin
+  perform public.show_song('aaaaaaaa-0000-0000-0000-00000000000a');
+
+  select * into heard
+  from public.song_audience('aaaaaaaa-0000-0000-0000-00000000000a');
+
+  if heard.reach <> 'anyone' then
+    raise exception 'a song on the showcase reported reach %', heard.reach;
+  end if;
+  if not heard.on_showcase then
+    raise exception 'a song on the showcase said it was not';
+  end if;
+
+  -- And off again, because a one-way door is a door nobody walks through.
+  perform public.unshow_song('aaaaaaaa-0000-0000-0000-00000000000a');
+  select * into heard
+  from public.song_audience('aaaaaaaa-0000-0000-0000-00000000000a');
+  if heard.on_showcase then
+    raise exception 'a song taken off the showcase still said it was on it';
+  end if;
+
+  -- Unpublishing is not un-finishing. Somebody who wanted it out of public
+  -- view must not also lose the record that they finished it.
+  if (select finished_at from public.projects
+      where id = 'aaaaaaaa-0000-0000-0000-00000000000a') is null then
+    raise exception 'taking it off the showcase un-finished it';
+  end if;
+end $$;
+
 -- Who has been listening (0086).
 --
 -- The property that matters is what this refuses to record. A song's owner

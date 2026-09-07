@@ -144,6 +144,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         await _inviteToSong(project);
       case SongAudienceChoice.showFinished:
         await _showFinished(project);
+      case SongAudienceChoice.takeOffShowcase:
+        await _takeOffShowcase(project);
     }
     if (mounted) await _loadAudience();
   }
@@ -253,6 +255,37 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
             error,
             service: 'app',
             stage: 'show_song',
+            projectId: project.id,
+            route: 'Song',
+          )),
+        ));
+    }
+  }
+
+  /// Off the showcase, still finished.
+  ///
+  /// Unpublishing is not un-finishing: the song stays marked done, it simply
+  /// stops being shown. Conflating the two would mean somebody who wanted it
+  /// out of public view also lost the record that they had finished it.
+  Future<void> _takeOffShowcase(SongProject project) async {
+    final controller = BetaScope.of(context, listen: false);
+    try {
+      await controller.repository.unshowSong(project.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text('${project.title} is off the showcase.'),
+        ));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(reportAndDescribe(
+            error,
+            service: 'app',
+            stage: 'unshow_song',
             projectId: project.id,
             route: 'Song',
           )),
