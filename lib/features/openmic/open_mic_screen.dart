@@ -7,6 +7,8 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/play_button.dart';
+import 'listen_screen.dart';
 import 'musician_profile_screen.dart';
 import 'open_mic_song_screen.dart';
 
@@ -134,6 +136,15 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     if (mounted) CurrentRoute.enter('Open Mic');
   }
 
+  /// Sitting down in front of the whole room, one song at a time.
+  Future<void> _listen() async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'Listen'),
+      builder: (_) => ListenScreen(repository: widget.repository, part: _part),
+    ));
+    if (mounted) CurrentRoute.enter('Open Mic');
+  }
+
   Future<void> _openProfile(Musician musician) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -172,6 +183,27 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
                 child: Text(
                   'Open Mic',
                   style: Theme.of(context).textTheme.displaySmall,
+                ),
+              ),
+              // The stage is a mode, not a fourth tab.
+              //
+              // Browsing and listening are two ways of using the same room,
+              // and a separate destination would have made them two rooms
+              // holding the same songs — the exact duplication the audit
+              // spent two screens undoing. Here the filter you already chose
+              // carries straight through: pick Bass, press Listen, and you
+              // are hearing songs that need a bass player.
+              FilledButton.icon(
+                key: const Key('open_mic_listen'),
+                onPressed: () => unawaited(_listen()),
+                icon: const Icon(Icons.play_arrow_rounded, size: 19),
+                label: const Text('Listen'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.cyan,
+                  foregroundColor: AppColors.ink,
+                  padding: const EdgeInsets.symmetric(horizontal: 15),
+                  textStyle: const TextStyle(
+                      fontSize: 13.5, fontWeight: FontWeight.w800),
                 ),
               ),
             ],
@@ -383,6 +415,13 @@ class _SongList extends StatelessWidget {
   }
 }
 
+/// A song you can hear without leaving the list.
+///
+/// It used to end on the line "3 parts to listen to" and offer no way to
+/// listen to any of them — you tapped through to a page that could not play
+/// them either. The decision this card exists to support is made by ear in
+/// about ten seconds, and it was asking people to make it by reading a
+/// title.
 class _SongCard extends StatelessWidget {
   const _SongCard({required this.song, required this.onTap});
 
@@ -407,47 +446,67 @@ class _SongCard extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
+            padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(
-                  song.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.text,
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w800,
+                // Outside the InkWell's text column and first in the row:
+                // playing is not the same gesture as opening, and the two
+                // must not be a millimetre apart or one becomes the other.
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, right: 12),
+                  child: PlayButton(
+                    storagePath: song.storagePath,
+                    durationMs: song.durationMs,
+                    title: song.title,
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  song.ownerName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style:
-                      const TextStyle(color: AppColors.muted, fontSize: 12.5),
-                ),
-                if (song.isAsking) ...<Widget>[
-                  const SizedBox(height: 9),
-                  Text(
-                    song.askingFor.isEmpty
-                        ? 'Asking for help'
-                        : 'Asking for ${song.askingFor.join(', ')}',
-                    style: const TextStyle(
-                      color: AppColors.cyan,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                    ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        song.ownerName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: AppColors.muted, fontSize: 12.5),
+                      ),
+                      if (song.isAsking) ...<Widget>[
+                        const SizedBox(height: 9),
+                        Text(
+                          song.askingFor.isEmpty
+                              ? 'Asking for help'
+                              : 'Asking for ${song.askingFor.join(', ')}',
+                          style: const TextStyle(
+                            color: AppColors.cyan,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Text(
+                        song.canPlay
+                            ? '${song.takeCount} '
+                                '${song.takeCount == 1 ? "part" : "parts"} on it'
+                            : 'Nothing recorded on it yet',
+                        style: const TextStyle(
+                            color: AppColors.muted, fontSize: 11.5),
+                      ),
+                    ],
                   ),
-                ],
-                const SizedBox(height: 8),
-                Text(
-                  '${song.takeCount} '
-                  '${song.takeCount == 1 ? 'part' : 'parts'} to listen to',
-                  style:
-                      const TextStyle(color: AppColors.muted, fontSize: 11.5),
                 ),
               ],
             ),

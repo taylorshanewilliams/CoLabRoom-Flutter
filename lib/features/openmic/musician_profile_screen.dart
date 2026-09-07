@@ -8,6 +8,7 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/play_button.dart';
 import 'ask_musician_sheet.dart';
 import 'invite_to_catalog_sheet.dart';
 import 'open_mic_song_screen.dart';
@@ -721,8 +722,16 @@ class _SongOnProfile extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(13, 11, 12, 11),
             child: Row(
               children: <Widget>[
-                const Icon(Icons.play_circle_outline_rounded,
-                    color: AppColors.cyan, size: 22),
+                // A real one. This was a play-circle icon that did nothing —
+                // on the row whose whole argument is that a song is the
+                // sound, which is what a musician was trying to judge all
+                // along.
+                PlayButton(
+                  storagePath: song.storagePath,
+                  durationMs: song.durationMs,
+                  title: song.title,
+                  size: 34,
+                ),
                 const SizedBox(width: 11),
                 Expanded(
                   child: Column(

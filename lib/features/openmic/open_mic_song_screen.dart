@@ -8,6 +8,7 @@ import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/song_layer_service.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/play_button.dart';
 import 'ask_musician_sheet.dart';
 import 'report_sheet.dart';
 
@@ -182,20 +183,46 @@ class _OpenMicSongScreenState extends State<OpenMicSongScreen> {
             : ListView(
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
                 children: <Widget>[
-                  Text(
-                    song.title,
-                    style: const TextStyle(
-                      color: AppColors.text,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      height: 1.15,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    'Put up by ${song.ownerName}',
-                    style:
-                        const TextStyle(color: AppColors.muted, fontSize: 13),
+                  // The song, playable from the top of its own page.
+                  //
+                  // This page had a section headed "Listen" under which
+                  // nothing could be listened to. Whatever the room heard
+                  // first plays here; the parts below are the detail.
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Padding(
+                        padding: const EdgeInsets.only(right: 14, top: 2),
+                        child: PlayButton(
+                          storagePath: song.storagePath,
+                          durationMs: song.durationMs,
+                          title: song.title,
+                          size: 54,
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              song.title,
+                              style: const TextStyle(
+                                color: AppColors.text,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                height: 1.15,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              'Put up by ${song.ownerName}',
+                              style: const TextStyle(
+                                  color: AppColors.muted, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                   if (song.musicalKey != null || song.bpm != null) ...<Widget>[
                     const SizedBox(height: 10),
@@ -406,8 +433,14 @@ class _TakeRow extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           child: Row(
             children: <Widget>[
-              const Icon(Icons.graphic_eq_rounded,
-                  size: 18, color: AppColors.cyan),
+              // Was a waveform icon: a row that looked exactly like a player
+              // and did nothing when you pressed it.
+              PlayButton(
+                storagePath: take.storagePath,
+                durationMs: take.durationMs,
+                title: label.isEmpty ? take.part.name : label,
+                size: 34,
+              ),
               const SizedBox(width: 11),
               Expanded(
                 child: Text(

@@ -230,16 +230,17 @@ abstract interface class MusicRepository {
   /// twenty records.
   Future<List<OpenMicSong>> songsBy(String profileId);
 
-  /// A page of the listening feed, newest first.
+  /// A listening session, ordered for whoever is asking.
   ///
-  /// Keyset paginated on [after] rather than an offset: songs go up
-  /// while somebody is scrolling, and an offset would show them a track
-  /// twice or skip one every time that happened.
-  Future<List<FeedTrack>> openMicFeed({
-    DateTime? after,
-    int limit,
-    String? part,
-  });
+  /// Not a page and not a cursor. Most of it is the songs closest to this
+  /// person — asking for a part they play, by somebody they have played
+  /// with, in their city — and every fourth one is deliberately outside all
+  /// of that, because a feed that only returns your own kind is a room with
+  /// one conversation in it. Each track says why it is here.
+  ///
+  /// A cursor was removed rather than never added: it walked backwards
+  /// through time, which only works while the order *is* time.
+  Future<List<FeedTrack>> openMicFeed({int limit, String? part});
 
   /// One of them, as somebody outside the room sees it.
   Future<OpenMicSong?> openMicSong(String projectId);

@@ -835,6 +835,8 @@ class InMemoryMusicRepository implements MusicRepository {
           musicalKey: 'G',
           bpm: 96,
           askNote: 'Needs something simple under the chorus.',
+          storagePath: 'preview/ladder.m4a',
+          durationMs: 184000,
         ),
         OpenMicSong(
           id: 'preview-open-2',
@@ -843,6 +845,8 @@ class InMemoryMusicRepository implements MusicRepository {
           putUpAt: DateTime.now().subtract(const Duration(days: 2)),
           takeCount: 1,
           musicalKey: 'D',
+          storagePath: 'preview/kitchen.m4a',
+          durationMs: 142000,
         ),
       ];
 
@@ -879,11 +883,7 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<List<FeedTrack>> openMicFeed({
-    DateTime? after,
-    int limit = 12,
-    String? part,
-  }) async {
+  Future<List<FeedTrack>> openMicFeed({int limit = 12, String? part}) async {
     final now = DateTime.now();
     final all = <FeedTrack>[
       FeedTrack(
@@ -897,6 +897,7 @@ class InMemoryMusicRepository implements MusicRepository {
         musicalKey: 'G',
         bpm: 96,
         durationMs: 184000,
+        reason: 'Needs a bass',
       ),
       FeedTrack(
         id: 'preview-open-2',
@@ -907,13 +908,12 @@ class InMemoryMusicRepository implements MusicRepository {
         askingFor: const <String>['harmony'],
         musicalKey: 'D',
         durationMs: 142000,
+        reason: 'Nothing like what you play',
       ),
     ];
     return <FeedTrack>[
       for (final track in all)
-        if ((after == null || track.putUpAt.isBefore(after)) &&
-            (part == null || track.askingFor.contains(part)))
-          track,
+        if (part == null || track.askingFor.contains(part)) track,
     ];
   }
 
