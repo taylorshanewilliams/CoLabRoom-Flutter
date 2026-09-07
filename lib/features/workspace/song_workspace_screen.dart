@@ -44,6 +44,7 @@ enum _VoiceNoteAction { play, rerecord, delete }
 enum _SongMenuAction {
   importLyrics,
   invite,
+  deleteSong,
   color,
   history,
   print,
@@ -143,6 +144,58 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         await _inviteToSong(project);
     }
     if (mounted) await _loadAudience();
+  }
+
+  /// Deleting the song, from the song.
+  ///
+  /// It could only be done from a multi-select inside a room — so the empty
+  /// songs a bumped record button left behind could only be swept up
+  /// somewhere nobody would think to look. This is where anybody looks.
+  Future<void> _deleteSong(SongProject project) async {
+    final controller = BetaScope.of(context, listen: false);
+    final navigator = Navigator.of(context);
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.raised,
+        title: Text('Delete ${project.title}?'),
+        content: const Text(
+          'The song goes, and everything in it — the words, the takes, and '
+          'the song sheet. This cannot be undone.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF718B)),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    try {
+      await controller.deleteSong(project);
+      // Out of the song, because the song it was showing is gone.
+      navigator.pop();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(reportAndDescribe(
+            error,
+            service: 'app',
+            stage: 'delete_song',
+            projectId: project.id,
+            route: 'Song',
+          )),
+        ));
+    }
   }
 
   /// Taking it back down.
@@ -585,6 +638,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       await _inviteToSong(project);
       return;
     }
+    if (action == _SongMenuAction.deleteSong) {
+      await _deleteSong(project);
+      return;
+    }
     try {
       switch (action) {
         case _SongMenuAction.print:
@@ -595,6 +652,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           break;
         case _SongMenuAction.importLyrics:
         case _SongMenuAction.invite:
+        case _SongMenuAction.deleteSong:
         case _SongMenuAction.color:
         case _SongMenuAction.history:
           break; // handled above
@@ -1345,6 +1403,19 @@ class _PortraitProjectHeader extends StatelessWidget {
                   title: Text('Share by text or email'),
                 ),
               ),
+              // Last, and on its own, because it is the only entry here that
+              // cannot be undone.
+              PopupMenuDivider(),
+              PopupMenuItem<_SongMenuAction>(
+                value: _SongMenuAction.deleteSong,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.delete_outline_rounded,
+                      color: Color(0xFFFF9AA9)),
+                  title: Text('Delete this song',
+                      style: TextStyle(color: Color(0xFFFF9AA9))),
+                ),
+              ),
             ],
           ),
           const SizedBox(width: 8),
@@ -1497,6 +1568,17 @@ class _LandscapeWorkspace extends StatelessWidget {
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.share_rounded),
                       title: Text('Share by text or email'),
+                    ),
+                  ),
+                  PopupMenuDivider(),
+                  PopupMenuItem<_SongMenuAction>(
+                    value: _SongMenuAction.deleteSong,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.delete_outline_rounded,
+                          color: Color(0xFFFF9AA9)),
+                      title: Text('Delete this song',
+                          style: TextStyle(color: Color(0xFFFF9AA9))),
                     ),
                   ),
                 ],

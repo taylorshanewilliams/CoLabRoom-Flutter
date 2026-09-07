@@ -2072,6 +2072,83 @@ begin
   end if;
 end $$;
 
+-- The record button leaves litter (0081).
+--
+-- UUIDs spelled out rather than :'room' and :'writer': psql variables are
+-- substituted by psql, and the inside of a `do $$ … $$` block is a string
+-- literal it never looks into.
+--
+-- The dangerous half of this is not that it fails to delete. It is that it
+-- deletes somebody's work, so the assertions that matter are the ones about
+-- what it must refuse.
+set local role authenticated;
+
+do $$
+declare
+  empty_one uuid := 'ecec0001-0000-0000-0000-000000000001';
+  written uuid := 'ecec0002-0000-0000-0000-000000000002';
+begin
+  insert into public.projects (id, room_id, account_id, created_by, title)
+  values
+    (empty_one, '33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Bumped The Button'),
+    (written, '33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Has Words In It');
+
+  insert into public.contributions (project_id, author_id, body)
+  values (written, '11111111-1111-1111-1111-111111111111', 'the first line of something');
+
+  -- Nothing in it: gone.
+  if not public.discard_if_untouched(empty_one) then
+    raise exception 'an empty song was not discarded';
+  end if;
+  if exists (select 1 from public.projects where id = empty_one) then
+    raise exception 'discard said yes and the song is still there';
+  end if;
+
+  -- One line typed: kept. This is the assertion that stops this function
+  -- ever eating somebody's song.
+  if public.discard_if_untouched(written) then
+    raise exception 'a song with words in it was discarded';
+  end if;
+  if not exists (select 1 from public.projects where id = written) then
+    raise exception 'a song with words in it is gone';
+  end if;
+end $$;
+
+-- A song with a take in it is kept, even with no words.
+do $$
+declare
+  recorded uuid := 'ecec0003-0000-0000-0000-000000000003';
+begin
+  insert into public.projects (id, room_id, account_id, created_by, title)
+  values (recorded, '33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Only A Take');
+
+  insert into public.song_layers
+    (project_id, recorded_by, storage_path, label, part, duration_ms)
+  values
+    (recorded, '11111111-1111-1111-1111-111111111111',
+     '33333333-3333-3333-3333-333333333333' || '/' || recorded::text || '/layers/x.m4a',
+     'Take 1', 'vocal', 9000);
+
+  if public.discard_if_untouched(recorded) then
+    raise exception 'a song with a take in it was discarded';
+  end if;
+end $$;
+
+-- And somebody else's empty song is not theirs to discard.
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+
+do $$
+declare
+  mine uuid := 'ecec0004-0000-0000-0000-000000000004';
+begin
+  if public.discard_if_untouched('ecec0003-0000-0000-0000-000000000003') then
+    raise exception 'somebody discarded a song that was not theirs';
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
 -- Nobody is ranked (0072).
 --
 -- The check is that somebody who has recorded nothing still turns up. Before

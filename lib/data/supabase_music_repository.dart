@@ -591,6 +591,15 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<bool> discardIfUntouched(String projectId) async {
+    final gone = await client.rpc<dynamic>(
+      'discard_if_untouched',
+      params: <String, dynamic>{'target_project': projectId},
+    );
+    return gone == true;
+  }
+
+  @override
   Future<void> deleteSong(SongProject project) async {
     // Files/contributions/setlist_projects all cascade off `projects` via
     // `on delete cascade` foreign keys, so one delete is enough.

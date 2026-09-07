@@ -64,6 +64,14 @@ abstract interface class MusicRepository {
     required SongStatus status,
   });
 
+  /// Removes a song only if nothing was ever put in it.
+  ///
+  /// For the record button, which creates the song before the recorder opens
+  /// — so a bumped button leaves an empty one behind. Returns whether
+  /// anything was removed; a song with a take, a word or a recording in it is
+  /// always left alone.
+  Future<bool> discardIfUntouched(String projectId);
+
   Future<void> deleteSong(SongProject project);
 
   /// Persists a new manual song order within [room] ([orderedProjectIds]
