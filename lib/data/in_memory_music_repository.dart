@@ -879,6 +879,45 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<FeedTrack>> openMicFeed({
+    DateTime? after,
+    int limit = 12,
+    String? part,
+  }) async {
+    final now = DateTime.now();
+    final all = <FeedTrack>[
+      FeedTrack(
+        id: 'preview-open-1',
+        title: 'Ladder Of Life',
+        ownerName: 'Mara Ellison',
+        storagePath: 'preview/ladder.m4a',
+        putUpAt: now.subtract(const Duration(hours: 5)),
+        askingFor: const <String>['bass'],
+        askNote: 'Something simple under the chorus.',
+        musicalKey: 'G',
+        bpm: 96,
+        durationMs: 184000,
+      ),
+      FeedTrack(
+        id: 'preview-open-2',
+        title: 'Kitchen Window',
+        ownerName: 'Dev Okonjo',
+        storagePath: 'preview/kitchen.m4a',
+        putUpAt: now.subtract(const Duration(days: 2)),
+        askingFor: const <String>['harmony'],
+        musicalKey: 'D',
+        durationMs: 142000,
+      ),
+    ];
+    return <FeedTrack>[
+      for (final track in all)
+        if ((after == null || track.putUpAt.isBefore(after)) &&
+            (part == null || track.askingFor.contains(part)))
+          track,
+    ];
+  }
+
+  @override
   Future<OpenMicSong?> openMicSong(String projectId) async {
     for (final song in _previewOpenMic) {
       if (song.id == projectId) return song;

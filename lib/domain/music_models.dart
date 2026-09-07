@@ -266,6 +266,58 @@ extension ReportReasonWords on ReportReason {
   }
 }
 
+/// One song, as the listening feed needs it.
+///
+/// Deliberately not [OpenMicSong]. A card in a list needs a title and a
+/// reason to tap; a track that is about to play needs the audio, its length,
+/// and the face of whoever made it — and it needs all of that in the page
+/// that fetched it, because the next track is loading while the current one
+/// plays and there is no time for another round trip.
+class FeedTrack {
+  const FeedTrack({
+    required this.id,
+    required this.title,
+    required this.ownerName,
+    required this.storagePath,
+    required this.putUpAt,
+    this.ownerId,
+    this.ownerAvatarPath,
+    this.askingFor = const <String>[],
+    this.askNote = '',
+    this.musicalKey,
+    this.bpm,
+    this.durationMs,
+  });
+
+  final String id;
+  final String title;
+  final String? ownerId;
+  final String ownerName;
+  final String? ownerAvatarPath;
+  final DateTime putUpAt;
+
+  /// Where the audio is. Turned into a signed URL by StreamingAudio, in a
+  /// batch with the rest of the page.
+  final String storagePath;
+
+  final List<String> askingFor;
+  final String askNote;
+  final String? musicalKey;
+  final double? bpm;
+  final int? durationMs;
+
+  bool get isAsking => askingFor.isNotEmpty || askNote.trim().isNotEmpty;
+
+  /// What this song wants, in the words it should be shown in. The line that
+  /// makes this app's feed different from every other one: not what the song
+  /// *is*, but what it is missing.
+  String get wants {
+    if (askingFor.isNotEmpty) return 'Needs ${askingFor.join(", ")}';
+    if (askNote.trim().isNotEmpty) return 'Asking for help';
+    return '';
+  }
+}
+
 /// A song somebody put on the Open Mic.
 ///
 /// The other half of Open Mic. It has been a list of people since it shipped;

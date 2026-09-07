@@ -1627,4 +1627,120 @@ end $$;
 reset role;
 
 
+-- A page of the feed (0071).
+--
+-- The rule worth proving is the inclusive one: a song carried by a phone take
+-- alone still reaches the feed. Requiring a reference recording would quietly
+-- exclude somebody who opened the app, sang into it, and shared that — which
+-- is the person this whole surface is supposed to be for.
+insert into public.projects (id, room_id, account_id, title, created_by)
+values ('dddddddd-0000-0000-0000-00000000000d', :'room', :'writer',
+        'Sung Into A Phone', :'writer')
+on conflict (id) do nothing;
+
+insert into public.song_layers
+  (project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values
+  ('dddddddd-0000-0000-0000-00000000000d', :'writer',
+   :'room' || '/dddddddd-0000-0000-0000-00000000000d/layers/phone.m4a',
+   'Voice', 'vocal', 21000, now()),
+  ('dddddddd-0000-0000-0000-00000000000d', :'writer',
+   :'room' || '/dddddddd-0000-0000-0000-00000000000d/layers/private.m4a',
+   'Scratch', 'vocal', 8000, null);
+
+select public.put_on_open_mic('dddddddd-0000-0000-0000-00000000000d');
+
+do $$
+declare
+  track record;
+begin
+  select * into track from public.open_mic_feed(null, 20, null)
+  where id = 'dddddddd-0000-0000-0000-00000000000d';
+
+  if track.id is null then
+    raise exception 'a song with only a shared take never reached the feed';
+  end if;
+  if track.storage_path not like '%phone.m4a' then
+    raise exception 'the feed picked % rather than the shared take',
+      track.storage_path;
+  end if;
+  -- Never the private one, whatever else changes.
+  if track.storage_path like '%private.m4a' then
+    raise exception 'the feed was about to play an unshared take';
+  end if;
+  if track.duration_ms <> 21000 then
+    raise exception 'the feed carried the wrong length: %', track.duration_ms;
+  end if;
+
+  -- Every row has something to play, or the feed has silent cards in it.
+  if exists (
+    select 1 from public.open_mic_feed(null, 40, null)
+    where storage_path is null
+  ) then
+    raise exception 'the feed returned a row with nothing to play';
+  end if;
+end $$;
+
+-- Keyset paging: asking for what is older than the newest must not return it.
+do $$
+declare
+  newest timestamptz;
+begin
+  select max(open_mic_at) into newest from public.projects
+  where open_mic_at is not null;
+
+  if exists (
+    select 1 from public.open_mic_feed(newest, 20, null)
+    where open_mic_at >= newest
+  ) then
+    raise exception 'the cursor returned a track it had already shown';
+  end if;
+end $$;
+
+select public.take_off_open_mic('dddddddd-0000-0000-0000-00000000000d');
+
+
+-- Nobody is ranked (0072).
+--
+-- The check is that somebody who has recorded nothing still turns up. Before
+-- this, the sort put every beginner last — every search, every time, until
+-- they built a record they could not build without first being found.
+-- Through auth.users, because on_auth_user_created is what makes a profile —
+-- inserting one directly is not a thing the app can do and not a thing this
+-- file should pretend to.
+insert into auth.users (id, email, raw_user_meta_data)
+values ('eeeeeeee-0000-0000-0000-00000000000e', 'newcomer@smoke.test',
+        '{"display_name": "Never Recorded Anything"}')
+on conflict (id) do nothing;
+
+update public.profiles
+set discoverable = true, plays = array['bass'], location_visibility = 'nobody'
+where id = 'eeeeeeee-0000-0000-0000-00000000000e';
+
+update public.profiles
+set discoverable = true, plays = array['bass']
+where id = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare
+  found int;
+begin
+  select count(*) into found from public.find_musicians('bass', null, 50)
+  where id = 'eeeeeeee-0000-0000-0000-00000000000e';
+
+  if found <> 1 then
+    raise exception 'somebody who plays bass but has recorded nothing was not findable';
+  end if;
+
+  -- And the order is not the record. Both are in the list; which comes first
+  -- is a rotation, not a ladder.
+  if not exists (
+    select 1 from public.find_musicians('bass', null, 50)
+    where id = '11111111-1111-1111-1111-111111111111'
+  ) then
+    raise exception 'somebody who has recorded bass fell out of the list';
+  end if;
+end $$;
+
+
 commit;
