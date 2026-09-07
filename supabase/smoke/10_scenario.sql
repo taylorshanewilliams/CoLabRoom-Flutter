@@ -1743,8 +1743,68 @@ begin
   end if;
 end $$;
 
+-- Who can hear this (0075).
+--
+-- The dial has one way to fail that matters: under-reporting. Telling
+-- somebody their song is private while strangers are listening to it is
+-- worse than having no indicator at all, which is what the app had.
+do $$
+declare
+  heard record;
+begin
+  select * into heard
+  from public.song_audience('dddddddd-0000-0000-0000-00000000000d');
+
+  -- It is on the Open Mic at this point in the file, so nothing narrower
+  -- may be reported, whatever the room memberships happen to say.
+  if heard.reach <> 'anyone' then
+    raise exception 'a song on the Open Mic reported reach %', heard.reach;
+  end if;
+  if not heard.on_open_mic then
+    raise exception 'a song on the Open Mic said it was not';
+  end if;
+
+  -- Named, not counted: "who" is the question people actually ask.
+  if jsonb_typeof(heard.listeners) <> 'array' then
+    raise exception 'listeners came back as % rather than an array',
+      jsonb_typeof(heard.listeners);
+  end if;
+end $$;
+
 select public.take_off_open_mic('dddddddd-0000-0000-0000-00000000000d');
 
+
+-- And taking it down narrows the answer again, rather than leaving a song
+-- that says "anyone" because it once did.
+do $$
+declare
+  heard record;
+begin
+  select * into heard
+  from public.song_audience('dddddddd-0000-0000-0000-00000000000d');
+  if heard.reach = 'anyone' or heard.on_open_mic then
+    raise exception 'a song taken off the Open Mic still reported %',
+      heard.reach;
+  end if;
+end $$;
+
+-- Somebody outside the room is told nothing at all. The membership of a
+-- room you are not in is not yours to enumerate, so this returns no row
+-- rather than a row with an empty list.
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (
+    select 1 from public.song_audience('dddddddd-0000-0000-0000-00000000000d')
+  ) then
+    raise exception 'a stranger could read who can hear somebody else''s song';
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 -- Nobody is ranked (0072).
 --

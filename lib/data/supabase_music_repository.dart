@@ -1191,6 +1191,39 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<SongAudience?> songAudience(String projectId) async {
+    final rows = await client.rpc<dynamic>(
+      'song_audience',
+      params: <String, dynamic>{'target_project': projectId},
+    );
+    final list = rows as List<dynamic>? ?? const <dynamic>[];
+    if (list.isEmpty) return null;
+    final row = list.first as Map;
+    return SongAudience(
+      reach: switch (row['reach'] as String? ?? 'just_you') {
+        'anyone' => SongReach.anyone,
+        'invited' => SongReach.invited,
+        'room' => SongReach.room,
+        _ => SongReach.justYou,
+      },
+      roomName: row['room_name'] as String? ?? '',
+      roomIcon: row['room_icon'] as String? ?? '',
+      onOpenMic: row['on_open_mic'] as bool? ?? false,
+      openMicAt: DateTime.tryParse('${row['open_mic_at']}')?.toLocal(),
+      listeners: <SongListener>[
+        for (final entry
+            in (row['listeners'] as List<dynamic>? ?? const <dynamic>[]))
+          SongListener(
+            id: (entry as Map)['id'] as String? ?? '',
+            name: entry['name'] as String? ?? 'Somebody',
+            avatarPath: entry['avatar_path'] as String?,
+            songOnly: entry['song_only'] as bool? ?? false,
+          ),
+      ],
+    );
+  }
+
+  @override
   Future<void> putOnOpenMic(String projectId) async {
     await client.rpc<dynamic>(
       'put_on_open_mic',

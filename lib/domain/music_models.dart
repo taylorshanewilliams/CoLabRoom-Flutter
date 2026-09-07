@@ -892,3 +892,74 @@ class FeedbackDraft {
   /// suggestion, or a bug in something audio-only, has nothing to show.
   final Uint8List? screenshot;
 }
+
+/// Who can hear a song, as one answer.
+///
+/// A song's audience is decided by four unrelated mechanisms — which room it
+/// is in, who was invited to this one song, whether it is on the Open Mic,
+/// and which takes have been shared. Nothing in the app ever put those
+/// together, so nobody could look at a song and know who could hear it.
+///
+/// This is the four spaces as a single value: alone, with your band, with
+/// somebody you asked, in front of everybody.
+class SongAudience {
+  const SongAudience({
+    required this.reach,
+    required this.listeners,
+    required this.onOpenMic,
+    this.roomName = '',
+    this.roomIcon = '',
+    this.openMicAt,
+  });
+
+  /// The widest thing that is true, never a stored column: memberships change
+  /// and a cached answer would go quietly wrong.
+  final SongReach reach;
+
+  /// Everybody who can hear it apart from you. Named rather than counted,
+  /// because "who" is the question people actually ask.
+  final List<SongListener> listeners;
+
+  final bool onOpenMic;
+  final String roomName;
+  final String roomIcon;
+  final DateTime? openMicAt;
+
+  /// What to say on the control itself, in as few words as it can be said.
+  String get label => switch (reach) {
+        SongReach.justYou => 'Only you',
+        SongReach.room => roomName.isEmpty ? 'Your room' : roomName,
+        SongReach.invited => 'You and ${listeners.length}',
+        SongReach.anyone => 'Anyone',
+      };
+
+  /// The line under it, which is the part that makes somebody feel safe.
+  String get detail => switch (reach) {
+        SongReach.justYou => 'Nobody else can hear this yet',
+        SongReach.room =>
+          '${listeners.length} ${listeners.length == 1 ? 'person' : 'people'} '
+              'can hear it',
+        SongReach.invited => 'The people you asked can hear it',
+        SongReach.anyone => 'On the Open Mic — anybody signed in can listen',
+      };
+}
+
+enum SongReach { justYou, room, invited, anyone }
+
+/// Somebody who can hear a song.
+class SongListener {
+  const SongListener({
+    required this.id,
+    required this.name,
+    this.avatarPath,
+    this.songOnly = false,
+  });
+
+  final String id;
+  final String name;
+  final String? avatarPath;
+
+  /// True when they were invited to this one song rather than the whole room
+  /// — the difference between "in the band" and "helping with this".
+  final bool songOnly;
+}

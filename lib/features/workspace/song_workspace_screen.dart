@@ -24,6 +24,7 @@ import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/microphone_disclosure.dart';
 import 'continuous_song_editor.dart';
 import 'ask_bar.dart';
+import 'audience_dial.dart';
 import 'song_history_screen.dart';
 import 'cowork_panel.dart';
 import 'live_performance_screen.dart';
@@ -43,7 +44,6 @@ enum _VoiceNoteAction { play, rerecord, delete }
 enum _SongMenuAction {
   importLyrics,
   invite,
-  openMic,
   color,
   history,
   print,
@@ -60,6 +60,7 @@ class SongWorkspaceScreen extends StatefulWidget {
 }
 
 class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsBindingObserver {
+  SongAudience? _audience;
   final ScrollController _contributionScroll = ScrollController();
   final ContinuousSongEditorController _continuousController = ContinuousSongEditorController();
   final SpeechToText _speech = SpeechToText();
@@ -97,7 +98,83 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadAnalysisBundle());
+    unawaited(_loadAudience());
     unawaited(_joinCowork());
+  }
+
+  /// Who can hear this song.
+  ///
+  /// Left null until the answer arrives, and the dial draws nothing while it
+  /// is null. A bar that says "Only you" a moment before it knows is the one
+  /// wrong answer this control must never give.
+  Future<void> _loadAudience() async {
+    try {
+      final audience = await BetaScope.of(context, listen: false)
+          .repository
+          .songAudience(widget.projectId);
+      if (mounted) setState(() => _audience = audience);
+    } catch (error) {
+      // Silent. A song that cannot report its audience is still a song you
+      // can write in, and an error banner here would be about the app rather
+      // than the work.
+      unawaited(ErrorReporter().reportWarning(
+          service: 'app',
+          stage: 'song_audience',
+          message: error.toString()));
+    }
+  }
+
+  /// The dial, opened.
+  Future<void> _openAudience(SongProject project) async {
+    final audience = _audience;
+    if (audience == null) return;
+    final choice = await showAudienceSheet(
+      context,
+      audience: audience,
+      songTitle: project.title,
+    );
+    if (choice == null || !mounted) return;
+    switch (choice) {
+      case SongAudienceChoice.putOnOpenMic:
+        await _openMic(project);
+      case SongAudienceChoice.takeOffOpenMic:
+        await _takeOffOpenMic(project);
+      case SongAudienceChoice.invite:
+        await _inviteToSong(project);
+    }
+    if (mounted) await _loadAudience();
+  }
+
+  /// Taking it back down.
+  ///
+  /// There was no way to do this from the song at all: the menu offered
+  /// "Put it on the Open Mic" whether or not it already was, and taking it
+  /// down was not anywhere. An app where publishing is one-way is one where
+  /// nobody publishes.
+  Future<void> _takeOffOpenMic(SongProject project) async {
+    final controller = BetaScope.of(context, listen: false);
+    try {
+      await controller.repository.takeOffOpenMic(project.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text('${project.title} is off the Open Mic.'),
+        ));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(reportAndDescribe(
+            error,
+            service: 'app',
+            stage: 'take_off_open_mic',
+            projectId: project.id,
+            route: 'Song',
+          )),
+        ));
+    }
   }
 
   Future<void> _joinCowork() async {
@@ -508,10 +585,6 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       await _inviteToSong(project);
       return;
     }
-    if (action == _SongMenuAction.openMic) {
-      await _openMic(project);
-      return;
-    }
     try {
       switch (action) {
         case _SongMenuAction.print:
@@ -522,7 +595,6 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           break;
         case _SongMenuAction.importLyrics:
         case _SongMenuAction.invite:
-        case _SongMenuAction.openMic:
         case _SongMenuAction.color:
         case _SongMenuAction.history:
           break; // handled above
@@ -1110,6 +1182,13 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     onOpenCowork: () => _scaffoldKey.currentState?.openEndDrawer(),
                     othersHere: _othersHere,
                   ),
+                  // The first thing under the toolbar, because it is the
+                  // thing somebody most needs to know and never could: who
+                  // can hear this. Above the asks and above the words.
+                  AudienceDial(
+                    audience: _audience,
+                    onTap: () => unawaited(_openAudience(project)),
+                  ),
                   // Under the toolbar, above the words. High enough that
                   // somebody sees what the song is asking for without
                   // scrolling, and out of the way when it is asking nothing —
@@ -1230,22 +1309,6 @@ class _PortraitProjectHeader extends StatelessWidget {
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.file_download_outlined),
                   title: Text('Import lyrics'),
-                ),
-              ),
-              PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.invite,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.person_add_alt_1_rounded),
-                  title: Text('Invite to This Song'),
-                ),
-              ),
-              PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.openMic,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.mic_external_on_rounded),
-                  title: Text('Put it on the Open Mic'),
                 ),
               ),
               PopupMenuItem<_SongMenuAction>(

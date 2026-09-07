@@ -247,6 +247,13 @@ abstract interface class MusicRepository {
 
   /// Offers a song to everybody, or takes it back. Owner only, and only ever
   /// the takes the room has already heard.
+  /// Who can hear [projectId], as one answer.
+  ///
+  /// Derived from the room, the per-song invitations and the Open Mic flag
+  /// together — the three things that decide a song's audience and were
+  /// never shown anywhere at the same time.
+  Future<SongAudience?> songAudience(String projectId);
+
   Future<void> putOnOpenMic(String projectId);
   Future<void> takeOffOpenMic(String projectId);
 
