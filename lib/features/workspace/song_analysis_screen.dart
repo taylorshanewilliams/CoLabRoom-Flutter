@@ -519,43 +519,19 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
             : ListView(
                 padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
                 children: <Widget>[
-                  Row(
-                    children: <Widget>[
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: AppColors.gold.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: AppColors.gold.withValues(alpha: 0.3)),
-                        ),
-                        child: const Text(
-                          'PREMIUM PREVIEW',
-                          style: TextStyle(
-                            color: AppColors.gold,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.15,
-                          ),
-                        ),
-                      ),
-                      // Expanded and right-aligned rather than a Spacer with
-                      // a Text after it. A Spacer only hands back space that
-                      // is already free, so a long song title beside the badge
-                      // simply ran off the edge — 107 pixels of it, on a
-                      // 360-pixel phone at the reader's largest text.
-                      Expanded(
-                        child: Text(
-                          widget.project.title,
-                          textAlign: TextAlign.end,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                    ],
+                  // The badge that used to sit here said PREMIUM PREVIEW,
+                  // in the first line of the app's best moment. Somebody has
+                  // just sung into their phone and been handed back their own
+                  // chords; being told the thing in their hands is a preview
+                  // of a real one is the wrong first sentence.
+                  Text(
+                    widget.project.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontSize: 11,
+                    ),
                   ),
                   const SizedBox(height: 18),
                   Text(
@@ -724,37 +700,117 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    _AnalysisSummary(bundle: bundle!),
-                    _SongUnderstanding(
-                      reference: bundle.reference!,
-                      onRename: _renameSection,
-                    ),
-                    StemPlayerPanel(
-                      stems: bundle.stems,
-                      ensureLocalStem: _service.ensureLocalStem,
-                      downbeatsMs: bundle.reference!.downbeatsMs,
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      'Chord sheet',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: AppColors.text,
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 14),
+                    // The chords over the words, first.
+                    //
+                    // This was fifth on the page: under nine measurements, a
+                    // structure breakdown and a stem player. The one thing
+                    // this app does that nothing else does was below a grid
+                    // reading "Lyric match 87%" and "Chord changes 118" —
+                    // the app grading its own homework in front of somebody
+                    // who just wanted to see their song.
                     SongSheetPanel(
                       project: widget.project,
-                      bundle: bundle,
+                      bundle: bundle!,
                       onReviewLyrics: (reference?.transcriptWords.isNotEmpty ?? false) ? _reviewLyrics : null,
                       onOpenLive: _openLive,
                       onAnalysisChanged: (updated) => setState(() => _bundle = updated),
+                    ),
+                    const SizedBox(height: 18),
+                    // And everything the machine noticed on the way, for
+                    // anybody who wants it. Folded, because a beginner
+                    // reading "Chords cover 92%" learns only that there is a
+                    // number they are supposed to care about.
+                    _TheDetails(
+                      bundle: bundle,
+                      service: _service,
+                      onRename: _renameSection,
                     ),
                   ],
                 ],
               ),
       ),
+    );
+  }
+}
+
+/// What the machine noticed, for anybody who wants it.
+///
+/// Closed by default. Nine measurements — length, key, BPM, time signature,
+/// bars, timed lines, chord changes, lyric match, chords cover — used to be
+/// the first thing on the page after a recording finished analysing, above
+/// the song sheet itself.
+///
+/// They are not wrong and somebody genuinely wants them; a producer checking
+/// whether the beat tracker found 6/8 needs exactly this. But they are the
+/// app talking about its own work, and putting them first told a beginner
+/// that their song had been scored. The music goes first and the marking
+/// goes behind a tap.
+class _TheDetails extends StatefulWidget {
+  const _TheDetails({
+    required this.bundle,
+    required this.service,
+    required this.onRename,
+  });
+
+  final SongAnalysisBundle bundle;
+  final SongAnalysisService service;
+  final void Function(String label, String? name) onRename;
+
+  @override
+  State<_TheDetails> createState() => _TheDetailsState();
+}
+
+class _TheDetailsState extends State<_TheDetails> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        InkWell(
+          key: const Key('analysis_details_toggle'),
+          onTap: () => setState(() => _open = !_open),
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: <Widget>[
+                Icon(
+                  _open
+                      ? Icons.keyboard_arrow_down_rounded
+                      : Icons.keyboard_arrow_right_rounded,
+                  size: 20,
+                  color: AppColors.muted,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _open ? 'Hide what it heard' : 'What it heard',
+                  style: const TextStyle(
+                    color: AppColors.muted,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_open) ...<Widget>[
+          const SizedBox(height: 4),
+          _AnalysisSummary(bundle: widget.bundle),
+          _SongUnderstanding(
+            reference: widget.bundle.reference!,
+            onRename: widget.onRename,
+          ),
+          StemPlayerPanel(
+            stems: widget.bundle.stems,
+            ensureLocalStem: widget.service.ensureLocalStem,
+            downbeatsMs: widget.bundle.reference!.downbeatsMs,
+          ),
+        ],
+      ],
     );
   }
 }
