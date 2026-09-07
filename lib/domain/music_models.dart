@@ -1093,3 +1093,27 @@ class OpenMicStatus {
   final List<String> askingFor;
   final String storagePath;
 }
+
+
+/// What this account is allowed to do.
+///
+/// One answer the client and the Edge Function both ask for, so a paywall
+/// the client believes in and the server does not cannot happen.
+class MyPlan {
+  const MyPlan({
+    required this.member,
+    required this.sheetsThisMonth,
+    this.sheetsAllowed,
+  });
+
+  final bool member;
+  final int sheetsThisMonth;
+
+  /// Null means no ceiling.
+  final int? sheetsAllowed;
+
+  int? get sheetsLeft =>
+      sheetsAllowed == null ? null : (sheetsAllowed! - sheetsThisMonth).clamp(0, 9999);
+
+  bool get outOfSheets => sheetsLeft != null && sheetsLeft! <= 0;
+}

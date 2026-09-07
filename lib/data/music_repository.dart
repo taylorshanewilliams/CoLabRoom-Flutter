@@ -375,6 +375,9 @@ abstract interface class MusicRepository {
   /// Your own songs on the Open Mic, and what has come back to them.
   Future<List<OpenMicStatus>> myOpenMic();
 
+  /// What this account is allowed to do, asked of the one place that knows.
+  Future<MyPlan> myPlan();
+
   Future<void> claimPart(String part);
 
   Future<Musician?> loadMusician(String profileId);

@@ -1539,6 +1539,22 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<MyPlan> myPlan() async {
+    final rows = await client.rpc<dynamic>('my_plan');
+    final list = rows as List<dynamic>? ?? const <dynamic>[];
+    if (list.isEmpty) {
+      // No row is a signed-out or half-created account, not a member.
+      return const MyPlan(member: false, sheetsThisMonth: 0, sheetsAllowed: 0);
+    }
+    final row = list.first as Map;
+    return MyPlan(
+      member: row['can_separate'] as bool? ?? false,
+      sheetsThisMonth: (row['sheets_this_month'] as num?)?.toInt() ?? 0,
+      sheetsAllowed: (row['sheets_allowed'] as num?)?.toInt(),
+    );
+  }
+
+  @override
   Future<void> claimPart(String part) async {
     await client.rpc<dynamic>(
       'claim_part',

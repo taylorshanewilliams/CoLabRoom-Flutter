@@ -21,6 +21,7 @@ import '../../widgets/audio_privacy_note.dart';
 import '../dev/latency_probe_screen.dart';
 import 'blocked_people_screen.dart';
 import '../help/help_screen.dart';
+import 'what_you_get.dart';
 import '../notifications/notification_settings_screen.dart';
 import '../openmic/musician_profile_screen.dart';
 
@@ -367,6 +368,14 @@ class _AccountScreenState extends State<AccountScreen> {
               // Above privacy and below notifications, because it is the
               // row somebody looks for when they are stuck — and being
               // stuck is more common than either of the other two.
+              _AccountRow(
+                key: const Key('account_plan_row'),
+                icon: Icons.workspace_premium_outlined,
+                label: 'What you get',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const WhatYouGet()),
+                ),
+              ),
               _AccountRow(
                 key: const Key('account_help_row'),
                 icon: Icons.help_outline_rounded,

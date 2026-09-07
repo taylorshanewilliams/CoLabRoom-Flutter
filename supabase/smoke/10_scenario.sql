@@ -2223,6 +2223,85 @@ end $$;
 
 reset role;
 
+-- What you get (0087).
+--
+-- The property that matters: the client and the server must agree about what
+-- an account may do, because a paywall the client believes in and the server
+-- does not is not a paywall.
+set local role authenticated;
+
+do $$
+declare
+  mine record;
+begin
+  select * into mine from public.my_plan();
+
+  if mine.plan is null then
+    raise exception 'my_plan said nothing about this account';
+  end if;
+
+  -- Everybody starts free. A default of anything else would quietly hand
+  -- out the expensive pipeline.
+  if mine.plan <> 'free' then
+    raise exception 'a new account was on the % plan', mine.plan;
+  end if;
+  if mine.can_separate then
+    raise exception 'a free account was allowed the separated pipeline';
+  end if;
+  if mine.sheets_allowed is null then
+    raise exception 'a free account had no ceiling at all';
+  end if;
+end $$;
+
+reset role;
+
+-- A member has no ceiling and gets the expensive one.
+update public.profiles set plan = 'member'
+where id = '11111111-1111-1111-1111-111111111111';
+
+set local role authenticated;
+
+do $$
+declare
+  mine record;
+begin
+  select * into mine from public.my_plan();
+  if not mine.can_separate then
+    raise exception 'a member was refused the separated pipeline';
+  end if;
+  if mine.sheets_allowed is not null then
+    raise exception 'a member had a ceiling of %', mine.sheets_allowed;
+  end if;
+end $$;
+
+reset role;
+
+-- account_limits still wins, which is what that table has always been for:
+-- one account that needs something other than the default.
+insert into public.account_limits (account_id, monthly_analyses, note)
+values ('11111111-1111-1111-1111-111111111111', 3, 'smoke test')
+on conflict (account_id) do update set monthly_analyses = 3;
+
+set local role authenticated;
+
+do $$
+declare
+  mine record;
+begin
+  select * into mine from public.my_plan();
+  if mine.sheets_allowed <> 3 then
+    raise exception 'account_limits did not override the plan (got %)',
+      mine.sheets_allowed;
+  end if;
+end $$;
+
+reset role;
+
+delete from public.account_limits
+where account_id = '11111111-1111-1111-1111-111111111111';
+update public.profiles set plan = 'free'
+where id = '11111111-1111-1111-1111-111111111111';
+
 -- Who has been listening (0086).
 --
 -- The property that matters is what this refuses to record. A song's owner

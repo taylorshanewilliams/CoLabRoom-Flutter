@@ -1138,6 +1138,10 @@ class InMemoryMusicRepository implements MusicRepository {
       ];
 
   @override
+  Future<MyPlan> myPlan() async =>
+      const MyPlan(member: false, sheetsThisMonth: 3, sheetsAllowed: 20);
+
+  @override
   Future<void> claimPart(String part) async {
     if (_me.plays.contains(part)) return;
     _me = Musician(
