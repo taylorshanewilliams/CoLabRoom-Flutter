@@ -1534,4 +1534,97 @@ end $$;
 reset role;
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- Songs you can hear on a profile (0069).
+--
+-- The rule worth proving is "owned or played on". An owner-only definition
+-- would leave a session player's profile permanently empty while they played
+-- on twenty records — and they are exactly who Open Mic is for.
+select public.put_on_open_mic('aaaaaaaa-0000-0000-0000-00000000000a');
+
+set local role authenticated;
+
+do $$
+declare
+  mine record;
+begin
+  select * into mine
+  from public.songs_by('11111111-1111-1111-1111-111111111111');
+
+  if mine.id is null then
+    raise exception 'the owner of a song on the Open Mic had nothing on their profile';
+  end if;
+
+  -- Theirs, so no part is named. Naming one would be odd; claiming somebody
+  -- else's song by not naming one would be worse, which is the next check.
+  if array_length(mine.their_parts, 1) is not null
+     and mine.owner_id = '11111111-1111-1111-1111-111111111111'
+     and mine.their_parts <> array['rhythm'] then
+    raise exception 'their own song reported the wrong parts: %', mine.their_parts;
+  end if;
+end $$;
+
+reset role;
+
+-- A song of somebody else's that this person played on, and had heard.
+--
+-- Built from scratch rather than reusing The Other Band: that room's owner
+-- had their account deleted a few blocks up, which is the sort of thing a
+-- scenario this long stops being able to hold in its head.
+insert into public.rooms (id, account_id, name)
+values ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+        '88888888-8888-8888-8888-888888888888', 'Somebody Else''s Band')
+on conflict (id) do nothing;
+
+insert into public.room_members (room_id, user_id, display_name, role) values
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+   '88888888-8888-8888-8888-888888888888', 'Joiner One', 'owner'),
+  ('cccccccc-cccc-cccc-cccc-cccccccccccc', :'writer', 'The Writer', 'editor')
+on conflict (room_id, user_id) do nothing;
+
+insert into public.projects (id, room_id, account_id, title, created_by)
+values ('bbbbbbbb-0000-0000-0000-00000000000b',
+        'cccccccc-cccc-cccc-cccc-cccccccccccc',
+        '88888888-8888-8888-8888-888888888888',
+        'Somebody Else''s Song', '88888888-8888-8888-8888-888888888888')
+on conflict (id) do nothing;
+
+insert into public.song_layers
+  (project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values ('bbbbbbbb-0000-0000-0000-00000000000b', :'writer',
+        'cccccccc-cccc-cccc-cccc-cccccccccccc/bbbbbbbb-0000-0000-0000-00000000000b/layers/bass.m4a',
+        'Bass', 'bass', 30000, now());
+
+update public.projects set open_mic_at = now()
+where id = 'bbbbbbbb-0000-0000-0000-00000000000b';
+
+set local role authenticated;
+
+do $$
+declare
+  found int;
+  played record;
+begin
+  select count(*) into found
+  from public.songs_by('11111111-1111-1111-1111-111111111111');
+  if found < 2 then
+    raise exception 'a song they played on did not appear on their profile (got %)', found;
+  end if;
+
+  select * into played
+  from public.songs_by('11111111-1111-1111-1111-111111111111')
+  where id = 'bbbbbbbb-0000-0000-0000-00000000000b';
+
+  -- Which part, or the profile is claiming the song rather than the work.
+  if played.their_parts <> array['bass'] then
+    raise exception 'their part on somebody else''s song was % rather than bass',
+      played.their_parts;
+  end if;
+  if played.owner_id = '11111111-1111-1111-1111-111111111111' then
+    raise exception 'somebody else''s song was attributed to the wrong owner';
+  end if;
+end $$;
+
+reset role;
+
+
 commit;

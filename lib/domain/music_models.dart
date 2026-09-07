@@ -282,6 +282,7 @@ class OpenMicSong {
     this.musicalKey,
     this.bpm,
     this.askNote = '',
+    this.theirParts = const <String>[],
   });
 
   final String id;
@@ -302,6 +303,11 @@ class OpenMicSong {
 
   /// What the person who put it up said, if they said anything.
   final String askNote;
+
+  /// On a profile: what *that* person played on it. Empty when the song
+  /// is theirs. A profile listing a song without saying they played the
+  /// bass on it would be claiming somebody else's song.
+  final List<String> theirParts;
 
   bool get isAsking => askingFor.isNotEmpty || askNote.trim().isNotEmpty;
 }

@@ -1086,6 +1086,36 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<OpenMicSong>> songsBy(String profileId) async {
+    final rows = await client.rpc<dynamic>(
+      'songs_by',
+      params: <String, dynamic>{'target_profile': profileId},
+    );
+    return <OpenMicSong>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        OpenMicSong(
+          id: (row as Map)['id'] as String,
+          title: row['title'] as String? ?? 'A song',
+          ownerId: row['owner_id'] as String?,
+          ownerName: row['owner_name'] as String? ?? 'Somebody',
+          putUpAt: DateTime.tryParse('${row['open_mic_at']}')?.toLocal() ??
+              DateTime.now(),
+          takeCount: (row['take_count'] as num?)?.toInt() ?? 0,
+          askingFor: <String>[
+            for (final a in (row['asking_for'] as List<dynamic>? ??
+                const <dynamic>[]))
+              '$a',
+          ],
+          theirParts: <String>[
+            for (final a in (row['their_parts'] as List<dynamic>? ??
+                const <dynamic>[]))
+              '$a',
+          ],
+        ),
+    ];
+  }
+
+  @override
   Future<OpenMicSong?> openMicSong(String projectId) async {
     final rows = await client.rpc<dynamic>(
       'open_mic_song',

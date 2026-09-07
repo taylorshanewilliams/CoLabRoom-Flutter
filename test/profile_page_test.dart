@@ -38,6 +38,20 @@ Future<void> _boot(
   }
 }
 
+/// Scrolls until [finder] exists, then returns it.
+///
+/// The profile is a lazy ListView, so a section below the fold is not merely
+/// out of view — it has not been built and is invisible to `find`, and to
+/// anything else looking, including a screen reader. Three assertions in this
+/// file have failed that way; scrolling is what a person does and what a test
+/// has to do too.
+Future<Finder> _reveal(WidgetTester tester, Finder finder) async {
+  if (finder.evaluate().isNotEmpty) return finder;
+  await tester.scrollUntilVisible(finder, 220, maxScrolls: 12);
+  await tester.pump(const Duration(milliseconds: 60));
+  return finder;
+}
+
 void main() {
   testWidgets('somebody else’s page separates the record from the claim',
       (tester) async {
@@ -67,7 +81,7 @@ void main() {
     // write, and the page saying which is which.
     expect(find.text('PLAYED HERE'), findsOneWidget);
     expect(find.text('counted, not claimed'), findsOneWidget);
-    expect(find.text('ALSO PLAYS'), findsOneWidget);
+    expect(await _reveal(tester, find.text('ALSO PLAYS')), findsOneWidget);
     expect(find.text('their own words'), findsOneWidget);
 
     // The count is shown per part rather than as a single score, because
@@ -216,6 +230,44 @@ void main() {
       find.text('Leave it blank if you would rather hear what they think '
           'it needs.'),
       findsOneWidget,
+    );
+  });
+
+  testWidgets('a profile shows songs you can actually play', (tester) async {
+    final repository = InMemoryMusicRepository.seeded();
+    const mara = Musician(
+      id: 'preview-mara',
+      displayName: 'Mara Ellison',
+      plays: <String>['vocal', 'harmony'],
+      partsRecorded: <String, int>{'vocal': 9, 'harmony': 4},
+      songsPlayedOn: 7,
+      peopleWorkedWith: 5,
+    );
+
+    await _boot(
+      tester,
+      MusicianProfileScreen(
+        profileId: mara.id,
+        repository: repository,
+        initial: mara,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+
+    // The half the profile has been missing since the day it was built: a
+    // counted part is evidence, a link is a claim, and a song is the sound —
+    // which is what a musician was trying to judge all along.
+    expect(find.text('LISTEN'), findsOneWidget);
+    expect(find.text('Ladder Of Life'), findsWidgets);
+
+    // Owned and played-on read differently on purpose. Listing somebody
+    // else's song without saying which part you played would be claiming it.
+    expect(find.textContaining('Their song'), findsOneWidget);
+    expect(
+      await _reveal(
+          tester, find.textContaining("Played harmony on Dev Okonjo's song")),
+      findsOneWidget,
+      reason: 'a song they only played on was shown as if it were theirs',
     );
   });
 
