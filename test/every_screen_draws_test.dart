@@ -170,6 +170,17 @@ Future<bool> _back(WidgetTester tester) async {
   return true;
 }
 
+/// Scrolls until [finder] exists, then returns it.
+///
+/// Home is a lazy CustomScrollView: a section below the fold is not built, so
+/// it is invisible to `find` and to anything else looking.
+Future<Finder> _reveal(WidgetTester tester, Finder finder) async {
+  if (finder.evaluate().isNotEmpty) return finder;
+  await tester.scrollUntilVisible(finder, 220, maxScrolls: 12);
+  await _frames(tester);
+  return finder;
+}
+
 void main() {
   // Proves the harness before any of it is believed. If the viewport is not
   // what was asked for, every result below is meaningless — and meaningless
@@ -440,6 +451,32 @@ void main() {
         reason: 'tapping a song did not open it');
     expect(find.text('Offer to play on this'), findsOneWidget,
         reason: 'the song page had no way to answer it');
+  });
+
+  testWidgets('Home shows something happening, or offers the first move',
+      (tester) async {
+    final controller = await _controller();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.3);
+
+    // The app's pulse. Before this, Home reflected you back at yourself —
+    // which for a new account is a blank screen, and on a quiet week is one
+    // for everybody else too.
+    expect(await _reveal(tester, find.text('Happening now')), findsOneWidget);
+    expect(tester.takeException(), isNull, reason: _why('Happening now'));
+
+    // Either there is something, or there is an invitation. Never nothing.
+    // Scrolled to, because the rows sit under the heading and a lazy list
+    // does not build what is off-screen.
+    await _reveal(tester, find.textContaining('asking for'));
+    final somethingUp = find.textContaining('asking for');
+    final invitation = find.text('Nobody is up here yet');
+    expect(
+      somethingUp.evaluate().isNotEmpty || invitation.evaluate().isNotEmpty,
+      isTrue,
+      reason: 'Home had a section with neither content nor an offer in it',
+    );
   });
 
   testWidgets('the app says its own name in full', (tester) async {

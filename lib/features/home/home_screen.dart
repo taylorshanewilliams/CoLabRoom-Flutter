@@ -24,6 +24,7 @@ class HomeScreen extends StatelessWidget {
     required this.onSeeSongs,
     required this.onOpenAccount,
     required this.onOpenNotifications,
+    required this.onOpenMic,
     super.key,
   });
 
@@ -31,6 +32,10 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onSeeSongs;
   final VoidCallback onOpenAccount;
   final VoidCallback onOpenNotifications;
+
+  /// Switches to the Open Mic tab. A tab switch rather than a push:
+  /// pushing would put a second copy of a tab on top of itself.
+  final VoidCallback onOpenMic;
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +45,8 @@ class HomeScreen extends StatelessWidget {
     // then have to open to get at the actual work.
     final recentSongs = allSongsByRecency(controller.rooms).take(4).toList(growable: false);
     final activity = controller.activity.take(6).toList(growable: false);
+    final openSongs = controller.openMicSongs;
+    final openPeople = controller.openMicPeople;
     final recentRooms = (List<MusicRoom>.from(controller.rooms)
           ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt)))
         .take(4)
@@ -331,6 +338,46 @@ class HomeScreen extends StatelessWidget {
             ),
           ),
         ],
+        // Somewhere else is happening.
+        //
+        // Home only ever showed your own activity, which for a new account is
+        // nothing — you signed in and the app waited for you to do something.
+        // These are the two things that can be true before you have done
+        // anything at all: somebody put a song up, and somebody is here to
+        // play on one.
+        //
+        // Always present, including when it is empty, because an empty
+        // section that offers you the first move is worth more than no
+        // section at all. That is the opposite of the rule for "While you
+        // were gone" — a band that has not played this week should not be
+        // told so, but a room nobody has walked into yet should say come in.
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(18, 28, 18, 10),
+          sliver: SliverToBoxAdapter(
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text('Happening now',
+                      style: Theme.of(context).textTheme.titleLarge),
+                ),
+                TextButton(
+                  onPressed: onOpenMic,
+                  child: const Text('Open Mic  ›'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
+          sliver: SliverToBoxAdapter(
+            child: _HappeningNow(
+              songs: openSongs,
+              people: openPeople,
+              onOpenMic: onOpenMic,
+            ),
+          ),
+        ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(18, 28, 18, 12),
           sliver: SliverToBoxAdapter(
@@ -551,6 +598,205 @@ class _RecentSongRow extends StatelessWidget {
             const Icon(Icons.chevron_right_rounded, color: AppColors.muted, size: 19),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A slice of the Open Mic, on Home.
+///
+/// The app's pulse. Before this, signing in showed you your own activity and
+/// nothing else — so a new account saw a blank screen and a returning one saw
+/// whatever their band had done, which on a quiet week is also nothing. An
+/// app that only reflects you back at yourself has no reason to be opened on
+/// a day you have nothing to add.
+///
+/// **It does not pretend.** With a handful of users this is quiet, and quiet
+/// is what it should look like. A shelf of invented activity would be found
+/// out in about a minute and would cost more trust than the empty space it
+/// covered up.
+class _HappeningNow extends StatelessWidget {
+  const _HappeningNow({
+    required this.songs,
+    required this.people,
+    required this.onOpenMic,
+  });
+
+  final List<OpenMicSong> songs;
+  final List<Musician> people;
+  final VoidCallback onOpenMic;
+
+  @override
+  Widget build(BuildContext context) {
+    if (songs.isEmpty && people.isEmpty) {
+      return _NothingYet(onOpenMic: onOpenMic);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        for (final song in songs)
+          _PulseRow(
+            leading: const Icon(Icons.play_circle_outline_rounded,
+                color: AppColors.cyan, size: 20),
+            title: song.title,
+            // What it wants, not what it is. A title alone gives somebody
+            // nothing to act on; "asking for bass" is a job they can take.
+            subtitle: song.isAsking
+                ? (song.askingFor.isEmpty
+                    ? '${song.ownerName} · asking for help'
+                    : '${song.ownerName} · asking for ${song.askingFor.join(", ")}')
+                : '${song.ownerName} · ${song.takeCount} to hear',
+            highlight: song.isAsking,
+            onTap: onOpenMic,
+          ),
+        for (final person in people)
+          _PulseRow(
+            leading: PlayerFace(name: person.displayName, size: 22),
+            title: person.displayName,
+            subtitle: person.plays.isEmpty
+                ? 'is on the Open Mic'
+                : 'plays ${person.plays.join(", ")}',
+            highlight: false,
+            onTap: onOpenMic,
+          ),
+      ],
+    );
+  }
+}
+
+class _PulseRow extends StatelessWidget {
+  const _PulseRow({
+    required this.leading,
+    required this.title,
+    required this.subtitle,
+    required this.highlight,
+    required this.onTap,
+  });
+
+  final Widget leading;
+  final String title;
+  final String subtitle;
+  final bool highlight;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: AppColors.raised,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(
+            color: highlight
+                ? AppColors.cyan.withValues(alpha: 0.45)
+                : AppColors.line,
+          ),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(13, 11, 12, 11),
+            child: Row(
+              children: <Widget>[
+                leading,
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: highlight ? AppColors.cyan : AppColors.muted,
+                          fontSize: 11.5,
+                          fontWeight:
+                              highlight ? FontWeight.w700 : FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded,
+                    size: 18, color: AppColors.muted),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The empty state that offers instead of explaining.
+///
+/// The old one said nobody was here and gave three sentences on why. Accurate,
+/// and it left somebody exactly where they found them. An empty screen is the
+/// best place in the whole app to ask for the one thing you want, because
+/// nothing is competing for the attention.
+class _NothingYet extends StatelessWidget {
+  const _NothingYet({required this.onOpenMic});
+
+  final VoidCallback onOpenMic;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 15),
+      decoration: BoxDecoration(
+        color: AppColors.raised,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.cyan.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            'Nobody is up here yet',
+            style: TextStyle(
+              color: AppColors.text,
+              fontSize: 15.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            'The Open Mic is where songs go to find the person who can play '
+            'the part they are missing. Put one up, or list yourself and let '
+            'somebody find you.',
+            style: TextStyle(
+                color: AppColors.muted, fontSize: 13, height: 1.45),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton(
+              onPressed: onOpenMic,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.cyan,
+                foregroundColor: AppColors.ink,
+                visualDensity: VisualDensity.compact,
+                textStyle: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w800),
+              ),
+              child: const Text('Go to the Open Mic'),
+            ),
+          ),
+        ],
       ),
     );
   }
