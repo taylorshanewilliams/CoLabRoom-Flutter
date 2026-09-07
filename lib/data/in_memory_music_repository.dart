@@ -1121,6 +1121,23 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> recordPlay(String projectId) async {}
+
+  @override
+  Future<List<OpenMicStatus>> myOpenMic() async => <OpenMicStatus>[
+        OpenMicStatus(
+          id: 'preview-open-1',
+          title: 'Ladder Of Life',
+          putUpAt: DateTime.now().subtract(const Duration(days: 3)),
+          listeners: 12,
+          listenersThisWeek: 4,
+          offers: 1,
+          askingFor: const <String>['bass'],
+          storagePath: 'preview/ladder.m4a',
+        ),
+      ];
+
+  @override
   Future<void> claimPart(String part) async {
     if (_me.plays.contains(part)) return;
     _me = Musician(

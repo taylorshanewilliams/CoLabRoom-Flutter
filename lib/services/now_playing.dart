@@ -71,6 +71,23 @@ class NowPlaying extends ChangeNotifier {
   /// whoever is driving a session; cleared when they leave.
   VoidCallback? onFinished;
 
+  /// Called once per song when somebody has actually listened to it.
+  ///
+  /// Set once, at startup, by whatever can reach the repository. The player
+  /// knows when a song has been playing and for how long; it has no business
+  /// knowing how a listen is recorded.
+  void Function(String songId)? onListened;
+
+  /// How much of a song counts as having listened to it.
+  ///
+  /// Somebody who skips after two seconds did not listen, and counting them
+  /// would make the number reassuring and useless.
+  static const Duration listenedAfter = Duration(seconds: 10);
+
+  /// The song already counted, so a track playing for four minutes reports
+  /// once rather than every position update.
+  String? _counted;
+
   /// Whether [storagePath] is the one currently loaded.
   bool isCurrent(String storagePath) =>
       _path != null && _path == storagePath && storagePath.isNotEmpty;
@@ -87,6 +104,13 @@ class NowPlaying extends ChangeNotifier {
     _wired = true;
     _positions = _player.onPositionChanged.listen((where) {
       _position = where;
+      final song = _songId;
+      if (song != null &&
+          _counted != song &&
+          where >= listenedAfter) {
+        _counted = song;
+        onListened?.call(song);
+      }
       notifyListeners();
     });
     _completions = _player.onPlayerComplete.listen((_) {
@@ -144,6 +168,8 @@ class NowPlaying extends ChangeNotifier {
     _title = title;
     _byline = byline;
     _songId = songId;
+    // A new song has not been listened to yet, whatever the last one did.
+    _counted = null;
     _position = Duration.zero;
     _length = knownLength;
     _playing = false;
@@ -208,6 +234,7 @@ class NowPlaying extends ChangeNotifier {
     _title = '';
     _byline = '';
     _songId = null;
+    _counted = null;
     _playing = false;
     _loading = false;
     _position = Duration.zero;

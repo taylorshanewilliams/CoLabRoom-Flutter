@@ -13,6 +13,7 @@ import '../openmic/open_mic_song_screen.dart';
 import '../songs/songs_screen.dart';
 import '../workspace/song_analysis_screen.dart';
 import '../../services/current_route.dart';
+import '../../services/now_playing.dart';
 import '../../widgets/now_playing_bar.dart';
 import '../../services/user_facing_error.dart';
 
@@ -49,6 +50,18 @@ class _AppShellState extends State<AppShell> {
     if (kIsWeb && Uri.base.queryParameters['deleteAccount'] == '1') {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openAccount());
     }
+    // Where a listen gets recorded.
+    //
+    // The player knows a song has been playing and for how long; it has no
+    // business knowing how a listen is written down, and nothing else in the
+    // app is both long-lived and able to reach the repository.
+    NowPlaying.instance.onListened = (songId) {
+      if (!mounted) return;
+      unawaited(
+        BetaScope.of(context, listen: false).repository.recordPlay(songId),
+      );
+    };
+
     _screens = <Widget>[
       SongsScreen(
         displayName: widget.displayName,

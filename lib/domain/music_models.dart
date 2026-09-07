@@ -1058,3 +1058,38 @@ enum NoticedKind {
   /// They have shared music and never said what it sounds like.
   soundsLike,
 }
+
+
+/// One of your songs out on the Open Mic, and what has come back.
+///
+/// A song went up and nothing ever came back — no count, no signal, no
+/// reason to look again. Putting something up felt like dropping it down a
+/// well, and the second time was harder than the first.
+class OpenMicStatus {
+  const OpenMicStatus({
+    required this.id,
+    required this.title,
+    required this.putUpAt,
+    this.listeners = 0,
+    this.listenersThisWeek = 0,
+    this.offers = 0,
+    this.askingFor = const <String>[],
+    this.storagePath = '',
+  });
+
+  final String id;
+  final String title;
+  final DateTime putUpAt;
+
+  /// People, not plays. Somebody who played it eleven times on Tuesday is
+  /// one person who heard it.
+  final int listeners;
+  final int listenersThisWeek;
+
+  /// Somebody putting their hand up, which is the thing that actually
+  /// matters — a listen is interest and an offer is a person.
+  final int offers;
+
+  final List<String> askingFor;
+  final String storagePath;
+}

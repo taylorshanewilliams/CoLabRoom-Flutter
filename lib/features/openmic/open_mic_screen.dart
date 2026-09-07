@@ -13,6 +13,7 @@ import '../../widgets/play_button.dart';
 import 'listen_screen.dart';
 import 'musician_profile_screen.dart';
 import 'open_mic_song_screen.dart';
+import 'out_there.dart';
 
 /// Open Mic — where you meet somebody you have not met.
 ///
@@ -77,6 +78,10 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   final Set<String> _wanted = <String>{};
   final TextEditingController _city = TextEditingController();
   List<Musician>? _found;
+
+  /// Your own songs out on the Open Mic. Loaded once, beside the first
+  /// search, because it does not change while somebody is filtering.
+  List<OpenMicStatus> _mine = const <OpenMicStatus>[];
   List<OpenMicSong>? _songs;
   String? _error;
   bool _busy = false;
@@ -85,12 +90,23 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   void initState() {
     super.initState();
     unawaited(_search());
+    unawaited(_loadMine());
   }
 
   @override
   void dispose() {
     _city.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadMine() async {
+    try {
+      final mine = await widget.repository.myOpenMic();
+      if (mounted) setState(() => _mine = mine);
+    } catch (_) {
+      // The strip is news about your own songs. Failing to fetch it is not
+      // a reason to put an error across a screen somebody came to browse.
+    }
   }
 
   Future<void> _search() async {
@@ -212,6 +228,20 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
             onOpenAccount: widget.onOpenAccount!,
             onOpenNotifications: widget.onOpenNotifications!,
           ),
+        // Above the filters, because it is about you rather than about the
+        // room, and somebody opening this tab wants to know what came back
+        // before they start looking outward again.
+        OutThere(
+          mine: _mine,
+          onOpen: (song) => unawaited(_openSong(OpenMicSong(
+            id: song.id,
+            title: song.title,
+            ownerName: '',
+            putUpAt: song.putUpAt,
+            askingFor: song.askingFor,
+            storagePath: song.storagePath,
+          ))),
+        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 2),
           child: Row(
