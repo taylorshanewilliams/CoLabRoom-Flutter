@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
+import '../../domain/musical_roles.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../services/push_registration.dart';
@@ -366,16 +367,14 @@ class _AskSheet extends StatelessWidget {
   final Set<String> alreadyAsked;
   final bool openAskStanding;
 
-  static const List<String> _parts = <String>[
-    'vocals',
-    'harmony',
-    'drums',
-    'bass',
-    'guitar',
-    'keys',
-    'a bridge',
-    'lyrics',
-  ];
+  /// The one list, and a bug fixed by using it.
+  ///
+  /// This was its own vocabulary — 'vocals', 'guitar', 'a bridge' — and none
+  /// of those are the words the rest of the app stores. An ask made from this
+  /// bar could never be matched by the Open Mic's filter, because the filter
+  /// looks for 'vocal' and this wrote 'vocals'. Nobody would have seen that
+  /// happen; the ask simply never reached anybody.
+  static List<MusicalRole> get _parts => MusicalRole.offered;
 
   @override
   Widget build(BuildContext context) {
@@ -437,9 +436,9 @@ class _AskSheet extends StatelessWidget {
               runSpacing: 8,
               children: <Widget>[
                 for (final part in _parts)
-                  if (!alreadyAsked.contains(part.toLowerCase()))
+                  if (!alreadyAsked.contains(part.value))
                     OutlinedButton(
-                      onPressed: () => Navigator.pop(context, part),
+                      onPressed: () => Navigator.pop(context, part.value),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.gold,
                         side: BorderSide(
@@ -451,7 +450,7 @@ class _AskSheet extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      child: Text(part),
+                      child: Text(part.label),
                     ),
               ],
             ),

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
+import '../../domain/musical_roles.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/app_top_bar.dart';
@@ -55,17 +56,12 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   /// spoken since it existed. Roles rather than only instruments, because
   /// "lead guitar" and "rhythm guitar" are different jobs and a musician
   /// looking for one is not looking for the other.
-  static const List<({String part, String label, IconData icon})> _parts =
-      <({String part, String label, IconData icon})>[
-        (part: 'vocal', label: 'Singer', icon: Icons.mic_rounded),
-        (part: 'harmony', label: 'Harmony', icon: Icons.groups_rounded),
-        (part: 'lead', label: 'Lead', icon: Icons.electric_bolt_rounded),
-        (part: 'rhythm', label: 'Rhythm', icon: Icons.music_note_rounded),
-        (part: 'bass', label: 'Bass', icon: Icons.waves_rounded),
-        (part: 'drums', label: 'Drums', icon: Icons.album_rounded),
-        (part: 'keys', label: 'Keys', icon: Icons.piano_rounded),
-        (part: 'percussion', label: 'Percussion', icon: Icons.grain_rounded),
-      ];
+  /// Every role somebody can be asked for, from the one list.
+  ///
+  /// This was eight hard-coded instruments — a rock band — so a rapper, a
+  /// beat maker, a lyricist and somebody who only mixes had no way to say
+  /// what they do and no way to be found for it. See MusicalRole.
+  static List<MusicalRole> get _parts => MusicalRole.offered;
 
   /// People or songs. Two things are on an open mic — who is here, and
   /// what is being played — and this screen only knew about the first.
@@ -337,8 +333,8 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
               return _PartChip(
                 label: entry.label,
                 icon: entry.icon,
-                selected: _wanted.contains(entry.part),
-                onTap: _busy ? null : () => _choose(entry.part),
+                selected: _wanted.contains(entry.value),
+                onTap: _busy ? null : () => _choose(entry.value),
               );
             },
           ),
@@ -407,12 +403,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     );
   }
 
-  static String _labelFor(String part) {
-    for (final entry in _parts) {
-      if (entry.part == part) return entry.label;
-    }
-    return part;
-  }
+  static String _labelFor(String part) => MusicalRole.labelFor(part);
 }
 
 /// The songs half of the Open Mic.
