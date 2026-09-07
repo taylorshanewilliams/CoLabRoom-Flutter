@@ -287,6 +287,7 @@ class FeedTrack {
     this.musicalKey,
     this.bpm,
     this.durationMs,
+    this.reason = '',
   });
 
   final String id;
@@ -295,6 +296,14 @@ class FeedTrack {
   final String ownerName;
   final String? ownerAvatarPath;
   final DateTime putUpAt;
+
+  /// Why the feed put this in front of you, in its own words — "Needs a
+  /// bass", "You have played together", "Nothing like what you play".
+  ///
+  /// Shown on the card. An ordering that quietly decides for somebody is one
+  /// they can neither trust nor argue with, and the wildcards in particular
+  /// read as noise until the screen admits that is what they are.
+  final String reason;
 
   /// Where the audio is. Turned into a signed URL by StreamingAudio, in a
   /// batch with the rest of the page.
@@ -335,13 +344,29 @@ class OpenMicSong {
     this.bpm,
     this.askNote = '',
     this.theirParts = const <String>[],
+    this.storagePath = '',
+    this.durationMs,
+    this.ownerAvatarPath,
   });
 
   final String id;
   final String title;
   final String? ownerId;
   final String ownerName;
+  final String? ownerAvatarPath;
   final DateTime putUpAt;
+
+  /// Where the audio is, or empty when this song has none.
+  ///
+  /// The reference recording, or failing that the earliest take the room has
+  /// heard — decided in one place by private.song_audio, never here. Empty
+  /// is a real answer and means the row draws without a play button rather
+  /// than with one that does nothing.
+  final String storagePath;
+
+  final int? durationMs;
+
+  bool get canPlay => storagePath.isNotEmpty;
 
   /// Shared takes only. A private draft is not part of what a stranger hears.
   final int takeCount;

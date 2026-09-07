@@ -1,14 +1,13 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
-import '../../services/streaming_audio.dart';
+import '../../services/now_playing.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/player_face.dart';
 import 'ask_musician_sheet.dart';
@@ -46,38 +45,43 @@ class ListenScreen extends StatefulWidget {
 
 class _ListenScreenState extends State<ListenScreen> {
   final PageController _pages = PageController();
-  final AudioPlayer _player = AudioPlayer();
-  final StreamingAudio _streams = StreamingAudio();
+
+  /// The app's one player, not a second one.
+  ///
+  /// This screen had its own, which was fine while it was the only thing
+  /// that could make a sound. Now that every list has a play button, a
+  /// private player here would mean a row still playing underneath the
+  /// stage — two songs at once, and no way for either to know.
+  final NowPlaying _now = NowPlaying.instance;
 
   List<FeedTrack> _tracks = const <FeedTrack>[];
-  Map<String, String> _urls = const <String, String>{};
   int _index = 0;
   bool _loading = true;
   String? _error;
-
-  StreamSubscription<Duration>? _position;
-  StreamSubscription<void>? _completed;
-  Duration _played = Duration.zero;
 
   @override
   void initState() {
     super.initState();
     CurrentRoute.enter('Listen');
-    _position = _player.onPositionChanged.listen((where) {
-      if (mounted) setState(() => _played = where);
-    });
+    _now.addListener(_onPlayerChanged);
     // On to the next one rather than silence. Somebody who let a song finish
     // has said they liked it enough to hear all of it, and stopping there
     // would end the session at exactly the wrong moment.
-    _completed = _player.onPlayerComplete.listen((_) => _next());
+    _now.onFinished = _next;
     unawaited(_load());
+  }
+
+  void _onPlayerChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    unawaited(_position?.cancel());
-    unawaited(_completed?.cancel());
-    unawaited(_player.dispose());
+    _now.removeListener(_onPlayerChanged);
+    // Only if it is still ours. Leaving the stage should stop the music, but
+    // not if something else has already taken the player over.
+    if (_now.onFinished == _next) _now.onFinished = null;
+    unawaited(_now.stop());
     _pages.dispose();
     super.dispose();
   }
@@ -88,13 +92,12 @@ class _ListenScreenState extends State<ListenScreen> {
           await widget.repository.openMicFeed(limit: 12, part: widget.part);
       // The whole page signed at once. Twelve requests instead of one is the
       // difference between a swipe that plays and a swipe that waits.
-      final urls = await _streams.urlsFor(
+      await _now.streams.urlsFor(
         tracks.map((t) => t.storagePath).where((p) => p.isNotEmpty),
       );
       if (!mounted) return;
       setState(() {
         _tracks = tracks;
-        _urls = urls;
         _loading = false;
       });
       if (tracks.isNotEmpty) unawaited(_playAt(0));
@@ -114,16 +117,14 @@ class _ListenScreenState extends State<ListenScreen> {
 
   Future<void> _playAt(int index) async {
     if (index < 0 || index >= _tracks.length) return;
-    final url = _urls[_tracks[index].storagePath];
-    setState(() => _played = Duration.zero);
-    await _player.stop();
-    if (url == null) return;
-    try {
-      await _player.play(UrlSource(url));
-    } catch (_) {
-      // A track that will not play is a track to swipe past, not a screen to
-      // take down. The next one is a gesture away.
-    }
+    final track = _tracks[index];
+    if (track.storagePath.isEmpty) return;
+    await _now.play(
+      track.storagePath,
+      knownLength: track.durationMs != null
+          ? Duration(milliseconds: track.durationMs!)
+          : null,
+    );
   }
 
   void _next() {
@@ -144,7 +145,7 @@ class _ListenScreenState extends State<ListenScreen> {
     final me =
         await widget.repository.loadMusician(widget.repository.currentUserId);
     if (!mounted || me == null) return;
-    await _player.pause();
+    await _now.pause();
     if (!mounted) return;
     final sent = await showModalBottomSheet<bool>(
       context: context,
@@ -166,11 +167,11 @@ class _ListenScreenState extends State<ListenScreen> {
           content: Text('Sent. ${track.ownerName} will hear about it.'),
         ));
     }
-    await _player.resume();
+    await _now.resume();
   }
 
   Future<void> _report(FeedTrack track) async {
-    await _player.pause();
+    await _now.pause();
     if (!mounted) return;
     final sent = await showReportSheet(
       context,
@@ -187,7 +188,7 @@ class _ListenScreenState extends State<ListenScreen> {
           content: Text('Report sent. Thank you — somebody reads every one.'),
         ));
     }
-    await _player.resume();
+    await _now.resume();
   }
 
   @override
@@ -208,8 +209,11 @@ class _ListenScreenState extends State<ListenScreen> {
                         itemCount: _tracks.length,
                         itemBuilder: (context, i) => _TrackPage(
                           track: _tracks[i],
-                          playing: i == _index,
-                          played: i == _index ? _played : Duration.zero,
+                          playing: i == _index && _now.playing,
+                          played: i == _index ? _now.position : Duration.zero,
+                          onPlayPause: () => unawaited(
+                            _now.toggle(_tracks[i].storagePath),
+                          ),
                           onOffer: () => unawaited(_offer(_tracks[i])),
                           onReport: () => unawaited(_report(_tracks[i])),
                         ),
@@ -249,6 +253,7 @@ class _TrackPage extends StatelessWidget {
     required this.track,
     required this.playing,
     required this.played,
+    required this.onPlayPause,
     required this.onOffer,
     required this.onReport,
   });
@@ -256,6 +261,7 @@ class _TrackPage extends StatelessWidget {
   final FeedTrack track;
   final bool playing;
   final Duration played;
+  final VoidCallback onPlayPause;
   final VoidCallback onOffer;
   final VoidCallback onReport;
 
@@ -272,10 +278,41 @@ class _TrackPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           const Spacer(),
+          // Why this one reached you, before anything else on the card.
+          //
+          // A feed that orders itself and does not say so is one nobody can
+          // trust or argue with — and the wildcards especially read as
+          // random until the screen admits that is exactly what they are.
+          if (track.reason.isNotEmpty) ...<Widget>[
+            Text(
+              track.reason.toUpperCase(),
+              style: TextStyle(
+                color: track.reason.startsWith('Needs')
+                    ? AppColors.cyan
+                    : AppColors.muted,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
           // The only moving thing on the screen, and it moves because the
           // song is playing. A still page with audio coming out of it feels
           // broken in a way that is hard to name and easy to notice.
-          _Bars(progress: progress, alive: playing),
+          //
+          // Tapping it stops and starts. The gesture everybody already tries
+          // on a waveform, and without it the screen has no pause at all —
+          // you could only silence a song by swiping away from it.
+          Semantics(
+            button: true,
+            label: playing ? 'Pause' : 'Play',
+            child: GestureDetector(
+              onTap: onPlayPause,
+              behavior: HitTestBehavior.opaque,
+              child: _Bars(progress: progress, alive: playing),
+            ),
+          ),
           const SizedBox(height: 34),
           Text(
             track.title,

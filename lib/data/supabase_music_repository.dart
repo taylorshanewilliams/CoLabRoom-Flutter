@@ -1089,6 +1089,9 @@ class SupabaseMusicRepository implements MusicRepository {
                 const <dynamic>[]))
               '$p',
           ],
+          storagePath: row['storage_path'] as String? ?? '',
+          durationMs: (row['duration_ms'] as num?)?.toInt(),
+          ownerAvatarPath: row['owner_avatar'] as String?,
         ),
     ];
   }
@@ -1119,23 +1122,18 @@ class SupabaseMusicRepository implements MusicRepository {
                 const <dynamic>[]))
               '$a',
           ],
+          storagePath: row['storage_path'] as String? ?? '',
+          durationMs: (row['duration_ms'] as num?)?.toInt(),
+          ownerAvatarPath: row['owner_avatar'] as String?,
         ),
     ];
   }
 
   @override
-  Future<List<FeedTrack>> openMicFeed({
-    DateTime? after,
-    int limit = 12,
-    String? part,
-  }) async {
+  Future<List<FeedTrack>> openMicFeed({int limit = 12, String? part}) async {
     final rows = await client.rpc<dynamic>(
       'open_mic_feed',
-      params: <String, dynamic>{
-        'in_after': after?.toUtc().toIso8601String(),
-        'in_limit': limit,
-        'in_part': part,
-      },
+      params: <String, dynamic>{'in_limit': limit, 'in_part': part},
     );
     return <FeedTrack>[
       for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
@@ -1157,6 +1155,7 @@ class SupabaseMusicRepository implements MusicRepository {
           musicalKey: row['musical_key'] as String?,
           bpm: (row['bpm'] as num?)?.toDouble(),
           durationMs: (row['duration_ms'] as num?)?.toInt(),
+          reason: row['reason'] as String? ?? '',
         ),
     ];
   }
@@ -1185,6 +1184,9 @@ class SupabaseMusicRepository implements MusicRepository {
       musicalKey: row['musical_key'] as String?,
       bpm: (row['bpm'] as num?)?.toDouble(),
       askNote: row['ask_note'] as String? ?? '',
+      storagePath: row['storage_path'] as String? ?? '',
+      durationMs: (row['duration_ms'] as num?)?.toInt(),
+      ownerAvatarPath: row['owner_avatar'] as String?,
     );
   }
 

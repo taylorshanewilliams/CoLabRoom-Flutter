@@ -12,6 +12,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
+import '../../services/now_playing.dart';
 import '../../services/push_registration.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/audio_privacy_note.dart';
@@ -163,6 +164,7 @@ class _AccountScreenState extends State<AccountScreen> {
       if (client == null) return;
       await client.rpc<void>('delete_my_account');
       await PushRegistration.forget();
+      await NowPlaying.instance.forget();
       await client.auth.signOut();
     } on PostgrestException catch (error) {
       if (context.mounted) {
@@ -211,6 +213,11 @@ class _AccountScreenState extends State<AccountScreen> {
     final client = widget.supabase;
     if (client == null) return;
     await PushRegistration.forget();
+    // The music stops, and the signed URLs go with it. A signed URL is a
+    // credential that outlives the session that made it — it keeps working
+    // for two hours after somebody hands the phone back, and it is the one
+    // piece of the previous account still reachable once the token is gone.
+    await NowPlaying.instance.forget();
     await client.auth.signOut();
   }
 
