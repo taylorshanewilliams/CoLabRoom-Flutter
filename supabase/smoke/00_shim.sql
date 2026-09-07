@@ -76,6 +76,13 @@ create table if not exists storage.buckets (
   id text primary key,
   name text not null,
   public boolean not null default false,
+  -- The two Supabase columns a migration can actually set, and the reason
+  -- this shim grew them: 0077 puts a size cap and a type list on the buckets
+  -- that take uploads, and a shim without the columns fails a migration that
+  -- works perfectly in production — which is the shim reporting on itself
+  -- rather than on the schema.
+  file_size_limit bigint,
+  allowed_mime_types text[],
   created_at timestamptz not null default now()
 );
 

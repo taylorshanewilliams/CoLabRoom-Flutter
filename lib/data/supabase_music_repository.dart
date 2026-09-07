@@ -1318,6 +1318,7 @@ class SupabaseMusicRepository implements MusicRepository {
     String? projectId,
     String? layerId,
     String? linkId,
+    String? roomId,
   }) async {
     await client.rpc<dynamic>(
       'report_content',
@@ -1329,6 +1330,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'in_project': projectId,
         'in_layer': layerId,
         'in_link': linkId,
+        'in_room': roomId,
       },
     );
   }

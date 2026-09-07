@@ -1019,6 +1019,7 @@ class InMemoryMusicRepository implements MusicRepository {
     String? projectId,
     String? layerId,
     String? linkId,
+    String? roomId,
   }) async {}
 
   @override
