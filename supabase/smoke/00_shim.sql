@@ -95,6 +95,33 @@ create table if not exists storage.objects (
   created_at timestamptz not null default now()
 );
 
+-- Supabase refuses direct deletes from this table, and so does this.
+--
+-- Two functions shipped with a `delete from storage.objects` in them and
+-- neither could ever have worked: the real database raises 42501 and tells
+-- you to use the Storage API. Both passed here, against a plain table with
+-- nothing guarding it — the shim proving that a forbidden delete works in a
+-- database where it is allowed.
+--
+-- One of the two was the moderation takedown, whose entire purpose is to
+-- remove something. This trigger is the reason that cannot happen twice.
+create or replace function storage.protect_delete()
+returns trigger
+language plpgsql
+as $shim$
+begin
+  raise exception
+    'Direct deletion from storage tables is not allowed. Use the Storage API instead.'
+    using errcode = '42501',
+          hint = 'This prevents accidental data loss from orphaned objects.';
+end;
+$shim$;
+
+drop trigger if exists protect_delete on storage.objects;
+create trigger protect_delete
+before delete on storage.objects
+for each row execute function storage.protect_delete();
+
 alter table storage.objects enable row level security;
 
 -- The folder parts of an object path, i.e. everything before the filename.
