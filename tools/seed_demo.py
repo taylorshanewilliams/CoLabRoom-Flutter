@@ -383,10 +383,17 @@ on conflict (id) do nothing;
     # ---- audio, then the takes that point at it ----
     print(f"Uploading {len(songs)} clips…")
     layer_values = []
+    failed = 0
     for index, song in enumerate(songs):
         path = f"{song['room']}/{song['id']}/layers/{uuid.uuid4()}.m4a"
         if not upload(project_ref, service_key, "room-files", path,
                       clips[song["clip"]], "audio/mp4"):
+            failed += 1
+            # Report a few, then stop shouting. The exit below is the part
+            # that matters.
+            if failed > 3:
+                print(f"  … and {len(songs) - index - 1} more not attempted")
+                break
             continue
         layer_values.append(
             f"({quote(song['id'])}::uuid, {quote(song['owner'])}::uuid, "
@@ -394,6 +401,22 @@ on conflict (id) do nothing;
         )
         if (index + 1) % 25 == 0:
             print(f"  {index + 1}/{len(songs)}")
+
+    # Loudly, and before anything else is written.
+    #
+    # The first run of this tool uploaded nothing — every request refused —
+    # and then printed "Done. 10 people, 20 songs, 11 on the Open Mic". All
+    # three numbers were true and the feed was empty, because a song with no
+    # audio is filtered out of it. A seeding tool that reports success while
+    # producing a silent room is worse than one that fails.
+    if failed:
+        print(
+            f"\nFAIL: {failed} uploads were refused, so those songs would "
+            "have no audio and would never reach the feed."
+        )
+        print("Nothing further was written. Remove the partial seed with:")
+        print("  python tools/seed_demo.py --purge")
+        return 1
 
     if layer_values:
         sql(project_ref, token, f"""
@@ -441,6 +464,19 @@ select
             f"\nDone. {row['people']} people, {row['songs']} songs, "
             f"{row['on_open_mic']} on the Open Mic."
         )
+    # The only number that proves any of it worked.
+    #
+    # open_mic_feed drops every song with nothing to play, so it is the one
+    # query that comes back wrong when the audio did not land — which is
+    # exactly how this tool went wrong the first time it ran.
+    feed = sql(project_ref, token,
+               "select count(*) as found from public.open_mic_feed(24, null);")
+    reachable = feed[0]["found"] if feed else 0
+    print(f"The feed returns {reachable} songs.")
+    if reachable == 0:
+        print("FAIL: the feed is empty, so nothing seeded is actually audible.")
+        return 1
+
     print("Remove it all with:  python tools/seed_demo.py --purge")
     return 0
 
