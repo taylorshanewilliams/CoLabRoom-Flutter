@@ -589,6 +589,7 @@ class Musician {
     this.locationVisibility,
     this.soundsLike = const <String>[],
     this.sharedSounds = const <String>[],
+    this.isDemo = false,
   });
 
   final String id;
@@ -608,6 +609,14 @@ class Musician {
   /// The tags you and they both wrote down. Empty when nothing overlaps, or
   /// when this came from somewhere that does not compute it.
   final List<String> sharedSounds;
+
+  /// Seeded for testing, never a person.
+  ///
+  /// Drawn wherever this account appears. The whole point of having a crowd
+  /// to test against is that the machinery gets exercised; the point of
+  /// saying so is that nobody — a real user, or a reviewer — is ever left
+  /// thinking an invented account is somebody they could work with.
+  final bool isDemo;
 
   /// Only ever present when its owner chose to publish it. A city they shared
   /// with collaborators only never arrives here, even for somebody entitled
