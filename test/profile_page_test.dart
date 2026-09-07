@@ -114,7 +114,7 @@ void main() {
 
     // Said out loud because tapping one leaves the app. A row that showed only
     // a title would be a link to an unnamed destination under somebody's name.
-    expect(find.text('Spotify'), findsOneWidget);
+    expect(await _reveal(tester, find.text('Spotify')), findsOneWidget);
     expect(find.text('Ladder Of Life'), findsOneWidget);
     expect(find.text('linked, not hosted'), findsOneWidget);
 
@@ -257,7 +257,7 @@ void main() {
     // The half the profile has been missing since the day it was built: a
     // counted part is evidence, a link is a claim, and a song is the sound —
     // which is what a musician was trying to judge all along.
-    expect(find.text('LISTEN'), findsOneWidget);
+    expect(await _reveal(tester, find.text('LISTEN')), findsOneWidget);
     expect(find.text('Ladder Of Life'), findsWidgets);
 
     // Owned and played-on read differently on purpose. Listing somebody

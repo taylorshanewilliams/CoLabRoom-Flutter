@@ -1479,6 +1479,29 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<({String roomId, String projectId})> startSomethingWith(
+    String profileId, {
+    String note = '',
+  }) async {
+    final rows = await client.rpc<dynamic>(
+      'start_something_with',
+      params: <String, dynamic>{
+        'target_profile': profileId,
+        'in_note': note,
+      },
+    );
+    final list = rows as List<dynamic>? ?? const <dynamic>[];
+    if (list.isEmpty) {
+      throw StateError('That room could not be started.');
+    }
+    final row = list.first as Map;
+    return (
+      roomId: row['made_room'] as String,
+      projectId: row['made_song'] as String,
+    );
+  }
+
+  @override
   Future<void> claimPart(String part) async {
     await client.rpc<dynamic>(
       'claim_part',
@@ -1551,6 +1574,10 @@ class SupabaseMusicRepository implements MusicRepository {
           '$t',
       ],
       isDemo: row['is_demo'] as bool? ?? false,
+      heardSongId: row['heard_song'] as String?,
+      heardTitle: row['heard_title'] as String?,
+      heardPath: row['heard_path'] as String? ?? '',
+      heardDurationMs: (row['heard_duration'] as num?)?.toInt(),
       matchedParts: <String>[
         for (final p
             in (row['matched_parts'] as List<dynamic>? ?? const <dynamic>[]))

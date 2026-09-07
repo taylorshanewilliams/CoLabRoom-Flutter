@@ -1111,6 +1111,16 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<({String roomId, String projectId})> startSomethingWith(
+    String profileId, {
+    String note = '',
+  }) async {
+    final room = await createRoom(name: 'Something new', icon: '✨');
+    final song = await createSong(room: room, title: 'Something with them');
+    return (roomId: room.id, projectId: song.id);
+  }
+
+  @override
   Future<void> claimPart(String part) async {
     if (_me.plays.contains(part)) return;
     _me = Musician(

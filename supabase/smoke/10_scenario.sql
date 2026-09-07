@@ -2223,6 +2223,83 @@ end $$;
 
 reset role;
 
+-- Hear them, and start something (0085).
+--
+-- Two properties. A card must be able to play something of theirs, and
+-- starting something must invite rather than add — every other door in this
+-- app waits for a yes and this one is not an exception.
+--
+-- Joiner Two, not the bandmate: this file deletes the bandmate's account
+-- eight hundred lines earlier to prove account deletion works, and a test
+-- that starts something with a deleted person tests the error path.
+do $$
+declare
+  -- Plain variables rather than a record. `made.room_id` beside an
+  -- unqualified `room_id` column makes plpgsql call the reference ambiguous,
+  -- and every table here has a column by that name.
+  new_room uuid;
+  new_project uuid;
+  members bigint;
+  invited bigint;
+  songs bigint;
+begin
+  select s.made_room, s.made_song into new_room, new_project
+  from public.start_something_with('99999999-9999-9999-9999-999999999999') s;
+
+  if new_room is null or new_project is null then
+    raise exception 'start_something_with returned nothing to open';
+  end if;
+
+  -- A song to land in, or the room is an empty container somebody has to
+  -- fill before anything can happen.
+  select count(*) into songs from public.projects p
+  where p.room_id = new_room;
+  if songs <> 1 then
+    raise exception 'the new room has % songs rather than one', songs;
+  end if;
+
+  -- Only you in it. They are invited, not added.
+  select count(*) into members from public.room_members m
+  where m.room_id = new_room;
+  if members <> 1 then
+    raise exception 'somebody was put in a room without agreeing (% members)',
+      members;
+  end if;
+
+  select count(*) into invited from public.room_invites i
+  where i.room_id = new_room
+    and i.invited_profile = '99999999-9999-9999-9999-999999999999'
+    -- 'open', not 'pending': room_invites has used that word since 0062.
+    and i.status = 'open';
+  if invited <> 1 then
+    raise exception 'no invitation was sent';
+  end if;
+end $$;
+
+-- Twice with the same person is the good case, not a constraint error.
+do $$
+declare
+  again uuid;
+begin
+  select s.made_room into again
+  from public.start_something_with('99999999-9999-9999-9999-999999999999') s;
+  if again is null then
+    raise exception 'starting something twice failed on the name';
+  end if;
+end $$;
+
+-- And never with yourself.
+do $$
+begin
+  begin
+    perform public.start_something_with(
+      '11111111-1111-1111-1111-111111111111');
+    raise exception 'started something with myself';
+  exception when sqlstate '22023' then
+    null;  -- expected
+  end;
+end $$;
+
 -- Old apps still ask for one part (0084).
 --
 -- 0083 dropped the single-part signature in the same migration that added
