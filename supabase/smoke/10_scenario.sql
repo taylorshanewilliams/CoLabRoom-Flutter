@@ -1700,4 +1700,43 @@ end $$;
 select public.take_off_open_mic('dddddddd-0000-0000-0000-00000000000d');
 
 
+-- Nobody is ranked (0072).
+--
+-- The check is that somebody who has recorded nothing still turns up. Before
+-- this, the sort put every beginner last — every search, every time, until
+-- they built a record they could not build without first being found.
+insert into public.profiles (id, display_name)
+values ('eeeeeeee-0000-0000-0000-00000000000e', 'Never Recorded Anything')
+on conflict (id) do nothing;
+
+update public.profiles
+set discoverable = true, plays = array['bass'], location_visibility = 'nobody'
+where id = 'eeeeeeee-0000-0000-0000-00000000000e';
+
+update public.profiles
+set discoverable = true, plays = array['bass']
+where id = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare
+  found int;
+begin
+  select count(*) into found from public.find_musicians('bass', null, 50)
+  where id = 'eeeeeeee-0000-0000-0000-00000000000e';
+
+  if found <> 1 then
+    raise exception 'somebody who plays bass but has recorded nothing was not findable';
+  end if;
+
+  -- And the order is not the record. Both are in the list; which comes first
+  -- is a rotation, not a ladder.
+  if not exists (
+    select 1 from public.find_musicians('bass', null, 50)
+    where id = '11111111-1111-1111-1111-111111111111'
+  ) then
+    raise exception 'somebody who has recorded bass fell out of the list';
+  end if;
+end $$;
+
+
 commit;

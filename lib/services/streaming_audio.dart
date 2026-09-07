@@ -61,14 +61,19 @@ class StreamingAudio {
     }
     if (missing.isEmpty) return result;
 
+    // The Result variant, not the plain one, and not only because the plain
+    // one is deprecated: a page of twelve tracks where one file has been
+    // deleted should lose that track, not the page. This reports each path
+    // separately, so a single missing recording is a gap in the feed rather
+    // than an exception in the middle of somebody's scroll.
     final signed = await _client.storage
         .from(bucket)
-        .createSignedUrls(missing, ttl.inSeconds);
+        .createSignedUrlsResult(missing, ttl.inSeconds);
 
     for (final entry in signed) {
-      final path = entry.path;
-      _cache[path] = _Signed(entry.signedUrl, now.add(ttl));
-      result[path] = entry.signedUrl;
+      if (entry is! SignedUrlSuccess) continue;
+      _cache[entry.path] = _Signed(entry.signedUrl, now.add(ttl));
+      result[entry.path] = entry.signedUrl;
     }
     return result;
   }
