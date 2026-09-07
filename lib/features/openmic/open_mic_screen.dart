@@ -63,9 +63,15 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   /// what they do and no way to be found for it. See MusicalRole.
   static List<MusicalRole> get _parts => MusicalRole.offered;
 
-  /// People or songs. Two things are on an open mic — who is here, and
-  /// what is being played — and this screen only knew about the first.
-  bool _showingSongs = false;
+  /// Three ways to be in this room, not two.
+  ///
+  /// A half-finished idea asking for a bass player and a record somebody
+  /// spent six months on were in the same list, described the same way — so
+  /// nobody browsing could tell what they were hearing, and nobody who
+  /// finished something had anywhere to put it that meant *finished*.
+  _OpenMicView _view = _OpenMicView.people;
+
+  bool get _showingSongs => _view == _OpenMicView.asking;
 
   /// What somebody is looking for. More than one, because "a singer who
   /// plays guitar and writes lyrics" is one person and was three searches.
@@ -74,6 +80,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   final Set<String> _wanted = <String>{};
   final TextEditingController _city = TextEditingController();
   List<Musician>? _found;
+  List<ShowcaseSong>? _finished;
 
   /// Your own songs out on the Open Mic. Loaded once, beside the first
   /// search, because it does not change while somebody is filtering.
@@ -110,6 +117,26 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
       _busy = true;
       _error = null;
     });
+    if (_view == _OpenMicView.finished) {
+      try {
+        final done = await widget.repository.showcase();
+        if (mounted) setState(() => _finished = done);
+      } catch (error) {
+        if (!mounted) return;
+        setState(() {
+          _finished = const <ShowcaseSong>[];
+          _error = reportAndDescribe(
+            error,
+            service: 'app',
+            stage: 'showcase',
+            route: 'Open Mic',
+          );
+        });
+      } finally {
+        if (mounted) setState(() => _busy = false);
+      }
+      return;
+    }
     if (_showingSongs) {
       try {
         // Songs still take one part: a song asks for a bass player, not for
@@ -275,23 +302,28 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 6, 18, 6),
-          child: SegmentedButton<bool>(
-            segments: const <ButtonSegment<bool>>[
-              ButtonSegment<bool>(
-                value: false,
-                icon: Icon(Icons.people_alt_rounded, size: 17),
+          child: SegmentedButton<_OpenMicView>(
+            showSelectedIcon: false,
+            segments: const <ButtonSegment<_OpenMicView>>[
+              ButtonSegment<_OpenMicView>(
+                value: _OpenMicView.people,
                 label: Text('People'),
               ),
-              ButtonSegment<bool>(
-                value: true,
-                icon: Icon(Icons.library_music_rounded, size: 17),
-                label: Text('Songs'),
+              // "Asking", not "Songs". It says what is in the list, and it is
+              // the distinction the third view exists to make.
+              ButtonSegment<_OpenMicView>(
+                value: _OpenMicView.asking,
+                label: Text('Asking'),
+              ),
+              ButtonSegment<_OpenMicView>(
+                value: _OpenMicView.finished,
+                label: Text('Finished'),
               ),
             ],
-            selected: <bool>{_showingSongs},
+            selected: <_OpenMicView>{_view},
             onSelectionChanged: (picked) {
               setState(() {
-                _showingSongs = picked.first;
+                _view = picked.first;
                 _error = null;
               });
               unawaited(_search());
@@ -361,7 +393,24 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
           ),
         ),
         const Divider(height: 1),
-        if (_showingSongs)
+        if (_view == _OpenMicView.finished)
+          Expanded(
+            child: _FinishedList(
+              songs: _finished,
+              error: _error,
+              onOpen: (song) => unawaited(_openSong(OpenMicSong(
+                id: song.id,
+                title: song.title,
+                ownerId: song.ownerId,
+                ownerName: song.ownerName,
+                putUpAt: song.shownAt,
+                storagePath: song.storagePath,
+                durationMs: song.durationMs,
+                musicalKey: song.musicalKey,
+              ))),
+            ),
+          )
+        else if (_showingSongs)
           Expanded(child: _SongList(
             songs: _songs,
             error: _error,
@@ -405,6 +454,9 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
 
   static String _labelFor(String part) => MusicalRole.labelFor(part);
 }
+
+/// Which of the three lists is showing.
+enum _OpenMicView { people, asking, finished }
 
 /// The songs half of the Open Mic.
 ///
@@ -885,6 +937,182 @@ class _Empty extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Finished work, newest first.
+///
+/// Newest and nothing else. The moment this is ordered by listens it is a
+/// chart, and this app does not rank people — somebody's first finished song
+/// sits above a record with a thousand plays if they finished it this
+/// morning, which is right for a room and wrong for a league.
+class _FinishedList extends StatelessWidget {
+  const _FinishedList({
+    required this.songs,
+    required this.error,
+    required this.onOpen,
+  });
+
+  final List<ShowcaseSong>? songs;
+  final String? error;
+  final ValueChanged<ShowcaseSong> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final found = songs;
+    if (found == null) {
+      return const Center(
+          child: CircularProgressIndicator(color: AppColors.gold));
+    }
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+      children: <Widget>[
+        if (error != null) ...<Widget>[
+          Text(error!,
+              style: const TextStyle(color: AppColors.orange, fontSize: 13)),
+          const SizedBox(height: 14),
+        ],
+        if (found.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 40),
+            child: Column(
+              children: <Widget>[
+                Icon(Icons.workspace_premium_outlined,
+                    size: 34, color: AppColors.line),
+                SizedBox(height: 12),
+                Text(
+                  'Nothing finished yet',
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  'This is where songs go when they are done. Finish one of '
+                  'yours and show it, and it will be the first thing here.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: AppColors.muted, fontSize: 12.5, height: 1.45),
+                ),
+              ],
+            ),
+          )
+        else
+          for (final song in found)
+            _FinishedCard(song: song, onTap: () => onOpen(song)),
+      ],
+    );
+  }
+}
+
+class _FinishedCard extends StatelessWidget {
+  const _FinishedCard({required this.song, required this.onTap});
+
+  final ShowcaseSong song;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final together = song.together;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: AppColors.raised,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            // Gold only when two people who met here made it. That is the
+            // app's whole argument, and it is worth nothing if everything
+            // wears the colour.
+            color: song.metHere
+                ? AppColors.gold.withValues(alpha: 0.5)
+                : AppColors.line,
+          ),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, right: 12),
+                  child: PlayButton(
+                    storagePath: song.storagePath,
+                    durationMs: song.durationMs,
+                    title: song.title,
+                    byline: song.ownerName,
+                    songId: song.id,
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        song.ownerName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: AppColors.muted, fontSize: 12.5),
+                      ),
+                      if (together != null) ...<Widget>[
+                        const SizedBox(height: 9),
+                        Row(
+                          children: <Widget>[
+                            Icon(
+                              song.metHere
+                                  ? Icons.handshake_rounded
+                                  : Icons.group_rounded,
+                              size: 13,
+                              color: song.metHere
+                                  ? AppColors.gold
+                                  : AppColors.muted,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                together,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: song.metHere
+                                      ? AppColors.gold
+                                      : AppColors.muted,
+                                  fontSize: 12,
+                                  fontWeight: song.metHere
+                                      ? FontWeight.w800
+                                      : FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -1555,6 +1555,57 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<ShowcaseSong>> showcase({int limit = 24}) async {
+    final rows = await client.rpc<dynamic>(
+      'showcase',
+      params: <String, dynamic>{'in_limit': limit},
+    );
+    return <ShowcaseSong>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        ShowcaseSong(
+          id: (row as Map)['id'] as String,
+          title: row['title'] as String? ?? 'A song',
+          ownerId: row['owner_id'] as String?,
+          ownerName: row['owner_name'] as String? ?? 'Somebody',
+          ownerAvatarPath: row['owner_avatar'] as String?,
+          shownAt: DateTime.tryParse('${row['showcased_at']}')?.toLocal() ??
+              DateTime.now(),
+          storagePath: row['storage_path'] as String? ?? '',
+          durationMs: (row['duration_ms'] as num?)?.toInt(),
+          musicalKey: row['musical_key'] as String?,
+          players: <SongListener>[
+            for (final p
+                in (row['players'] as List<dynamic>? ?? const <dynamic>[]))
+              SongListener(
+                id: (p as Map)['id'] as String? ?? '',
+                name: p['name'] as String? ?? 'Somebody',
+              ),
+          ],
+          madeHere: row['made_here'] as bool? ?? false,
+          metHere: row['met_here'] as bool? ?? false,
+        ),
+    ];
+  }
+
+  @override
+  Future<void> finishSong(String projectId) => client.rpc<void>(
+        'finish_song',
+        params: <String, dynamic>{'target_project': projectId},
+      );
+
+  @override
+  Future<void> showSong(String projectId) => client.rpc<void>(
+        'show_song',
+        params: <String, dynamic>{'target_project': projectId},
+      );
+
+  @override
+  Future<void> unshowSong(String projectId) => client.rpc<void>(
+        'unshow_song',
+        params: <String, dynamic>{'target_project': projectId},
+      );
+
+  @override
   Future<void> claimPart(String part) async {
     await client.rpc<dynamic>(
       'claim_part',

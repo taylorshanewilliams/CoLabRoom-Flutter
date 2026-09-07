@@ -428,7 +428,7 @@ void main() {
         reason: 'the library did not draw grouped by room');
   });
 
-  testWidgets('Open Mic has both halves, and the songs one draws',
+  testWidgets('Open Mic has all three views, and the asking one draws',
       (tester) async {
     final controller = await _controller();
     addTearDown(controller.dispose);
@@ -438,23 +438,24 @@ void main() {
     await _tapText(tester, 'Open Mic');
     expect(tester.takeException(), isNull, reason: _why('Open Mic'));
 
-    // Two things are on an open mic: who is here, and what is being played.
-    // It only knew about the first until the public song page existed.
+    // Three things are in this room: who is here, what is asking for help,
+    // and what somebody finished. A half-finished idea and a record somebody
+    // spent six months on were in the same list until the third view existed.
     expect(find.text('People'), findsOneWidget);
-    expect(find.text('Songs'), findsWidgets);
+    expect(find.text('Asking'), findsWidgets);
+    expect(find.text('Finished'), findsWidgets);
 
-    // Targeted, not by text: "Songs" is also the name of a tab, and the
-    // tolerant helper taps the last match — which switched tab instead and
-    // made this test pass by looking at the wrong screen.
-    final songsSegment = find.descendant(
-      of: find.byType(SegmentedButton<bool>),
-      matching: find.text('Songs'),
-    );
-    expect(songsSegment, findsOneWidget);
-    await tester.tap(songsSegment);
+    // Targeted, not by text: the tolerant helper taps the last match, which
+    // is how this test once switched tab instead and passed by looking at
+    // the wrong screen.
+    // By text. "Songs" needed scoping because it was also a tab name;
+    // "Asking" appears once, and the segmented button's type argument is
+    // private to the screen so byType cannot name it.
+    expect(find.text('Asking'), findsOneWidget);
+    await tester.tap(find.text('Asking'));
     await _frames(tester);
     expect(tester.takeException(), isNull,
-        reason: _why('the songs half of Open Mic'));
+        reason: _why('the asking view of Open Mic'));
 
     // Cards lead with what a song is asking for, because that is the only
     // thing that decides whether somebody taps. A list of titles is a list

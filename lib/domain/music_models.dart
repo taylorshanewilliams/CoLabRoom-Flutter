@@ -1117,3 +1117,62 @@ class MyPlan {
 
   bool get outOfSheets => sheetsLeft != null && sheetsLeft! <= 0;
 }
+
+
+/// A finished song somebody chose to show.
+///
+/// The Open Mic is where raw ideas ask for help; this is where finished work
+/// is played. Hearing what somebody finished is the better introduction — a
+/// raw idea says what they are working on, a finished song says what they
+/// are capable of.
+class ShowcaseSong {
+  const ShowcaseSong({
+    required this.id,
+    required this.title,
+    required this.ownerName,
+    required this.shownAt,
+    this.ownerId,
+    this.ownerAvatarPath,
+    this.storagePath = '',
+    this.durationMs,
+    this.musicalKey,
+    this.players = const <SongListener>[],
+    this.madeHere = false,
+    this.metHere = false,
+  });
+
+  final String id;
+  final String title;
+  final String? ownerId;
+  final String ownerName;
+  final String? ownerAvatarPath;
+  final DateTime shownAt;
+  final String storagePath;
+  final int? durationMs;
+  final String? musicalKey;
+
+  /// Everybody with a shared take on it who is not the owner.
+  final List<SongListener> players;
+
+  /// More than one person played on it, here.
+  final bool madeHere;
+
+  /// Somebody got onto it through an ask or a per-song invitation — two
+  /// strangers, one asked, the other said yes. The strong claim, and the
+  /// whole argument for this app existing.
+  final bool metHere;
+
+  /// What to put on the card, or null when there is nothing true to say.
+  String? get together {
+    if (!madeHere) return null;
+    final names = players.map((p) => p.name).toList(growable: false);
+    final who = switch (names.length) {
+      0 => null,
+      1 => names.first,
+      2 => '${names[0]} and ${names[1]}',
+      _ => '${names[0]}, ${names[1]} and ${names.length - 2} more',
+    };
+    if (who == null) return metHere ? 'Made here' : null;
+    return metHere ? 'Met here · with $who' : 'With $who';
+  }
+}
