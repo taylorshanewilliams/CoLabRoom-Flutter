@@ -1,7 +1,7 @@
 name: colabroom
 description: Music-first collaborative rooms for Apple, Android, and web.
 publish_to: none
-version: 0.3.1+7
+version: 0.4.0+8
 
 environment:
   sdk: '>=3.7.0 <4.0.0'
