@@ -1,6 +1,7 @@
 import 'package:colabroom/app/colabroom_app.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
+import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/features/openmic/open_mic_song_screen.dart';
 import 'package:colabroom/features/workspace/song_analysis_screen.dart';
 import 'package:colabroom/widgets/brand_mark.dart';
@@ -219,21 +220,24 @@ void main() {
         final controller = await _controller();
         addTearDown(controller.dispose);
         await _boot(tester, controller, size: phone.value, textScale: scale);
-        expect(tester.takeException(), isNull, reason: _why('Home'));
+        expect(tester.takeException(), isNull, reason: _why('the first tab'));
 
         // Asserted present, not merely tapped. _tapText is tolerant by
         // design, so when the Studio and the Control Room stopped being tabs
         // this loop kept passing while testing nothing — which is the exact
         // failure mode this whole file exists to prevent.
-        for (final tab in <String>['Home', 'Songs', 'Open Mic']) {
+        for (final tab in <String>['Your music', 'Open Mic']) {
           expect(find.text(tab), findsWidgets, reason: '$tab is not a tab');
         }
-        for (final gone in <String>['Studio', 'Control Room']) {
+        // Home went the way of the Studio and the Control Room, and for the
+        // same reason: every one of its sections was a summary of somewhere
+        // else in the app. A dashboard is not a place anybody goes.
+        for (final gone in <String>['Studio', 'Control Room', 'Home']) {
           expect(find.text(gone), findsNothing,
               reason: '$gone is a tab again');
         }
 
-        for (final tab in <String>['Songs', 'Open Mic', 'Home']) {
+        for (final tab in <String>['Open Mic', 'Your music']) {
           expect(await _tapText(tester, tab), isTrue, reason: '$tab is gone');
           expect(tester.takeException(), isNull, reason: _why('$tab'));
         }
@@ -378,38 +382,50 @@ void main() {
         reason: 'the record button did not open a song');
   });
 
-  testWidgets('the song sheet queue is a filter, not a destination',
+  testWidgets('your music offers two kinds of thing, not six filters',
       (tester) async {
     final controller = await _controller();
     addTearDown(controller.dispose);
     await _boot(tester, controller,
         size: const Size(360, 690), textScale: 1.3);
 
-    await _tapText(tester, 'Songs');
-    // The Control Room's two piles, now questions asked of one list. Sets
-    // joins them rather than sitting at the weight of the whole library.
-    // "By catalog" is the default and the first chip: a catalog is a place,
-    // not a filter, and places are how people remember where things are.
-    expect(find.text('By catalog'), findsOneWidget);
-    for (final chip in <String>[
+    await _tapText(tester, 'Your music');
+
+    // This row was byCatalog / all / ideas / needsSheet / hasSheet / sets —
+    // a query builder wearing a segmented control, and the single clearest
+    // piece of evidence that the app was laid out by whoever wrote the
+    // queries. What survives is the one distinction that is not a filter:
+    // a song and a set are different things.
+    for (final gone in <String>[
       'By catalog',
       'Everything',
-      'Ideas',
       'Needs a sheet',
       'Has a sheet',
-      'Sets'
     ]) {
-      final finder = find.text(chip);
-      expect(finder, findsOneWidget, reason: '$chip chip is gone');
-      // Scrolled into view first. The row scrolls sideways on a small phone
-      // with large text, and a chip that has to be reached is still a chip —
-      // one that was never built would not be.
-      await tester.ensureVisible(finder);
-      await _frames(tester);
-      await tester.tap(finder, warnIfMissed: false);
-      await _frames(tester);
-      expect(tester.takeException(), isNull, reason: _why('the $chip filter'));
+      expect(find.text(gone), findsNothing, reason: '$gone is a chip again');
     }
+
+    for (final chip in <String>['Songs', 'Sets']) {
+      final finder = find.text(chip);
+      expect(finder, findsWidgets, reason: '$chip is gone');
+      await tester.ensureVisible(finder.first);
+      await _frames(tester);
+      await tester.tap(finder.first, warnIfMissed: false);
+      await _frames(tester);
+      expect(tester.takeException(), isNull, reason: _why('the $chip view'));
+    }
+
+    // Back to songs: the loop above finishes on Sets, and a library that is
+    // not on screen proves nothing about how it is grouped.
+    await tester.tap(find.text('Songs').first, warnIfMissed: false);
+    await _frames(tester);
+
+    // Catalogs are still how the library is drawn — they stopped being a
+    // chip because they are a place, not a filter, and the grouping is now
+    // simply what you get when you are not searching. Revealed rather than
+    // found where it sits: a lazy list does not build what is below the fold.
+    expect(await _reveal(tester, find.text('Midnight Signal')), findsWidgets,
+        reason: 'the library did not draw grouped by catalog');
   });
 
   testWidgets('Open Mic has both halves, and the songs one draws',
@@ -457,30 +473,34 @@ void main() {
         reason: 'the song page had no way to answer it');
   });
 
-  testWidgets('Home shows something happening, or offers the first move',
-      (tester) async {
+  testWidgets('somebody with songs lands on their own music', (tester) async {
     final controller = await _controller();
     addTearDown(controller.dispose);
     await _boot(tester, controller,
         size: const Size(360, 690), textScale: 1.3);
 
-    // The app's pulse. Before this, Home reflected you back at yourself —
-    // which for a new account is a blank screen, and on a quiet week is one
-    // for everybody else too.
-    expect(await _reveal(tester, find.text('Happening now')), findsOneWidget);
-    expect(tester.takeException(), isNull, reason: _why('Happening now'));
+    // The seeded account has songs, so the useful place to arrive is the one
+    // holding them. This replaces the old Home test: Home's five other
+    // sections were each a summary of somewhere else, and the sixth — the
+    // news — moved to the top of this tab.
+    expect(find.text('Your music'), findsWidgets);
+    expect(tester.takeException(), isNull, reason: _why('Your music'));
+  });
 
-    // Either there is something, or there is an invitation. Never nothing.
-    // Scrolled to, because the rows sit under the heading and a lazy list
-    // does not build what is off-screen.
-    await _reveal(tester, find.textContaining('asking for'));
-    final somethingUp = find.textContaining('asking for');
-    final invitation = find.text('Nobody is up here yet');
-    expect(
-      somethingUp.evaluate().isNotEmpty || invitation.evaluate().isNotEmpty,
-      isTrue,
-      reason: 'Home had a section with neither content nor an offer in it',
-    );
+  testWidgets('somebody with nothing lands where the music is',
+      (tester) async {
+    // An app that opens on your own empty shelf has told a new person, on
+    // their first screen, that there is nothing here. This is the assertion
+    // that keeps the landing adaptive rather than merely configurable.
+    final controller = MusicBetaController(_NoSongs());
+    await controller.load();
+    addTearDown(controller.dispose);
+    await _boot(tester, controller,
+        size: const Size(360, 690), textScale: 1.3);
+
+    expect(find.text('Open Mic'), findsWidgets,
+        reason: 'a new account did not land on the Open Mic');
+    expect(tester.takeException(), isNull, reason: _why('the Open Mic'));
   });
 
   testWidgets('Songs opens on places, with a face on each', (tester) async {
@@ -543,4 +563,16 @@ void main() {
           'the text was given ${paragraph.size.width}px and wanted ${wanted}px',
     );
   });
+}
+
+/// An account that has not made anything yet.
+///
+/// Extends the seeded fake through its redirecting constructor rather than
+/// hand-building a repository, so everything except the shelf behaves exactly
+/// as the real preview does.
+class _NoSongs extends InMemoryMusicRepository {
+  _NoSongs() : super.from(InMemoryMusicRepository.seeded());
+
+  @override
+  Future<List<MusicRoom>> loadRooms() async => const <MusicRoom>[];
 }

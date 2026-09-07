@@ -7,7 +7,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../account/account_screen.dart';
-import '../home/home_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../openmic/open_mic_screen.dart';
 import '../songs/songs_screen.dart';
@@ -32,28 +31,36 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
-    _index = 0;
-    // So a crash on Home says Home. Thirty-four of this app's route pushes
-    // are unnamed, so a navigator observer alone would record nothing; the
-    // destination is the cheap fact that is always true.
-    CurrentRoute.enter(_destinations.first.label);
+    // Where somebody lands depends on whether they have anything here yet.
+    //
+    // An app that opens on your own empty shelf has told a new person, on
+    // their very first screen, that there is nothing here. The Open Mic is
+    // playing from the moment it loads, so somebody with no songs arrives in
+    // a room with music in it and can see what the app is for before making
+    // anything — and the moment they have one song of their own, that becomes
+    // the more useful place to land, so it does.
+    _index = _landing();
+    // So a crash on a tab names that tab. Thirty-four of this app's route
+    // pushes are unnamed, so a navigator observer alone would record nothing;
+    // the destination is the cheap fact that is always true.
+    CurrentRoute.enter(_destinations[_index].label);
     if (kIsWeb && Uri.base.queryParameters['deleteAccount'] == '1') {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openAccount());
     }
     _screens = <Widget>[
-      HomeScreen(
+      SongsScreen(
         displayName: widget.displayName,
-        onSeeSongs: () => _go(1),
         onOpenAccount: _openAccount,
         onOpenNotifications: _openNotifications,
-        onOpenMic: () => _go(2),
       ),
-      const SongsScreen(),
       // Built through a Builder because it needs the repository, and the
       // scope is not reachable from initState.
       Builder(
         builder: (context) => OpenMicScreen(
           repository: BetaScope.of(context, listen: false).repository,
+          displayName: widget.displayName,
+          onOpenAccount: _openAccount,
+          onOpenNotifications: _openNotifications,
         ),
       ),
     ];
@@ -95,10 +102,27 @@ class _AppShellState extends State<AppShell> {
   /// It also puts the free thing and the paid thing in different rooms, which
   /// is a better way to explain a price than a badge.
   static const _destinations = <_Destination>[
-    _Destination('Home', Icons.home_rounded),
-    _Destination('Songs', Icons.library_music_rounded),
+    _Destination('Your music', Icons.library_music_rounded),
     _Destination('Open Mic', Icons.mic_external_on_rounded),
   ];
+
+  /// Your work, or everybody else's, depending on whether you have any yet.
+  ///
+  /// Read once, on launch. Re-deciding it later would move the ground under
+  /// somebody the moment they made their first song, which is exactly the
+  /// wrong moment to move anything.
+  int _landing() {
+    try {
+      final controller = BetaScope.of(context, listen: false);
+      final anySongs =
+          controller.rooms.any((room) => room.projects.isNotEmpty);
+      return anySongs ? 0 : 1;
+    } catch (_) {
+      // No scope yet in some test harnesses. Your own music is the safe
+      // default: it is the tab that works with no network at all.
+      return 0;
+    }
+  }
 
   /// Recording, from anywhere.
   ///

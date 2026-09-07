@@ -10,7 +10,7 @@ import '../../app/music_beta_controller.dart';
 import '../../domain/music_models.dart';
 import '../../domain/name_policy.dart';
 import '../../widgets/music_tiles.dart';
-import '../home/new_song_flow.dart';
+import '../songs/new_song_flow.dart';
 import 'room_detail_screen.dart';
 import '../../services/user_facing_error.dart';
 import '../../services/song_search.dart';
