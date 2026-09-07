@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
+import '../../domain/musical_roles.dart';
 import '../../services/user_facing_error.dart';
 
 /// Asking one musician to play on one song.
@@ -33,17 +34,10 @@ class AskMusicianSheet extends StatefulWidget {
 }
 
 class _AskMusicianSheetState extends State<AskMusicianSheet> {
-  static const List<({String part, String label})> _parts =
-      <({String part, String label})>[
-    (part: 'vocal', label: 'Singer'),
-    (part: 'harmony', label: 'Harmony'),
-    (part: 'lead', label: 'Lead'),
-    (part: 'rhythm', label: 'Rhythm'),
-    (part: 'bass', label: 'Bass'),
-    (part: 'drums', label: 'Drums'),
-    (part: 'keys', label: 'Keys'),
-    (part: 'percussion', label: 'Percussion'),
-  ];
+  /// The one list, so what somebody can be asked for matches what they can
+  /// say they do.
+  static List<MusicalRole> get _parts => MusicalRole.offered;
+
 
   final TextEditingController _note = TextEditingController();
   List<OfferableSong>? _songs;
@@ -94,15 +88,17 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
   /// A bass player is usually being asked for bass. Putting their own record
   /// at the front of the chip row means the common case is already selected
   /// by the time somebody looks at it.
-  List<({String part, String label})> get _orderedParts {
+  List<MusicalRole> get _orderedParts {
     final theirs = widget.musician.partsRecorded.keys.toSet()
       ..addAll(widget.musician.plays);
-    final known = <({String part, String label})>[];
-    final rest = <({String part, String label})>[];
+    // What they actually do, first. Asking somebody for the thing they have
+    // said they do is the ask that gets a yes.
+    final known = <MusicalRole>[];
+    final rest = <MusicalRole>[];
     for (final entry in _parts) {
-      (theirs.contains(entry.part) ? known : rest).add(entry);
+      (theirs.contains(entry.value) ? known : rest).add(entry);
     }
-    return <({String part, String label})>[...known, ...rest];
+    return <MusicalRole>[...known, ...rest];
   }
 
   Future<void> _send() async {
@@ -206,19 +202,19 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
                     for (final entry in _orderedParts)
                       FilterChip(
                         label: Text(entry.label),
-                        selected: _part == entry.part,
+                        selected: _part == entry.value,
                         onSelected: (on) =>
-                            setState(() => _part = on ? entry.part : null),
+                            setState(() => _part = on ? entry.value : null),
                         showCheckmark: false,
                         backgroundColor: AppColors.raised,
                         selectedColor: AppColors.cyan.withValues(alpha: 0.18),
                         side: BorderSide(
-                          color: _part == entry.part
+                          color: _part == entry.value
                               ? AppColors.cyan
                               : AppColors.line,
                         ),
                         labelStyle: TextStyle(
-                          color: _part == entry.part
+                          color: _part == entry.value
                               ? AppColors.cyan
                               : AppColors.text,
                           fontSize: 12.5,

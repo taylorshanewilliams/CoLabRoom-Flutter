@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
+import '../../domain/musical_roles.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/demo_chip.dart';
@@ -1239,17 +1240,12 @@ class _PresenceSheetState extends State<_PresenceSheet> {
   /// The same vocabulary Open Mic filters on, so what you tick is exactly what
   /// somebody searching sees. Free text on one side and a fixed list of chips
   /// on the other is how a search quietly stops matching.
-  static const List<({String part, String label})> _parts =
-      <({String part, String label})>[
-    (part: 'vocal', label: 'Singer'),
-    (part: 'harmony', label: 'Harmony'),
-    (part: 'lead', label: 'Lead'),
-    (part: 'rhythm', label: 'Rhythm'),
-    (part: 'bass', label: 'Bass'),
-    (part: 'drums', label: 'Drums'),
-    (part: 'keys', label: 'Keys'),
-    (part: 'percussion', label: 'Percussion'),
-  ];
+  /// The same list the Open Mic filters on, which is now the only list.
+  ///
+  /// It was eight instruments here too, so a rapper, a beat maker or a
+  /// lyricist could not tick anything true about themselves — and what you
+  /// tick is exactly what somebody searching sees.
+  static List<MusicalRole> get _parts => MusicalRole.offered;
 
   static const List<({String value, String label, String why})> _visibilities =
       <({String value, String label, String why})>[
@@ -1362,11 +1358,13 @@ class _PresenceSheetState extends State<_PresenceSheet> {
               ),
             ),
             const SizedBox(height: 14),
-            const _SheetHeading('What you play'),
+            const _SheetHeading('What you do'),
             const SizedBox(height: 4),
             const Text(
               'How people find you for work you actually want. Tick what you '
-              'would like to be asked for, not only what you have done.',
+              'would like to be asked for, not only what you have done — and '
+              'it is not only instruments: rapping, beats, lyrics and mixing '
+              'are all things somebody is looking for.',
               style:
                   TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4),
             ),
@@ -1378,24 +1376,28 @@ class _PresenceSheetState extends State<_PresenceSheet> {
                 for (final entry in _parts)
                   FilterChip(
                     label: Text(entry.label),
-                    selected: _plays.contains(entry.part),
+                    // The ones whose name does not carry the meaning say so.
+                    // "Topline" is nothing to somebody who has never worked
+                    // over a beat, and it is exactly who this is for.
+                    tooltip: entry.note,
+                    selected: _plays.contains(entry.value),
                     onSelected: (on) => setState(() {
                       if (on) {
-                        _plays.add(entry.part);
+                        _plays.add(entry.value);
                       } else {
-                        _plays.remove(entry.part);
+                        _plays.remove(entry.value);
                       }
                     }),
                     showCheckmark: false,
                     selectedColor: AppColors.cyan.withValues(alpha: 0.18),
                     backgroundColor: AppColors.raised,
                     side: BorderSide(
-                      color: _plays.contains(entry.part)
+                      color: _plays.contains(entry.value)
                           ? AppColors.cyan
                           : AppColors.line,
                     ),
                     labelStyle: TextStyle(
-                      color: _plays.contains(entry.part)
+                      color: _plays.contains(entry.value)
                           ? AppColors.cyan
                           : AppColors.text,
                       fontSize: 12.5,
