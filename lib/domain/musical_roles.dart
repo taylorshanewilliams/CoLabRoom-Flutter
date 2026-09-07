@@ -17,6 +17,17 @@ import 'package:flutter/material.dart';
 /// The values are the strings already in the database: `song_layers.part`,
 /// `profiles.plays` and `project_asks.part` are all free text, so adding to
 /// this list needs no migration and takes effect everywhere at once.
+///
+/// **And it will never be complete.** Somebody plays the sitar, somebody
+/// runs front of house, somebody writes string arrangements. A fixed list is
+/// a promise this cannot keep — so the profile takes whatever gets typed,
+/// exactly as `sounds_like` does, and these are the starting points that save
+/// typing rather than the whole world.
+///
+/// Not everything here is a *part* on a song either. Producing and mastering
+/// are things done to a record rather than played on it, and they belong on
+/// the same list because the question people ask is "who could help with
+/// this", not "who can I record onto bar four".
 enum MusicalRole {
   // What the older list had. The strings are unchanged, because they are in
   // production data.
@@ -32,7 +43,10 @@ enum MusicalRole {
   drums,
   percussion,
   beat,
+  producer,
+  engineer,
   mix,
+  master,
   other;
 
   /// The word this is stored as. Never changed once shipped: it is in
@@ -56,7 +70,10 @@ enum MusicalRole {
         MusicalRole.drums => 'Drums',
         MusicalRole.percussion => 'Percussion',
         MusicalRole.beat => 'Beats',
+        MusicalRole.producer => 'Producer',
+        MusicalRole.engineer => 'Engineer',
         MusicalRole.mix => 'Mixing',
+        MusicalRole.master => 'Mastering',
         MusicalRole.other => 'Something else',
       };
 
@@ -68,7 +85,15 @@ enum MusicalRole {
         MusicalRole.lyrics => 'Words, without having to record anything',
         MusicalRole.topline => 'The melody over somebody else’s track',
         MusicalRole.beat => 'Making the track somebody else writes to',
-        MusicalRole.mix => 'Making the finished thing sound finished',
+        // Three different jobs that get called one thing. Somebody looking
+        // for a producer is not looking for somebody to mix it, and telling
+        // them apart is the difference between the right person and a
+        // conversation that goes nowhere.
+        MusicalRole.producer =>
+          'Shaping the whole record — arrangement, sound, direction',
+        MusicalRole.engineer => 'Getting it recorded properly',
+        MusicalRole.mix => 'Balancing the parts into one thing',
+        MusicalRole.master => 'The last pass, so it holds up anywhere',
         _ => null,
       };
 
@@ -85,7 +110,10 @@ enum MusicalRole {
         MusicalRole.drums => Icons.album_rounded,
         MusicalRole.percussion => Icons.grain_rounded,
         MusicalRole.beat => Icons.grid_view_rounded,
+        MusicalRole.producer => Icons.auto_awesome_motion_rounded,
+        MusicalRole.engineer => Icons.settings_input_component_rounded,
         MusicalRole.mix => Icons.tune_rounded,
+        MusicalRole.master => Icons.equalizer_rounded,
         MusicalRole.other => Icons.more_horiz_rounded,
       };
 

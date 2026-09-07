@@ -18,7 +18,12 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('the roles nobody could claim are claimable', () {
     final offered = MusicalRole.offered.map((r) => r.value).toSet();
-    for (final needed in <String>['rap', 'beat', 'lyrics', 'topline', 'mix']) {
+    for (final needed in <String>[
+      'rap', 'beat', 'lyrics', 'topline',
+      // Three different jobs that get called one thing. Somebody looking for
+      // a producer is not looking for somebody to mix it.
+      'producer', 'engineer', 'mix', 'master',
+    ]) {
       expect(offered, contains(needed),
           reason: 'somebody who does $needed cannot say so');
     }
@@ -62,7 +67,10 @@ void main() {
       MusicalRole.topline,
       MusicalRole.beat,
       MusicalRole.lyrics,
+      MusicalRole.producer,
+      MusicalRole.engineer,
       MusicalRole.mix,
+      MusicalRole.master,
     ]) {
       expect(role.note, isNotNull, reason: '${role.value} explains nothing');
     }
@@ -74,5 +82,15 @@ void main() {
     expect(MusicalRole.vocal.value, 'vocal');
     expect(MusicalRole.rap.value, 'rap');
     expect(MusicalRole.beat.value, 'beat');
+    expect(MusicalRole.producer.value, 'producer');
+  });
+
+  test('a role the list does not have is not an error', () {
+    // The profile takes free text, so somebody who plays the sitar or runs
+    // front of house has a real answer rather than "other". parse() turning
+    // it into `other` is only about drawing an icon; the stored word is
+    // theirs and is what search matches on.
+    expect(MusicalRole.parse('sitar'), MusicalRole.other);
+    expect(MusicalRole.labelFor('sitar'), 'Something else');
   });
 }
