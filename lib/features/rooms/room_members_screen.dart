@@ -10,7 +10,7 @@ import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/player_face.dart';
 
-/// Who is actually in this catalog.
+/// Who is actually in this room.
 ///
 /// It has said "3 members" since the day it shipped and has never been able
 /// to say which three — and there has been no way to change it either. The
@@ -33,7 +33,7 @@ class _RoomMembersScreenState extends State<RoomMembersScreen> {
   @override
   void initState() {
     super.initState();
-    CurrentRoute.enter('Catalog members');
+    CurrentRoute.enter('Room members');
   }
 
   Future<void> _run(Future<void> Function() action, String said) async {
@@ -53,7 +53,7 @@ class _RoomMembersScreenState extends State<RoomMembersScreen> {
             error,
             service: 'app',
             stage: 'room_membership',
-            route: 'Catalog members',
+            route: 'Room members',
           )),
         ));
     } finally {
@@ -142,7 +142,7 @@ class _RoomMembersScreenState extends State<RoomMembersScreen> {
           child: Padding(
             padding: EdgeInsets.all(28),
             child: Text(
-              'This catalog is no longer here.',
+              'This room is no longer here.',
               style: TextStyle(color: AppColors.muted),
             ),
           ),
@@ -200,7 +200,7 @@ class _RoomMembersScreenState extends State<RoomMembersScreen> {
             if (iOwnIt)
               const Text(
                 'Removing somebody takes them out of every song in this '
-                'catalog too. Takes they already recorded stay where they '
+                'room too. Takes they already recorded stay where they '
                 'are — they are part of those songs now.',
                 style: TextStyle(
                     color: AppColors.muted, fontSize: 12.5, height: 1.45),
@@ -249,7 +249,7 @@ class _MemberRow extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
           child: Row(
             children: <Widget>[
-              // Their catalog colour, which is the same one their takes are
+              // Their room colour, which is the same one their takes are
               // drawn in everywhere else — so the list of people matches the
               // lanes on the song.
               PlayerFace(

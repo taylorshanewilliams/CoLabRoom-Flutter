@@ -10,7 +10,7 @@ import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/play_button.dart';
 import 'ask_musician_sheet.dart';
-import 'invite_to_catalog_sheet.dart';
+import 'invite_to_room_sheet.dart';
 import 'open_mic_song_screen.dart';
 import 'report_sheet.dart';
 
@@ -206,7 +206,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
     }
   }
 
-  /// The bigger of the two doors: a whole catalog rather than one song.
+  /// The bigger of the two doors: a whole room rather than one song.
   ///
   /// Both exist because they are genuinely different sizes, and an app with
   /// only the big one would make every "want to try this?" into "here is my
@@ -223,7 +223,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
         ),
-        child: InviteToCatalogSheet(
+        child: InviteToRoomSheet(
           musician: musician,
           repository: widget.repository,
         ),
@@ -266,7 +266,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
   ///
   /// Quiet on their side and symmetric on both: after this neither of you
   /// turns up in the other's Open Mic, and nobody is told. It stops new
-  /// contact rather than tearing up a catalog you are both already in —
+  /// contact rather than tearing up a room you are both already in —
   /// wanting out of a room is a different action, and it has its own.
   Future<void> _block() async {
     final musician = _musician;
@@ -280,7 +280,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
           'They will not be able to find you, ask you, or invite you to '
           'anything, and you will not see them either. They are not told.'
           '\n\n'
-          'If you are in a catalog together this does not remove either of '
+          'If you are in a room together this does not remove either of '
           'you from it. You can undo this in Account.',
         ),
         actions: <Widget>[
@@ -542,13 +542,13 @@ class _Body extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           // Secondary on purpose. One song is the right size for meeting
-          // somebody; a whole catalog is what you offer once you know them,
+          // somebody; a whole room is what you offer once you know them,
           // so the small door is the loud one.
           if (onInvite != null)
             OutlinedButton.icon(
               onPressed: onInvite,
               icon: const Icon(Icons.library_music_outlined, size: 17),
-              label: const Text('Invite to a catalog'),
+              label: const Text('Invite to a room'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(44),
                 foregroundColor: AppColors.text,

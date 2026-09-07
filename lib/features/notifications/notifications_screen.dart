@@ -133,7 +133,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         busy: _busy,
                         onAccept: () => _run(
                           () => controller.answerAsk(ask, accept: true),
-                          '${ask.songTitle} is under Songs now.',
+                          '${ask.songTitle} is in Your music now.',
                         ),
                         onDecline: () => _run(
                           () => controller.answerAsk(ask, accept: false),
@@ -144,7 +144,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     ],
                     const SizedBox(height: 8),
                   ],
-                  // Somebody inviting you into a catalog by name, rather
+                  // Somebody inviting you into a room by name, rather
                   // than by emailing you a code. Same section as the coded
                   // invitations below, because to a person they are the same
                   // thing: somebody wants you in their band.
@@ -157,7 +157,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         onAccept: () => _run(
                           () => controller.answerRoomInvite(invite,
                               accept: true),
-                          '${invite.roomName} is under Songs now.',
+                          '${invite.roomName} is in Your music now.',
                         ),
                         onDecline: () => _run(
                           () => controller.answerRoomInvite(invite,
@@ -178,8 +178,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         onJoin: () => _run(
                           () => controller.acceptInvite(invite: invite),
                           invite.isProjectScoped
-                              ? 'Song joined. Find it under Songs.'
-                              : 'Catalog joined. Its songs are under Songs.',
+                              ? 'Song joined. Find it in Your music.'
+                              : 'Room joined. Its songs are in Your music.',
                         ),
                         onDecline: () => _run(
                           () => controller.declineInvite(invite),
@@ -225,7 +225,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 /// which is not a design choice about density but the literal extent of what
 /// the person asked is allowed to see. Deciding does not require access;
 /// accepting is what grants it, and it grants that one song rather than the
-/// catalog it sits in.
+/// room it sits in.
 class _AskCard extends StatelessWidget {
   const _AskCard({
     required this.ask,
@@ -308,11 +308,11 @@ class _AskCard extends StatelessWidget {
   }
 }
 
-/// Somebody inviting you into a catalog of theirs.
+/// Somebody inviting you into a room of theirs.
 ///
 /// Bigger than an ask and drawn to say so: an ask is one song, this is
-/// everything in a catalog and everything added to it later. The card names
-/// the catalog rather than counting its songs, because the count somebody
+/// everything in a room and everything added to it later. The card names
+/// the room rather than counting its songs, because the count somebody
 /// sees before accepting would be out of date the moment they did.
 class _RoomInviteCard extends StatelessWidget {
   const _RoomInviteCard({
@@ -362,7 +362,7 @@ class _RoomInviteCard extends StatelessWidget {
           ],
           const SizedBox(height: 6),
           const Text(
-            'Joining puts every song in that catalog in your library, '
+            'Joining puts every song in that room in your library, '
             'including ones added later. You can leave whenever you like.',
             style: TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.4),
           ),
@@ -448,7 +448,7 @@ class _InviteCard extends StatelessWidget {
                     ),
                     if (invite.isProjectScoped)
                       Text(
-                        'One song in ${invite.roomName} · not the rest of the catalog',
+                        'One song in ${invite.roomName} · not the rest of the room',
                         style: const TextStyle(color: AppColors.muted, fontSize: 12),
                       ),
                     Text('${invite.inviterName} invited you as ${invite.role.name}'),

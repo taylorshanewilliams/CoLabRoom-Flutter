@@ -55,7 +55,7 @@ class RoomMember {
   /// picture, or null when they have not set one.
   ///
   /// It comes from `profiles`, not from the membership: the same person in
-  /// three catalogs has one face and three colours.
+  /// three rooms has one face and three colours.
   final String? avatarPath;
 }
 
@@ -162,8 +162,8 @@ class SongProject {
   /// The column has existed since 0001 and had an index on it, and nothing
   /// ever read it. [accountId] looks like it should answer the same question
   /// and cannot: since 0043 it always equals the account that owns the
-  /// catalog, so every song in a catalog shares it. That identifies the
-  /// catalog, not the writer.
+  /// room, so every song in a room shares it. That identifies the
+  /// room, not the writer.
   ///
   /// Null for a song loaded by an older path that does not ask for it, which
   /// the tile treats as "nobody in particular" rather than guessing.
@@ -389,7 +389,7 @@ class OpenMicSong {
   bool get isAsking => askingFor.isNotEmpty || askNote.trim().isNotEmpty;
 }
 
-/// A catalog you own, as an option in the "invite them" picker.
+/// A room you own, as an option in the "invite them" picker.
 class InvitableRoom {
   const InvitableRoom({
     required this.id,
@@ -406,7 +406,7 @@ class InvitableRoom {
   final bool alreadyInvited;
 
   /// Why this row cannot be picked, or null when it can. Shown rather than
-  /// hidden: a catalog missing from the list is somebody wondering where it
+  /// hidden: a room missing from the list is somebody wondering where it
   /// went.
   String? get blockedBecause {
     if (alreadyIn) return 'already in';
@@ -415,7 +415,7 @@ class InvitableRoom {
   }
 }
 
-/// Somebody inviting you into a catalog of theirs.
+/// Somebody inviting you into a room of theirs.
 class RoomInviteForMe {
   const RoomInviteForMe({
     required this.id,
@@ -674,9 +674,9 @@ class Setlist {
   }
 }
 
-/// A catalog: the container songs live in.
+/// A room: the container songs live in.
 ///
-/// **Called a Room everywhere in the code and a catalog everywhere a person
+/// **Called a Room everywhere in the code and a room everywhere a person
 /// can see.** The class, the `rooms` table, `room_id` on every child row and
 /// every storage path that starts with one all keep the old name, because
 /// renaming a table that half the RLS policies read a path segment out of
@@ -689,7 +689,7 @@ class Setlist {
 /// somebody reach for "move the file to the other folder" and end up with two
 /// songs called Ladder Of Life.
 ///
-/// It also stopped scaling: a catalog can be a band, a side project, or just
+/// It also stopped scaling: a room can be a band, a side project, or just
 /// what one person has written, and "Band" is wrong for two of those three.
 /// Meanwhile the Studio and the Control Room are rooms that really are rooms.
 class MusicRoom {
@@ -716,13 +716,13 @@ class MusicRoom {
 
   /// Who started [project], when that is worth showing.
   ///
-  /// Null in a catalog with one member: there the answer is always "you", and
+  /// Null in a room with one member: there the answer is always "you", and
   /// a column of identical faces is noise rather than information. Null too
   /// for a song whose author is not a member any more, or one loaded by a
   /// path that does not ask for created_by — both better drawn as the plain
   /// note than as a guess.
   ///
-  /// Lives here so every surface that lists songs agrees. Home, the catalog
+  /// Lives here so every surface that lists songs agrees. Home, the room
   /// and the Songs list each drew their own icon, and a rule copied into
   /// three places is a rule that will differ in two of them.
   RoomMember? authorOf(SongProject project) {

@@ -112,7 +112,7 @@ class NotificationSettingsScreen extends StatelessWidget {
                 children: <Widget>[
                   SwitchListTile(
                     title: const Text('Invites'),
-                    subtitle: const Text('When someone invites you to a catalog or a song'),
+                    subtitle: const Text('When someone invites you to a room or a song'),
                     value: preferences.invites,
                     onChanged: (value) => controller.updateNotificationPreferences(
                       preferences.copyWith(invites: value),

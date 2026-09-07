@@ -31,13 +31,13 @@ import '../../services/user_facing_error.dart';
 /// asked of it, and a question is a chip.
 /// Two kinds of thing, not six filters.
 ///
-/// This was byCatalog / all / ideas / needsSheet / hasSheet / sets — a query
+/// This was byRoom / all / ideas / needsSheet / hasSheet / sets — a query
 /// builder wearing a segmented control, and the clearest single piece of
 /// evidence that the app was laid out by whoever wrote the queries.
 ///
-/// Of the six: "by catalog" is the default and is a *place*, not a filter, so
-/// it stopped being a chip. "Ideas" filtered to a catalog that is already
-/// visible as a catalog. "Needs a sheet" and "has a sheet" are states, which
+/// Of the six: "by room" is the default and is a *place*, not a filter, so
+/// it stopped being a chip. "Ideas" filtered to a room that is already
+/// visible as a room. "Needs a sheet" and "has a sheet" are states, which
 /// is what search and the sheet queue banner are for. "Everything" is what
 /// typing in the search box already gives you.
 ///
@@ -76,9 +76,9 @@ class _SongsScreenState extends State<SongsScreen> {
   /// Opens on places rather than on a list.
   ///
   /// The audit was right that three tabs were three filters on one library.
-  /// It was wrong to conclude the answer was one flat list — a catalog is not
+  /// It was wrong to conclude the answer was one flat list — a room is not
   /// a filter, it is a *place*, and places are how people remember where
-  /// things are. Every catalog carries an emoji, a name and a set of faces,
+  /// things are. Every room carries an emoji, a name and a set of faces,
   /// which is everything needed to tell one from another in a second, and
   /// none of it was on this screen.
   _SongsView _view = _SongsView.songs;
@@ -110,10 +110,10 @@ class _SongsScreenState extends State<SongsScreen> {
     );
   }
 
-  void _openCatalog(MusicRoom room) {
+  void _openRoom(MusicRoom room) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        settings: const RouteSettings(name: 'Catalog'),
+        settings: const RouteSettings(name: 'Room'),
         builder: (_) => RoomDetailScreen(roomId: room.id),
       ),
     );
@@ -175,7 +175,7 @@ class _SongsScreenState extends State<SongsScreen> {
     // is nothing a sheet could be made from.
     // Where a recording lands when nobody has said where it goes. The Studio
     // used to be a second library holding these; now they are songs like any
-    // other, in a catalog, and this is the chip that finds them.
+    // other, in a room, and this is the chip that finds them.
     final sets = searching
         ? controller.setlists
             .where((s) => NamePolicy.normalized(s.name).contains(NamePolicy.normalized(_query)))
@@ -278,7 +278,7 @@ class _SongsScreenState extends State<SongsScreen> {
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
                 hintText: showingSongs
-                    ? 'Search songs, catalogs, or a lyric you remember'
+                    ? 'Search songs, rooms, or a lyric you remember'
                     : 'Search sets',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: searching
@@ -373,11 +373,11 @@ class _SongsScreenState extends State<SongsScreen> {
             sliver: SliverList.list(
               children: <Widget>[
                 for (final room in rooms)
-                  _CatalogSection(
+                  _RoomSection(
                     room: room,
                     controller: controller,
                     onOpenSong: _open,
-                    onOpenCatalog: () => _openCatalog(room),
+                    onOpenRoom: () => _openRoom(room),
                   ),
               ],
             ),
@@ -424,29 +424,29 @@ class _SongsScreenState extends State<SongsScreen> {
   }
 }
 
-/// One catalog, and the songs in it.
+/// One room, and the songs in it.
 ///
-/// The thing that faded. A catalog carries an emoji, a name and a set of
+/// The thing that faded. A room carries an emoji, a name and a set of
 /// faces — everything needed to tell your band from your own workspace from
 /// the thing you started with somebody last week — and none of it appeared on
 /// the screen where you look for songs. Twenty-eight titles in one list is a
 /// list you have to read; four places with faces on them is one you recognise.
 ///
 /// **The faces are the privacy signal, and they are always on.** Nothing here
-/// needs a lock icon: who can see a catalog is exactly who is pictured beside
+/// needs a lock icon: who can see a room is exactly who is pictured beside
 /// its name, which is a fact rather than a promise and is true at a glance.
-class _CatalogSection extends StatelessWidget {
-  const _CatalogSection({
+class _RoomSection extends StatelessWidget {
+  const _RoomSection({
     required this.room,
     required this.controller,
     required this.onOpenSong,
-    required this.onOpenCatalog,
+    required this.onOpenRoom,
   });
 
   final MusicRoom room;
   final MusicBetaController controller;
   final ValueChanged<SongProject> onOpenSong;
-  final VoidCallback onOpenCatalog;
+  final VoidCallback onOpenRoom;
 
   @override
   Widget build(BuildContext context) {
@@ -459,7 +459,7 @@ class _CatalogSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           InkWell(
-            onTap: onOpenCatalog,
+            onTap: onOpenRoom,
             borderRadius: BorderRadius.circular(9),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
@@ -485,7 +485,7 @@ class _CatalogSection extends StatelessWidget {
                   else
                     // Said plainly rather than drawn as one lonely face. "Just
                     // you" is the most reassuring thing this screen can say
-                    // about a catalog, and it is the default for most of them.
+                    // about a room, and it is the default for most of them.
                     const Text(
                       'just you',
                       style: TextStyle(color: AppColors.muted, fontSize: 11.5),
@@ -499,7 +499,7 @@ class _CatalogSection extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           if (songs.isEmpty)
-            // Shown rather than hidden. An empty catalog is still a place, and
+            // Shown rather than hidden. An empty room is still a place, and
             // a place that vanishes when you empty it is one you stop trusting
             // to hold anything.
             Padding(
@@ -535,7 +535,7 @@ class _CatalogSection extends StatelessWidget {
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton(
-                onPressed: onOpenCatalog,
+                onPressed: onOpenRoom,
                 style: TextButton.styleFrom(
                   visualDensity: VisualDensity.compact,
                   foregroundColor: AppColors.cyan,
@@ -551,7 +551,7 @@ class _CatalogSection extends StatelessWidget {
   }
 }
 
-/// Who can see this catalog, drawn as the people themselves.
+/// Who can see this room, drawn as the people themselves.
 class _Faces extends StatelessWidget {
   const _Faces({required this.room, required this.controller});
 
@@ -763,7 +763,7 @@ class _SongRow extends StatelessWidget {
   final SongSearchResult result;
   final VoidCallback onTap;
 
-  /// Who started it — see MusicRoom.authorOf. Null in a catalog of one.
+  /// Who started it — see MusicRoom.authorOf. Null in a room of one.
   final String? owner;
   final Color? ownerColor;
   final Uint8List? ownerPhoto;

@@ -112,8 +112,8 @@ class _AccountScreenState extends State<AccountScreen> {
         title: const Text('Privacy & Data'),
         content: const SingleChildScrollView(
           child: Text(
-            'Catalogs are private to their members. Contributions retain their author and '
-            'timestamp. Deleting an account removes its profile and contributions; catalogs '
+            'Rooms are private to their members. Contributions retain their author and '
+            'timestamp. Deleting an account removes its profile and contributions; rooms '
             'owned by that account are also permanently deleted.\n\n'
             '$audioJourneyTitle\n\n'
             '$audioJourneyBody',
@@ -137,7 +137,7 @@ class _AccountScreenState extends State<AccountScreen> {
         // already heard, and that their name comes off them.
         content: const Text(
           'This permanently deletes your account, your profile, and every '
-          'catalog you own — including its songs. It cannot be undone.'
+          'room you own — including its songs. It cannot be undone.'
           '\n\n'
           'Takes you recorded on other people\'s songs stay with those '
           'songs, because their bands cannot re-record them. '

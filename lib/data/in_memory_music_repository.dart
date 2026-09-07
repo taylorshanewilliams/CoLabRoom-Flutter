@@ -171,9 +171,9 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<MusicRoom> createRoom({required String name, required String icon}) async {
     final cleaned = NamePolicy.clean(name);
-    NamePolicy.requireUsable(cleaned, label: 'Catalog name');
+    NamePolicy.requireUsable(cleaned, label: 'Room name');
     if (_rooms.any((room) => NamePolicy.same(room.name, cleaned))) {
-      throw const NameConflict('A catalog with that name already exists.');
+      throw const NameConflict('A room with that name already exists.');
     }
     final now = DateTime.now();
     final room = MusicRoom(
@@ -230,11 +230,11 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<MusicRoom> renameRoom({required MusicRoom room, required String name}) async {
     final cleaned = NamePolicy.clean(name);
-    NamePolicy.requireUsable(cleaned, label: 'Catalog name');
+    NamePolicy.requireUsable(cleaned, label: 'Room name');
     if (_rooms.any(
       (candidate) => candidate.id != room.id && NamePolicy.same(candidate.name, cleaned),
     )) {
-      throw const NameConflict('A catalog with that name already exists.');
+      throw const NameConflict('A room with that name already exists.');
     }
     final renamed = room.copyWith(name: cleaned, updatedAt: DateTime.now());
     _replaceRoom(renamed);
@@ -252,9 +252,9 @@ class InMemoryMusicRepository implements MusicRepository {
     required String title,
   }) async {
     final cleaned = NamePolicy.clean(title);
-    NamePolicy.requireUsable(cleaned, label: 'Project name');
+    NamePolicy.requireUsable(cleaned, label: 'Song name');
     if (_allProjects.any((project) => NamePolicy.same(project.title, cleaned))) {
-      throw const NameConflict('A project with that name already exists in your account.');
+      throw const NameConflict('A song with that name already exists in your account.');
     }
     final now = DateTime.now();
     final maxSort = room.projects.isEmpty
@@ -333,11 +333,11 @@ class InMemoryMusicRepository implements MusicRepository {
     required String title,
   }) async {
     final cleaned = NamePolicy.clean(title);
-    NamePolicy.requireUsable(cleaned, label: 'Project name');
+    NamePolicy.requireUsable(cleaned, label: 'Song name');
     if (_allProjects.any(
       (candidate) => candidate.id != project.id && NamePolicy.same(candidate.title, cleaned),
     )) {
-      throw const NameConflict('A project with that name already exists in your account.');
+      throw const NameConflict('A song with that name already exists in your account.');
     }
     final renamed = project.copyWith(title: cleaned, updatedAt: DateTime.now());
     _replaceProject(renamed);
@@ -780,7 +780,7 @@ class InMemoryMusicRepository implements MusicRepository {
       // sentence — a debug build that allowed it would be somebody testing a
       // message they never see.
       throw StateError(
-        'The owner cannot leave their own catalog. Hand it over or delete it.',
+        'The owner cannot leave their own room. Hand it over or delete it.',
       );
     }
     _replaceRoom(room.copyWith(
@@ -968,7 +968,7 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<MusicRoom> ideasCatalog() async {
+  Future<MusicRoom> ideasRoom() async {
     for (final room in _rooms) {
       if (room.name.trim().toLowerCase() == 'ideas') return room;
     }
@@ -977,7 +977,7 @@ class InMemoryMusicRepository implements MusicRepository {
 
   @override
   Future<SongProject> startIdea({String? title}) async {
-    final room = await ideasCatalog();
+    final room = await ideasRoom();
     final wanted = (title ?? '').trim();
     return createSong(
       room: room,
@@ -1330,7 +1330,7 @@ class InMemoryMusicRepository implements MusicRepository {
     if (room.members.any(
       (member) => member.userId != currentUserId && member.colorValue == colorValue,
     )) {
-      throw const NameConflict('That color is already being used in this catalog.');
+      throw const NameConflict('That color is already being used in this room.');
     }
     final updatedMembers = room.members
         .map(

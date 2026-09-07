@@ -17,7 +17,7 @@ import 'report_sheet.dart';
 /// The page a stranger lands on, and the thing three features have been
 /// waiting behind. It answers one question — *do I want to play on this?* — so
 /// it holds what somebody needs to decide that and nothing else. Not the
-/// catalog it lives in, not the other songs beside it, not who else is in the
+/// room it lives in, not the other songs beside it, not who else is in the
 /// band. Which songs sit next to this one is the band's business.
 ///
 /// **You hear only what the room has already heard.** 0057 made a take

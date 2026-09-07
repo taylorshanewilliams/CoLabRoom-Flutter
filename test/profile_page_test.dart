@@ -197,8 +197,8 @@ void main() {
     // and then the app stopped.
     expect(find.text('Ask them to play on…'), findsOneWidget);
     // Two doors, deliberately different sizes: one song to meet somebody,
-    // a whole catalog once you know them. The small one is the loud one.
-    expect(find.text('Invite to a catalog'), findsOneWidget);
+    // a whole room once you know them. The small one is the loud one.
+    expect(find.text('Invite to a room'), findsOneWidget);
     // Said before the tap, because somebody about to contact a stranger about
     // an unfinished song wants to know what it costs them.
     expect(
@@ -281,10 +281,10 @@ void main() {
       ),
     );
     expect(find.text('Ask them to play on…'), findsNothing);
-    expect(find.text('Invite to a catalog'), findsNothing);
+    expect(find.text('Invite to a room'), findsNothing);
   });
 
-  testWidgets('a catalog invitation says how big it is before you send it',
+  testWidgets('a room invitation says how big it is before you send it',
       (tester) async {
     final repository = InMemoryMusicRepository.seeded();
     const mara = Musician(
@@ -305,7 +305,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Invite to a catalog'));
+    await tester.tap(find.text('Invite to a room'));
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 60));
     }
@@ -316,11 +316,11 @@ void main() {
     // discovered after it. This is the sheet where somebody hands over a
     // library rather than a track.
     expect(
-      find.text('A catalog is everything in it, now and later. If you only '
+      find.text('A room is everything in it, now and later. If you only '
           'want them on one song, ask them to play on it instead.'),
       findsOneWidget,
     );
-    expect(find.text('WHICH CATALOG'), findsOneWidget);
+    expect(find.text('WHICH ROOM'), findsOneWidget);
   });
 
   group('the preview refuses exactly what the server refuses', () {

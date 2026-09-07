@@ -310,7 +310,7 @@ class SupabaseMusicRepository implements MusicRepository {
   @override
   Future<MusicRoom> createRoom({required String name, required String icon}) async {
     final cleaned = NamePolicy.clean(name);
-    NamePolicy.requireUsable(cleaned, label: 'Catalog name');
+    NamePolicy.requireUsable(cleaned, label: 'Room name');
     try {
       final existing = await client
           .from('rooms')
@@ -344,7 +344,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'projects': <dynamic>[],
       });
     } on PostgrestException catch (error) {
-      throw _friendlyDatabaseError(error, noun: 'catalog');
+      throw _friendlyDatabaseError(error, noun: 'room');
     }
   }
 
@@ -453,7 +453,7 @@ class SupabaseMusicRepository implements MusicRepository {
   @override
   Future<MusicRoom> renameRoom({required MusicRoom room, required String name}) async {
     final cleaned = NamePolicy.clean(name);
-    NamePolicy.requireUsable(cleaned, label: 'Catalog name');
+    NamePolicy.requireUsable(cleaned, label: 'Room name');
     try {
       final row = await client
           .from('rooms')
@@ -467,7 +467,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'projects': room.projects.map(_projectJson).toList(growable: false),
       });
     } on PostgrestException catch (error) {
-      throw _friendlyDatabaseError(error, noun: 'catalog');
+      throw _friendlyDatabaseError(error, noun: 'room');
     }
   }
 
@@ -481,7 +481,7 @@ class SupabaseMusicRepository implements MusicRepository {
   @override
   Future<SongProject> createSong({required MusicRoom room, required String title}) async {
     final cleaned = NamePolicy.clean(title);
-    NamePolicy.requireUsable(cleaned, label: 'Project name');
+    NamePolicy.requireUsable(cleaned, label: 'Song name');
     try {
       final existing = await client
           .from('projects')
@@ -511,7 +511,7 @@ class SupabaseMusicRepository implements MusicRepository {
   @override
   Future<SongProject> renameSong({required SongProject project, required String title}) async {
     final cleaned = NamePolicy.clean(title);
-    NamePolicy.requireUsable(cleaned, label: 'Project name');
+    NamePolicy.requireUsable(cleaned, label: 'Song name');
     try {
       final row = await client
           .from('projects')
@@ -1015,7 +1015,7 @@ class SupabaseMusicRepository implements MusicRepository {
       for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
         InvitableRoom(
           id: (row as Map)['id'] as String,
-          name: row['name'] as String? ?? 'Catalog',
+          name: row['name'] as String? ?? 'Room',
           songCount: (row['song_count'] as num?)?.toInt() ?? 0,
           alreadyIn: row['already_in'] as bool? ?? false,
           alreadyInvited: row['already_invited'] as bool? ?? false,
@@ -1047,7 +1047,7 @@ class SupabaseMusicRepository implements MusicRepository {
         RoomInviteForMe(
           id: (row as Map)['id'] as String,
           roomId: row['room_id'] as String,
-          roomName: row['room_name'] as String? ?? 'A catalog',
+          roomName: row['room_name'] as String? ?? 'A room',
           invitedByName: row['invited_by_name'] as String? ?? 'Somebody',
           note: row['note'] as String? ?? '',
           createdAt: DateTime.tryParse('${row['created_at']}')?.toLocal() ??
@@ -1244,21 +1244,21 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<MusicRoom> ideasCatalog() async {
+  Future<MusicRoom> ideasRoom() async {
     // Through the function, not two client round trips. Find-or-create from
-    // here would race two simultaneous recordings into two catalogs both
+    // here would race two simultaneous recordings into two rooms both
     // called Ideas; the function takes an advisory lock and cannot.
     final id = await client.rpc<dynamic>('ideas_catalog');
     final rooms = await loadRooms();
     return rooms.firstWhere(
       (room) => room.id == id,
-      orElse: () => throw StateError('The Ideas catalog could not be opened.'),
+      orElse: () => throw StateError('The Ideas room could not be opened.'),
     );
   }
 
   @override
   Future<SongProject> startIdea({String? title}) async {
-    final room = await ideasCatalog();
+    final room = await ideasRoom();
     final wanted = (title ?? '').trim();
     return createSong(
       room: room,
@@ -1714,7 +1714,7 @@ class SupabaseMusicRepository implements MusicRepository {
 
   RoomMember _member(Map<String, dynamic> row) {
     // room_members carries the name and colour a person picked for this
-    // catalog, but a profile picture belongs to the person, not to their
+    // room, but a profile picture belongs to the person, not to their
     // membership — so it is embedded from profiles through the user_id key.
     final profile = row['profiles'];
     return RoomMember(

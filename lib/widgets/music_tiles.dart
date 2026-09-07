@@ -164,9 +164,9 @@ class SongTile extends StatelessWidget {
 
   /// Who started this song, when that is worth saying.
   ///
-  /// Null in a catalog with one member, because there the answer is always
+  /// Null in a room with one member, because there the answer is always
   /// "you" and a row of identical faces is noise. In a band it is the fastest
-  /// thing on the tile to read: scrolling a shared catalog, whose song this
+  /// thing on the tile to read: scrolling a shared room, whose song this
   /// is matters more than how many lines it has.
   final String? owner;
   final Color? ownerColor;

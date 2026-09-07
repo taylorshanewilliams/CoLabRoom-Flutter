@@ -182,10 +182,10 @@ abstract interface class MusicRepository {
   /// normal case and not an error.
   Future<String?> sharedCityWith(String profileId);
 
-  /// Takes somebody out of a catalog, and out of every song inside it.
+  /// Takes somebody out of a room, and out of every song inside it.
   ///
   /// The owner only, or you removing yourself. The owner cannot be removed at
-  /// all — a catalog with nobody who can invite, rename or delete it is one
+  /// all — a room with nobody who can invite, rename or delete it is one
   /// whose rows are still there and nobody can reach.
   Future<void> removeRoomMember({
     required String roomId,
@@ -195,10 +195,10 @@ abstract interface class MusicRepository {
   /// Leaving one yourself. Nobody needs permission to stop being in a band.
   Future<void> leaveRoom(String roomId);
 
-  /// Catalogs you own that [profileId] could be invited into.
+  /// Rooms you own that [profileId] could be invited into.
   Future<List<InvitableRoom>> roomsICanInviteTo(String profileId);
 
-  /// Invites somebody you met into a catalog. Grants nothing until they say
+  /// Invites somebody you met into a room. Grants nothing until they say
   /// yes, exactly like an ask.
   Future<void> inviteMusicianToRoom({
     required String roomId,
@@ -206,7 +206,7 @@ abstract interface class MusicRepository {
     String note,
   });
 
-  /// Catalog invitations aimed at you by name.
+  /// Room invitations aimed at you by name.
   Future<List<RoomInviteForMe>> roomInvitesForMe();
 
   Future<void> answerRoomInvite(String inviteId, {required bool accept});
@@ -257,17 +257,17 @@ abstract interface class MusicRepository {
   Future<void> putOnOpenMic(String projectId);
   Future<void> takeOffOpenMic(String projectId);
 
-  /// The catalog a recording lands in when nobody has said where it goes.
+  /// The room a recording lands in when nobody has said where it goes.
   ///
   /// Created on first use rather than at signup, so an account that never
-  /// records never grows an empty catalog it has to look at.
-  Future<MusicRoom> ideasCatalog();
+  /// records never grows an empty room it has to look at.
+  Future<MusicRoom> ideasRoom();
 
   /// Starts a song for a recording that has no home yet.
   ///
   /// The whole of what the Studio's "Use in a song" button used to do, moved
   /// to the front. A recording *is* a song from the moment it exists — moving
-  /// it somewhere else afterwards means picking a catalog, never converting
+  /// it somewhere else afterwards means picking a room, never converting
   /// one kind of object into another.
   Future<SongProject> startIdea({String? title});
 
@@ -276,7 +276,7 @@ abstract interface class MusicRepository {
   /// Symmetric in effect and quiet in fact: neither of you appears to the
   /// other afterwards, and nobody is told. It prevents new contact rather
   /// than tearing up a band you are both already in — wanting out of a
-  /// catalog is [leaveRoom], which is a different thing.
+  /// room is [leaveRoom], which is a different thing.
   Future<void> blockUser(String profileId);
 
   Future<void> unblockUser(String profileId);

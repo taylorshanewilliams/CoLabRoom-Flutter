@@ -16,7 +16,7 @@ import 'report_sheet.dart';
 /// Somewhere to sit.
 ///
 /// Every other surface in this app asks you to decide something first: which
-/// catalog, which song, which filter. This one asks nothing. It plays, and
+/// room, which song, which filter. This one asks nothing. It plays, and
 /// you swipe when you have heard enough — which is the only browsing gesture
 /// that works for audio, because you cannot skim a recording the way you skim
 /// a list of titles.

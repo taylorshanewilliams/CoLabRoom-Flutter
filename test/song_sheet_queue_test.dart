@@ -111,7 +111,7 @@ void main() {
       expect(plan.waiting.map((entry) => entry.project.title), <String>['Fine']);
     });
 
-    test('songs from every catalog land in the same room', () {
+    test('songs from every room land in the same room', () {
       final plan = SongSheetQueue.from(<MusicRoom>[
         _room(<SongProject>[_song('One', minutesAgo: 10)]),
         _room(<SongProject>[_song('Two', minutesAgo: 5)]),
