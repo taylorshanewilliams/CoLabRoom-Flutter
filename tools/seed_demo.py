@@ -416,9 +416,24 @@ where p.id = v.id;
             f"({quote(room_id)}::uuid, {quote(person['id'])}::uuid, "
             f"{quote(person['name'])}, 'owner')"
         )
-        for _ in range(args.songs_each):
+        # Distinct per person, because `projects_account_title_unique` is a
+        # real constraint: nobody may have two songs with the same name. Four
+        # draws from a list of twenty-four collide often enough that the first
+        # run at seventy-five accounts died on it.
+        picks = rng.sample(TITLES, min(args.songs_each, len(TITLES)))
+        # Past the end of the list, walk it again with a number on. Picking
+        # randomly here can collide with itself — a first attempt at this did,
+        # and only a check that the whole list is distinct found it.
+        round_number = 2
+        while len(picks) < args.songs_each:
+            for base in TITLES:
+                if len(picks) >= args.songs_each:
+                    break
+                picks.append(f"{base} ({round_number})")
+            round_number += 1
+        for index in range(args.songs_each):
             project_id = str(uuid.uuid4())
-            title = f"{rng.choice(TITLES)}"
+            title = picks[index]
             project_values.append(
                 f"({quote(project_id)}::uuid, {quote(room_id)}::uuid, "
                 f"{quote(person['id'])}::uuid, {quote(title)})"
