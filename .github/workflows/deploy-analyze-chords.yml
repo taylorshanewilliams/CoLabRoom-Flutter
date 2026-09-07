@@ -48,6 +48,14 @@ jobs:
       # directly in Supabase and isn't touched here.
       - name: Deploy transcribe-audio
         run: supabase functions deploy transcribe-audio --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+        # Was missing, so this step failed on every run since it was added
+        # with "Access token not provided" — and being second in the file, it
+        # took everything after it down too. The comment above says
+        # transcribe-audio spent months out of date because it had no deploy
+        # path; it then spent longer out of date because the path it got did
+        # not work.
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       # Every uploaded avatar and room logo goes through this before anybody
       # sees it. Deployed alongside the others rather than by hand, which is
