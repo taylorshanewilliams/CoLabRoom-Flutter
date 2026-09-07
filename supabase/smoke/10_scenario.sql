@@ -2302,6 +2302,77 @@ where account_id = '11111111-1111-1111-1111-111111111111';
 update public.profiles set plan = 'free'
 where id = '11111111-1111-1111-1111-111111111111';
 
+-- An answer you can read (0090, 0091).
+--
+-- 0080 gave people somewhere to ask and gave nobody a way to answer them.
+-- The question went into a table and the only reply route was already
+-- knowing their email.
+set local role authenticated;
+
+do $$
+declare
+  filed uuid;
+begin
+  select public.ask_for_help(
+    'how do I put a beat on somebody else''s song', null, 'Open Mic'
+  ) into filed;
+
+  if filed is null then
+    raise exception 'the question was not recorded';
+  end if;
+
+  -- Yours, and only yours. A help question routinely contains something
+  -- somebody would not say twice.
+  if not exists (
+    select 1 from public.my_help_requests() where id = filed
+  ) then
+    raise exception 'somebody cannot read their own question';
+  end if;
+end $$;
+
+reset role;
+
+-- Answering reaches them.
+do $$
+declare
+  filed uuid;
+  told bigint;
+begin
+  select id into filed from public.help_requests
+  where asked_by = '11111111-1111-1111-1111-111111111111'
+  order by created_at desc limit 1;
+
+  perform public.answer_help(filed, 'Ask them for a beat from their profile.');
+
+  if (select status from public.help_requests where id = filed) <> 'answered'
+  then
+    raise exception 'the question was not marked answered';
+  end if;
+
+  -- The half that was missing. An answer nobody is told about is a note in
+  -- a table.
+  select count(*) into told from public.notifications
+  where user_id = '11111111-1111-1111-1111-111111111111'
+    and type = 'help_answered';
+  if told < 1 then
+    raise exception 'the person who asked was never told';
+  end if;
+end $$;
+
+set local role authenticated;
+
+do $$
+declare
+  mine record;
+begin
+  select * into mine from public.my_help_requests() limit 1;
+  if mine.notes not like '%Ask them for a beat%' then
+    raise exception 'the answer is not readable by the person who asked';
+  end if;
+end $$;
+
+reset role;
+
 -- The dial knows about the showcase (0089).
 --
 -- The control whose entire job is answering "who can hear this" gave the

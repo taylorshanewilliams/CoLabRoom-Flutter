@@ -1540,6 +1540,23 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<HelpRequest>> myHelpRequests() async {
+    final rows = await client.rpc<dynamic>('my_help_requests');
+    return <HelpRequest>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        HelpRequest(
+          id: (row as Map)['id'] as String,
+          question: row['question'] as String? ?? '',
+          status: row['status'] as String? ?? 'open',
+          askedAt: DateTime.tryParse('${row['created_at']}')?.toLocal() ??
+              DateTime.now(),
+          notes: row['notes'] as String? ?? '',
+          answeredAt: DateTime.tryParse('${row['answered_at']}')?.toLocal(),
+        ),
+    ];
+  }
+
+  @override
   Future<MyPlan> myPlan() async {
     final rows = await client.rpc<dynamic>('my_plan');
     final list = rows as List<dynamic>? ?? const <dynamic>[];
