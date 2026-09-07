@@ -2172,6 +2172,10 @@ set local role authenticated;
 do $$
 declare
   found record;
+  -- Read into a variable rather than compared with `= any((select ...))`.
+  -- That form is the *subquery* ANY, which compares a text to a whole row
+  -- and fails with "malformed array literal" — the same trap 0074 hit.
+  claimed text[];
 begin
   -- Recorded, never claimed: offered.
   select * into found from public.things_we_noticed()
@@ -2194,10 +2198,9 @@ begin
 
   -- One tap writes it down.
   perform public.claim_part('drums');
-  if not ('drums' = any(
-    (select plays from public.profiles
-     where id = '11111111-1111-1111-1111-111111111111')
-  )) then
+  select plays into claimed from public.profiles
+  where id = '11111111-1111-1111-1111-111111111111';
+  if not ('drums' = any(claimed)) then
     raise exception 'claim_part did not add the part';
   end if;
 
@@ -2211,10 +2214,9 @@ begin
 
   -- Twice is not two entries.
   perform public.claim_part('drums');
-  if (select count(*) from unnest(
-        (select plays from public.profiles
-         where id = '11111111-1111-1111-1111-111111111111')) t
-      where t = 'drums') <> 1 then
+  select plays into claimed from public.profiles
+  where id = '11111111-1111-1111-1111-111111111111';
+  if (select count(*) from unnest(claimed) t where t = 'drums') <> 1 then
     raise exception 'claiming twice added the part twice';
   end if;
 end $$;
