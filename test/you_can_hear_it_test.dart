@@ -44,7 +44,10 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      expect(find.text('Ladder Of Life'), findsOneWidget);
+      // findsWidgets, not findsOneWidget: the same song now appears in the
+      // "out there" strip as well, because the preview account owns it. Two
+      // is the correct answer and one would mean the strip had gone.
+      expect(find.text('Ladder Of Life'), findsWidgets);
       // The point of the whole change. A card that names a song and cannot
       // play it is asking somebody to judge music by reading.
       expect(find.byType(PlayButton), findsWidgets,

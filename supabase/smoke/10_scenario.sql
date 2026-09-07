@@ -2223,6 +2223,82 @@ end $$;
 
 reset role;
 
+-- Who has been listening (0086).
+--
+-- The property that matters is what this refuses to record. A song's owner
+-- gets a number and can never be given an identity, and the shape of the
+-- table is what guarantees it rather than a promise in a policy.
+--
+-- Uses aaaaaaaa, which is on the Open Mic at this point, and dddddddd,
+-- which was taken off five hundred lines earlier — so the negative case
+-- is a real song that is genuinely not up rather than an id that does not
+-- exist and would pass without testing anything.
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999"}';
+
+do $$
+declare
+  heard bigint;
+begin
+  -- Somebody else's song, on the Open Mic.
+  perform public.record_play('aaaaaaaa-0000-0000-0000-00000000000a');
+  perform public.record_play('aaaaaaaa-0000-0000-0000-00000000000a');
+  perform public.record_play('aaaaaaaa-0000-0000-0000-00000000000a');
+
+  -- Three plays, one person, one day: one row. Counting plays would make
+  -- the number flattering and useless.
+  select count(*) into heard from public.song_plays
+  where project_id = 'aaaaaaaa-0000-0000-0000-00000000000a';
+  if heard <> 1 then
+    raise exception 'three plays by one person counted as %', heard;
+  end if;
+end $$;
+
+-- Your own song is not an audience.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+do $$
+declare
+  heard bigint;
+begin
+  perform public.record_play('aaaaaaaa-0000-0000-0000-00000000000a');
+  select count(*) into heard from public.song_plays
+  where project_id = 'aaaaaaaa-0000-0000-0000-00000000000a';
+  if heard <> 1 then
+    raise exception 'an owner listening to their own song was counted';
+  end if;
+end $$;
+
+-- And the owner is told the number.
+do $$
+declare
+  mine record;
+begin
+  select * into mine from public.my_open_mic()
+  where id = 'aaaaaaaa-0000-0000-0000-00000000000a';
+
+  if mine.id is null then
+    raise exception 'my_open_mic did not return a song that is up';
+  end if;
+  if mine.listeners <> 1 then
+    raise exception 'the owner was told % listeners rather than one',
+      mine.listeners;
+  end if;
+end $$;
+
+-- Nothing accumulates against a song that is not up.
+do $$
+declare
+  before_count bigint;
+  after_count bigint;
+begin
+  select count(*) into before_count from public.song_plays;
+  perform public.record_play('dddddddd-0000-0000-0000-00000000000d');
+  select count(*) into after_count from public.song_plays;
+  if after_count <> before_count then
+    raise exception 'a song that is not on the Open Mic was counted';
+  end if;
+end $$;
+
 -- Hear them, and start something (0085).
 --
 -- Two properties. A card must be able to play something of theirs, and

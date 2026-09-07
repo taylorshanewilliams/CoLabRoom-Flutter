@@ -366,6 +366,15 @@ abstract interface class MusicRepository {
     String note,
   });
 
+  /// Somebody listened to [projectId] for long enough to mean it.
+  ///
+  /// Counted once per person per day, and never logged with a time — the
+  /// owner is told a number and can never be told an identity.
+  Future<void> recordPlay(String projectId);
+
+  /// Your own songs on the Open Mic, and what has come back to them.
+  Future<List<OpenMicStatus>> myOpenMic();
+
   Future<void> claimPart(String part);
 
   Future<Musician?> loadMusician(String profileId);

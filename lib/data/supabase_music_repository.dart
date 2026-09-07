@@ -1502,6 +1502,43 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> recordPlay(String projectId) async {
+    try {
+      await client.rpc<dynamic>(
+        'record_play',
+        params: <String, dynamic>{'target_project': projectId},
+      );
+    } catch (_) {
+      // Swallowed. A count that could not be written is a count; a listen
+      // that threw in the middle of somebody's music is a bug they can hear.
+    }
+  }
+
+  @override
+  Future<List<OpenMicStatus>> myOpenMic() async {
+    final rows = await client.rpc<dynamic>('my_open_mic');
+    return <OpenMicStatus>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        OpenMicStatus(
+          id: (row as Map)['id'] as String,
+          title: row['title'] as String? ?? 'A song',
+          putUpAt: DateTime.tryParse('${row['open_mic_at']}')?.toLocal() ??
+              DateTime.now(),
+          listeners: (row['listeners'] as num?)?.toInt() ?? 0,
+          listenersThisWeek:
+              (row['listeners_this_week'] as num?)?.toInt() ?? 0,
+          offers: (row['offers'] as num?)?.toInt() ?? 0,
+          askingFor: <String>[
+            for (final a
+                in (row['asking_for'] as List<dynamic>? ?? const <dynamic>[]))
+              '$a',
+          ],
+          storagePath: row['storage_path'] as String? ?? '',
+        ),
+    ];
+  }
+
+  @override
   Future<void> claimPart(String part) async {
     await client.rpc<dynamic>(
       'claim_part',
