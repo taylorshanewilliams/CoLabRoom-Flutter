@@ -2269,7 +2269,8 @@ begin
   select count(*) into invited from public.room_invites i
   where i.room_id = new_room
     and i.invited_profile = '99999999-9999-9999-9999-999999999999'
-    and i.status = 'pending';
+    -- 'open', not 'pending': room_invites has used that word since 0062.
+    and i.status = 'open';
   if invited <> 1 then
     raise exception 'no invitation was sent';
   end if;
