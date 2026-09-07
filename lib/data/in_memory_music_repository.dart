@@ -855,6 +855,24 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<OpenMicSong>> songsBy(String profileId) async {
+    // Mara owns one and played on the other, which is the pair worth
+    // previewing: the section has to read correctly both ways.
+    if (profileId != 'preview-mara') return const <OpenMicSong>[];
+    return <OpenMicSong>[
+      _previewOpenMic.first,
+      OpenMicSong(
+        id: 'preview-open-2',
+        title: 'Kitchen Window',
+        ownerName: 'Dev Okonjo',
+        putUpAt: DateTime.now().subtract(const Duration(days: 2)),
+        takeCount: 1,
+        theirParts: const <String>['harmony'],
+      ),
+    ];
+  }
+
+  @override
   Future<OpenMicSong?> openMicSong(String projectId) async {
     for (final song in _previewOpenMic) {
       if (song.id == projectId) return song;

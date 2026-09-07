@@ -214,6 +214,14 @@ abstract interface class MusicRepository {
   /// Songs on the Open Mic, newest first.
   Future<List<OpenMicSong>> openMicSongs({String? part, int limit});
 
+  /// Songs on the Open Mic that [profileId] made or played on.
+  ///
+  /// Owned or played on, deliberately: a bass player who has never
+  /// written a song is exactly who Open Mic is for, and an owner-only
+  /// definition would leave their profile empty while they played on
+  /// twenty records.
+  Future<List<OpenMicSong>> songsBy(String profileId);
+
   /// One of them, as somebody outside the room sees it.
   Future<OpenMicSong?> openMicSong(String projectId);
 

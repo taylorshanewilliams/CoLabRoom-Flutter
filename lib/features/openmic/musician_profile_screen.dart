@@ -10,6 +10,7 @@ import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import 'ask_musician_sheet.dart';
 import 'invite_to_catalog_sheet.dart';
+import 'open_mic_song_screen.dart';
 import 'report_sheet.dart';
 
 /// Somebody's own room.
@@ -52,6 +53,7 @@ class MusicianProfileScreen extends StatefulWidget {
 class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
   Musician? _musician;
   List<ShowcaseLink>? _links;
+  List<OpenMicSong>? _songs;
   String? _sharedCity;
   String? _error;
   bool _missing = false;
@@ -70,6 +72,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
     try {
       final musician = await widget.repository.loadMusician(widget.profileId);
       final links = await widget.repository.loadShowcase(widget.profileId);
+      final songs = await widget.repository.songsBy(widget.profileId);
       String? shared;
       if (!_isMe) {
         // Only ever a nice surprise, never a filter. Null is the normal answer
@@ -85,6 +88,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
         _missing = musician == null && widget.initial == null;
         if (musician != null) _musician = musician;
         _links = links;
+        _songs = songs;
         _sharedCity = shared;
         _error = null;
       });
@@ -228,6 +232,18 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
       _say('Invited ${musician.displayName}. They see nothing until they '
           'say yes.');
     }
+  }
+
+  Future<void> _openSong(OpenMicSong song) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'Open Mic song'),
+      builder: (_) => OpenMicSongScreen(
+        projectId: song.id,
+        repository: widget.repository,
+        initial: song,
+      ),
+    ));
+    if (mounted) CurrentRoute.enter('Profile');
   }
 
   Future<void> _report() async {
@@ -402,6 +418,8 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
             : _Body(
                 musician: musician,
                 links: _links,
+                songs: _songs,
+                onOpenSong: (song) => unawaited(_openSong(song)),
                 sharedCity: _sharedCity,
                 error: _error,
                 isMe: _isMe,
@@ -421,6 +439,8 @@ class _Body extends StatelessWidget {
   const _Body({
     required this.musician,
     required this.links,
+    required this.songs,
+    required this.onOpenSong,
     required this.sharedCity,
     required this.error,
     required this.isMe,
@@ -434,6 +454,8 @@ class _Body extends StatelessWidget {
 
   final Musician musician;
   final List<ShowcaseLink>? links;
+  final List<OpenMicSong>? songs;
+  final ValueChanged<OpenMicSong> onOpenSong;
   final String? sharedCity;
   final String? error;
   final bool isMe;
@@ -450,6 +472,7 @@ class _Body extends StatelessWidget {
   Widget build(BuildContext context) {
     final top = musician.topParts;
     final shown = links;
+    final heard = songs ?? const <OpenMicSong>[];
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
@@ -593,6 +616,22 @@ class _Body extends StatelessWidget {
             style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
           ),
         ],
+        // Between the record and the wish list, and deliberately there.
+        //
+        // The page reads: what they have done, what it sounds like, what they
+        // would like to be asked for, where else to find them. The sound goes
+        // straight after the count because a number is what makes somebody
+        // trust a profile and a song is what makes them tap.
+        if (heard.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 28),
+          _Heading('Listen', note: isMe ? 'anybody can hear these' : null),
+          const SizedBox(height: 9),
+          for (final song in heard)
+            _SongOnProfile(
+              song: song,
+              onTap: () => onOpenSong(song),
+            ),
+        ],
         if (musician.plays.isNotEmpty) ...<Widget>[
           const SizedBox(height: 28),
           const _Heading('Also plays', note: 'their own words'),
@@ -648,6 +687,85 @@ class _Body extends StatelessWidget {
       ],
     );
   }
+}
+
+/// A song of theirs you can actually play.
+///
+/// The strongest thing a profile can hold, and the last thing it got. A
+/// counted part is evidence; a link is a claim; a song is the sound, which is
+/// what a musician was trying to judge all along.
+class _SongOnProfile extends StatelessWidget {
+  const _SongOnProfile({required this.song, required this.onTap});
+
+  final OpenMicSong song;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    // Empty means the song is theirs. Otherwise it is somebody else's song
+    // they played on, and saying which part is the difference between showing
+    // your work and claiming their song.
+    final theirs = song.theirParts.isEmpty;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: AppColors.raised,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: AppColors.line),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(13, 11, 12, 11),
+            child: Row(
+              children: <Widget>[
+                const Icon(Icons.play_circle_outline_rounded,
+                    color: AppColors.cyan, size: 22),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _subtitle(song, theirs),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: AppColors.muted, fontSize: 11.5),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded,
+                    size: 18, color: AppColors.muted),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _subtitle(OpenMicSong song, bool theirs) {
+  if (theirs) {
+    final parts = song.takeCount == 1 ? "part" : "parts";
+    return "Their song · ${song.takeCount} $parts";
+  }
+  return "Played ${song.theirParts.join(", ")} on ${song.ownerName}'s song";
 }
 
 /// Your own page, before anybody else can see it.
