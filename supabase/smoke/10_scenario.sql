@@ -1705,8 +1705,12 @@ select public.take_off_open_mic('dddddddd-0000-0000-0000-00000000000d');
 -- The check is that somebody who has recorded nothing still turns up. Before
 -- this, the sort put every beginner last — every search, every time, until
 -- they built a record they could not build without first being found.
-insert into public.profiles (id, display_name)
-values ('eeeeeeee-0000-0000-0000-00000000000e', 'Never Recorded Anything')
+-- Through auth.users, because on_auth_user_created is what makes a profile —
+-- inserting one directly is not a thing the app can do and not a thing this
+-- file should pretend to.
+insert into auth.users (id, email, raw_user_meta_data)
+values ('eeeeeeee-0000-0000-0000-00000000000e', 'newcomer@smoke.test',
+        '{"display_name": "Never Recorded Anything"}')
 on conflict (id) do nothing;
 
 update public.profiles
