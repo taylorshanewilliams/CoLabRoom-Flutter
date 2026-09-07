@@ -1290,6 +1290,11 @@ class _PresenceSheetState extends State<_PresenceSheet> {
   late final Set<String> _soundsLike;
   final TextEditingController _ownWords = TextEditingController();
 
+  /// For a role the list does not have. Somebody plays the sitar, somebody
+  /// runs front of house, somebody writes string arrangements — a fixed list
+  /// is a promise this app cannot keep, and the column is free text anyway.
+  final TextEditingController _ownRole = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -1305,6 +1310,20 @@ class _PresenceSheetState extends State<_PresenceSheet> {
   /// Lower-cased and trimmed to match what the server stores, so a tag typed
   /// as "Folk" and one picked as "folk" are the same tag rather than two that
   /// never match each other.
+  /// Adds a role in somebody's own words.
+  ///
+  /// Lower-cased and trimmed to match what the server stores, so a role
+  /// typed as "Fiddle" and one picked from a list are the same thing rather
+  /// than two that never match each other.
+  void _addOwnRole() {
+    final typed = _ownRole.text.trim().toLowerCase();
+    if (typed.isEmpty || typed.length > 40) return;
+    setState(() {
+      _plays.add(typed);
+      _ownRole.clear();
+    });
+  }
+
   void _addOwnWords() {
     final typed = _ownWords.text.trim().toLowerCase();
     if (typed.isEmpty || typed.length > 40) return;
@@ -1317,6 +1336,7 @@ class _PresenceSheetState extends State<_PresenceSheet> {
 
   @override
   void dispose() {
+    _ownRole.dispose();
     _ownWords.dispose();
     _city.dispose();
     super.dispose();
@@ -1373,6 +1393,24 @@ class _PresenceSheetState extends State<_PresenceSheet> {
               spacing: 7,
               runSpacing: 7,
               children: <Widget>[
+                // Anything they typed themselves first, so a role that is
+                // not on the list does not look second-class.
+                for (final own in _plays.where(
+                    (p) => !_parts.any((role) => role.value == p)))
+                  FilterChip(
+                    label: Text(own),
+                    selected: true,
+                    onSelected: (_) => setState(() => _plays.remove(own)),
+                    showCheckmark: false,
+                    selectedColor: AppColors.cyan.withValues(alpha: 0.18),
+                    backgroundColor: AppColors.raised,
+                    side: const BorderSide(color: AppColors.cyan),
+                    labelStyle: const TextStyle(
+                      color: AppColors.cyan,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 for (final entry in _parts)
                   FilterChip(
                     label: Text(entry.label),
@@ -1405,6 +1443,29 @@ class _PresenceSheetState extends State<_PresenceSheet> {
                     ),
                   ),
               ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _ownRole,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _addOwnRole(),
+              style: const TextStyle(fontSize: 14),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Something else you do',
+                prefixIcon: const Icon(Icons.add_rounded, size: 18),
+                suffixIcon: TextButton(
+                  onPressed: _addOwnRole,
+                  child: const Text('Add'),
+                ),
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Sitar, front of house, string arrangements — whatever it is. '
+              'The list above is a shortcut, not the whole world.',
+              style: TextStyle(color: AppColors.muted, fontSize: 11.5),
             ),
             const SizedBox(height: 20),
             const _SheetHeading('What you sound like'),
