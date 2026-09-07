@@ -1954,6 +1954,114 @@ begin
   end;
 end $$;
 
+-- A crowd to test with, and getting rid of it again (0078).
+--
+-- The purge is the half that matters. Seed data that cannot be fully removed
+-- stops being seed data and becomes the data — in every count, every
+-- screenshot, and every judgement about how the app is doing. So this seeds
+-- a small crowd, then asserts that nothing of it survives: not the songs,
+-- not the takes, not the storage rows, and not the accounts.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('dede0001-0000-0000-0000-000000000001', 'demo.one@smoke.test',
+   '{"display_name": "Demo One"}'),
+  ('dede0002-0000-0000-0000-000000000002', 'demo.two@smoke.test',
+   '{"display_name": "Demo Two"}');
+
+update public.profiles set is_demo = true, discoverable = true
+where id in ('dede0001-0000-0000-0000-000000000001',
+             'dede0002-0000-0000-0000-000000000002');
+
+insert into public.rooms (id, account_id, name, icon) values
+  ('dede0011-0000-0000-0000-000000000011',
+   'dede0001-0000-0000-0000-000000000001', 'Demo One Room', '🎸');
+
+insert into public.room_members (room_id, user_id, display_name, role) values
+  ('dede0011-0000-0000-0000-000000000011',
+   'dede0001-0000-0000-0000-000000000001', 'Demo One', 'owner');
+
+insert into public.projects (id, room_id, account_id, created_by, title) values
+  ('dede0021-0000-0000-0000-000000000021',
+   'dede0011-0000-0000-0000-000000000011',
+   'dede0001-0000-0000-0000-000000000001',
+   'dede0001-0000-0000-0000-000000000001', 'A Seeded Song');
+
+insert into public.song_layers
+  (project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values
+  ('dede0021-0000-0000-0000-000000000021',
+   'dede0001-0000-0000-0000-000000000001',
+   'dede0011-0000-0000-0000-000000000011/dede0021-0000-0000-0000-000000000021/layers/seed.m4a',
+   'Take 1', 'vocal', 12000, now());
+
+insert into storage.objects (bucket_id, name, owner) values
+  ('room-files',
+   'dede0011-0000-0000-0000-000000000011/dede0021-0000-0000-0000-000000000021/layers/seed.m4a',
+   'dede0001-0000-0000-0000-000000000001')
+on conflict do nothing;
+
+-- A real account's work sitting alongside it, which the purge must not touch.
+do $$
+declare
+  real_songs bigint;
+  after_songs bigint;
+begin
+  select count(*) into real_songs from public.projects p
+  where p.room_id <> 'dede0011-0000-0000-0000-000000000011';
+
+  perform public.purge_demo();
+
+  if exists (select 1 from public.profiles where is_demo) then
+    raise exception 'a seeded profile survived the purge';
+  end if;
+  if exists (
+    select 1 from auth.users
+    where id in ('dede0001-0000-0000-0000-000000000001',
+                 'dede0002-0000-0000-0000-000000000002')
+  ) then
+    raise exception 'a seeded account survived the purge';
+  end if;
+  if exists (
+    select 1 from public.projects
+    where id = 'dede0021-0000-0000-0000-000000000021'
+  ) then
+    raise exception 'a seeded song survived the purge';
+  end if;
+  if exists (
+    select 1 from public.song_layers
+    where project_id = 'dede0021-0000-0000-0000-000000000021'
+  ) then
+    raise exception 'a seeded take survived the purge';
+  end if;
+  -- The one that would be missed. Bytes nothing points at are bytes nobody
+  -- ever finds again, and they are still being paid for.
+  if exists (
+    select 1 from storage.objects
+    where name like 'dede0011-0000-0000-0000-000000000011/%'
+  ) then
+    raise exception 'a seeded file survived the purge';
+  end if;
+
+  -- And nothing real went with it.
+  select count(*) into after_songs from public.projects p
+  where p.room_id <> 'dede0011-0000-0000-0000-000000000011';
+  if after_songs <> real_songs then
+    raise exception 'the purge took % real songs with it',
+      real_songs - after_songs;
+  end if;
+end $$;
+
+-- Safe to run when there is nothing to remove, or nobody will run it twice.
+do $$
+declare
+  said record;
+begin
+  select * into said from public.purge_demo() limit 1;
+  if said.what <> 'nothing was seeded' then
+    raise exception 'a second purge reported % rather than saying it was empty',
+      said.what;
+  end if;
+end $$;
+
 -- Nobody is ranked (0072).
 --
 -- The check is that somebody who has recorded nothing still turns up. Before

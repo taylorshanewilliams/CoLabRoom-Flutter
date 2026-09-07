@@ -8,6 +8,7 @@ import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/app_top_bar.dart';
+import '../../widgets/demo_chip.dart';
 import '../../widgets/play_button.dart';
 import 'listen_screen.dart';
 import 'musician_profile_screen.dart';
@@ -647,6 +648,10 @@ class _MusicianCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (musician.isDemo) ...<Widget>[
+                      const SizedBox(width: 6),
+                      const DemoChip(compact: true),
+                    ],
                     if (musician.city != null) ...<Widget>[
                       const Icon(
                         Icons.place_outlined,

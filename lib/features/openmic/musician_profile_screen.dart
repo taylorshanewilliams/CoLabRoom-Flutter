@@ -8,6 +8,7 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/demo_chip.dart';
 import '../../widgets/play_button.dart';
 import 'ask_musician_sheet.dart';
 import 'invite_to_room_sheet.dart';
@@ -479,15 +480,35 @@ class _Body extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 40),
       children: <Widget>[
-        Text(
-          musician.displayName,
-          style: const TextStyle(
-            color: AppColors.text,
-            fontSize: 24,
-            fontWeight: FontWeight.w800,
-            height: 1.15,
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Flexible(
+              child: Text(
+                musician.displayName,
+                style: const TextStyle(
+                  color: AppColors.text,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  height: 1.15,
+                ),
+              ),
+            ),
+            if (musician.isDemo) ...<Widget>[
+              const SizedBox(width: 9),
+              const DemoChip(),
+            ],
+          ],
         ),
+        if (musician.isDemo) ...<Widget>[
+          const SizedBox(height: 6),
+          const Text(
+            'A seeded account, here so the app can be tested with a crowd '
+            'in it. Not a real person, and not somebody to ask.',
+            style: TextStyle(
+                color: AppColors.muted, fontSize: 12, height: 1.4),
+          ),
+        ],
         if (sharedCity != null || musician.city != null) ...<Widget>[
           const SizedBox(height: 6),
           Row(

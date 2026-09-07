@@ -1463,6 +1463,7 @@ class SupabaseMusicRepository implements MusicRepository {
             in (row['shared_sounds'] as List<dynamic>? ?? const <dynamic>[]))
           '$t',
       ],
+      isDemo: row['is_demo'] as bool? ?? false,
       // Absent from find_musicians rows, and present only on your own.
       discoverable: row['discoverable'] as bool?,
       locationVisibility: row['location_visibility'] as String?,
