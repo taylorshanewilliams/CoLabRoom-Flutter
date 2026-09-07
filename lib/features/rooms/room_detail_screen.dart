@@ -15,6 +15,7 @@ import '../../widgets/music_tiles.dart';
 import '../openmic/report_sheet.dart';
 import '../songs/new_song_flow.dart';
 import '../workspace/song_workspace_screen.dart';
+import '../../services/picture_for_upload.dart';
 import '../../services/user_facing_error.dart';
 import 'room_members_screen.dart';
 
@@ -402,6 +403,124 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     }
   }
 
+  /// The room's picture, which used to live on a screen nothing opened.
+  Future<void> _pickRoomLogo(MusicRoom room) async {
+    final controller = BetaScope.of(context, listen: false);
+    final file = await FilePicker.pickFile(type: FileType.image);
+    if (file == null || !mounted) return;
+    try {
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) throw Exception('That image could not be read.');
+      await controller.setRoomLogo(room, await PictureForUpload.shrink(bytes));
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(reportAndDescribe(error,
+          service: 'app', stage: 'set_room_logo', route: 'Room'));
+    }
+  }
+
+  Future<void> _clearRoomLogo(MusicRoom room) async {
+    final controller = BetaScope.of(context, listen: false);
+    try {
+      await controller.clearRoomLogo(room);
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(reportAndDescribe(error,
+          service: 'app', stage: 'clear_room_logo', route: 'Room'));
+    }
+  }
+
+  /// Whether this room is yours to delete.
+  ///
+  /// An owner cannot leave — there would be nobody left who can invite,
+  /// rename or delete it — and everybody else cannot delete. So the menu
+  /// offers exactly one of the two, and never both.
+  bool _amOwner(MusicRoom room) {
+    final me = BetaScope.of(context, listen: false).repository.currentUserId;
+    for (final member in room.members) {
+      if (member.userId == me) return member.role == RoomRole.owner;
+    }
+    return false;
+  }
+
+  Future<void> _leaveRoom(MusicRoom room) async {
+    final controller = BetaScope.of(context, listen: false);
+    final navigator = Navigator.of(context);
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.raised,
+        title: Text('Leave ${room.name}?'),
+        content: const Text(
+          'You lose the room and every song in it. What you recorded stays '
+          'with the songs — a take keeps its author, and leaving does not '
+          'erase the work you did with them.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Stay'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF718B)),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Leave'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    try {
+      await controller.leaveRoom(room.id);
+      navigator.pop();
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(reportAndDescribe(error,
+          service: 'app', stage: 'leave_room', route: 'Room'));
+    }
+  }
+
+  Future<void> _deleteRoom(MusicRoom room) async {
+    final controller = BetaScope.of(context, listen: false);
+    final navigator = Navigator.of(context);
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.raised,
+        title: Text('Delete ${room.name}?'),
+        content: Text(
+          'This permanently deletes the room and everything in it — '
+          '${room.projects.length} '
+          '${room.projects.length == 1 ? 'song' : 'songs'}, with their '
+          'words, takes and song sheets. It takes them from everybody in '
+          'the room, not only you, and cannot be undone.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF718B)),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    try {
+      await controller.deleteRoom(room);
+      navigator.pop();
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(reportAndDescribe(error,
+          service: 'app', stage: 'delete_room', route: 'Room'));
+    }
+  }
+
   /// Reporting the room itself — its logo, its name, what is in it.
   Future<void> _reportRoom(MusicRoom room) async {
     final sent = await showReportSheet(
@@ -503,10 +622,68 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
           PopupMenuButton<String>(
             tooltip: 'More',
             onSelected: (value) {
-              if (value == 'report') unawaited(_reportRoom(room));
+              switch (value) {
+                case 'report':
+                  unawaited(_reportRoom(room));
+                case 'leave':
+                  unawaited(_leaveRoom(room));
+                case 'delete':
+                  unawaited(_deleteRoom(room));
+                case 'set_logo':
+                  unawaited(_pickRoomLogo(room));
+                case 'remove_logo':
+                  unawaited(_clearRoomLogo(room));
+              }
             },
-            itemBuilder: (_) => const <PopupMenuEntry<String>>[
+            itemBuilder: (_) => <PopupMenuEntry<String>>[
+              // Leaving and deleting were both real and both unfindable.
+              // Leaving lived two taps inside the members list; deleting
+              // lived on a rooms screen that nothing has navigated to since
+              // Home was removed. Both belong on the room.
               PopupMenuItem<String>(
+                value: 'set_logo',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.image_outlined, size: 19),
+                  title: Text(
+                    room.logoPath == null ? 'Set room logo' : 'Replace logo',
+                  ),
+                ),
+              ),
+              if (room.logoPath != null)
+                const PopupMenuItem<String>(
+                  value: 'remove_logo',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.hide_image_outlined, size: 19),
+                    title: Text('Remove logo'),
+                  ),
+                ),
+              if (_amOwner(room))
+                const PopupMenuItem<String>(
+                  value: 'delete',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.delete_outline_rounded,
+                        size: 19, color: Color(0xFFFF9AA9)),
+                    title: Text('Delete this room',
+                        style: TextStyle(color: Color(0xFFFF9AA9))),
+                  ),
+                )
+              else
+                const PopupMenuItem<String>(
+                  value: 'leave',
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.logout_rounded, size: 19),
+                    title: Text('Leave this room'),
+                  ),
+                ),
+              const PopupMenuItem<String>(
                 value: 'report',
                 child: ListTile(
                   dense: true,
@@ -764,6 +941,10 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                         }
                         return SongTile(
                           project: project,
+                          // Where in the song it is, not only that it is in
+                          // there somewhere. searchSongs has carried this
+                          // since it shipped and this screen never asked.
+                          matchedLine: songMatchLine(project, _query),
                           density: density,
                           selected: _selectedProjectIds.contains(project.id),
                           onMore: _selectedProjectIds.isEmpty ? () => _showSongMenu(room, project) : null,

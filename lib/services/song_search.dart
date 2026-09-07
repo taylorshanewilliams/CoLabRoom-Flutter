@@ -37,6 +37,23 @@ class SongSearchResult {
 /// [roomNameMatches] is passed in rather than computed, because a caller
 /// filtering one room usually knows the answer already and a caller
 /// filtering a hundred should not recompute it per song.
+/// The line that matched, so a search result can show where in the song it is.
+///
+/// The whole appeal of searching a lyric is "the song where I sang about the
+/// harbour" — and a result that only says the title has answered a different
+/// question. `searchSongs` has carried this since it shipped and the room
+/// screen never asked for it, so inside a room you could find the song and
+/// not see why.
+///
+/// Null when the match was on the title or the room name, because there is
+/// no line to show and the title is already on the tile.
+String? songMatchLine(SongProject project, String query) {
+  final needle = NamePolicy.normalized(query);
+  if (needle.isEmpty) return null;
+  if (NamePolicy.normalized(project.title).contains(needle)) return null;
+  return _firstLyricMatch(project, needle);
+}
+
 SongMatch? songMatch(
   SongProject project,
   String query, {
