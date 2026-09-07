@@ -311,6 +311,21 @@ class InMemoryMusicRepository implements MusicRepository {
       _imageBytesByPath[project.coverImagePath]!;
 
   @override
+  Future<bool> discardIfUntouched(String projectId) async {
+    for (final room in _rooms) {
+      for (final project in room.projects) {
+        if (project.id != projectId) continue;
+        final empty = !project.hasAudioReference &&
+            project.contributions.every((c) => c.body.trim().isEmpty);
+        if (!empty) return false;
+        await deleteSong(project);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @override
   Future<void> deleteSong(SongProject project) async {
     final room = _rooms.firstWhere((candidate) => candidate.id == project.roomId);
     _replaceRoom(room.copyWith(

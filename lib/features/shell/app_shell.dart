@@ -145,6 +145,24 @@ class _AppShellState extends State<AppShell> {
         settings: const RouteSettings(name: 'Song sheet'),
         builder: (_) => SongAnalysisScreen(project: project, autoRecord: true),
       ));
+
+      // Sweep up if nobody recorded anything.
+      //
+      // The song is created on the tap, before the recorder is on screen, so
+      // a thumb brushing this button leaves a permanent auto-named empty song
+      // behind — which is exactly what it did, repeatedly, in real use.
+      //
+      // Creating the song later would be the deeper fix and would reintroduce
+      // the holding pen that 0066 spent 2,809 lines removing: audio waiting
+      // somewhere to be converted is what used to fork a song into two with
+      // the same name and half the words each. So the song is still made
+      // first, and anything nobody touched is taken back.
+      //
+      // The server decides what "untouched" means and is deliberately timid
+      // about it: no takes, no recording, no words, never published, yours,
+      // made in the last two hours. Anything else stays.
+      final discarded = await controller.repository.discardIfUntouched(project.id);
+      if (discarded) await controller.load();
     } catch (error) {
       messenger
         ..hideCurrentSnackBar()
@@ -203,13 +221,15 @@ class _AppShellState extends State<AppShell> {
                 ],
               ),
             ),
-            floatingActionButton: _RecordButton(onTap: () => unawaited(_record()), extended: true),
+            floatingActionButton: _RecordButton(
+                onTap: () => unawaited(_record()), extended: true),
           );
         }
 
         return Scaffold(
           body: SafeArea(bottom: false, child: IndexedStack(index: _index, children: _lazyScreens)),
-          floatingActionButton: _RecordButton(onTap: () => unawaited(_record()), extended: false),
+          floatingActionButton: _RecordButton(
+              onTap: () => unawaited(_record()), extended: false),
           bottomNavigationBar: SafeArea(
             top: false,
             child: _BottomNavigation(
