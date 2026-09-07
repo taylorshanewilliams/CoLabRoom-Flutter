@@ -2149,6 +2149,58 @@ end $$;
 reset role;
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- The app noticed (0082).
+--
+-- The point is that it only offers what it can count. A part somebody has
+-- actually recorded is a fact; anything about their taste or ability would be
+-- a guess, and there is nothing here that supports guessing either.
+set local role authenticated;
+
+do $$
+declare
+  found record;
+begin
+  -- The writer has recorded bass on somebody else's song earlier in this
+  -- file and has never claimed it.
+  select * into found from public.things_we_noticed()
+  where kind = 'plays' and subject = 'bass';
+
+  if found.kind is null then
+    raise exception 'a recorded part was not noticed';
+  end if;
+  if found.amount < 1 then
+    raise exception 'the count came back as %', found.amount;
+  end if;
+
+  -- One tap writes it down.
+  perform public.claim_part('bass');
+  if not ('bass' = any(
+    (select plays from public.profiles
+     where id = '11111111-1111-1111-1111-111111111111')
+  )) then
+    raise exception 'claim_part did not add the part';
+  end if;
+
+  -- And it stops being offered, or the card never empties.
+  if exists (
+    select 1 from public.things_we_noticed()
+    where kind = 'plays' and subject = 'bass'
+  ) then
+    raise exception 'a claimed part is still being offered';
+  end if;
+
+  -- Twice is not two entries.
+  perform public.claim_part('bass');
+  if (select count(*) from unnest(
+        (select plays from public.profiles
+         where id = '11111111-1111-1111-1111-111111111111')) t
+      where t = 'bass') <> 1 then
+    raise exception 'claiming twice added the part twice';
+  end if;
+end $$;
+
+reset role;
+
 -- Nobody is ranked (0072).
 --
 -- The check is that somebody who has recorded nothing still turns up. Before

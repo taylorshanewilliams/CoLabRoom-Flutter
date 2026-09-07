@@ -1086,6 +1086,39 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<Noticed>> thingsWeNoticed() async {
+    // One, so the preview draws the card rather than the empty state — the
+    // card is the thing worth looking at.
+    if (_me.plays.contains('bass')) return const <Noticed>[];
+    return const <Noticed>[
+      Noticed(
+        kind: NoticedKind.plays,
+        subject: 'bass',
+        detail: 'You have recorded bass on 3 songs.',
+        amount: 3,
+      ),
+    ];
+  }
+
+  @override
+  Future<void> claimPart(String part) async {
+    if (_me.plays.contains(part)) return;
+    _me = Musician(
+      id: _me.id,
+      displayName: _me.displayName,
+      avatarPath: _me.avatarPath,
+      city: _me.city,
+      plays: <String>[..._me.plays, part],
+      soundsLike: _me.soundsLike,
+      partsRecorded: _me.partsRecorded,
+      songsPlayedOn: _me.songsPlayedOn,
+      peopleWorkedWith: _me.peopleWorkedWith,
+      discoverable: _me.discoverable,
+      locationVisibility: _me.locationVisibility,
+    );
+  }
+
+  @override
   Future<Musician?> loadMusician(String profileId) async {
     if (profileId == currentUserId) return _me;
     for (final m in _everyone) {

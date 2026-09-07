@@ -1411,6 +1411,32 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<Noticed>> thingsWeNoticed() async {
+    final rows = await client.rpc<dynamic>('things_we_noticed');
+    return <Noticed>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        Noticed(
+          kind: switch ((row as Map)['kind'] as String? ?? '') {
+            'plays' => NoticedKind.plays,
+            'discoverable' => NoticedKind.discoverable,
+            _ => NoticedKind.soundsLike,
+          },
+          subject: row['subject'] as String? ?? '',
+          detail: row['detail'] as String? ?? '',
+          amount: (row['amount'] as num?)?.toInt() ?? 0,
+        ),
+    ];
+  }
+
+  @override
+  Future<void> claimPart(String part) async {
+    await client.rpc<dynamic>(
+      'claim_part',
+      params: <String, dynamic>{'in_part': part},
+    );
+  }
+
+  @override
   Future<Musician?> loadMusician(String profileId) async {
     final rows = await client.rpc<dynamic>(
       'musician_profile',

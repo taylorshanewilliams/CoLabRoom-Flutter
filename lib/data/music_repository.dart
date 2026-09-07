@@ -332,6 +332,17 @@ abstract interface class MusicRepository {
   /// Null when there is nobody you are allowed to see at that id, which is
   /// not an error — somebody who has not opted in and shares no room with you
   /// simply has no page as far as you are concerned.
+  /// What the app has worked out about you and could write down.
+  ///
+  /// Only ever about yourself, and only ever from things it can count:
+  /// shared takes with a part on them, songs on the Open Mic, a field left
+  /// empty. Nothing is guessed about taste or ability, because nothing here
+  /// supports guessing either.
+  Future<List<Noticed>> thingsWeNoticed();
+
+  /// Adds one part to what you play, leaving the rest of the profile alone.
+  Future<void> claimPart(String part);
+
   Future<Musician?> loadMusician(String profileId);
 
   /// Turning yourself on or off in Open Mic, and what strangers may know.

@@ -988,3 +988,49 @@ class SongListener {
   /// — the difference between "in the band" and "helping with this".
   final bool songOnly;
 }
+
+
+/// Something the app worked out about you, offered rather than asked.
+///
+/// Setting up a profile is a form: tick your instruments, tick your genres,
+/// type your city. It reads as a survey because it is one — and most of it is
+/// already known. By the time anybody opens that sheet they have recorded
+/// takes, and every take carries a part.
+///
+/// So the app says what it saw. "You have recorded bass on four songs — add
+/// it?" is a different feeling from an empty checkbox, and one tap rather
+/// than a form.
+class Noticed {
+  const Noticed({
+    required this.kind,
+    required this.subject,
+    required this.detail,
+    required this.amount,
+  });
+
+  /// What sort of thing this is: a part they play, a setting working against
+  /// them, or a field worth filling.
+  final NoticedKind kind;
+
+  /// The part, for [NoticedKind.plays]. Empty otherwise.
+  final String subject;
+
+  /// The sentence to show, written by the database because it is the only
+  /// thing that knows the count.
+  final String detail;
+
+  /// How much of it there is — four songs, two takes. Used to order, so the
+  /// strongest evidence is offered first.
+  final int amount;
+}
+
+enum NoticedKind {
+  /// A part they have recorded and never claimed.
+  plays,
+
+  /// Their songs are on the Open Mic and they are not findable.
+  discoverable,
+
+  /// They have shared music and never said what it sounds like.
+  soundsLike,
+}
