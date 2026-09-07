@@ -375,6 +375,14 @@ class SupabaseMusicRepository implements MusicRepository {
           fileOptions: const FileOptions(upsert: true, contentType: 'image/png'),
         );
     await client.from('rooms').update(<String, dynamic>{'logo_path': path}).eq('id', room.id);
+    // A room logo is seen by everybody in the room, which is a smaller
+    // audience than an avatar and the same problem.
+    await checkPicture(
+      bucket: 'room-files',
+      path: path,
+      kind: 'room_logo',
+      subject: room.id,
+    );
     return room.copyWith(logoPath: path);
   }
 
@@ -403,6 +411,18 @@ class SupabaseMusicRepository implements MusicRepository {
           fileOptions: const FileOptions(upsert: true, contentType: 'image/png'),
         );
     await client.from('profiles').update(<String, dynamic>{'avatar_path': path}).eq('id', _userId);
+
+    // Looked at before anybody else sees it. Awaited rather than fired off,
+    // so a picture that gets refused is already gone by the time this
+    // returns and the screen never draws it — which is the whole difference
+    // between catching it and catching up with it.
+    await checkPicture(
+      bucket: 'avatars',
+      path: path,
+      kind: 'profile',
+      subject: _userId,
+    );
+
     if (previous != null && previous != path) {
       // Best effort. An orphaned image costs a few kilobytes; failing the
       // change because the old one wouldn't delete costs the user their new
@@ -1426,6 +1446,36 @@ class SupabaseMusicRepository implements MusicRepository {
           amount: (row['amount'] as num?)?.toInt() ?? 0,
         ),
     ];
+  }
+
+  @override
+  Future<void> checkPicture({
+    required String bucket,
+    required String path,
+    required String kind,
+    required String subject,
+  }) async {
+    try {
+      await client.functions.invoke(
+        'check-picture',
+        body: <String, dynamic>{
+          'bucket': bucket,
+          'path': path,
+          'kind': kind,
+          'subject': subject,
+        },
+      );
+    } catch (error) {
+      // Swallowed on purpose. The picture is already uploaded and pointed
+      // at; a moderation call that could not be made is a gap the report
+      // path covers, and throwing here would tell somebody their picture
+      // failed when it did not.
+      unawaited(ErrorReporter().reportWarning(
+        service: 'app',
+        stage: 'check_picture',
+        message: error.toString(),
+      ));
+    }
   }
 
   @override
