@@ -1124,6 +1124,44 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<FeedTrack>> openMicFeed({
+    DateTime? after,
+    int limit = 12,
+    String? part,
+  }) async {
+    final rows = await client.rpc<dynamic>(
+      'open_mic_feed',
+      params: <String, dynamic>{
+        'in_after': after?.toUtc().toIso8601String(),
+        'in_limit': limit,
+        'in_part': part,
+      },
+    );
+    return <FeedTrack>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        FeedTrack(
+          id: (row as Map)['id'] as String,
+          title: row['title'] as String? ?? 'A song',
+          ownerId: row['owner_id'] as String?,
+          ownerName: row['owner_name'] as String? ?? 'Somebody',
+          ownerAvatarPath: row['owner_avatar'] as String?,
+          storagePath: row['storage_path'] as String? ?? '',
+          putUpAt: DateTime.tryParse('${row['open_mic_at']}')?.toLocal() ??
+              DateTime.now(),
+          askingFor: <String>[
+            for (final a
+                in (row['asking_for'] as List<dynamic>? ?? const <dynamic>[]))
+              '$a',
+          ],
+          askNote: row['ask_note'] as String? ?? '',
+          musicalKey: row['musical_key'] as String?,
+          bpm: (row['bpm'] as num?)?.toDouble(),
+          durationMs: (row['duration_ms'] as num?)?.toInt(),
+        ),
+    ];
+  }
+
+  @override
   Future<OpenMicSong?> openMicSong(String projectId) async {
     final rows = await client.rpc<dynamic>(
       'open_mic_song',

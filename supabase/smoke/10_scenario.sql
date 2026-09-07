@@ -1627,4 +1627,77 @@ end $$;
 reset role;
 
 
+-- A page of the feed (0071).
+--
+-- The rule worth proving is the inclusive one: a song carried by a phone take
+-- alone still reaches the feed. Requiring a reference recording would quietly
+-- exclude somebody who opened the app, sang into it, and shared that — which
+-- is the person this whole surface is supposed to be for.
+insert into public.projects (id, room_id, account_id, title, created_by)
+values ('dddddddd-0000-0000-0000-00000000000d', :'room', :'writer',
+        'Sung Into A Phone', :'writer')
+on conflict (id) do nothing;
+
+insert into public.song_layers
+  (project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values
+  ('dddddddd-0000-0000-0000-00000000000d', :'writer',
+   :'room' || '/dddddddd-0000-0000-0000-00000000000d/layers/phone.m4a',
+   'Voice', 'vocal', 21000, now()),
+  ('dddddddd-0000-0000-0000-00000000000d', :'writer',
+   :'room' || '/dddddddd-0000-0000-0000-00000000000d/layers/private.m4a',
+   'Scratch', 'vocal', 8000, null);
+
+select public.put_on_open_mic('dddddddd-0000-0000-0000-00000000000d');
+
+do $$
+declare
+  track record;
+begin
+  select * into track from public.open_mic_feed(null, 20, null)
+  where id = 'dddddddd-0000-0000-0000-00000000000d';
+
+  if track.id is null then
+    raise exception 'a song with only a shared take never reached the feed';
+  end if;
+  if track.storage_path not like '%phone.m4a' then
+    raise exception 'the feed picked % rather than the shared take',
+      track.storage_path;
+  end if;
+  -- Never the private one, whatever else changes.
+  if track.storage_path like '%private.m4a' then
+    raise exception 'the feed was about to play an unshared take';
+  end if;
+  if track.duration_ms <> 21000 then
+    raise exception 'the feed carried the wrong length: %', track.duration_ms;
+  end if;
+
+  -- Every row has something to play, or the feed has silent cards in it.
+  if exists (
+    select 1 from public.open_mic_feed(null, 40, null)
+    where storage_path is null
+  ) then
+    raise exception 'the feed returned a row with nothing to play';
+  end if;
+end $$;
+
+-- Keyset paging: asking for what is older than the newest must not return it.
+do $$
+declare
+  newest timestamptz;
+begin
+  select max(open_mic_at) into newest from public.projects
+  where open_mic_at is not null;
+
+  if exists (
+    select 1 from public.open_mic_feed(newest, 20, null)
+    where open_mic_at >= newest
+  ) then
+    raise exception 'the cursor returned a track it had already shown';
+  end if;
+end $$;
+
+select public.take_off_open_mic('dddddddd-0000-0000-0000-00000000000d');
+
+
 commit;
