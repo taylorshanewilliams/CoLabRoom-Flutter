@@ -14,6 +14,7 @@ import 'ask_musician_sheet.dart';
 import 'invite_to_room_sheet.dart';
 import 'open_mic_song_screen.dart';
 import 'report_sheet.dart';
+import '../workspace/song_workspace_screen.dart';
 import 'the_app_noticed.dart';
 
 /// Somebody's own room.
@@ -61,6 +62,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
   String? _error;
   bool _missing = false;
   List<Noticed> _noticed = const <Noticed>[];
+  bool _starting = false;
   String? _claiming;
 
   bool get _isMe => widget.repository.currentUserId == widget.profileId;
@@ -350,6 +352,45 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
     }
   }
 
+  /// Meeting somebody, and being at work with them a second later.
+  ///
+  /// Everything this does was already possible and took six steps: go back,
+  /// make a room, name it, make a song, name that, invite them. Six
+  /// deliberate acts to act on an impulse, which is how an impulse dies.
+  Future<void> _startSomething() async {
+    final musician = _musician;
+    if (musician == null || _starting) return;
+    setState(() => _starting = true);
+    try {
+      final made = await widget.repository.startSomethingWith(musician.id);
+      if (!mounted) return;
+      setState(() => _starting = false);
+      // Straight into the song, because the point is to be working rather
+      // than to be told a room exists.
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => SongWorkspaceScreen(projectId: made.projectId),
+      ));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(
+            '${musician.displayName} has been invited. They see it when '
+            'they say yes.',
+          ),
+        ));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _starting = false);
+      _say(reportAndDescribe(
+        error,
+        service: 'app',
+        stage: 'start_something_with',
+        route: 'Profile',
+      ));
+    }
+  }
+
   Future<void> _editPresence() async {
     final me = _musician;
     if (me == null) return;
@@ -471,6 +512,8 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
                 onOpen: (link) => unawaited(_open(link)),
                 onEditPresence: () => unawaited(_editPresence()),
                 onAsk: _isMe ? null : () => unawaited(_ask()),
+                onStartSomething:
+                    _isMe ? null : () => unawaited(_startSomething()),
                 onInvite: _isMe ? null : () => unawaited(_invite()),
               ),
       ),
@@ -496,6 +539,7 @@ class _Body extends StatelessWidget {
     required this.onEditPresence,
     required this.onAsk,
     required this.onInvite,
+    required this.onStartSomething,
   });
 
   final Musician musician;
@@ -519,6 +563,9 @@ class _Body extends StatelessWidget {
   /// Null on your own page, where asking yourself is not a thing.
   final VoidCallback? onAsk;
   final VoidCallback? onInvite;
+
+  /// A room, a first song and an invitation, in one press.
+  final VoidCallback? onStartSomething;
 
   @override
   Widget build(BuildContext context) {
@@ -604,6 +651,35 @@ class _Body extends StatelessWidget {
           Text(
             error!,
             style: const TextStyle(color: AppColors.orange, fontSize: 12.5),
+          ),
+        ],
+        if (onStartSomething != null) ...<Widget>[
+          const SizedBox(height: 18),
+          // First, and gold, because it is the thing this whole surface
+          // exists for. Asking somebody onto a song you already have is the
+          // right move when you have one; this is the move for "I like this
+          // person, let us make something", which had no button at all and
+          // took six deliberate steps.
+          FilledButton.icon(
+            key: const Key('start_something_with'),
+            onPressed: onStartSomething,
+            icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+            label: const Text('Start something together'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+              backgroundColor: AppColors.gold,
+              foregroundColor: AppColors.ink,
+              textStyle: const TextStyle(
+                  fontSize: 14.5, fontWeight: FontWeight.w800),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Makes a room with a first song in it, and invites them. '
+            'Nothing of yours opens up until they say yes.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                color: AppColors.muted, fontSize: 11.5, height: 1.35),
           ),
         ],
         if (onAsk != null) ...<Widget>[

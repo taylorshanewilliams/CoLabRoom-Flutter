@@ -591,6 +591,10 @@ class Musician {
     this.sharedSounds = const <String>[],
     this.isDemo = false,
     this.matchedParts = const <String>[],
+    this.heardSongId,
+    this.heardTitle,
+    this.heardPath = '',
+    this.heardDurationMs,
   });
 
   final String id;
@@ -617,6 +621,18 @@ class Musician {
   /// of a list can be seen to have earned it, rather than leaving the reader
   /// to work out why the order is the order.
   final List<String> matchedParts;
+
+  /// Something of theirs you can play without leaving the list.
+  ///
+  /// Deciding whether to work with somebody is done by ear in about ten
+  /// seconds, and their card carried everything except the sound. Empty when
+  /// they have nothing on the Open Mic.
+  final String? heardSongId;
+  final String? heardTitle;
+  final String heardPath;
+  final int? heardDurationMs;
+
+  bool get canBeHeard => heardPath.isNotEmpty;
 
   /// Seeded for testing, never a person.
   ///

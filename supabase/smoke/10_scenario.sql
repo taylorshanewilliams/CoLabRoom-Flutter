@@ -2223,6 +2223,74 @@ end $$;
 
 reset role;
 
+-- Hear them, and start something (0085).
+--
+-- Two properties. A card must be able to play something of theirs, and
+-- starting something must invite rather than add — every other door in this
+-- app waits for a yes and this one is not an exception.
+do $$
+declare
+  made record;
+  members bigint;
+  invited bigint;
+  songs bigint;
+begin
+  select * into made
+  from public.start_something_with('22222222-2222-2222-2222-222222222222');
+
+  if made.room_id is null or made.project_id is null then
+    raise exception 'start_something_with returned nothing to open';
+  end if;
+
+  -- A song to land in, or the room is an empty container somebody has to
+  -- fill before anything can happen.
+  select count(*) into songs from public.projects
+  where room_id = made.room_id;
+  if songs <> 1 then
+    raise exception 'the new room has % songs rather than one', songs;
+  end if;
+
+  -- Only you in it. They are invited, not added.
+  select count(*) into members from public.room_members
+  where room_id = made.room_id;
+  if members <> 1 then
+    raise exception 'somebody was put in a room without agreeing (% members)',
+      members;
+  end if;
+
+  select count(*) into invited from public.room_invites
+  where room_id = made.room_id
+    and invited_profile = '22222222-2222-2222-2222-222222222222'
+    and status = 'pending';
+  if invited <> 1 then
+    raise exception 'no invitation was sent';
+  end if;
+end $$;
+
+-- Twice with the same person is the good case, not a constraint error.
+do $$
+declare
+  again record;
+begin
+  select * into again
+  from public.start_something_with('22222222-2222-2222-2222-222222222222');
+  if again.room_id is null then
+    raise exception 'starting something twice failed on the name';
+  end if;
+end $$;
+
+-- And never with yourself.
+do $$
+begin
+  begin
+    perform public.start_something_with(
+      '11111111-1111-1111-1111-111111111111');
+    raise exception 'started something with myself';
+  exception when sqlstate '22023' then
+    null;  -- expected
+  end;
+end $$;
+
 -- Old apps still ask for one part (0084).
 --
 -- 0083 dropped the single-part signature in the same migration that added

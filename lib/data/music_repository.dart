@@ -356,6 +356,16 @@ abstract interface class MusicRepository {
     required String subject,
   });
 
+  /// A room, a first song and an invitation, in one call.
+  ///
+  /// They are invited rather than added: the room is yours until they accept,
+  /// the same as every other door in this app. Returns the room and the song
+  /// to open.
+  Future<({String roomId, String projectId})> startSomethingWith(
+    String profileId, {
+    String note,
+  });
+
   Future<void> claimPart(String part);
 
   Future<Musician?> loadMusician(String profileId);

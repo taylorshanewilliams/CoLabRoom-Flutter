@@ -656,6 +656,24 @@ class _MusicianCard extends StatelessWidget {
               children: <Widget>[
                 Row(
                   children: <Widget>[
+                    // Hear them without leaving the list.
+                    //
+                    // Deciding whether to work with somebody is done by ear
+                    // in about ten seconds, and this card carried a name, a
+                    // city, what they play and what you have in common —
+                    // everything except the only thing anybody judges a
+                    // musician on.
+                    if (musician.canBeHeard) ...<Widget>[
+                      PlayButton(
+                        storagePath: musician.heardPath,
+                        durationMs: musician.heardDurationMs,
+                        title: musician.heardTitle ?? musician.displayName,
+                        byline: musician.displayName,
+                        songId: musician.heardSongId,
+                        size: 34,
+                      ),
+                      const SizedBox(width: 10),
+                    ],
                     Expanded(
                       child: Text(
                         musician.displayName,
