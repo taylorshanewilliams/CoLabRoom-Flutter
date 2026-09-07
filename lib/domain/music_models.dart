@@ -590,6 +590,7 @@ class Musician {
     this.soundsLike = const <String>[],
     this.sharedSounds = const <String>[],
     this.isDemo = false,
+    this.matchedParts = const <String>[],
   });
 
   final String id;
@@ -609,6 +610,13 @@ class Musician {
   /// The tags you and they both wrote down. Empty when nothing overlaps, or
   /// when this came from somewhere that does not compute it.
   final List<String> sharedSounds;
+
+  /// Which of the things you asked for this person actually does.
+  ///
+  /// Empty when nothing was asked. Shown on the card so somebody near the top
+  /// of a list can be seen to have earned it, rather than leaving the reader
+  /// to work out why the order is the order.
+  final List<String> matchedParts;
 
   /// Seeded for testing, never a person.
   ///

@@ -721,7 +721,7 @@ do $$
 declare
   found record;
 begin
-  select * into found from public.find_musicians('lead', null, 10)
+  select * into found from public.find_musicians(array['lead'], null, 10)
   where id = '11111111-1111-1111-1111-111111111111';
 
   if found.id is null then
@@ -746,7 +746,7 @@ do $$
 begin
   -- Found by what they said, as well as by what they did.
   if not exists (
-    select 1 from public.find_musicians('vocal', null, 10)
+    select 1 from public.find_musicians(array['vocal'], null, 10)
     where id = '11111111-1111-1111-1111-111111111111'
   ) then
     raise exception 'a declared instrument did not find its owner';
@@ -754,7 +754,7 @@ begin
 
   -- And not found by a city they never made public.
   if exists (
-    select 1 from public.find_musicians(null, 'Glasgow', 10)
+    select 1 from public.find_musicians(null::text[], 'Glasgow', 10)
     where id = '11111111-1111-1111-1111-111111111111'
   ) then
     raise exception 'searching a city found somebody who never published one';
@@ -762,7 +762,7 @@ begin
 
   -- Nobody who has not opted in appears at all.
   if exists (
-    select 1 from public.find_musicians(null, null, 50)
+    select 1 from public.find_musicians(null::text[], null, 50)
     where id = '22222222-2222-2222-2222-222222222222'
   ) then
     raise exception 'a profile that never opted in was listed';
@@ -878,7 +878,7 @@ begin
 
   -- And now they are in the open list, which they were not two blocks ago.
   if not exists (
-    select 1 from public.find_musicians('bass', 'Glasgow', 50)
+    select 1 from public.find_musicians(array['bass'], 'Glasgow', 50)
     where id = '11111111-1111-1111-1111-111111111111'
   ) then
     raise exception 'somebody who opted in did not appear in find_musicians';
@@ -1179,7 +1179,7 @@ where id in ('11111111-1111-1111-1111-111111111111',
 do $$
 begin
   if not exists (
-    select 1 from public.find_musicians(null, null, 50)
+    select 1 from public.find_musicians(null::text[], null, 50)
     where id = '22222222-2222-2222-2222-222222222222'
   ) then
     raise exception 'the bandmate was not findable before the block';
@@ -1192,7 +1192,7 @@ do $$
 begin
   -- Gone from search.
   if exists (
-    select 1 from public.find_musicians(null, null, 50)
+    select 1 from public.find_musicians(null::text[], null, 50)
     where id = '22222222-2222-2222-2222-222222222222'
   ) then
     raise exception 'a blocked person is still in find_musicians';
@@ -1240,7 +1240,7 @@ set local request.jwt.claims = '{"sub": "22222222-2222-2222-2222-222222222222"}'
 do $$
 begin
   if exists (
-    select 1 from public.find_musicians(null, null, 50)
+    select 1 from public.find_musicians(null::text[], null, 50)
     where id = '11111111-1111-1111-1111-111111111111'
   ) then
     raise exception 'the block was one-directional, so the blocked person can still watch';
@@ -1287,7 +1287,7 @@ select public.unblock_user('22222222-2222-2222-2222-222222222222');
 do $$
 begin
   if not exists (
-    select 1 from public.find_musicians(null, null, 50)
+    select 1 from public.find_musicians(null::text[], null, 50)
     where id = '22222222-2222-2222-2222-222222222222'
   ) then
     raise exception 'unblocking did not restore them';
@@ -2223,6 +2223,58 @@ end $$;
 
 reset role;
 
+-- More than one thing (0083).
+--
+-- The rule that matters: asking for three things must not empty the room.
+-- Requiring all of them is what an obvious implementation does and it is
+-- wrong at this size — nobody has recorded singing and guitar and lyrics, so
+-- three ticked boxes would return nothing and read as a broken app.
+set local role authenticated;
+
+do $$
+declare
+  everyone bigint;
+  asked bigint;
+  top record;
+begin
+  select count(*) into everyone
+  from public.find_musicians(null::text[], null, 100);
+
+  -- Three things nobody does all of.
+  select count(*) into asked
+  from public.find_musicians(array['vocal', 'lead', 'percussion'], null, 100);
+
+  if asked = 0 then
+    raise exception 'asking for three things emptied the room';
+  end if;
+
+  -- And the person doing most of them is first, which is the whole reason
+  -- to rank rather than narrow.
+  select * into top
+  from public.find_musicians(array['vocal', 'lead', 'percussion'], null, 100)
+  limit 1;
+
+  if coalesce(array_length(top.matched_parts, 1), 0) = 0 then
+    raise exception 'the first result matched none of what was asked for';
+  end if;
+
+  -- Nobody who does none of it is included, or the filter means nothing.
+  if exists (
+    select 1
+    from public.find_musicians(array['vocal', 'lead', 'percussion'], null, 100)
+    where coalesce(array_length(matched_parts, 1), 0) = 0
+  ) then
+    raise exception 'somebody who does none of it was returned';
+  end if;
+
+  -- Asking for nothing still returns everybody.
+  if asked > everyone then
+    raise exception 'asking narrowed to more people than exist';
+  end if;
+end $$;
+
+reset role;
+
 -- Nobody is ranked (0072).
 --
 -- The check is that somebody who has recorded nothing still turns up. Before
@@ -2248,7 +2300,7 @@ do $$
 declare
   found int;
 begin
-  select count(*) into found from public.find_musicians('bass', null, 50)
+  select count(*) into found from public.find_musicians(array['bass'], null, 50)
   where id = 'eeeeeeee-0000-0000-0000-00000000000e';
 
   if found <> 1 then
@@ -2258,7 +2310,7 @@ begin
   -- And the order is not the record. Both are in the list; which comes first
   -- is a rotation, not a ladder.
   if not exists (
-    select 1 from public.find_musicians('bass', null, 50)
+    select 1 from public.find_musicians(array['bass'], null, 50)
     where id = '11111111-1111-1111-1111-111111111111'
   ) then
     raise exception 'somebody who has recorded bass fell out of the list';

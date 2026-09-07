@@ -1191,7 +1191,7 @@ class InMemoryMusicRepository implements MusicRepository {
 
   @override
   Future<List<Musician>> findMusicians({
-    String? part,
+    List<String>? parts,
     String? city,
     int limit = 30,
     String? soundsLike,
@@ -1203,9 +1203,10 @@ class InMemoryMusicRepository implements MusicRepository {
       // build where blocking visibly did nothing would be somebody testing a
       // feature that looks broken.
       for (final m in _everyone.where((m) => !hidden.contains(m.id)))
-        if ((part == null ||
-                m.plays.contains(part) ||
-                m.partsRecorded.containsKey(part)) &&
+        if ((parts == null ||
+                parts.isEmpty ||
+                parts.any((p) =>
+                    m.plays.contains(p) || m.partsRecorded.containsKey(p))) &&
             (city == null ||
                 city.trim().isEmpty ||
                 (m.city ?? '').toLowerCase() == city.trim().toLowerCase()) &&
