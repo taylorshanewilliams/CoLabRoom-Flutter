@@ -2074,6 +2074,10 @@ end $$;
 
 -- The record button leaves litter (0081).
 --
+-- UUIDs spelled out rather than :'room' and :'writer': psql variables are
+-- substituted by psql, and the inside of a `do $$ … $$` block is a string
+-- literal it never looks into.
+--
 -- The dangerous half of this is not that it fails to delete. It is that it
 -- deletes somebody's work, so the assertions that matter are the ones about
 -- what it must refuse.
@@ -2086,11 +2090,11 @@ declare
 begin
   insert into public.projects (id, room_id, account_id, created_by, title)
   values
-    (empty_one, :'room', :'writer', :'writer', 'Bumped The Button'),
-    (written, :'room', :'writer', :'writer', 'Has Words In It');
+    (empty_one, '33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Bumped The Button'),
+    (written, '33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Has Words In It');
 
   insert into public.contributions (project_id, author_id, body)
-  values (written, :'writer', 'the first line of something');
+  values (written, '11111111-1111-1111-1111-111111111111', 'the first line of something');
 
   -- Nothing in it: gone.
   if not public.discard_if_untouched(empty_one) then
@@ -2116,13 +2120,13 @@ declare
   recorded uuid := 'ecec0003-0000-0000-0000-000000000003';
 begin
   insert into public.projects (id, room_id, account_id, created_by, title)
-  values (recorded, :'room', :'writer', :'writer', 'Only A Take');
+  values (recorded, '33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111', 'Only A Take');
 
   insert into public.song_layers
     (project_id, recorded_by, storage_path, label, part, duration_ms)
   values
-    (recorded, :'writer',
-     :'room' || '/' || recorded::text || '/layers/x.m4a',
+    (recorded, '11111111-1111-1111-1111-111111111111',
+     '33333333-3333-3333-3333-333333333333' || '/' || recorded::text || '/layers/x.m4a',
      'Take 1', 'vocal', 9000);
 
   if public.discard_if_untouched(recorded) then
