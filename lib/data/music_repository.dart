@@ -408,6 +408,17 @@ abstract interface class MusicRepository {
 
   Future<void> declineInvite(BetaInvite invite);
 
+  /// Records a question somebody could not find the answer to.
+  ///
+  /// Sent whether or not the app had an answer, because the interesting case
+  /// is a question that *was* answered and asked anyway — that means the
+  /// answer is wrong, and nothing else in the app can see that happening.
+  Future<void> askForHelp({
+    required String question,
+    String? matchedAnswer,
+    String? route,
+  });
+
   Future<void> submitFeedback(FeedbackDraft feedback);
 
   /// The signed-in user's profile picture, as a storage path rather than

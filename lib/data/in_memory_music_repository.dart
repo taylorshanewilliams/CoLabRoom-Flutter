@@ -631,6 +631,16 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> askForHelp({
+    required String question,
+    String? matchedAnswer,
+    String? route,
+  }) async {
+    // Nowhere to send it in the preview, and nothing depends on it having
+    // gone anywhere.
+  }
+
+  @override
   Future<void> submitFeedback(FeedbackDraft feedback) async {
     submittedFeedback.add(feedback);
   }
