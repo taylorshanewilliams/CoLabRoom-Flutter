@@ -1416,11 +1416,20 @@ class InMemoryMusicRepository implements MusicRepository {
     required SongProject project,
     required String email,
     RoomRole role = RoomRole.editor,
+  }) =>
+      createProjectInviteFor(
+          projectId: project.id, email: email, role: role);
+
+  @override
+  Future<InviteResult> createProjectInviteFor({
+    required String projectId,
+    required String email,
+    RoomRole role = RoomRole.editor,
   }) async {
     final cleaned = email.trim().toLowerCase();
     if (!cleaned.contains('@')) throw const NameConflict('Enter a valid email address.');
     return InviteResult(
-      code: 'SONG-${project.id.toUpperCase()}',
+      code: 'SONG-${projectId.toUpperCase()}',
       matchedAccount: cleaned.startsWith('jess'),
     );
   }

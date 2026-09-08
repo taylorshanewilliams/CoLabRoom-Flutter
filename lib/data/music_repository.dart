@@ -474,6 +474,19 @@ abstract interface class MusicRepository {
     RoomRole role = RoomRole.editor,
   });
 
+  /// The same thing from an id alone.
+  ///
+  /// For callers that know which song they mean without holding its whole
+  /// row — the picker behind "ask somebody who is not here yet" lists songs
+  /// from `songs_i_can_offer`, which returns identities rather than rows,
+  /// and loading every song in every room to build one invitation would be
+  /// an expensive way to end up with the same string.
+  Future<InviteResult> createProjectInviteFor({
+    required String projectId,
+    required String email,
+    RoomRole role = RoomRole.editor,
+  });
+
   Future<void> acceptInvite({String? code, BetaInvite? invite});
 
   /// Sets the caller's own display color within [roomId] to [colorValue].

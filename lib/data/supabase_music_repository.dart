@@ -1862,13 +1862,22 @@ class SupabaseMusicRepository implements MusicRepository {
     required SongProject project,
     required String email,
     RoomRole role = RoomRole.editor,
+  }) =>
+      createProjectInviteFor(
+          projectId: project.id, email: email, role: role);
+
+  @override
+  Future<InviteResult> createProjectInviteFor({
+    required String projectId,
+    required String email,
+    RoomRole role = RoomRole.editor,
   }) async {
     final cleaned = email.trim().toLowerCase();
     if (!cleaned.contains('@')) throw const NameConflict('Enter a valid email address.');
     final result = await client.rpc<Map<String, dynamic>>(
       'create_project_invitation',
       params: <String, dynamic>{
-        'target_project': project.id,
+        'target_project': projectId,
         'invite_email': cleaned,
         'invite_role': role.name,
       },
