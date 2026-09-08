@@ -14,6 +14,7 @@ import '../../domain/name_policy.dart';
 import '../../widgets/music_tiles.dart';
 import '../../widgets/app_top_bar.dart';
 import 'new_song_flow.dart';
+import 'pick_it_back_up.dart';
 import 'while_you_were_gone.dart';
 import '../rooms/room_detail_screen.dart';
 import '../rooms/setlist_detail_screen.dart';
@@ -72,6 +73,13 @@ class SongsScreen extends StatefulWidget {
 }
 
 class _SongsScreenState extends State<SongsScreen> {
+  /// How many times somebody has asked for a different old idea today.
+  ///
+  /// Session-only on purpose. Saying "something else" is a mood, not a
+  /// setting, and a skip that persisted would slowly hide the pile it exists
+  /// to open up.
+  int _somethingElse = 0;
+
   final _searchController = TextEditingController();
   String _query = '';
   String? _roomFilterId;
@@ -217,6 +225,23 @@ class _SongsScreenState extends State<SongsScreen> {
               child: WhileYouWereGone(
                 activity:
                     controller.activity.take(6).toList(growable: false),
+              ),
+            ),
+          ),
+        // And what *you* left. The news says what other people did, which on
+        // a quiet week is nothing — and an app with nothing to say on a quiet
+        // week gets opened when somebody remembers it exists.
+        if (!searching)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
+            sliver: SliverToBoxAdapter(
+              child: PickItBackUp(
+                songs: <SongProject>[
+                  for (final room in controller.rooms) ...room.projects,
+                ],
+                skip: _somethingElse,
+                onSkip: () => setState(() => _somethingElse += 1),
+                onOpen: _open,
               ),
             ),
           ),
