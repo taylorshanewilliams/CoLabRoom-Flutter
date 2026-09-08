@@ -39,8 +39,27 @@ jobs:
       # can't reach Supabase at all. Same as build-android-debug.yml, this
       # rides the checked-in defaults, which already point at the real beta
       # project.
+      # Two flags the artifact needs before a browser can actually use it.
+      #
+      # --base-href, because this is served from colabroom.com/app/ rather
+      # than a domain root. Without it every asset resolves against / and the
+      # app loads a white page.
+      #
+      # AUTH_REDIRECT_URL, because beta_config.dart defaults it to
+      # com.colabroom.beta://login-callback — a URI scheme a phone can open
+      # and a desktop browser cannot. Signing in never used it
+      # (signInWithPassword takes no redirect), which is why the build was
+      # always closer to working than the note below claimed; but confirming
+      # a new account and resetting a password both send an email pointing at
+      # it, and on the web those links went nowhere.
+      #
+      # This URL must also be in the project's redirect allow-list in
+      # Supabase, or the same links come back rejected instead of dead.
       - name: Build web
-        run: flutter build web --release
+        run: |
+          flutter build web --release \
+            --base-href /app/ \
+            --dart-define=AUTH_REDIRECT_URL=https://colabroom.com/app/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -49,14 +68,18 @@ jobs:
           retention-days: 14
 
 # ---------------------------------------------------------------------------
-# After the run finishes: download the colabroom-web artifact, unzip it, and
-# serve it locally to check the build — `python3 -m http.server` from inside
-# the unzipped folder, or any static file server. It won't run correctly
-# straight off the filesystem (file://) because of how Flutter web loads its
-# assets.
+# Where this goes: the artifact is unzipped into colabroom-site under /app,
+# which GitHub Pages serves at https://colabroom.com/app/. That is why
+# --base-href is set, and why the auth redirect points there.
 #
-# This build has not been checked for correctness beyond compiling — see
-# the checklist note about email/password auth and whether the deep-link
-# authRedirectUrl (a mobile-only URI scheme) needs a real https:// variant
-# for the web build before sign-in actually works in a browser.
+# To check a build locally instead: download the colabroom-web artifact,
+# unzip it, and serve it with any static file server — `python3 -m
+# http.server` from inside the folder. It will not run straight off the
+# filesystem (file://) because of how Flutter web loads its assets, and with
+# --base-href /app/ it wants to be served from an /app/ path.
+#
+# Still unverified in a browser: recording. The overdub path is
+# latency-compensated native code and the web equivalent is a different
+# problem. Playback, browsing, asking and signing in are the parts expected
+# to work.
 # ---------------------------------------------------------------------------
