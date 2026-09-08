@@ -47,7 +47,15 @@ insert into smoke_covered (name) values
   ('notifications_deliver'),
   -- The scenario adds a good link and is refused a bad one.
   ('profile_links_platform'),
-  ('profile_links_capped');
+  ('profile_links_capped'),
+  -- The collaboration ledger (0093). The scenario asks, is accepted, and
+  -- has somebody share a take on a song that is not theirs — then deletes
+  -- that account and asserts the ledger went with it. These three are the
+  -- only writers of the table, so a trigger that stopped firing would be a
+  -- memory quietly filling with gaps and nothing else would notice.
+  ('project_asks_remember'),
+  ('project_asks_remember_answer'),
+  ('song_layers_remember_delivery');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario
