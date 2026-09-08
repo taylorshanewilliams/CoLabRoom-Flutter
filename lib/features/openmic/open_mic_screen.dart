@@ -200,6 +200,12 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
               profileId: musician.id,
               repository: widget.repository,
               initial: musician,
+              // Only when the room was narrowed to one thing. Somebody who
+              // opened a whole door — five kinds of voice at once — has not
+              // said which they want, and guessing the first of five would
+              // put a word in their mouth they never said.
+              lookingFor:
+                  _query.parts.length == 1 ? _query.parts.first : null,
             ),
       ),
     );

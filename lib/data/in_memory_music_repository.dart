@@ -1063,6 +1063,9 @@ class InMemoryMusicRepository implements MusicRepository {
         id: 'preview-project-1',
         title: 'Midnight Signal',
         updatedAt: now.subtract(const Duration(hours: 3)),
+        // A guitar and a voice on it and nothing underneath, so the preview
+        // shows the suggestion doing its job.
+        partsOnIt: const <String>['vocal', 'rhythm'],
       ),
       OfferableSong(
         id: 'preview-project-2',
