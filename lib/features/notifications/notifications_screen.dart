@@ -10,6 +10,7 @@ import '../../widgets/problem_report.dart';
 import '../../widgets/app_surface.dart';
 import '../../domain/musical_roles.dart';
 import '../../widgets/play_button.dart';
+import '../openmic/report_sheet.dart';
 
 /// The single inbox: pending invitations you can act on, then everything
 /// that has happened since you were last here.
@@ -67,6 +68,58 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       () => controller.acceptInvite(code: code),
       'Joined. You can open it from Songs.',
     );
+  }
+
+  /// Saying a song is wrong, from the card it arrived on.
+  Future<void> _reportAsk(AskForMe ask) async {
+    final controller = BetaScope.of(context, listen: false);
+    final sent = await showReportSheet(
+      context,
+      repository: controller.repository,
+      kind: 'song',
+      about: ask.songTitle,
+      profileId: ask.askedById,
+      projectId: ask.projectId,
+    );
+    if (sent && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Report sent. Somebody reads every one of these.'),
+      ));
+    }
+  }
+
+  /// Making it stop, which is a different thing from reporting it.
+  ///
+  /// Blocking also closes anything open between the two of you, so the ask
+  /// leaves this inbox in the same breath — see block_user in 0063.
+  Future<void> _blockAsker(AskForMe ask) async {
+    final who = ask.askedById;
+    if (who == null) return;
+    final controller = BetaScope.of(context, listen: false);
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.raised,
+        title: Text('Block ${ask.askedByName}?'),
+        content: const Text(
+          'They will not be able to ask you again or see anything of yours, '
+          'and this ask leaves your inbox. You can undo it in your account.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Block'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true) return;
+    await _run(() => controller.repository.blockUser(who),
+        '${ask.askedByName} is blocked.');
   }
 
   @override
@@ -141,6 +194,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           () => controller.answerAsk(ask, accept: false),
                           'Passed. They have been told.',
                         ),
+                        onReport: () => unawaited(_reportAsk(ask)),
+                        onBlock: () => unawaited(_blockAsker(ask)),
                       ),
                       const SizedBox(height: 10),
                     ],
@@ -234,12 +289,24 @@ class _AskCard extends StatelessWidget {
     required this.busy,
     required this.onAccept,
     required this.onDecline,
+    required this.onReport,
+    required this.onBlock,
   });
 
   final AskForMe ask;
   final bool busy;
   final VoidCallback onAccept;
   final VoidCallback onDecline;
+
+  /// Somewhere to say this is wrong, and somewhere to make it stop.
+  ///
+  /// A stranger's song now plays inside this card, which makes the inbox a
+  /// place unreviewed audio from somebody you have never met reaches you —
+  /// and every surface like that needs both of these within reach. It is
+  /// also what App Store 1.2 asks for wherever user content appears, and
+  /// the one surface in the app that had neither.
+  final VoidCallback onReport;
+  final VoidCallback onBlock;
 
   @override
   Widget build(BuildContext context) {
@@ -281,6 +348,21 @@ class _AskCard extends StatelessWidget {
                     height: 1.3,
                   ),
                 ),
+              ),
+              PopupMenuButton<String>(
+                key: const Key('ask_card_more'),
+                tooltip: 'More',
+                icon: const Icon(Icons.more_horiz_rounded,
+                    size: 20, color: AppColors.muted),
+                onSelected: (choice) =>
+                    choice == 'report' ? onReport() : onBlock(),
+                itemBuilder: (_) => <PopupMenuEntry<String>>[
+                  const PopupMenuItem<String>(
+                      value: 'report', child: Text('Report this')),
+                  PopupMenuItem<String>(
+                      value: 'block',
+                      child: Text('Block ${ask.askedByName}')),
+                ],
               ),
             ],
           ),

@@ -1421,6 +1421,7 @@ class SupabaseMusicRepository implements MusicRepository {
           projectId: row['project_id'] as String,
           songTitle: row['song_title'] as String? ?? 'A song',
           askedByName: row['asked_by_name'] as String? ?? 'Somebody',
+          askedById: row['asked_by'] as String?,
           part: row['part'] as String?,
           note: row['note'] as String? ?? '',
           createdAt:

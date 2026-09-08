@@ -1,5 +1,9 @@
+import 'dart:async';
+
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/beta_config.dart';
 import '../../app/colabroom_theme.dart';
@@ -24,6 +28,23 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
   bool _busy = false;
   bool _hidePassword = true;
 
+  /// Old enough, and agreed to the rules.
+  ///
+  /// **Required before an account exists, not after.** This app is people
+  /// sending each other unreviewed audio, which makes it exactly the kind of
+  /// app both stores look hardest at: App Store 1.2 wants the person to have
+  /// agreed there is no tolerance for objectionable content before they can
+  /// post any, and an app that lets under-13s sign up in the United States is
+  /// a COPPA problem rather than a policy one.
+  ///
+  /// One box for both, because two boxes get the same single tap and only the
+  /// first one gets read. The age it names is 13 — the floor in the US; the
+  /// terms carry the higher one where local law sets it.
+  bool _agreed = false;
+
+  static final Uri _terms = Uri.parse('https://colabroom.com/terms.html');
+  static final Uri _privacy = Uri.parse('https://colabroom.com/privacy.html');
+
   @override
   void dispose() {
     _name.dispose();
@@ -34,13 +55,28 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
 
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (_createAccount && !_agreed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please confirm your age and agree to the terms.'),
+        ),
+      );
+      return;
+    }
     setState(() => _busy = true);
     try {
       if (_createAccount) {
         final response = await widget.client.auth.signUp(
           email: _email.text.trim(),
           password: _password.text,
-          data: <String, dynamic>{'display_name': _name.text.trim()},
+          // Recorded where it happened. Agreement kept only in the client is
+          // an agreement nobody can show anybody afterwards, and these land
+          // on the auth row with its own creation timestamp.
+          data: <String, dynamic>{
+            'display_name': _name.text.trim(),
+            'agreed_to_terms': true,
+            'age_confirmed_13': true,
+          },
           emailRedirectTo: BetaConfig.authRedirectUrl.isEmpty ? null : BetaConfig.authRedirectUrl,
         );
         if (response.session == null && mounted) {
@@ -182,6 +218,15 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
                             onFieldSubmitted: (_) => _busy ? null : _submit(),
                           ),
                           const SizedBox(height: 18),
+                          if (_createAccount) _Agreement(
+                            agreed: _agreed,
+                            onChanged: (value) =>
+                                setState(() => _agreed = value ?? false),
+                            onOpen: (uri) => unawaited(
+                                launchUrl(uri, mode: LaunchMode.externalApplication)),
+                            terms: _terms,
+                            privacy: _privacy,
+                          ),
                           FilledButton(
                             onPressed: _busy ? null : _submit,
                             child: Padding(
@@ -324,6 +369,84 @@ class _SupabasePasswordRecoveryScreenState extends State<SupabasePasswordRecover
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+
+/// The one box somebody has to tick before an account exists.
+///
+/// Written as a sentence rather than a wall: an agreement nobody reads is
+/// worth nothing legally and less than nothing ethically, so this says the
+/// three things that actually matter — how old you have to be, that there is
+/// no tolerance for abusive content or behaviour, and where the full text
+/// lives — in the space somebody will actually read.
+class _Agreement extends StatelessWidget {
+  const _Agreement({
+    required this.agreed,
+    required this.onChanged,
+    required this.onOpen,
+    required this.terms,
+    required this.privacy,
+  });
+
+  final bool agreed;
+  final ValueChanged<bool?> onChanged;
+  final ValueChanged<Uri> onOpen;
+  final Uri terms;
+  final Uri privacy;
+
+  @override
+  Widget build(BuildContext context) {
+    final link = TextStyle(
+      color: Theme.of(context).colorScheme.primary,
+      decoration: TextDecoration.underline,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Checkbox(
+            key: const Key('auth_agree'),
+            value: agreed,
+            onChanged: onChanged,
+            visualDensity: VisualDensity.compact,
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 11),
+              child: Text.rich(
+                TextSpan(
+                  style: const TextStyle(fontSize: 12.5, height: 1.45),
+                  children: <InlineSpan>[
+                    const TextSpan(
+                      text: 'I am 13 or older, and I agree to the ',
+                    ),
+                    TextSpan(
+                      text: 'Terms',
+                      style: link,
+                      recognizer: TapGestureRecognizer()
+                        ..onTap = () => onOpen(terms),
+                    ),
+                    const TextSpan(text: ' and '),
+                    TextSpan(
+                      text: 'Privacy Policy',
+                      style: link,
+                      recognizer: TapGestureRecognizer()
+                        ..onTap = () => onOpen(privacy),
+                    ),
+                    const TextSpan(
+                      text: ', including that abusive or objectionable '
+                          'content is not tolerated here.',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

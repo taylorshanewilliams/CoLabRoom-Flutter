@@ -477,6 +477,7 @@ class AskForMe {
     required this.songTitle,
     required this.askedByName,
     required this.createdAt,
+    this.askedById,
     this.part,
     this.note = '',
     this.storagePath,
@@ -491,6 +492,13 @@ class AskForMe {
   final String projectId;
   final String songTitle;
   final String askedByName;
+
+  /// Who asked.
+  ///
+  /// Returned by asks_for_me since 0061 and never mapped, which left the
+  /// inbox card unable to do anything *about* the person — including the two
+  /// things a card showing a stranger's song has to offer.
+  final String? askedById;
   final String? part;
   final String note;
   final DateTime createdAt;

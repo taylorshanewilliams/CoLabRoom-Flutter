@@ -780,6 +780,7 @@ class InMemoryMusicRepository implements MusicRepository {
       projectId: 'preview-project-1',
       songTitle: 'Ladder Of Life',
       askedByName: 'Mara Ellison',
+      askedById: 'preview-mara',
       part: 'bass',
       note: 'Something simple under the chorus — you would nail it.',
       createdAt: DateTime(2026, 9, 5, 19, 40),
