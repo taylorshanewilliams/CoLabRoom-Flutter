@@ -36,15 +36,18 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      // By text, and safely. The old version had to scope this to the
-      // SegmentedButton because "Songs" was also a tab name and the tolerant
-      // helper tapped the last match. "Asking" appears once — the cards say
-      // "Asking for bass", which an exact-text finder does not match — and
-      // the segmented button's type argument is private to the screen, so
-      // byType cannot name it.
-      await tester.tap(find.text('Asking'));
+      // Walking the trail, which is what a person does now. The tabs are
+      // gone: the statement opens a sheet, the direction is chosen there,
+      // and picking closes it.
+      await tester.tap(find.byKey(const Key('open_mic_statement')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 260));
+      await tester.tap(find.text('Who needs it'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('Everybody'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 320));
 
       // findsWidgets, not findsOneWidget: the same song now appears in the
       // "out there" strip as well, because the preview account owns it. Two
