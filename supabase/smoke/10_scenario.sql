@@ -988,6 +988,14 @@ insert into public.projects (id, room_id, account_id, title, created_by)
 values ('aaaaaaaa-0000-0000-0000-00000000000a', :'room', :'writer',
         'Song To Offer', :'writer');
 
+-- Something to hear, and something already played on it (0094). An ask
+-- nobody can listen to is not a request, it is a riddle.
+insert into public.song_layers
+  (project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values
+  ('aaaaaaaa-0000-0000-0000-00000000000a', :'writer',
+   'aaaaaaaa/layers/offer.m4a', 'Guitar', 'rhythm', 92000, now());
+
 select public.ask_musician(
   'aaaaaaaa-0000-0000-0000-00000000000a',
   '22222222-2222-2222-2222-222222222222',
@@ -1054,7 +1062,52 @@ begin
   end if;
   the_ask := mine.id;
 
+  -- 0094: the ask carries the brief.
+  --
+  -- Before this, all of it existed in the database and none of it reached
+  -- the person being asked — so the only honest answer was "let me go and
+  -- look", and the number of people who go and look is the number of
+  -- collaborations this app can ever have.
+  if mine.storage_path is null then
+    raise exception 'the ask arrived with nothing to listen to';
+  end if;
+  if mine.duration_ms is null then
+    raise exception 'the ask did not say how long the song is';
+  end if;
+  if not (mine.parts_on_it @> array['rhythm']) then
+    raise exception 'the ask did not say what is already on the song (got %)',
+      mine.parts_on_it;
+  end if;
+
+  -- And they can actually reach it. Somebody asked to play on a song is not
+  -- in its room, not on the song, has no invitation, and the song is
+  -- usually on neither public surface — so every branch 0067 and 0088 added
+  -- misses them, and the card would name a song it could not play.
+  if not exists (
+    select 1 from public.projects
+    where id = 'aaaaaaaa-0000-0000-0000-00000000000a'
+  ) then
+    raise exception 'the person asked cannot see the song they were asked about';
+  end if;
+  if not exists (
+    select 1 from public.song_layers
+    where storage_path = 'aaaaaaaa/layers/offer.m4a'
+  ) then
+    raise exception 'the person asked cannot hear the take on it';
+  end if;
+
   perform public.answer_ask(the_ask, true);
+
+  -- And the loan ends with the ask. Consent that outlived the question it
+  -- was granted for would be a fourth audience nobody chose.
+  if exists (
+    select 1 from public.project_asks a
+    where a.project_id = 'aaaaaaaa-0000-0000-0000-00000000000a'
+      and a.asked_of = '22222222-2222-2222-2222-222222222222'
+      and a.status = 'open'
+  ) then
+    raise exception 'the ask stayed open after it was answered';
+  end if;
 
   if not exists (
     select 1 from public.project_members m

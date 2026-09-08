@@ -1421,6 +1421,16 @@ class SupabaseMusicRepository implements MusicRepository {
           createdAt:
               DateTime.tryParse('${row['created_at']}')?.toLocal() ??
                   DateTime.now(),
+          storagePath: row['storage_path'] as String?,
+          durationMs: (row['duration_ms'] as num?)?.toInt(),
+          musicalKey: row['musical_key'] as String?,
+          bpm: (row['bpm'] as num?)?.toDouble(),
+          partsOnIt: <String>[
+            for (final part in (row['parts_on_it'] as List<dynamic>? ??
+                const <dynamic>[]))
+              '$part',
+          ],
+          hasSongSheet: row['has_song_sheet'] as bool? ?? false,
         ),
     ];
   }

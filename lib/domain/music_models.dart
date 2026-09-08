@@ -470,6 +470,12 @@ class AskForMe {
     required this.createdAt,
     this.part,
     this.note = '',
+    this.storagePath,
+    this.durationMs,
+    this.musicalKey,
+    this.bpm,
+    this.partsOnIt = const <String>[],
+    this.hasSongSheet = false,
   });
 
   final String id;
@@ -480,9 +486,45 @@ class AskForMe {
   final String note;
   final DateTime createdAt;
 
+  /// The brief.
+  ///
+  /// An ask used to arrive as a title, a name, a part and a sentence — so the
+  /// only honest answer was "let me go and look", and the number of people
+  /// who go and look is the number of collaborations this app can have.
+  ///
+  /// All of it already existed. The app worked out the key, the tempo and the
+  /// length when it made the song sheet, and it knows what has been played on
+  /// it; the ask was simply never told to carry any of it.
+  final String? storagePath;
+  final int? durationMs;
+  final String? musicalKey;
+  final double? bpm;
+  final List<String> partsOnIt;
+  final bool hasSongSheet;
+
   String get headline => part == null
       ? '$askedByName asked you to play on $songTitle'
       : '$askedByName asked you to play $part on $songTitle';
+
+  /// What the song is, in the order somebody deciding would want it.
+  ///
+  /// Null when the app knows nothing, so the card can leave the line out
+  /// rather than print an empty row of separators.
+  String? get brief {
+    final facts = <String>[
+      if (durationMs != null && durationMs! > 0) _clock(durationMs!),
+      if ((musicalKey ?? '').trim().isNotEmpty) 'in ${musicalKey!.trim()}',
+      if (bpm != null && bpm! > 0) '${bpm!.round()} bpm',
+      if (hasSongSheet) 'chords and words worked out',
+    ];
+    return facts.isEmpty ? null : facts.join(' · ');
+  }
+
+  static String _clock(int ms) {
+    final seconds = (ms / 1000).round();
+    final minutes = seconds ~/ 60;
+    return '$minutes:${(seconds % 60).toString().padLeft(2, '0')}';
+  }
 }
 
 class SongAsk {
