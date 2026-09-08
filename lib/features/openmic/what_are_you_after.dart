@@ -42,6 +42,14 @@ class OpenMicQuery {
   bool get isSongs => looking == OpenMicLooking.songs;
   bool get isFinished => looking == OpenMicLooking.finished;
 
+  /// Whether anything has been asked for beyond "show me the room".
+  ///
+  /// An empty result means two different things and they need different
+  /// sentences: nobody is here, or nobody here is *that*. Without this the
+  /// screen has to say the vaguer of the two and hope.
+  bool get isNarrowed =>
+      parts.isNotEmpty || city.trim().isNotEmpty || sounds.trim().isNotEmpty;
+
   OpenMicQuery copyWith({
     OpenMicLooking? looking,
     Set<String>? parts,

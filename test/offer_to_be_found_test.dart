@@ -6,11 +6,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Asking somebody whether they would like to be findable.
 ///
-/// Zero of the real accounts in production are discoverable, against
-/// seventy-five seeded ones — so every result the search returns today is a
-/// bot, and the person running the search is invisible to the room they are
-/// standing in. `discoverable` defaulting to false is right; never asking is
-/// not, and the only place that asked was a button on your own profile page.
+/// One real account of four in production is discoverable — so the room is
+/// very nearly empty, and the person searching it is invisible to it.
+/// `discoverable` defaulting to false is right; never asking is not, and the
+/// only place that asked was a button on your own profile page.
 ///
 /// The rules worth testing are the ones that keep it from being a nag or a
 /// trick: it never appears for somebody already findable, it says what it

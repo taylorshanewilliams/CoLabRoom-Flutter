@@ -82,6 +82,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     super.initState();
     unawaited(_search());
     unawaited(_loadMine());
+    unawaited(_loadMe());
   }
 
   Future<void> _loadMine() async {
@@ -93,6 +94,53 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
       // a reason to put an error across a screen somebody came to browse.
     }
   }
+
+  /// Whether you are one of the people not in the room.
+  ///
+  /// An empty room reads as broken. This one is not broken — being findable
+  /// is off until somebody turns it on, and in production exactly one real
+  /// account has — but that is only *legible* if the screen knows which of
+  /// the two empties it is looking at, and it cannot infer that from the
+  /// list. Inferring would tell somebody who is listed and plays keys that
+  /// they are invisible, on a search for bass players.
+  ///
+  /// Null while the answer is still coming, and the empty state says less
+  /// while it is. Same rule as the audience dial: never guess about
+  /// somebody's own visibility.
+  Musician? _me;
+
+  Future<void> _loadMe() async {
+    try {
+      final me =
+          await widget.repository.loadMusician(widget.repository.currentUserId);
+      if (mounted) setState(() => _me = me);
+    } catch (_) {
+      // Unknown stays unknown.
+    }
+  }
+
+  /// Being the first person in the room, from the place that says to be.
+  ///
+  /// The empty state has told people to list themselves since it was written
+  /// and offered no way to do it: the switch lives on your own profile page
+  /// and behind [_narrow], and neither is where somebody reading that
+  /// sentence is standing. Naming an action and not offering it is most of
+  /// the difference between a young room and a broken one.
+  Future<void> _listMe() async {
+    final changed = await BeFound.offer(
+      context,
+      widget.repository,
+      becauseTheyAsked: true,
+    );
+    if (!changed || !mounted) return;
+    unawaited(_loadMe());
+    unawaited(_search());
+  }
+
+  /// Listed, and the only one. Worth saying out loud rather than leaving
+  /// somebody to wonder why the room contains exactly themselves.
+  bool _aloneInTheRoom(List<Musician> found) =>
+      found.length == 1 && found.single.id == widget.repository.currentUserId;
 
   Future<void> _search() async {
     setState(() {
@@ -261,9 +309,9 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
       },
     );
     // The one moment it is fair to ask. Somebody is standing in the room
-    // looking for people, and nobody can look for them — zero of the real
-    // accounts in production are findable, so every result the search
-    // returns today is a seeded one.
+    // looking for people, and nobody can look for them — one real account of
+    // four in production is findable, so the room they are searching is very
+    // nearly empty and they are not in it.
     if (_askedToBeFound || !mounted || _query.isFinished) return;
     _askedToBeFound = true;
     final changed = await BeFound.offer(context, widget.repository);
@@ -386,14 +434,24 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
                         const SizedBox(height: 14),
                       ],
                       if (found.isEmpty)
-                        _Empty(onAskSomebody: _askSomebodyNotHere)
-                      else
+                        _Empty(
+                          listed: _me?.discoverable,
+                          narrowed: _query.isNarrowed,
+                          onListMe: _listMe,
+                          onAskSomebody: _askSomebodyNotHere,
+                        )
+                      else ...<Widget>[
+                        if (_aloneInTheRoom(found))
+                          _OnlyYou(onAskSomebody: _askSomebodyNotHere),
                         for (final musician in found)
                           _MusicianCard(
                             musician: musician,
+                            isYou:
+                                musician.id == widget.repository.currentUserId,
                             filter: null,
                             onTap: () => _openProfile(musician),
                           ),
+                      ],
                     ],
                   ),
         ),
@@ -649,9 +707,18 @@ class _MusicianCard extends StatelessWidget {
     required this.musician,
     required this.filter,
     required this.onTap,
+    this.isYou = false,
   });
 
   final Musician musician;
+
+  /// Whether this card is the person reading it.
+  ///
+  /// `find_musicians` does not filter you out, which is right — you should be
+  /// able to see what you look like in the room. Unmarked, though, your own
+  /// card is a stranger with your name on it, and in a room of one it is the
+  /// entire result.
+  final bool isYou;
   final String? filter;
   final VoidCallback onTap;
 
@@ -710,6 +777,27 @@ class _MusicianCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (isYou) ...<Widget>[
+                      const SizedBox(width: 6),
+                      Container(
+                        key: const Key('open_mic_you_chip'),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.cyan.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: const Text(
+                          'You',
+                          style: TextStyle(
+                            color: AppColors.cyan,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                      ),
+                    ],
                     if (musician.isDemo) ...<Widget>[
                       const SizedBox(width: 6),
                       const DemoChip(compact: true),
@@ -853,7 +941,26 @@ class _MusicianCard extends StatelessWidget {
 }
 
 class _Empty extends StatelessWidget {
-  const _Empty({this.onAskSomebody});
+  const _Empty({
+    this.listed,
+    this.narrowed = false,
+    this.onListMe,
+    this.onAskSomebody,
+  });
+
+  /// Whether *you* are findable. Null until the answer arrives.
+  ///
+  /// The whole point of this widget is the difference between a room nobody
+  /// has walked into and a room nobody has switched a light on in, and only
+  /// this tells them apart. While it is null the copy claims neither.
+  final bool? listed;
+
+  /// Whether anything was asked for. "Nobody here plays that" and "nobody is
+  /// here" are different pieces of news.
+  final bool narrowed;
+
+  /// The action the copy has always named and never offered.
+  final VoidCallback? onListMe;
 
   /// The one useful thing to do when the room cannot help.
   ///
@@ -863,52 +970,171 @@ class _Empty extends StatelessWidget {
   /// players *on this app*, and they almost certainly know one.
   final VoidCallback? onAskSomebody;
 
+  /// Nothing here is hidden and nothing is broken — say which.
+  String get _headline {
+    if (listed == false) return 'Nobody has listed themselves yet';
+    if (narrowed) return 'Nobody here plays that yet';
+    return 'Nobody else here yet';
+  }
+
+  String get _body {
+    if (listed == false) {
+      return 'Being findable is off until you turn it on — for everybody, '
+          'including you. Be the first, and people looking for what you play '
+          'will find you.';
+    }
+    if (listed == true) {
+      return narrowed
+          ? 'You are listed, so somebody searching can find you. Nobody '
+              'matching this is here yet.'
+          : 'You are listed, so somebody searching can find you. Nobody else '
+              'is here yet.';
+    }
+    // Still loading. True of everybody, and a claim about nobody.
+    return 'Nobody is findable here until they say so.';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final canList = listed == false && onListMe != null;
     return Padding(
       padding: const EdgeInsets.only(top: 40),
       child: Column(
         children: <Widget>[
-          const Icon(Icons.mic_external_off_rounded,
-              size: 34, color: AppColors.line),
+          Icon(
+            listed == false
+                ? Icons.mic_external_off_rounded
+                : Icons.person_search_outlined,
+            size: 34,
+            color: AppColors.line,
+          ),
           const SizedBox(height: 12),
-          const Text(
-            'Nobody here yet',
-            style: TextStyle(
+          Text(
+            _headline,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
               color: AppColors.text,
               fontSize: 15,
               fontWeight: FontWeight.w800,
             ),
           ),
-          SizedBox(height: 6),
+          const SizedBox(height: 6),
           // Offers instead of explaining. The old copy was three accurate
           // sentences about why the list was empty, which left somebody
           // exactly where they found them. Nobody is listed by default and
           // that stays true — but the useful thing to tell the first person
-          // here is that they can be first.
-          const Text(
-            'Be the first. List yourself and people looking for what you '
-            'play will find you.',
+          // here is that they can be first, and then to let them be.
+          Text(
+            _body,
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppColors.muted,
               fontSize: 12.5,
               height: 1.45,
             ),
           ),
-          if (onAskSomebody != null) ...<Widget>[
+          if (canList) ...<Widget>[
             const SizedBox(height: 16),
             FilledButton.icon(
-              key: const Key('open_mic_ask_somebody_not_here'),
-              onPressed: onAskSomebody,
-              icon: const Icon(Icons.person_add_alt_rounded, size: 18),
-              label: const Text('Ask somebody you know'),
+              key: const Key('open_mic_list_me'),
+              onPressed: onListMe,
+              icon: const Icon(Icons.podcasts_rounded, size: 18),
+              label: const Text('List me on the Open Mic'),
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.cyan,
                 foregroundColor: AppColors.ink,
               ),
             ),
           ],
+          if (onAskSomebody != null) ...<Widget>[
+            SizedBox(height: canList ? 4 : 16),
+            // Demoted to a text button once there is something better above
+            // it. Reaching outside the app is the right move when the room
+            // cannot help, and the wrong first move when the reason it cannot
+            // help is that you have not joined it yet.
+            canList
+                ? TextButton.icon(
+                    key: const Key('open_mic_ask_somebody_not_here'),
+                    onPressed: onAskSomebody,
+                    icon: const Icon(Icons.person_add_alt_rounded, size: 17),
+                    label: const Text('Ask somebody you know'),
+                    style:
+                        TextButton.styleFrom(foregroundColor: AppColors.muted),
+                  )
+                : FilledButton.icon(
+                    key: const Key('open_mic_ask_somebody_not_here'),
+                    onPressed: onAskSomebody,
+                    icon: const Icon(Icons.person_add_alt_rounded, size: 18),
+                    label: const Text('Ask somebody you know'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.cyan,
+                      foregroundColor: AppColors.ink,
+                    ),
+                  ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A room containing exactly you.
+///
+/// The state right after somebody presses the button on [_Empty], and the one
+/// most likely to be read as a bug: you asked to see musicians and the app
+/// returned you. Said out loud it is the opposite — proof the switch worked,
+/// and a look at what a stranger sees. `find_musicians` deliberately does not
+/// filter you out, and being able to see your own card is how you find out
+/// what you look like from the other side.
+class _OnlyYou extends StatelessWidget {
+  const _OnlyYou({required this.onAskSomebody});
+
+  final VoidCallback onAskSomebody;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      decoration: BoxDecoration(
+        color: AppColors.raised,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            'You are the only one listed so far',
+            style: TextStyle(
+              color: AppColors.text,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            'That card is how you look to somebody searching for what you '
+            'play. A room fills one person at a time.',
+            style: TextStyle(
+              color: AppColors.muted,
+              fontSize: 12.5,
+              height: 1.45,
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: const Key('open_mic_only_you_ask'),
+              onPressed: onAskSomebody,
+              icon: const Icon(Icons.person_add_alt_rounded, size: 17),
+              label: const Text('Ask somebody you know'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.cyan,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+              ),
+            ),
+          ),
         ],
       ),
     );
