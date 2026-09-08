@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
-import '../../domain/musical_roles.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/app_top_bar.dart';
@@ -15,6 +14,7 @@ import 'listen_screen.dart';
 import 'musician_profile_screen.dart';
 import 'open_mic_song_screen.dart';
 import 'out_there.dart';
+import 'what_are_you_after.dart';
 
 /// Open Mic — where you meet somebody you have not met.
 ///
@@ -52,38 +52,19 @@ class OpenMicScreen extends StatefulWidget {
 }
 
 class _OpenMicScreenState extends State<OpenMicScreen> {
-  /// The vocabulary musicians already use, and the one `song_layers.part` has
-  /// spoken since it existed. Roles rather than only instruments, because
-  /// "lead guitar" and "rhythm guitar" are different jobs and a musician
-  /// looking for one is not looking for the other.
-  /// Every role somebody can be asked for, from the one list.
+  /// What you are looking at, as one value.
   ///
-  /// This was eight hard-coded instruments — a rock band — so a rapper, a
-  /// beat maker, a lyricist and somebody who only mixes had no way to say
-  /// what they do and no way to be found for it. See MusicalRole.
-  static List<MusicalRole> get _parts => MusicalRole.offered;
-
-  /// Three ways to be in this room, not two.
+  /// This was four: a segmented button, a set of ticked chips, and two text
+  /// fields, all of them on screen at once and all of them optional. Which
+  /// meant the top of the room was a form somebody had to get past before it
+  /// would show them a single person — and the chips meant *who plays this*
+  /// under one tab and *who needs this* under another, with nothing on screen
+  /// saying which way they pointed.
   ///
-  /// A half-finished idea asking for a bass player and a record somebody
-  /// spent six months on were in the same list, described the same way — so
-  /// nobody browsing could tell what they were hearing, and nobody who
-  /// finished something had anywhere to put it that meant *finished*.
-  _OpenMicView _view = _OpenMicView.people;
+  /// Now the room shows the answer and keeps the controls behind it. See
+  /// [OpenMicQuery] and [showWhatAreYouAfter].
+  OpenMicQuery _query = const OpenMicQuery();
 
-  bool get _showingSongs => _view == _OpenMicView.asking;
-
-  /// What somebody is looking for. More than one, because "a singer who
-  /// plays guitar and writes lyrics" is one person and was three searches.
-  ///
-  /// Not `_parts`, which is the fixed list of roles this screen offers.
-  final Set<String> _wanted = <String>{};
-  final TextEditingController _city = TextEditingController();
-
-  /// The kind of music, which find_musicians has accepted since 0076 and
-  /// nothing in the app ever asked for — so the one field that makes
-  /// "like-minded" mean anything could not be searched on.
-  final TextEditingController _sounds = TextEditingController();
   List<Musician>? _found;
   List<ShowcaseSong>? _finished;
 
@@ -101,13 +82,6 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     unawaited(_loadMine());
   }
 
-  @override
-  void dispose() {
-    _city.dispose();
-    _sounds.dispose();
-    super.dispose();
-  }
-
   Future<void> _loadMine() async {
     try {
       final mine = await widget.repository.myOpenMic();
@@ -123,7 +97,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
       _busy = true;
       _error = null;
     });
-    if (_view == _OpenMicView.finished) {
+    if (_query.isFinished) {
       try {
         final done = await widget.repository.showcase();
         if (mounted) setState(() => _finished = done);
@@ -143,12 +117,14 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
       }
       return;
     }
-    if (_showingSongs) {
+    if (_query.isSongs) {
       try {
         // Songs still take one part: a song asks for a bass player, not for
         // three things at once. The first ticked is the one it uses.
         final songs = await widget.repository
-            .openMicSongs(part: _wanted.isEmpty ? null : _wanted.first, limit: 40);
+            .openMicSongs(
+              part: _query.parts.isEmpty ? null : _query.parts.first,
+              limit: 40);
         if (mounted) setState(() => _songs = songs);
       } catch (error) {
         if (!mounted) return;
@@ -168,9 +144,9 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     }
     try {
       final found = await widget.repository.findMusicians(
-        parts: _wanted.toList(growable: false),
-        city: _city.text,
-        soundsLike: _sounds.text,
+        parts: _query.parts.toList(growable: false),
+        city: _query.city,
+        soundsLike: _query.sounds,
         limit: 40,
       );
       if (mounted) setState(() => _found = found);
@@ -210,7 +186,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
         repository: widget.repository,
         // The stage plays one filter at a time; the first ticked is the one
         // it takes.
-        part: _wanted.isEmpty ? null : _wanted.first,
+        part: _query.parts.isEmpty ? null : _query.parts.first,
       ),
     ));
     if (mounted) CurrentRoute.enter('Open Mic');
@@ -230,11 +206,23 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     if (mounted) CurrentRoute.enter('Open Mic');
   }
 
-  void _choose(String part) {
-    setState(() {
-      if (!_wanted.remove(part)) _wanted.add(part);
-    });
-    unawaited(_search());
+  /// Opening the trail.
+  ///
+  /// Applied as it is chosen rather than on a Done button, so the list behind
+  /// the sheet re-sorts while somebody is still deciding. Narrowing is
+  /// something you watch happen, not something you submit.
+  Future<void> _narrow() async {
+    await showWhatAreYouAfter(
+      context,
+      query: _query,
+      onChanged: (next) {
+        setState(() {
+          _query = next;
+          _error = null;
+        });
+        unawaited(_search());
+      },
+    );
   }
 
   @override
@@ -307,126 +295,9 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
             ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 6, 18, 6),
-          child: SegmentedButton<_OpenMicView>(
-            showSelectedIcon: false,
-            segments: const <ButtonSegment<_OpenMicView>>[
-              ButtonSegment<_OpenMicView>(
-                value: _OpenMicView.people,
-                label: Text('People'),
-              ),
-              // "Asking", not "Songs". It says what is in the list, and it is
-              // the distinction the third view exists to make.
-              ButtonSegment<_OpenMicView>(
-                value: _OpenMicView.asking,
-                label: Text('Asking'),
-              ),
-              ButtonSegment<_OpenMicView>(
-                value: _OpenMicView.finished,
-                label: Text('Finished'),
-              ),
-            ],
-            selected: <_OpenMicView>{_view},
-            onSelectionChanged: (picked) {
-              setState(() {
-                _view = picked.first;
-                _error = null;
-              });
-              unawaited(_search());
-            },
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              _showingSongs
-                  ? (_wanted.isEmpty
-                      ? 'Songs asking for somebody'
-                      : 'Songs asking for '
-                          '${_labelFor(_wanted.first).toLowerCase()}')
-                  // Says what the order means. Nobody is hidden for missing a
-                  // box; the people doing most of what you asked come first,
-                  // and saying so is what stops that reading as a ranking of
-                  // who is better.
-                  : (_wanted.isEmpty
-                      ? 'Everybody who is here'
-                      : 'Closest first — everybody who does any of it'),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: AppColors.muted, fontSize: 12),
-            ),
-          ),
-        ),
-        SizedBox(
-          height: 82,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-            itemCount: _parts.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, index) {
-              final entry = _parts[index];
-              return _PartChip(
-                label: entry.label,
-                icon: entry.icon,
-                selected: _wanted.contains(entry.value),
-                onTap: _busy ? null : () => _choose(entry.value),
-              );
-            },
-          ),
-        ),
-        if (_view == _OpenMicView.people)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: TextField(
-              controller: _sounds,
-              textInputAction: TextInputAction.search,
-              onSubmitted: (_) => unawaited(_search()),
-              style: const TextStyle(fontSize: 14),
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: 'Any kind of music',
-                prefixIcon: const Icon(Icons.graphic_eq_rounded, size: 18),
-                suffixIcon: _sounds.text.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'Clear',
-                        icon: const Icon(Icons.close_rounded, size: 18),
-                        onPressed: () {
-                          _sounds.clear();
-                          unawaited(_search());
-                        },
-                      ),
-                border: const OutlineInputBorder(),
-              ),
-            ),
-          ),
-        if (!_showingSongs)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-          child: TextField(
-            controller: _city,
-            textInputAction: TextInputAction.search,
-            onSubmitted: (_) => unawaited(_search()),
-            style: const TextStyle(fontSize: 14),
-            decoration: InputDecoration(
-              isDense: true,
-              hintText: 'Any city',
-              prefixIcon: const Icon(Icons.place_outlined, size: 18),
-              suffixIcon: IconButton(
-                tooltip: 'Search',
-                icon: const Icon(Icons.search_rounded, size: 20),
-                onPressed: _busy ? null : () => unawaited(_search()),
-              ),
-              border: const OutlineInputBorder(),
-            ),
-          ),
-        ),
+        _Statement(query: _query, onTap: _busy ? null : _narrow),
         const Divider(height: 1),
-        if (_view == _OpenMicView.finished)
+        if (_query.isFinished)
           Expanded(
             child: _FinishedList(
               songs: _finished,
@@ -443,7 +314,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
               ))),
             ),
           )
-        else if (_showingSongs)
+        else if (_query.isSongs)
           Expanded(child: _SongList(
             songs: _songs,
             error: _error,
@@ -485,11 +356,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     );
   }
 
-  static String _labelFor(String part) => MusicalRole.labelFor(part);
 }
-
-/// Which of the three lists is showing.
-enum _OpenMicView { people, asking, finished }
 
 /// The songs half of the Open Mic.
 ///
@@ -668,56 +535,62 @@ class _SongCard extends StatelessWidget {
   }
 }
 
-class _PartChip extends StatelessWidget {
-  const _PartChip({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onTap,
-  });
+/// The one line where the filters used to be.
+///
+/// It says what you are looking at, not what you last pressed — "Bass players
+/// near Leeds" rather than a chip reading "Bass" — and it is the door to
+/// everything that used to be laid out above it.
+///
+/// **A phone's settings list has worked this way for fifteen years.** A row
+/// carries its own value on the right, so the answer is readable without
+/// opening it, and opening it costs nothing because back is free. The Open
+/// Mic had the opposite: four controls permanently on screen, none of them
+/// showing an answer, all of them between somebody and the first person in
+/// the room.
+class _Statement extends StatelessWidget {
+  const _Statement({required this.query, required this.onTap});
 
-  final String label;
-  final IconData icon;
-  final bool selected;
+  final OpenMicQuery query;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
+      key: const Key('open_mic_statement'),
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        width: 74,
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-        decoration: BoxDecoration(
-          color:
-              selected
-                  ? AppColors.cyan.withValues(alpha: 0.14)
-                  : AppColors.raised,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected ? AppColors.cyan : AppColors.line,
-            width: selected ? 1.4 : 1,
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 10, 16, 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Icon(
-              icon,
-              size: 21,
-              color: selected ? AppColors.cyan : AppColors.muted,
-            ),
-            const SizedBox(height: 5),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: selected ? AppColors.cyan : AppColors.text,
-                fontSize: 10.5,
-                fontWeight: FontWeight.w800,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    query.sentence,
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      height: 1.25,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    query.caption,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: AppColors.muted, fontSize: 11.5),
+                  ),
+                ],
               ),
+            ),
+            const Padding(
+              padding: EdgeInsets.only(left: 8, top: 4),
+              child: Icon(Icons.expand_more_rounded,
+                  size: 22, color: AppColors.cyan),
             ),
           ],
         ),

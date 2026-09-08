@@ -97,6 +97,57 @@ enum MusicalRole {
         _ => null,
       };
 
+  /// What you call a group of them, for a sentence rather than a chip.
+  ///
+  /// "Bass" is a fine word on a tick box and a poor one in a line of text
+  /// that has to say what you are looking at. The screen says *Bass players
+  /// near you*, so the enum has to know the plural — otherwise the sentence
+  /// gets assembled out of labels and reads like a database.
+  String get plural => switch (this) {
+        MusicalRole.vocal => 'Singers',
+        MusicalRole.harmony => 'Harmony singers',
+        MusicalRole.rap => 'Rappers',
+        MusicalRole.lyrics => 'Lyricists',
+        MusicalRole.topline => 'Topline writers',
+        MusicalRole.lead => 'Lead players',
+        MusicalRole.rhythm => 'Rhythm players',
+        MusicalRole.bass => 'Bass players',
+        MusicalRole.keys => 'Keys players',
+        MusicalRole.drums => 'Drummers',
+        MusicalRole.percussion => 'Percussionists',
+        MusicalRole.beat => 'Beat makers',
+        MusicalRole.producer => 'Producers',
+        MusicalRole.engineer => 'Engineers',
+        MusicalRole.mix => 'People who mix',
+        MusicalRole.master => 'People who master',
+        MusicalRole.other => 'People',
+      };
+
+  /// The same role from the other end: what a song is short of.
+  ///
+  /// The article is part of it. "Songs that need a singer" and "songs that
+  /// need mixing" are both right and neither rule produces the other, so the
+  /// phrase is written out rather than derived.
+  String get need => switch (this) {
+        MusicalRole.vocal => 'a singer',
+        MusicalRole.harmony => 'harmony',
+        MusicalRole.rap => 'a rapper',
+        MusicalRole.lyrics => 'lyrics',
+        MusicalRole.topline => 'a topline',
+        MusicalRole.lead => 'lead',
+        MusicalRole.rhythm => 'rhythm',
+        MusicalRole.bass => 'bass',
+        MusicalRole.keys => 'keys',
+        MusicalRole.drums => 'drums',
+        MusicalRole.percussion => 'percussion',
+        MusicalRole.beat => 'a beat',
+        MusicalRole.producer => 'a producer',
+        MusicalRole.engineer => 'an engineer',
+        MusicalRole.mix => 'mixing',
+        MusicalRole.master => 'mastering',
+        MusicalRole.other => 'somebody',
+      };
+
   IconData get icon => switch (this) {
         MusicalRole.vocal => Icons.mic_rounded,
         MusicalRole.harmony => Icons.groups_rounded,
@@ -135,4 +186,85 @@ enum MusicalRole {
   /// The label for a stored string, for drawing something written before
   /// this list existed.
   static String labelFor(String value) => parse(value).label;
+}
+
+/// Four doors instead of sixteen chips.
+///
+/// The Open Mic laid all seventeen roles out at once in a horizontal strip
+/// you could see four of at a time, which is a conveyor belt rather than a
+/// choice: finding "mixing" meant scrolling past twelve things you were not
+/// looking for, and nothing on screen said the list had an end.
+///
+/// **A phone answers this the same way every time.** One question per screen,
+/// the specifics one level down, and going in costs nothing because back is
+/// free. So: four rows, then three to six. Two taps reaches anything, and the
+/// count on the first screen is small enough to read without scrolling.
+///
+/// The grouping is by what somebody is *for*, not by how the sound is made —
+/// a rapper and a lyricist belong together because the person looking for
+/// either is looking for words, and putting the lyricist in with the drummers
+/// on the grounds that neither of them sings would be filing by accident.
+enum RoleFamily {
+  voices('Voices and words', <MusicalRole>[
+    MusicalRole.vocal,
+    MusicalRole.harmony,
+    MusicalRole.rap,
+    MusicalRole.topline,
+    MusicalRole.lyrics,
+  ]),
+  instruments('Instruments', <MusicalRole>[
+    MusicalRole.lead,
+    MusicalRole.rhythm,
+    MusicalRole.bass,
+    MusicalRole.keys,
+    MusicalRole.drums,
+    MusicalRole.percussion,
+  ]),
+  production('Beats and production', <MusicalRole>[
+    MusicalRole.beat,
+    MusicalRole.producer,
+  ]),
+  finishing('Getting it finished', <MusicalRole>[
+    MusicalRole.engineer,
+    MusicalRole.mix,
+    MusicalRole.master,
+  ]);
+
+  const RoleFamily(this.label, this.members);
+
+  final String label;
+  final List<MusicalRole> members;
+
+  IconData get icon => switch (this) {
+        RoleFamily.voices => Icons.mic_rounded,
+        RoleFamily.instruments => Icons.music_note_rounded,
+        RoleFamily.production => Icons.grid_view_rounded,
+        RoleFamily.finishing => Icons.tune_rounded,
+      };
+
+  /// Every role has a door, and the check that says so.
+  ///
+  /// A role added to [MusicalRole] and forgotten here would be unreachable
+  /// from the only place the app offers roles — present in the data, absent
+  /// from the room, and invisible in a way no screen would show.
+  static bool get coversEveryRole {
+    final filed = <MusicalRole>{
+      for (final family in values) ...family.members,
+    };
+    return filed.length == MusicalRole.offered.length;
+  }
+
+  /// The family whose members are exactly [chosen], if there is one.
+  ///
+  /// Lets the sentence say "Voices and words near you" after somebody picked
+  /// a whole door, instead of listing five roles or saying "5 things".
+  static RoleFamily? matching(Set<String> chosen) {
+    for (final family in values) {
+      if (family.members.length != chosen.length) continue;
+      if (family.members.every((role) => chosen.contains(role.value))) {
+        return family;
+      }
+    }
+    return null;
+  }
 }

@@ -428,7 +428,7 @@ void main() {
         reason: 'the library did not draw grouped by room');
   });
 
-  testWidgets('Open Mic has all three views, and the asking one draws',
+  testWidgets('Open Mic keeps its three views behind one line',
       (tester) async {
     final controller = await _controller();
     addTearDown(controller.dispose);
@@ -438,24 +438,40 @@ void main() {
     await _tapText(tester, 'Open Mic');
     expect(tester.takeException(), isNull, reason: _why('Open Mic'));
 
-    // Three things are in this room: who is here, what is asking for help,
-    // and what somebody finished. A half-finished idea and a record somebody
-    // spent six months on were in the same list until the third view existed.
-    expect(find.text('People'), findsOneWidget);
-    expect(find.text('Asking'), findsWidgets);
-    expect(find.text('Finished'), findsWidgets);
+    // The room shows an answer, not a form. Four controls used to sit above
+    // the first person in the list — a segmented button, sixteen chips and
+    // two text fields — and now there is one line saying what you are
+    // looking at.
+    expect(find.text('Everybody who is here'), findsOneWidget,
+        reason: 'the Open Mic did not open on a sentence');
+    expect(find.text('People'), findsNothing,
+        reason: 'the old tabs are still on screen');
 
-    // Targeted, not by text: the tolerant helper taps the last match, which
-    // is how this test once switched tab instead and passed by looking at
-    // the wrong screen.
-    // By text. "Songs" needed scoping because it was also a tab name;
-    // "Asking" appears once, and the segmented button's type argument is
-    // private to the screen so byType cannot name it.
-    expect(find.text('Asking'), findsOneWidget);
-    await tester.tap(find.text('Asking'));
+    await tester.tap(find.byKey(const Key('open_mic_statement')));
+    await _frames(tester);
+
+    // Three things are still in this room: who is here, what is asking for
+    // help, and what somebody finished. They are one tap down rather than
+    // spending a third of the screen each.
+    expect(find.text('Who plays it'), findsOneWidget);
+    expect(find.text('Who needs it'), findsOneWidget);
+    expect(find.text('Hear what people have finished'), findsOneWidget);
+    // Four doors, not sixteen chips.
+    expect(find.text('Voices and words'), findsOneWidget);
+    expect(find.text('Bass'), findsNothing,
+        reason: 'a leaf role was on the first screen of the sheet');
+
+    await tester.tap(find.text('Who needs it'));
+    await _frames(tester);
+    await tester.tap(find.text('Everybody'));
     await _frames(tester);
     expect(tester.takeException(), isNull,
         reason: _why('the asking view of Open Mic'));
+
+    // And the line says which way it is pointing, which is the thing the
+    // tabs could not: the same chip meant "who plays this" under People and
+    // "who needs this" under Asking, with nothing on screen saying so.
+    expect(find.text('Songs asking for somebody'), findsOneWidget);
 
     // Cards lead with what a song is asking for, because that is the only
     // thing that decides whether somebody taps. A list of titles is a list
