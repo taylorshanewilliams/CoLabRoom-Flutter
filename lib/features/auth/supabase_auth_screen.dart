@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -25,6 +26,13 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   bool _createAccount = false;
+
+  /// "ask for one" on the web, where there is no sign-up to offer.
+  late final TapGestureRecognizer _invite = TapGestureRecognizer()
+    ..onTap = () => unawaited(launchUrl(
+        Uri.parse(
+            'mailto:beta@colabroom.com?subject=CoLabRoom%20beta'),
+        mode: LaunchMode.externalApplication));
   bool _busy = false;
   bool _hidePassword = true;
 
@@ -50,6 +58,7 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
     _name.dispose();
     _email.dispose();
     _password.dispose();
+    _invite.dispose();
     super.dispose();
   }
 
@@ -250,16 +259,58 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: _busy
-                        ? null
-                        : () => setState(() => _createAccount = !_createAccount),
-                    child: Text(
-                      _createAccount
-                          ? 'Already have an account? Sign in'
-                          : 'New to CoLabRoom? Create an account',
+                  // The beta is invited, and the web is the open door.
+                  //
+                  // An app store listing is a decision with a lawyer and a
+                  // review behind it. A URL is not — anybody who finds this
+                  // page could otherwise sign themselves up, which is the
+                  // one thing the compliance work has deliberately not been
+                  // ready for. So the web signs people in and does not
+                  // enrol them, and says which, rather than hiding a control
+                  // and leaving somebody to wonder what they did wrong.
+                  //
+                  // The phone is unchanged: invitations still land there and
+                  // still create accounts.
+                  if (kIsWeb)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Text.rich(
+                        TextSpan(
+                          children: <InlineSpan>[
+                            const TextSpan(
+                              text: 'CoLabRoom is in a closed beta. '
+                                  'Accounts are created from an invitation — ',
+                            ),
+                            TextSpan(
+                              text: 'ask for one',
+                              style: const TextStyle(
+                                color: AppColors.cyan,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              recognizer: _invite,
+                            ),
+                            const TextSpan(text: '.'),
+                          ],
+                        ),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 12.5,
+                          height: 1.45,
+                        ),
+                      ),
+                    )
+                  else
+                    TextButton(
+                      onPressed: _busy
+                          ? null
+                          : () => setState(() => _createAccount = !_createAccount),
+                      child: Text(
+                        _createAccount
+                            ? 'Already have an account? Sign in'
+                            : 'New to CoLabRoom? Create an account',
+                      ),
                     ),
-                  ),
                   const SizedBox(height: 10),
                   const Text(
                     'Private rooms · Traceable contributions',

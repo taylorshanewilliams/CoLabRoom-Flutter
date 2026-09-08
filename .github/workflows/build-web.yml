@@ -39,11 +39,7 @@ jobs:
       # can't reach Supabase at all. Same as build-android-debug.yml, this
       # rides the checked-in defaults, which already point at the real beta
       # project.
-      # Two flags the artifact needs before a browser can actually use it.
-      #
-      # --base-href, because this is served from colabroom.com/app/ rather
-      # than a domain root. Without it every asset resolves against / and the
-      # app loads a white page.
+      # One flag the artifact needs before a browser can actually use it.
       #
       # AUTH_REDIRECT_URL, because beta_config.dart defaults it to
       # com.colabroom.beta://login-callback — a URI scheme a phone can open
@@ -55,11 +51,13 @@ jobs:
       #
       # This URL must also be in the project's redirect allow-list in
       # Supabase, or the same links come back rejected instead of dead.
+      #
+      # No --base-href: this is served from the root of its own subdomain
+      # rather than a path, so the default is right.
       - name: Build web
         run: |
           flutter build web --release \
-            --base-href /app/ \
-            --dart-define=AUTH_REDIRECT_URL=https://colabroom.com/app/
+            --dart-define=AUTH_REDIRECT_URL=https://app.colabroom.com/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -68,9 +66,15 @@ jobs:
           retention-days: 14
 
 # ---------------------------------------------------------------------------
-# Where this goes: the artifact is unzipped into colabroom-site under /app,
-# which GitHub Pages serves at https://colabroom.com/app/. That is why
-# --base-href is set, and why the auth redirect points there.
+# Where this goes: app.colabroom.com, GitHub Pages, from its own repo —
+# colabroom-app. Its own repo because the build is ~44MB of renderer
+# binaries and that churn does not belong in the history of colabroom-site,
+# which holds the legal pages. Its own subdomain because a root means no
+# --base-href to keep in step.
+#
+# colabroom.com stays plain HTML. A 10MB first load is fine for an app
+# somebody signs into and wrong for a shared song link, so public song pages
+# and profiles belong there, not here.
 #
 # To check a build locally instead: download the colabroom-web artifact,
 # unzip it, and serve it with any static file server — `python3 -m
