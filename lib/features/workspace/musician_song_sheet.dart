@@ -18,6 +18,7 @@ class MusicianSongSheet extends StatelessWidget {
     required this.fontScale,
     required this.showChords,
     this.editableChords = false,
+    this.selectedChordStartMs,
     this.onEditChord,
     this.onAddChord,
     super.key,
@@ -30,6 +31,10 @@ class MusicianSongSheet extends StatelessWidget {
   final double fontScale;
   final bool showChords;
   final bool editableChords;
+
+  /// Where the held cue starts, passed straight through to the line that
+  /// owns it. Null on a device with no keyboard, which is most of them.
+  final int? selectedChordStartMs;
   final MusicianChordTap? onEditChord;
   final MusicianWordTap? onAddChord;
 
@@ -201,6 +206,7 @@ class MusicianSongSheet extends StatelessWidget {
                               fontScale: fontScale,
                               showChords: showChords,
                               editable: editableChords,
+                              selectedChordStartMs: selectedChordStartMs,
                               onEditChord: onEditChord,
                               onAddChord: onAddChord,
                             ),

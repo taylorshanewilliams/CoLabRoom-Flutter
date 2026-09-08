@@ -11,6 +11,7 @@ import 'package:colabroom/features/workspace/musician_song_sheet.dart';
 import 'package:colabroom/services/chord_chart.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// Two ways of reading the same song. The sheet is what you sing from; the
 /// chart is what you play from.
@@ -88,6 +89,155 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       _showChords = true;
       if (_editingChords) _transpose = 0;
     });
+  }
+
+  @override
+  void dispose() {
+    _sheetFocus.dispose();
+    super.dispose();
+  }
+
+  /// The chord the keyboard is holding, and where it sits.
+  ///
+  /// Correcting a sheet is aiming, and a fingertip is a blunt instrument —
+  /// which is why the touch path is a modal with a chord picker in it. A
+  /// keyboard is not blunt, and the correction people actually make most
+  /// often is not "this is the wrong chord", it is "this chord is over the
+  /// wrong word". That is one keystroke, and it should cost one keystroke.
+  ///
+  /// Up and down move the selection; left and right move the chord. Keeping
+  /// those on separate axes is what stops the two from being the same
+  /// gesture with a mode behind it.
+  ChordCue? _selected;
+  MusicianSheetLine? _selectedLine;
+  int _selectedWord = 0;
+  final FocusNode _sheetFocus = FocusNode(debugLabel: 'song sheet');
+
+  /// The sheet's chords in reading order, from the bundle as it stands.
+  List<({MusicianSheetLine line, ChordCue chord, int wordIndex})>
+      _chordsInOrder() => chordsInReadingOrder(
+            buildMusicianSheetLines(widget.project, _bundle,
+                ignoreWorkspaceLyrics: true),
+          );
+
+  void _moveSelection(int delta) {
+    final all = _chordsInOrder();
+    if (all.isEmpty) return;
+    final current = _selected;
+    var next = 0;
+    if (current != null) {
+      final at =
+          all.indexWhere((entry) => entry.chord.startMs == current.startMs);
+      if (at >= 0) next = (at + delta).clamp(0, all.length - 1);
+    } else if (delta < 0) {
+      next = all.length - 1;
+    }
+    setState(() {
+      _selectedLine = all[next].line;
+      _selected = all[next].chord;
+      _selectedWord = all[next].wordIndex;
+    });
+  }
+
+  /// Move the held chord one word along, and save it there.
+  ///
+  /// The same call the modal makes, with the word index the arrow key asked
+  /// for — so a nudge and a correction land in the database identically and
+  /// there is only one way a chord can be wrong.
+  Future<void> _nudgeSelected(int delta) async {
+    final cue = _selected;
+    final line = _selectedLine;
+    if (cue == null || line == null || _savingChord) return;
+    final words = line.body
+        .split(RegExp(r'\s+'))
+        .where((word) => word.isNotEmpty)
+        .toList(growable: false);
+    if (words.isEmpty) return;
+    final target = (_selectedWord + delta).clamp(0, words.length - 1);
+    if (target == _selectedWord) return;
+
+    final startMs = chordStartForWordIndex(
+      wordIndex: target,
+      wordCount: math.max(1, words.length).toInt(),
+      lineStartMs: line.startMs,
+      lineEndMs: line.endMs,
+    );
+    final length = math.max(300, cue.endMs - cue.startMs).toInt();
+    setState(() {
+      _savingChord = true;
+      _selectedWord = target;
+    });
+    try {
+      final updated = await _service.saveManualChordCue(
+        projectId: widget.project.id,
+        cueId: cue.id,
+        originalStartMs: cue.startMs,
+        originalChord: cue.chord,
+        chord: cue.chord,
+        startMs: startMs,
+        endMs: startMs + length,
+      );
+      if (!mounted) return;
+      setState(() {
+        _bundle = updated;
+        _chartRows = null;
+      });
+      widget.onAnalysisChanged?.call(updated);
+      // The cue keeps its id through a save, so the selection can follow it
+      // to where it landed rather than being dropped on every keystroke.
+      final again = _chordsInOrder()
+          .where((entry) => entry.chord.startMs == startMs)
+          .toList(growable: false);
+      if (again.isNotEmpty && mounted) {
+        setState(() {
+          _selectedLine = again.first.line;
+          _selected = again.first.chord;
+          _selectedWord = again.first.wordIndex;
+        });
+      }
+    } catch (_) {
+      // Leave the selection where it was; the sheet still shows the truth.
+    } finally {
+      if (mounted) setState(() => _savingChord = false);
+    }
+  }
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    if (!_editingChords) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowDown) {
+      _moveSelection(1);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) {
+      _moveSelection(-1);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowRight) {
+      unawaited(_nudgeSelected(1));
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      unawaited(_nudgeSelected(-1));
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.escape) {
+      setState(() {
+        _selected = null;
+        _selectedLine = null;
+      });
+      return KeyEventResult.handled;
+    }
+    // Enter hands the held chord to the same editor a tap opens, because
+    // changing which chord it is still wants the picker.
+    if (key == LogicalKeyboardKey.enter && _selected != null) {
+      unawaited(_editChord(_selectedLine!, _selected!, _selectedWord));
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   Future<void> _editChord(
@@ -415,7 +565,10 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             fontScale: _fontScale,
           )
         else
-          MusicianSongSheet(
+          Focus(
+            focusNode: _sheetFocus,
+            onKeyEvent: _onKey,
+            child: MusicianSongSheet(
             title: widget.project.title,
             lines: buildMusicianSheetLines(widget.project, _bundle, ignoreWorkspaceLyrics: true),
             musicalKey: _bundle.reference?.musicalKey,
@@ -423,12 +576,15 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             fontScale: _fontScale,
             showChords: _showChords,
             editableChords: _editingChords && !_savingChord,
+            selectedChordStartMs:
+                _editingChords ? _selected?.startMs : null,
             onEditChord: (line, chord, wordIndex) {
               unawaited(_editChord(line, chord, wordIndex));
             },
             onAddChord: (line, wordIndex) {
               unawaited(_addChord(line, wordIndex));
             },
+          ),
           ),
         const SizedBox(height: 14),
         Row(
