@@ -971,10 +971,13 @@ class _Empty extends StatelessWidget {
   final VoidCallback? onAskSomebody;
 
   /// Nothing here is hidden and nothing is broken — say which.
+  ///
+  /// "Nobody *else*" is a claim that you are in the room, so it waits until
+  /// that is known. Until then the old sentence, which claims nothing.
   String get _headline {
     if (listed == false) return 'Nobody has listed themselves yet';
     if (narrowed) return 'Nobody here plays that yet';
-    return 'Nobody else here yet';
+    return listed == true ? 'Nobody else here yet' : 'Nobody here yet';
   }
 
   String get _body {
