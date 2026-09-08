@@ -764,7 +764,10 @@ class InMemoryMusicRepository implements MusicRepository {
     displayName: 'You',
     city: 'Glasgow',
     plays: <String>['rhythm', 'vocal'],
-    partsRecorded: <String, int>{'rhythm': 3, 'vocal': 1},
+    // Bass is deliberately recorded and unclaimed: it is the state the app
+    // is full of and the one the profile can fill in for somebody, rather
+    // than a tidy preview where everything has already been declared.
+    partsRecorded: <String, int>{'rhythm': 3, 'vocal': 1, 'bass': 2},
     songsPlayedOn: 3,
     peopleWorkedWith: 2,
     discoverable: false,
