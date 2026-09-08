@@ -611,3 +611,40 @@ List<MusicianSheetLine> _chordOnlyLines(
   }
   return lines;
 }
+
+/// Every chord on a sheet, in the order somebody reads them, with the line
+/// and the word each one sits over.
+///
+/// The keyboard needs this and the sheet does not: on screen a chord is
+/// drawn where its line puts it, but "the next chord" is a question about
+/// the whole page. Pure, and rebuilt on demand rather than cached, because
+/// the bundle changes under it on every correction and a stale order would
+/// move the wrong chord.
+List<({MusicianSheetLine line, ChordCue chord, int wordIndex})>
+    chordsInReadingOrder(List<MusicianSheetLine> lines) {
+  final found = <({MusicianSheetLine line, ChordCue chord, int wordIndex})>[];
+  for (final line in lines) {
+    if (line.section || line.body.trim().isEmpty) continue;
+    final words = line.body
+        .split(RegExp(r'\s+'))
+        .where((word) => word.isNotEmpty)
+        .toList(growable: false);
+    final placements = chordPlacementsForLine(
+      wordCount: words.length,
+      lineStartMs: line.startMs,
+      lineEndMs: line.endMs,
+      chords: line.chords,
+      wordStartsMs: line.wordStartsMs,
+    );
+    // Over the words, not over the map: placements is keyed by word index
+    // and holds only the words that have a chord, so its length is a count
+    // of chords and walking that misses everything past the last dense one.
+    for (var i = 0; i < words.length; i += 1) {
+      final cue = placements[i];
+      if (cue != null) {
+        found.add((line: line, chord: cue, wordIndex: i));
+      }
+    }
+  }
+  return found;
+}

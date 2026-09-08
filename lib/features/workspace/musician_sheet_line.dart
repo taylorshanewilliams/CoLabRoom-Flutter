@@ -58,6 +58,7 @@ class MusicianChordLyricLine extends StatelessWidget {
     this.editable = false,
     this.liveMode = false,
     this.active = false,
+    this.selectedChordStartMs,
     this.onEditChord,
     this.onAddChord,
     super.key,
@@ -70,6 +71,13 @@ class MusicianChordLyricLine extends StatelessWidget {
   final bool editable;
   final bool liveMode;
   final bool active;
+
+  /// Where the cue the keyboard is holding starts.
+  ///
+  /// Keyed on startMs rather than id because a cue id is nullable and a
+  /// start is not — and startMs is what saveManualChordCue already uses to
+  /// find the row, so the selection and the save agree by construction.
+  final int? selectedChordStartMs;
   final MusicianChordTap? onEditChord;
   final MusicianWordTap? onAddChord;
 
@@ -117,6 +125,8 @@ class MusicianChordLyricLine extends StatelessWidget {
               editable: editable,
               liveMode: liveMode,
               active: active,
+              selected: selectedChordStartMs != null &&
+                  placements[index]?.startMs == selectedChordStartMs,
               onEditChord: onEditChord,
               onAddChord: onAddChord,
             ),
@@ -171,6 +181,7 @@ class _ChordWord extends StatelessWidget {
     required this.editable,
     required this.liveMode,
     required this.active,
+    required this.selected,
     required this.onEditChord,
     required this.onAddChord,
     super.key,
@@ -186,6 +197,12 @@ class _ChordWord extends StatelessWidget {
   final bool editable;
   final bool liveMode;
   final bool active;
+
+  /// Whether the keyboard is holding this chord.
+  ///
+  /// Visible from across a desk, because otherwise the arrow keys are moving
+  /// something nobody can see, which is worse than not having them.
+  final bool selected;
   final MusicianChordTap? onEditChord;
   final MusicianWordTap? onAddChord;
 
@@ -234,9 +251,14 @@ class _ChordWord extends StatelessWidget {
               decoration: liveMode
                   ? null
                   : BoxDecoration(
-                      color: const Color(0xFF197A74)
-                          .withValues(alpha: editable ? 0.16 : 0.08),
+                      color: selected
+                          ? AppColors.cyan.withValues(alpha: 0.22)
+                          : const Color(0xFF197A74)
+                              .withValues(alpha: editable ? 0.16 : 0.08),
                       borderRadius: BorderRadius.circular(5),
+                      border: selected
+                          ? Border.all(color: AppColors.cyan, width: 1.2)
+                          : null,
                     ),
               child: Text(
                 chordText,
