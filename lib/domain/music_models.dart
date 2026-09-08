@@ -443,6 +443,7 @@ class OfferableSong {
     required this.title,
     required this.updatedAt,
     this.alreadyAsked = false,
+    this.partsOnIt = const <String>[],
   });
 
   final String id;
@@ -453,6 +454,14 @@ class OfferableSong {
   /// hidden — "you asked them this yesterday" is more useful than a song
   /// quietly missing from the list.
   final bool alreadyAsked;
+
+  /// What has been played on it, from shared takes.
+  ///
+  /// Deliberately not "what it is missing". The app cannot know what a song
+  /// needs — need is a musical judgement and the list of things somebody
+  /// might want is unbounded. It knows what is on it, and the one step from
+  /// there is taken where it can be seen.
+  final List<String> partsOnIt;
 }
 
 /// Somebody asking you, specifically, to play on something.

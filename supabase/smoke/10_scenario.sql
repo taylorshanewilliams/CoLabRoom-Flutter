@@ -996,6 +996,33 @@ values
   ('aaaaaaaa-0000-0000-0000-00000000000a', :'writer',
    'aaaaaaaa/layers/offer.m4a', 'Guitar', 'rhythm', 92000, now());
 
+-- 0095: what the song has not got.
+--
+-- The picker behind "ask them to play on…" now carries what is already on
+-- each song, so the sheet can light the chip for the thing this person does
+-- that the song lacks instead of asking somebody for a decision it watched
+-- them make two screens ago. Not "missing": need is a musical judgement and
+-- the app has no standing to make it. What is on it is a fact.
+do $$
+declare
+  offered record;
+begin
+  select * into offered
+  from public.songs_i_can_offer('22222222-2222-2222-2222-222222222222')
+  where id = 'aaaaaaaa-0000-0000-0000-00000000000a';
+
+  if offered.id is null then
+    raise exception 'the song picker did not offer a song of my own';
+  end if;
+  if not (offered.parts_on_it @> array['rhythm']) then
+    raise exception 'the picker did not say what is already on the song (got %)',
+      offered.parts_on_it;
+  end if;
+  if offered.already_asked then
+    raise exception 'a song nobody has been asked about came back as asked';
+  end if;
+end $$;
+
 select public.ask_musician(
   'aaaaaaaa-0000-0000-0000-00000000000a',
   '22222222-2222-2222-2222-222222222222',

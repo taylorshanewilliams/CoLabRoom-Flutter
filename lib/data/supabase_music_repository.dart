@@ -1384,6 +1384,11 @@ class SupabaseMusicRepository implements MusicRepository {
               DateTime.tryParse('${row['updated_at']}')?.toLocal() ??
                   DateTime.now(),
           alreadyAsked: row['already_asked'] as bool? ?? false,
+          partsOnIt: <String>[
+            for (final part in (row['parts_on_it'] as List<dynamic>? ??
+                const <dynamic>[]))
+              '$part',
+          ],
         ),
     ];
   }

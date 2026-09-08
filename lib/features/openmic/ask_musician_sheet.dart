@@ -23,11 +23,24 @@ class AskMusicianSheet extends StatefulWidget {
   const AskMusicianSheet({
     required this.musician,
     required this.repository,
+    this.suggestedPart,
     super.key,
   });
 
   final Musician musician;
   final MusicRepository repository;
+
+  /// What the person doing the asking was already looking for.
+  ///
+  /// Somebody who walked the Open Mic down to *bass*, listened to three
+  /// people and tapped one of them has already said what they want — twice,
+  /// in two screens. Making them say it a third time in this sheet is the
+  /// app asking them to re-enter a decision it watched them make.
+  ///
+  /// Only ever a starting point. It is the same chip row as before and any
+  /// of it can be tapped off, because what you searched for and what you
+  /// want from this particular person are allowed to differ.
+  final String? suggestedPart;
 
   @override
   State<AskMusicianSheet> createState() => _AskMusicianSheetState();
@@ -42,7 +55,14 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
   final TextEditingController _note = TextEditingController();
   List<OfferableSong>? _songs;
   String? _songId;
-  String? _part;
+  late String? _part = widget.suggestedPart;
+
+  /// Whether somebody has touched the part chips themselves.
+  ///
+  /// Until they do, the suggestion follows the song they have selected. After
+  /// they do, it stops moving — a control that keeps changing under somebody
+  /// who has just set it is worse than one that never helps at all.
+  bool _chosePart = false;
   String? _error;
   bool _sending = false;
 
@@ -68,6 +88,7 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
         // is the one they are almost always here about, and a picker that
         // starts on nothing makes everybody do the same tap.
         _songId = songs.where((s) => !s.alreadyAsked).firstOrNull?.id;
+        _part ??= _whatThisSongLacks(_songId);
       });
     } catch (error) {
       if (!mounted) return;
@@ -99,6 +120,31 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
       (theirs.contains(entry.value) ? known : rest).add(entry);
     }
     return <MusicalRole>[...known, ...rest];
+  }
+
+  /// The first thing this person does that the chosen song has not got.
+  ///
+  /// Two facts, one small step, and the step is taken here rather than in the
+  /// database on purpose: what a song *needs* is a musical judgement and the
+  /// app has no standing to make it. What it can say is that this person
+  /// plays bass and nothing on this song is bass, which is a good enough
+  /// reason to have the chip already lit and no reason at all to insist.
+  ///
+  /// Null when they have nothing to offer that is not already there — in
+  /// which case the sheet stays on "not sure yet", which is an honest state
+  /// and the one most unfinished songs are actually in.
+  String? _whatThisSongLacks(String? songId) {
+    if (songId == null) return null;
+    final song =
+        _songs?.where((candidate) => candidate.id == songId).firstOrNull;
+    if (song == null) return null;
+    final already = song.partsOnIt.toSet();
+    for (final role in _orderedParts) {
+      final theirs = widget.musician.partsRecorded.containsKey(role.value) ||
+          widget.musician.plays.contains(role.value);
+      if (theirs && !already.contains(role.value)) return role.value;
+    }
+    return null;
   }
 
   Future<void> _send() async {
@@ -178,7 +224,15 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
                     selected: song.id == _songId,
                     onTap: song.alreadyAsked
                         ? null
-                        : () => setState(() => _songId = song.id),
+                        : () => setState(() {
+                            _songId = song.id;
+                            // The suggestion follows the song until somebody
+                            // says otherwise.
+                            if (!_chosePart) {
+                              _part = widget.suggestedPart ??
+                                  _whatThisSongLacks(song.id);
+                            }
+                          }),
                   ),
 
               if (songs != null && songs.isNotEmpty) ...<Widget>[
@@ -204,7 +258,10 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
                         label: Text(entry.label),
                         selected: _part == entry.value,
                         onSelected: (on) =>
-                            setState(() => _part = on ? entry.value : null),
+                            setState(() {
+                              _chosePart = true;
+                              _part = on ? entry.value : null;
+                            }),
                         showCheckmark: false,
                         backgroundColor: AppColors.raised,
                         selectedColor: AppColors.cyan.withValues(alpha: 0.18),

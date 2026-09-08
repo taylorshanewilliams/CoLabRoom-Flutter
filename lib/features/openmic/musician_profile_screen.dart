@@ -41,11 +41,20 @@ class MusicianProfileScreen extends StatefulWidget {
     required this.profileId,
     required this.repository,
     this.initial,
+    this.lookingFor,
     super.key,
   });
 
   final String profileId;
   final MusicRepository repository;
+
+  /// What the room was narrowed to when this person was tapped.
+  ///
+  /// Carried through to the ask sheet so somebody who searched for a bass
+  /// player is not asked, one screen later, what they want. Null when this
+  /// page was opened from somewhere with no search behind it — a song's
+  /// credits, a notification — because there is nothing to carry then.
+  final String? lookingFor;
 
   /// The row Open Mic already had. Drawn immediately so that tapping a card
   /// does not open an empty screen with a spinner in it; replaced by the full
@@ -211,6 +220,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
         child: AskMusicianSheet(
           musician: musician,
           repository: widget.repository,
+          suggestedPart: widget.lookingFor,
         ),
       ),
     );
