@@ -13,6 +13,7 @@ import '../../widgets/play_button.dart';
 import 'listen_screen.dart';
 import 'musician_profile_screen.dart';
 import 'open_mic_song_screen.dart';
+import '../../widgets/offer_to_be_found.dart';
 import 'out_there.dart';
 import 'what_are_you_after.dart';
 
@@ -212,6 +213,13 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     if (mounted) CurrentRoute.enter('Open Mic');
   }
 
+  /// Whether the reciprocity question has been put this session.
+  ///
+  /// Once, and only after somebody has actually narrowed the room — asking
+  /// on arrival would be a permission prompt on a launch screen, which is
+  /// the thing every other part of this app has been careful not to be.
+  bool _askedToBeFound = false;
+
   /// Opening the trail.
   ///
   /// Applied as it is chosen rather than on a Done button, so the list behind
@@ -229,6 +237,14 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
         unawaited(_search());
       },
     );
+    // The one moment it is fair to ask. Somebody is standing in the room
+    // looking for people, and nobody can look for them — zero of the real
+    // accounts in production are findable, so every result the search
+    // returns today is a seeded one.
+    if (_askedToBeFound || !mounted || _query.isFinished) return;
+    _askedToBeFound = true;
+    final changed = await BeFound.offer(context, widget.repository);
+    if (changed && mounted) unawaited(_search());
   }
 
   @override
