@@ -10,6 +10,7 @@ import '../../services/user_facing_error.dart';
 import '../../widgets/app_top_bar.dart';
 import '../../widgets/demo_chip.dart';
 import '../../widgets/play_button.dart';
+import 'ask_somebody_not_here.dart';
 import 'listen_screen.dart';
 import 'musician_profile_screen.dart';
 import 'open_mic_song_screen.dart';
@@ -220,6 +221,28 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   /// the thing every other part of this app has been careful not to be.
   bool _askedToBeFound = false;
 
+  /// Reaching past the edge of the room.
+  ///
+  /// The room can only offer the people already in it, and at four accounts
+  /// that is nobody — but everybody looking for a bass player already knows
+  /// one. Carries what they were looking for, so the message writes itself.
+  Future<void> _askSomebodyNotHere() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.raised,
+      isScrollControlled: true,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) => AskSomebodyNotHere(
+        repository: widget.repository,
+        myName: widget.displayName.isEmpty ? 'Somebody' : widget.displayName,
+        about: _query.parts.length == 1 ? _query.parts.first : null,
+      ),
+    );
+  }
+
   /// Opening the trail.
   ///
   /// Applied as it is chosen rather than on a Done button, so the list behind
@@ -363,7 +386,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
                         const SizedBox(height: 14),
                       ],
                       if (found.isEmpty)
-                        const _Empty()
+                        _Empty(onAskSomebody: _askSomebodyNotHere)
                       else
                         for (final musician in found)
                           _MusicianCard(
@@ -830,17 +853,26 @@ class _MusicianCard extends StatelessWidget {
 }
 
 class _Empty extends StatelessWidget {
-  const _Empty();
+  const _Empty({this.onAskSomebody});
+
+  /// The one useful thing to do when the room cannot help.
+  ///
+  /// An empty room used to end the conversation: it said nobody was here and
+  /// left somebody exactly where it found them. But nobody looking for a
+  /// bass player has run out of bass players — they have run out of bass
+  /// players *on this app*, and they almost certainly know one.
+  final VoidCallback? onAskSomebody;
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.only(top: 40),
+    return Padding(
+      padding: const EdgeInsets.only(top: 40),
       child: Column(
         children: <Widget>[
-          Icon(Icons.mic_external_off_rounded, size: 34, color: AppColors.line),
-          SizedBox(height: 12),
-          Text(
+          const Icon(Icons.mic_external_off_rounded,
+              size: 34, color: AppColors.line),
+          const SizedBox(height: 12),
+          const Text(
             'Nobody here yet',
             style: TextStyle(
               color: AppColors.text,
@@ -854,7 +886,7 @@ class _Empty extends StatelessWidget {
           // exactly where they found them. Nobody is listed by default and
           // that stays true — but the useful thing to tell the first person
           // here is that they can be first.
-          Text(
+          const Text(
             'Be the first. List yourself and people looking for what you '
             'play will find you.',
             textAlign: TextAlign.center,
@@ -864,6 +896,19 @@ class _Empty extends StatelessWidget {
               height: 1.45,
             ),
           ),
+          if (onAskSomebody != null) ...<Widget>[
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              key: const Key('open_mic_ask_somebody_not_here'),
+              onPressed: onAskSomebody,
+              icon: const Icon(Icons.person_add_alt_rounded, size: 18),
+              label: const Text('Ask somebody you know'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.cyan,
+                foregroundColor: AppColors.ink,
+              ),
+            ),
+          ],
         ],
       ),
     );
