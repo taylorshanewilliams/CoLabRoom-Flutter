@@ -780,6 +780,14 @@ class InMemoryMusicRepository implements MusicRepository {
       part: 'bass',
       note: 'Something simple under the chorus — you would nail it.',
       createdAt: DateTime(2026, 9, 5, 19, 40),
+      // The brief, so the preview shows the card somebody actually gets
+      // rather than the bare one it replaced.
+      storagePath: 'preview/ladder-of-life.m4a',
+      durationMs: 134000,
+      musicalKey: 'G',
+      bpm: 96,
+      partsOnIt: const <String>['vocal', 'lead'],
+      hasSongSheet: true,
     ),
   ];
 

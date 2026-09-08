@@ -8,6 +8,8 @@ import '../../domain/music_models.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/problem_report.dart';
 import '../../widgets/app_surface.dart';
+import '../../domain/musical_roles.dart';
+import '../../widgets/play_button.dart';
 
 /// The single inbox: pending invitations you can act on, then everything
 /// that has happened since you were last here.
@@ -251,15 +253,58 @@ class _AskCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            ask.headline,
-            style: const TextStyle(
-              color: AppColors.text,
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              height: 1.3,
-            ),
+          // Hear it first, then read about it. Somebody deciding whether to
+          // spend an evening on a stranger's song makes that decision by ear
+          // in about ten seconds, and every second before the play button is
+          // a second spent reading instead.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              if ((ask.storagePath ?? '').isNotEmpty) ...<Widget>[
+                PlayButton(
+                  storagePath: ask.storagePath!,
+                  durationMs: ask.durationMs,
+                  title: ask.songTitle,
+                  byline: ask.askedByName,
+                  songId: ask.projectId,
+                  size: 38,
+                ),
+                const SizedBox(width: 11),
+              ],
+              Expanded(
+                child: Text(
+                  ask.headline,
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
           ),
+          // What the song is. Every fact here was already in the database
+          // and none of it used to reach the person being asked.
+          if (ask.brief != null) ...<Widget>[
+            const SizedBox(height: 7),
+            Text(
+              ask.brief!,
+              style: const TextStyle(
+                  color: AppColors.cyan, fontSize: 12, height: 1.35),
+            ),
+          ],
+          if (ask.partsOnIt.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 4),
+            Text(
+              // Words, not a number. A count of takes would be a tally of
+              // somebody's work, and it tells the person answering nothing
+              // about whether there is a hole shaped like them.
+              'Already on it: ${ask.partsOnIt.map(MusicalRole.labelFor).join(', ').toLowerCase()}',
+              style: const TextStyle(
+                  color: AppColors.muted, fontSize: 12, height: 1.35),
+            ),
+          ],
           if (ask.note.trim().isNotEmpty) ...<Widget>[
             const SizedBox(height: 7),
             Text(
