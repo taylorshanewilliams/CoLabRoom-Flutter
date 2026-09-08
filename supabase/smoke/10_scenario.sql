@@ -1074,6 +1074,52 @@ begin
   end if;
 end $$;
 
+-- 0093: what happened between people.
+--
+-- The ledger is written by triggers rather than by the app, which is the
+-- whole reason to trust it — but a trigger nobody exercises is a trigger
+-- nobody notices has stopped firing. These are the three kinds that carry
+-- the signal, and the one distinction the state table cannot make.
+do $$
+declare
+  asked_by_me uuid := '11111111-1111-1111-1111-111111111111';
+  the_other uuid := '22222222-2222-2222-2222-222222222222';
+begin
+  if not exists (
+    select 1 from private.collaboration_events
+    where kind = 'asked' and by_user = asked_by_me
+  ) then
+    raise exception 'asking somebody was not written down';
+  end if;
+
+  -- Saying yes, recorded from the answerer's side: they acted, the asker is
+  -- who it was with.
+  if not exists (
+    select 1 from private.collaboration_events
+    where kind = 'accepted'
+      and by_user = the_other
+      and with_user = asked_by_me
+  ) then
+    raise exception 'an accepted ask was not written down';
+  end if;
+
+  -- The distinction project_asks cannot make on its own: both of these end
+  -- as status 'closed', and answered_at is what tells them apart.
+  if exists (
+    select 1 from private.collaboration_events
+    where kind = 'withdrawn' and by_user = the_other
+  ) then
+    raise exception 'an accepted ask was recorded as a withdrawal';
+  end if;
+
+  -- And nothing about a person that could be shown as a score. The table is
+  -- readable by the database and by nobody else.
+  if has_table_privilege('authenticated', 'private.collaboration_events',
+                         'select') then
+    raise exception 'the collaboration ledger is readable by signed-in users';
+  end if;
+end $$;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 -- Somebody else's ask is not yours to answer.
@@ -1426,6 +1472,25 @@ values
    '22222222-2222-2222-2222-222222222222',
    'aaaaaaaa/layers/never-heard.m4a', 'Scratch', 'bass', 12000, null);
 
+-- 0093: the delivery, which is the only event here that is not somebody
+-- talking about doing something. A shared take on a song that is not yours.
+-- The unshared one beside it must produce nothing: a private take is
+-- somebody working, and the whole app rests on those two being different.
+do $$
+begin
+  if (select count(*) from private.collaboration_events
+      where kind = 'delivered'
+        and by_user = '22222222-2222-2222-2222-222222222222'
+        and project_id = 'aaaaaaaa-0000-0000-0000-00000000000a') <> 1 then
+    raise exception 'a shared take on somebody else''s song was not written '
+      'down exactly once (got %)',
+      (select count(*) from private.collaboration_events
+       where kind = 'delivered'
+         and by_user = '22222222-2222-2222-2222-222222222222'
+         and project_id = 'aaaaaaaa-0000-0000-0000-00000000000a');
+  end if;
+end $$;
+
 set local request.jwt.claims = '{"sub": "22222222-2222-2222-2222-222222222222"}';
 
 do $$
@@ -1461,6 +1526,18 @@ begin
     where storage_path = 'aaaaaaaa/layers/never-heard.m4a'
   ) then
     raise exception 'an unshared private take survived the account that made it';
+  end if;
+
+  -- And the matching ledger goes with them (0093). The take stays because
+  -- the band cannot re-record it; the record of who somebody worked with is
+  -- about the person, not the song, so leaving it behind would be keeping a
+  -- social graph of an account that asked to be gone.
+  if exists (
+    select 1 from private.collaboration_events
+    where by_user = '22222222-2222-2222-2222-222222222222'
+       or with_user = '22222222-2222-2222-2222-222222222222'
+  ) then
+    raise exception 'a deleted account is still in the collaboration ledger';
   end if;
 end $$;
 
