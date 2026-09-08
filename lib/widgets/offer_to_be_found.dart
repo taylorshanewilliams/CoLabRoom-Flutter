@@ -9,11 +9,11 @@ import '../domain/musical_roles.dart';
 /// Asking somebody whether they would like to be findable, at the one moment
 /// it is obviously fair to ask.
 ///
-/// **Nobody in production is findable.** Not a low number — zero of the real
-/// accounts, against seventy-five seeded ones, so every result the search
-/// returns today is a bot. Nobody says what they play either, which is the
-/// second lock on the same door: `find_musicians` matches on `plays`, so an
-/// empty one is invisible to every role search even after the switch is on.
+/// **Almost nobody in production is findable.** One real account of four, with
+/// the seeded ones purged — so the room a new invitee walks into has one
+/// person in it. Nobody says what they play either, which is the second lock
+/// on the same door: `find_musicians` matches on `plays`, so an empty one is
+/// invisible to every role search even after the switch is on.
 ///
 /// None of that is a bug. `discoverable` defaults to false and that is the
 /// right default for this app — you do not turn strangers on. But **off by
@@ -44,10 +44,16 @@ abstract final class BeFound {
   /// Silent when they are already findable, when we asked recently, or when
   /// their profile cannot be read — a prompt that appears because a network
   /// call failed is a prompt that appears at random.
+  ///
+  /// [becauseTheyAsked] is for the version of this that somebody pressed. The
+  /// shelf life on a decline is there to stop the *unprompted* ask becoming a
+  /// nag, and applying it to a button somebody deliberately tapped would make
+  /// that button do nothing — which is the one thing worse than never asking.
   static Future<bool> offer(
     BuildContext context,
-    MusicRepository repository,
-  ) async {
+    MusicRepository repository, {
+    bool becauseTheyAsked = false,
+  }) async {
     Musician? me;
     try {
       me = await repository.loadMusician(repository.currentUserId);
@@ -57,7 +63,7 @@ abstract final class BeFound {
     if (me == null || me.discoverable == true) return false;
 
     final prefs = await SharedPreferences.getInstance();
-    final declined = prefs.getInt(_declinedKey);
+    final declined = becauseTheyAsked ? null : prefs.getInt(_declinedKey);
     if (declined != null) {
       final when = DateTime.fromMillisecondsSinceEpoch(declined);
       if (DateTime.now().difference(when) < _askAgainAfter) return false;
