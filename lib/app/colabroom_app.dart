@@ -6,6 +6,7 @@ import 'beta_config.dart';
 import 'colabroom_theme.dart';
 import 'music_beta_controller.dart';
 import 'workspace_shell.dart';
+import '../services/browser_history.dart';
 import '../services/current_route.dart';
 
 class CoLabRoomApp extends StatelessWidget {
@@ -30,7 +31,11 @@ class CoLabRoomApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       // Costs nothing until a route names itself, and then that name reaches
       // every error report without anybody remembering to pass it.
-      navigatorObservers: <NavigatorObserver>[RouteTracker()],
+      // RouteTracker names the screen for crash reports. BrowserHistory
+      // makes the browser's back button go back a screen instead of leaving
+      // the site, which it did because a MaterialApp with imperative pushes
+      // registers one history entry for the entire app.
+      navigatorObservers: <NavigatorObserver>[RouteTracker(), BrowserHistory()],
       theme: CoLabRoomTheme.dark(),
       // Clamp system font scaling so a user's accessibility text-size
       // setting can't blow past what our fixed-width dialogs/tiles were
