@@ -250,7 +250,21 @@ class _AccountScreenState extends State<AccountScreen> {
     // Listening, so the picture appears the moment the fetch or the upload
     // lands rather than on the next rebuild that happens for another reason.
     final avatar = BetaScope.of(context).avatarBytes;
-    return ListView(
+    // A floor under the screen.
+    //
+    // This returned a bare `ListView` with nothing behind it, so the page
+    // took whatever colour happened to be underneath — which is white. Every
+    // card on it is dark navy and every one of them was floating on a white
+    // page, with the "Account" heading set in near-white on near-white and
+    // therefore invisible. On a phone the cards cover most of it and it reads
+    // as an odd margin; on a desk two thirds of the screen is white and it
+    // reads as a broken page, which is where it was finally noticed.
+    //
+    // Every other screen in this app gets its background from a Scaffold.
+    // This one never had one.
+    return Scaffold(
+      backgroundColor: AppColors.ink,
+      body: ListView(
       padding: const EdgeInsets.fromLTRB(18, 20, 18, 30),
       children: <Widget>[
         Text('Account', style: Theme.of(context).textTheme.displaySmall),
@@ -476,12 +490,13 @@ class _AccountScreenState extends State<AccountScreen> {
         // it. "Music Beta" went, because it was doing no work: it hedged the
         // whole app on the one screen where somebody goes looking for
         // reassurance that it is not broken.
-        Text(
-          'CoLabRoom · ${BetaConfig.appVersion}',
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: AppColors.muted),
-        ),
-      ],
+          Text(
+            'CoLabRoom · ${BetaConfig.appVersion}',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.muted),
+          ),
+        ],
+      ),
     );
   }
 

@@ -71,7 +71,7 @@ void main() {
     // Straight through, tapping a few answers on the way so the pictures show
     // the flow being used rather than the flow sitting empty.
     await tester.tap(find.text("Let's go"));
-    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pump(const Duration(milliseconds: 2100));
     await _frames(tester);
     await tester.tap(find.text('Singer'));
     await tester.tap(find.text('Keys'));
@@ -79,14 +79,14 @@ void main() {
     await shoot('2-what-you-play');
 
     await tester.tap(find.text('Next'));
-    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pump(const Duration(milliseconds: 2100));
     await _frames(tester);
     await tester.enterText(find.byType(TextField), 'Deltona');
     await _frames(tester);
     await shoot('3-where-you-are');
 
     await tester.tap(find.text('Next'));
-    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pump(const Duration(milliseconds: 2100));
     await _frames(tester);
     await tester.tap(find.text('indie'));
     await tester.tap(find.text('folk'));
@@ -94,7 +94,7 @@ void main() {
     await shoot('4-who-you-sound-like');
 
     await tester.tap(find.text('Next'));
-    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pump(const Duration(milliseconds: 2200));
     await _frames(tester);
     await shoot('5-can-they-find-you');
 
@@ -206,16 +206,17 @@ void main() {
       ));
 
       final shots = <Shot>[];
-      // Eight even steps over roughly the longest interlude, which lands
-      // frames either side of the moment everything happens.
+      // Eight even steps over roughly the longest interlude. Stepped up with
+      // the durations: at 140ms these stopped a third of the way in and every
+      // sheet showed the approach and none of the impact.
       for (var i = 0; i < 8; i += 1) {
-        await tester.pump(const Duration(milliseconds: 140));
+        await tester.pump(const Duration(milliseconds: 240));
         final captured = await tester.runAsync(() async {
           final ui.Image image = await take(tester);
           await writePng(image, 'welcome', '${kind.name}-$i');
           return image;
         });
-        if (captured != null) shots.add(Shot('${i * 140}ms', captured));
+        if (captured != null) shots.add(Shot('${(i + 1) * 240}ms', captured));
       }
 
       await tester.runAsync(() => contactSheet(

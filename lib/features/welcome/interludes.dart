@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -66,12 +67,21 @@ class _InterludeCurtainState extends State<InterludeCurtain>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
+    // Slower than they were, by about two thirds.
+    //
+    // The first pass moved at the speed that looked right in a still frame,
+    // which is not the speed that feels right on a screen thirty centimetres
+    // from somebody's face. Fast motion across a whole viewport is the exact
+    // recipe for making a person queasy, and an interlude nobody can watch
+    // comfortably is worse than no interlude — it is a thing they will start
+    // skipping, and the questions go with it.
     duration: switch (widget.kind) {
-      // The sticks are a count-in and have to feel like one; hurrying them
-      // makes the click land as a stumble.
-      Interlude.sticks => const Duration(milliseconds: 1050),
-      Interlude.picks => const Duration(milliseconds: 950),
-      Interlude.notes => const Duration(milliseconds: 1100),
+      // A count-in has a tempo. This one is about 70bpm: slow enough to read
+      // as deliberate, quick enough that it is still a count-in and not a
+      // pause.
+      Interlude.sticks => const Duration(milliseconds: 1750),
+      Interlude.picks => const Duration(milliseconds: 1600),
+      Interlude.notes => const Duration(milliseconds: 1900),
     },
   );
 
@@ -161,9 +171,11 @@ class _SticksPainter extends CustomPainter {
     // Closing for the first half, withdrawing for the second, with the click
     // exactly on the boundary.
     final closing = t < 0.5;
+    // easeInOut rather than easeIn: the sticks swing rather than snap, and
+    // the acceleration into the middle was the part that read as a lurch.
     final phase = closing
-        ? Curves.easeInCubic.transform(_unit(t / 0.5))
-        : 1 - Curves.easeOutCubic.transform(_unit((t - 0.5) / 0.5));
+        ? Curves.easeInOutCubic.transform(_unit(t / 0.5))
+        : 1 - Curves.easeInOutCubic.transform(_unit((t - 0.5) / 0.5));
 
     final travel = size.width * 0.42;
     final gap = (1 - phase) * travel + 8;
@@ -206,25 +218,77 @@ class _SticksPainter extends CustomPainter {
     }
   }
 
-  /// One stick: a long tapered capsule with the bead on the inner end.
+  /// One stick: a tapered shaft, a bead, and light coming from above.
+  ///
+  /// A flat fill reads as a shape rather than an object. What makes a drawn
+  /// stick look like wood is that it is lit: brighter along the top edge,
+  /// darker underneath, with a soft shadow beneath it and no hard corners
+  /// anywhere.
   void _stick(Canvas canvas, Offset tip, double lean, double alpha) {
     canvas.save();
     canvas.translate(tip.dx, tip.dy);
     canvas.rotate(lean);
 
-    final wood = Paint()..color = const Color(0xFFD8B27A).withValues(alpha: alpha);
-    final length = 132.0;
+    const length = 138.0;
     final side = lean < 0 ? 1.0 : -1.0;
+    const pale = Color(0xFFEBCB9C);
+    const wood = Color(0xFFCEA470);
+    const shade = Color(0xFF9C7443);
 
-    // Taper: the shaft is wider at the butt than at the tip.
+    // Taper: wider at the butt than at the tip.
     final shaft = Path()
-      ..moveTo(0, -4.5)
-      ..lineTo(side * length, -7)
-      ..lineTo(side * length, 7)
-      ..lineTo(0, 4.5)
+      ..moveTo(0, -4.8)
+      ..lineTo(side * length, -7.4)
+      ..lineTo(side * length, 7.4)
+      ..lineTo(0, 4.8)
       ..close();
-    canvas.drawPath(shaft, wood);
-    canvas.drawCircle(Offset.zero, 6.5, wood);
+
+    // Underneath first, so the stick sits on something.
+    canvas.drawPath(
+      shaft.shift(const Offset(0, 5)),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.35 * alpha)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+    );
+
+    canvas.drawPath(
+      shaft,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          const Offset(0, -8),
+          const Offset(0, 8),
+          <Color>[
+            pale.withValues(alpha: alpha),
+            wood.withValues(alpha: alpha),
+            shade.withValues(alpha: alpha),
+          ],
+          <double>[0, 0.45, 1],
+        ),
+    );
+    // The specular line along the top edge — one stroke, and the whole thing
+    // stops being a polygon.
+    canvas.drawLine(
+      Offset(side * 6, -4.2),
+      Offset(side * (length - 6), -6.4),
+      Paint()
+        ..strokeWidth = 1.6
+        ..strokeCap = StrokeCap.round
+        ..color = Colors.white.withValues(alpha: 0.32 * alpha),
+    );
+
+    canvas.drawCircle(
+      Offset.zero,
+      7,
+      Paint()
+        ..shader = ui.Gradient.radial(
+          const Offset(-2.5, -2.5),
+          9,
+          <Color>[
+            pale.withValues(alpha: alpha),
+            shade.withValues(alpha: alpha),
+          ],
+        ),
+    );
     canvas.restore();
   }
 
@@ -259,6 +323,16 @@ class _PicksPainter extends CustomPainter {
       final inbound = (i / _count) * math.pi * 2 + random.nextDouble() * 0.4;
       final outbound = inbound + math.pi + (random.nextDouble() - 0.5);
       final spin = (random.nextDouble() - 0.5) * 9;
+      // A handful thrown by hand are not all the same size.
+      final scale = 0.78 + random.nextDouble() * 0.5;
+      // Where this one ends up at the moment of impact.
+      //
+      // Without it every pick converges on the exact centre and twenty-six of
+      // them stack into a single dot — which is what the contact sheet showed
+      // and it read as one small blob rather than a collision. A handful of
+      // pixels of huddle, different for each, and the same instant becomes a
+      // tight rosette of picks touching.
+      final huddle = 17 + random.nextDouble() * 15;
       final colour = AppColors.memberPalette[i % AppColors.memberPalette.length];
 
       final double distance;
@@ -269,8 +343,8 @@ class _PicksPainter extends CustomPainter {
         // eight frames the collision previously fell in the gap between two
         // of them, which is a fair sign that it was too brief to read at
         // sixty frames a second either.
-        final closing = Curves.easeInCubic.transform(_unit(t / 0.46));
-        distance = reach * (1 - closing);
+        final closing = Curves.easeInOutCubic.transform(_unit(t / 0.46));
+        distance = reach * (1 - closing) + huddle * closing;
         fade = 1;
       } else {
         // Out, and deliberately not eased-out.
@@ -282,8 +356,12 @@ class _PicksPainter extends CustomPainter {
         // the fade trails the distance rather than matching it so they are
         // still solid while they are still on screen.
         final flying = Curves.easeOutQuad.transform(_unit((t - 0.54) / 0.46));
-        distance = reach * flying;
-        fade = 1 - _unit(flying * 1.35 - 0.35);
+        distance = huddle + (reach - huddle) * flying;
+        // Held solid for most of the flight and dropped at the end. Fading in
+        // step with the distance meant they were ghosts by the time they were
+        // halfway out, and the second half of the interlude was an empty
+        // screen with a veil over it.
+        fade = 1 - _unit((flying - 0.55) / 0.45);
       }
       final angle = t < 0.54 ? inbound : outbound;
       final at = centre + Offset(math.cos(angle), math.sin(angle)) * distance;
@@ -291,7 +369,7 @@ class _PicksPainter extends CustomPainter {
       canvas.save();
       canvas.translate(at.dx, at.dy);
       canvas.rotate(t * spin + i.toDouble());
-      _pick(canvas, colour.withValues(alpha: fade * veil));
+      _pick(canvas, colour.withValues(alpha: fade * veil), scale);
       canvas.restore();
     }
 
@@ -320,24 +398,56 @@ class _PicksPainter extends CustomPainter {
     }
   }
 
-  /// A plectrum: two shoulders and a point, all softened.
-  void _pick(Canvas canvas, Color colour) {
-    const w = 15.0;
-    const h = 17.0;
+  /// A plectrum: two shoulders and a point, lit from the top left.
+  ///
+  /// Celluloid is glossy, and gloss is the whole reason a pick reads as a
+  /// pick rather than a coloured triangle. Three things do it: a gradient
+  /// across the body, a bright edge on the lit side only, and a small
+  /// highlight sitting on the surface rather than on the outline.
+  void _pick(Canvas canvas, Color colour, double scale) {
+    final w = 15.0 * scale;
+    final h = 17.0 * scale;
     final path = Path()
       ..moveTo(0, h)
       ..quadraticBezierTo(-w * 0.95, h * 0.28, -w * 0.72, -h * 0.5)
       ..quadraticBezierTo(0, -h * 1.05, w * 0.72, -h * 0.5)
       ..quadraticBezierTo(w * 0.95, h * 0.28, 0, h)
       ..close();
-    canvas.drawPath(path, Paint()..color = colour);
-    // A highlight down one shoulder, so a flat fill reads as an object.
+
+    final lit = Color.lerp(colour, Colors.white, 0.35)!
+        .withValues(alpha: colour.a);
+    final deep = Color.lerp(colour, const Color(0xFF06101F), 0.35)!
+        .withValues(alpha: colour.a);
+
     canvas.drawPath(
       path,
       Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(-w * 0.6, -h * 0.8),
+          Offset(w * 0.6, h * 0.8),
+          <Color>[lit, colour, deep],
+          <double>[0, 0.45, 1],
+        ),
+    );
+    // Bright on the lit shoulder, nothing on the shaded one. A stroke all the
+    // way round is an outline; a stroke on one side is a bevel.
+    final rim = Path()
+      ..moveTo(-w * 0.72, -h * 0.5)
+      ..quadraticBezierTo(0, -h * 1.05, w * 0.72, -h * 0.5);
+    canvas.drawPath(
+      rim,
+      Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2
-        ..color = Colors.white.withValues(alpha: colour.a * 0.35),
+        ..strokeWidth = 1.4 * scale
+        ..strokeCap = StrokeCap.round
+        ..color = Colors.white.withValues(alpha: colour.a * 0.55),
+    );
+    canvas.drawOval(
+      Rect.fromCenter(
+          center: Offset(-w * 0.22, -h * 0.34),
+          width: w * 0.34,
+          height: h * 0.22),
+      Paint()..color = Colors.white.withValues(alpha: colour.a * 0.4),
     );
   }
 
@@ -388,9 +498,17 @@ class _NotesPainter extends CustomPainter {
         final colour = i == 0
             ? Colors.white
             : Color.lerp(AppColors.cyan, AppColors.blue, depth)!;
+        // The head carries a glow. It is the only part of a falling column
+        // the eye actually tracks, and without it the whole thing reads as a
+        // list of icons rather than something moving.
+        if (i == 0) {
+          _glyph(canvas, glyph, Offset(x, y),
+              AppColors.cyan.withValues(alpha: 0.55 * veil),
+              size: 30, blur: 9);
+        }
         _glyph(canvas, glyph, Offset(x, y),
             colour.withValues(alpha: (1 - depth) * veil),
-            size: i == 0 ? 26 : 22);
+            size: i == 0 ? 26 : 21.5);
       }
     }
   }
@@ -403,7 +521,7 @@ class _NotesPainter extends CustomPainter {
   ];
 
   void _glyph(Canvas canvas, int codePoint, Offset at, Color colour,
-      {required double size}) {
+      {required double size, double blur = 0}) {
     // The icon font rather than a musical Unicode character, because the
     // app already ships this one and ♪ is at the mercy of whatever the
     // device happens to have installed.
@@ -415,6 +533,9 @@ class _NotesPainter extends CustomPainter {
           fontFamily: Icons.music_note_rounded.fontFamily,
           package: Icons.music_note_rounded.fontPackage,
           color: colour,
+          shadows: blur == 0
+              ? null
+              : <Shadow>[Shadow(color: colour, blurRadius: blur)],
         ),
       ),
       textDirection: TextDirection.ltr,
