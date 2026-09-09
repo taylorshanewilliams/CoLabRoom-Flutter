@@ -27,10 +27,19 @@ import '../../services/user_facing_error.dart';
 const double kDeskColumn = 1000;
 
 class AppShell extends StatefulWidget {
-  const AppShell({required this.displayName, this.supabase, super.key});
+  const AppShell({
+    required this.displayName,
+    this.supabase,
+    this.initialTab = 0,
+    super.key,
+  });
 
   final String displayName;
   final SupabaseClient? supabase;
+
+  /// Which tab an address asked for. `/openmic` is a place somebody can
+  /// link to, so it has to be a place the shell can open on.
+  final int initialTab;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -62,7 +71,7 @@ class _AppShellState extends State<AppShell> {
     //
     // Their own tab is no longer an empty shelf: with nothing on it, it
     // offers the three things this app is for. See _ThreeDoors.
-    _index = 0;
+    _index = widget.initialTab;
     // So a crash on a tab names that tab. Thirty-four of this app's route
     // pushes are unnamed, so a navigator observer alone would record nothing;
     // the destination is the cheap fact that is always true.
