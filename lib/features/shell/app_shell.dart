@@ -17,6 +17,13 @@ import '../../services/now_playing.dart';
 import '../../widgets/now_playing_bar.dart';
 import '../../services/user_facing_error.dart';
 
+/// How wide the content gets on a desk.
+///
+/// Wide enough that a list of songs is not a phone in a frame, narrow enough
+/// that a line of lyrics still has a measure. The rail takes 116 either way,
+/// so on a 1440 browser this leaves a margin that reads as deliberate.
+const double kDeskColumn = 1000;
+
 class AppShell extends StatefulWidget {
   const AppShell({required this.displayName, this.supabase, super.key});
 
@@ -246,9 +253,29 @@ class _AppShellState extends State<AppShell> {
                             onSelect: _go,
                           ),
                         ),
+                        // A column, not a stretch.
+                        //
+                        // The rail was already right at this width; the
+                        // content had no limit at all, so every card and
+                        // every line of text built for a 390px phone was
+                        // drawn across 1300 and the whole thing read as a
+                        // phone someone had pulled at the corners.
+                        //
+                        // This is the floor rather than the ceiling. A desk
+                        // layout puts filters beside results and the sheet
+                        // beside the takes, and that is per-screen work. But
+                        // a screen cannot be split until it has an edge, and
+                        // until then a readable column beats a stretched one.
                         Expanded(
-                          child: IndexedStack(
-                              index: _index, children: _lazyScreens),
+                          child: Align(
+                            alignment: Alignment.topCenter,
+                            child: ConstrainedBox(
+                              constraints:
+                                  const BoxConstraints(maxWidth: kDeskColumn),
+                              child: IndexedStack(
+                                  index: _index, children: _lazyScreens),
+                            ),
+                          ),
                         ),
                       ],
                     ),
