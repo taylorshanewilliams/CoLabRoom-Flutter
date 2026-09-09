@@ -159,11 +159,15 @@ class SongTile extends StatelessWidget {
                 if (selected)
                   const Icon(Icons.check_circle_rounded, color: AppColors.cyan, size: 19)
                 else if (onMore != null)
-                  InkResponse(
-                    key: const Key('song_more_button'),
-                    onTap: onMore,
-                    radius: 18,
-                    child: const Icon(Icons.more_vert_rounded, size: 20, color: AppColors.muted),
+                  Tooltip(
+                    message: 'More for this song',
+                    child: InkResponse(
+                      key: const Key('song_more_button'),
+                      onTap: onMore,
+                      radius: 18,
+                      child: const Icon(Icons.more_vert_rounded,
+                          size: 20, color: AppColors.muted),
+                    ),
                   )
                 else
                   const Icon(Icons.arrow_outward_rounded, color: AppColors.muted, size: 19),
