@@ -101,9 +101,24 @@ double requiredContrast(double fontSize, FontWeight? weight) {
 /// elevation overlay, or simply a Container three levels further up than the
 /// one you stopped at. The pixels have already resolved all of it.
 ///
-/// Taking the *modal* colour inside the text's own bounds works because
-/// glyphs cover well under half of their box — so the most common pixel in a
-/// line of text is the thing behind the line of text.
+/// Getting the *background* right took three attempts and both of the obvious
+/// methods were wrong, in opposite directions:
+///
+///   * The modal colour **inside** the text's box, on the reasoning that
+///     glyphs cover well under half of it. A short bold label in a tight box
+///     is mostly glyph, so the background came back as the text colour and
+///     the rule confidently reported 1.00:1 against itself.
+///   * The modal colour of a **ring just outside** the box, where no glyph
+///     reaches. For text that fills a small button the ring clears the button
+///     entirely and reports the page behind it — so every filled button in
+///     the app failed, with the button's own fill nowhere in the numbers.
+///
+/// What works is to sample inside the box and discard the pixels that are the
+/// text: whatever is left is the background, whether that is a button fill, a
+/// card, a gradient or a photograph. When too little is left to be sure, the
+/// ring is the fallback, and when that is also unconvincing the rule declines
+/// to judge — a measurement nobody can trust is worse than no measurement,
+/// because somebody acts on it.
 List<Finding> auditContrast(
   WidgetTester tester,
   Uint8List pixels,
@@ -131,7 +146,7 @@ List<Finding> auditContrast(
       continue;
     }
     final rect = Rect.fromLTWH(origin.dx, origin.dy, size.width, size.height);
-    final behind = _modalColour(pixels, width, height, rect);
+    final behind = _backgroundBehind(pixels, width, height, rect, color);
     if (behind == null) continue;
 
     final fontSize = style?.fontSize ?? 14.0;
@@ -167,17 +182,26 @@ bool _isIconOrEmpty(String text) {
       (r >= 0xE000 && r <= 0xF8FF) || (r >= 0xF0000 && r <= 0xFFFFD));
 }
 
+/// The style a paragraph is actually drawn in.
+///
+/// Merged rather than picked. A RichText's root carries the size and the child
+/// span carries the colour, so returning whichever one happened to name a
+/// colour reported a caption's colour at the heading's font size — which then
+/// chose the wrong WCAG threshold for it. "CoLabRoom · 0.4.0" was measured at
+/// 48px.
 TextStyle? _firstStyle(InlineSpan span) {
-  if (span.style?.color != null) return span.style;
-  TextStyle? found;
-  span.visitChildren((child) {
-    if (child.style?.color != null) {
-      found = child.style;
+  final root = span.style;
+  if (root?.color != null) return root;
+  TextStyle? child;
+  span.visitChildren((node) {
+    if (node.style?.color != null) {
+      child = node.style;
       return false;
     }
     return true;
   });
-  return found ?? span.style;
+  if (child == null) return root;
+  return root == null ? child : root.merge(child);
 }
 
 // -------------------------------------------------------------- tap  targets
@@ -493,6 +517,133 @@ String _oneLine(FlutterErrorDetails details) {
 
 // ------------------------------------------------------------------- pixels
 
+/// The background behind some text: inside its box, minus the glyph.
+///
+/// [text] is the colour the glyph is painted in, and every pixel close to it
+/// is thrown away — including the anti-aliased edges, which sit between the
+/// two colours and would otherwise pull the answer toward the middle.
+Color? _backgroundBehind(
+  Uint8List pixels,
+  int width,
+  int height,
+  Rect rect,
+  Color text,
+) {
+  final left = rect.left.floor().clamp(0, width - 1);
+  final top = rect.top.floor().clamp(0, height - 1);
+  final right = rect.right.ceil().clamp(1, width);
+  final bottom = rect.bottom.ceil().clamp(1, height);
+  if (right <= left || bottom <= top) return _backgroundAround(pixels, width, height, rect);
+
+  final argb = text.toARGB32();
+  final tr = (argb >> 16) & 0xFF;
+  final tg = (argb >> 8) & 0xFF;
+  final tb = argb & 0xFF;
+
+  final counts = <int, int>{};
+  final sums = <int, List<int>>{};
+  var kept = 0;
+  for (var y = top; y < bottom; y += 1) {
+    for (var x = left; x < right; x += 1) {
+      final i = (y * width + x) * 4;
+      final r = pixels[i];
+      final g = pixels[i + 1];
+      final b = pixels[i + 2];
+      // Anything near the ink is ink. 90 across three channels is wide enough
+      // to take the anti-aliased skirt with it and narrow enough to keep a
+      // background that merely happens to be dark.
+      if ((r - tr).abs() + (g - tg).abs() + (b - tb).abs() < 90) continue;
+      final bucket = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+      counts[bucket] = (counts[bucket] ?? 0) + 1;
+      final sum = sums.putIfAbsent(bucket, () => <int>[0, 0, 0, 0]);
+      sum[0] += r;
+      sum[1] += g;
+      sum[2] += b;
+      sum[3] += 1;
+      kept += 1;
+    }
+  }
+
+  // The glyph is not there.
+  //
+  // Every pixel in this box is far from the colour the style names, which
+  // means the text is not actually painted in that colour — it is behind
+  // something. A modal sheet dims what is under it, and a route transition
+  // fades the screen it is leaving; in both cases the widget tree still
+  // reports a full-strength colour that nobody is being shown. Measuring
+  // that produced a run's worth of confident failures against the Open Mic's
+  // own tab bar, sitting quietly under a scrim, doing nothing wrong.
+  final total = (right - left) * (bottom - top);
+  final ink = total - kept;
+  if (total > 0 && ink / total < 0.03) return null;
+
+  // Barely any background visible, or no colour among it that dominates:
+  // this text is over something busy, and a single number does not describe
+  // it. Try the ring, and if that is no better say nothing.
+  if (kept < 30) return _backgroundAround(pixels, width, height, rect);
+  final modal = _pickModal(counts, sums);
+  if (modal == null) return _backgroundAround(pixels, width, height, rect);
+  final dominance = _modalShare(counts) ;
+  if (dominance < 0.5) return null;
+  return modal;
+}
+
+double _modalShare(Map<int, int> counts) {
+  var total = 0;
+  var best = 0;
+  counts.forEach((_, count) {
+    total += count;
+    if (count > best) best = count;
+  });
+  return total == 0 ? 0 : best / total;
+}
+
+/// What is painted immediately around [rect].
+///
+/// A thin ring rather than a wide one, so text sitting near the edge of a
+/// button or a card samples that button rather than whatever the card is
+/// sitting on. Where the ring falls off the image — text hard against the
+/// screen edge — it simply has fewer pixels to work with, and when it has too
+/// few to be meaningful the rule declines to judge rather than guessing.
+Color? _backgroundAround(Uint8List pixels, int width, int height, Rect rect) {
+  const gap = 2.0;
+  const thickness = 5.0;
+  final inner = rect.inflate(gap);
+  final outer = rect.inflate(gap + thickness);
+
+  final left = outer.left.floor().clamp(0, width - 1);
+  final top = outer.top.floor().clamp(0, height - 1);
+  final right = outer.right.ceil().clamp(1, width);
+  final bottom = outer.bottom.ceil().clamp(1, height);
+  if (right <= left || bottom <= top) return null;
+
+  final counts = <int, int>{};
+  final sums = <int, List<int>>{};
+  var samples = 0;
+  for (var y = top; y < bottom; y += 1) {
+    for (var x = left; x < right; x += 1) {
+      if (inner.contains(Offset(x.toDouble(), y.toDouble()))) continue;
+      final i = (y * width + x) * 4;
+      final r = pixels[i];
+      final g = pixels[i + 1];
+      final b = pixels[i + 2];
+      final bucket = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+      counts[bucket] = (counts[bucket] ?? 0) + 1;
+      final sum = sums.putIfAbsent(bucket, () => <int>[0, 0, 0, 0]);
+      sum[0] += r;
+      sum[1] += g;
+      sum[2] += b;
+      sum[3] += 1;
+      samples += 1;
+    }
+  }
+  // Too little to be sure is a reason to say nothing. A rule that guesses
+  // here produces exactly the confident nonsense this one replaced.
+  if (samples < 40) return null;
+
+  return _pickModal(counts, sums);
+}
+
 /// The commonest colour inside a rectangle, quantised so that anti-aliasing
 /// and a subtle gradient still agree with themselves.
 Color? _modalColour(Uint8List pixels, int width, int height, Rect rect) {
@@ -523,6 +674,10 @@ Color? _modalColour(Uint8List pixels, int width, int height, Rect rect) {
       sum[3] += 1;
     }
   }
+  return _pickModal(counts, sums);
+}
+
+Color? _pickModal(Map<int, int> counts, Map<int, List<int>> sums) {
   if (counts.isEmpty) return null;
 
   var best = counts.keys.first;

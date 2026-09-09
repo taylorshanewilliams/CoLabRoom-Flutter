@@ -34,8 +34,12 @@ final List<Finding> _findings = <Finding>[];
 /// one should not treat it as one.
 Future<void> _frames(WidgetTester tester) async {
   await tester.pump();
-  await tester.pump(const Duration(milliseconds: 350));
-  await tester.pump(const Duration(milliseconds: 350));
+  // Long enough that a route transition has finished before anything is
+  // measured. At two pumps the walk was photographing screens mid-fade, and
+  // every rule that reads pixels then reads a blend of two screens.
+  for (var i = 0; i < 4; i += 1) {
+    await tester.pump(const Duration(milliseconds: 350));
+  }
   // Consumed as they arrive. The binding holds one exception at a time and
   // reports "multiple exceptions" for the second, so a walk that only drained
   // at each photograph turned four real errors into one useless summary.
