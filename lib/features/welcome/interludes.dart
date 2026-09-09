@@ -14,7 +14,7 @@ import '../../app/colabroom_theme.dart';
 ///
 /// So the answers are one tap each and the *space between them* is where the
 /// app shows what it is. Drumsticks count you in. A handful of picks collide.
-/// Notes fall down the screen. None of it explains anything, which is the
+/// A row of channel meters climbs until it clips. Notes fall down the screen. None of it explains anything, which is the
 /// point: nobody reads an onboarding, but they will happily tap through one
 /// that is enjoyable to look at.
 ///
@@ -27,13 +27,17 @@ enum Interlude {
   /// A handful of picks collide mid-air and scatter.
   picks,
 
+  /// Channel meters climbing until they clip.
+  meters,
+
   /// Notes falling in columns.
   notes;
 
   /// The next one, so a flow never plays the same twice in a row.
   Interlude get next => switch (this) {
         Interlude.sticks => Interlude.picks,
-        Interlude.picks => Interlude.notes,
+        Interlude.picks => Interlude.meters,
+        Interlude.meters => Interlude.notes,
         Interlude.notes => Interlude.sticks,
       };
 }
@@ -81,6 +85,9 @@ class _InterludeCurtainState extends State<InterludeCurtain>
       // pause.
       Interlude.sticks => const Duration(milliseconds: 1750),
       Interlude.picks => const Duration(milliseconds: 1600),
+      // Longer, because a meter has to be watched rather than glanced at.
+      // The whole point of it is the climb.
+      Interlude.meters => const Duration(milliseconds: 2100),
       Interlude.notes => const Duration(milliseconds: 1900),
     },
   );
@@ -125,6 +132,7 @@ class _InterludeCurtainState extends State<InterludeCurtain>
             painter: switch (widget.kind) {
               Interlude.sticks => _SticksPainter(_controller.value),
               Interlude.picks => _PicksPainter(_controller.value),
+              Interlude.meters => _MetersPainter(_controller.value),
               Interlude.notes => _NotesPainter(_controller.value),
             },
             size: Size.infinite,
@@ -171,14 +179,38 @@ class _SticksPainter extends CustomPainter {
     // Closing for the first half, withdrawing for the second, with the click
     // exactly on the boundary.
     final closing = t < 0.5;
-    // easeInOut rather than easeIn: the sticks swing rather than snap, and
-    // the acceleration into the middle was the part that read as a lurch.
-    final phase = closing
-        ? Curves.easeInOutCubic.transform(_unit(t / 0.5))
-        : 1 - Curves.easeInOutCubic.transform(_unit((t - 0.5) / 0.5));
 
     final travel = size.width * 0.42;
-    final gap = (1 - phase) * travel + 8;
+
+    /// How far apart the sticks are at [at].
+    ///
+    /// A function of time rather than a value, because the trails need the
+    /// same answer for a moment that has already passed — and two ghosts a
+    /// frame behind is most of what makes this read as a swing rather than a
+    /// diagram of one.
+    ///
+    /// easeInOut rather than easeIn: the acceleration into the middle was the
+    /// part that read as a lurch.
+    double gapAt(double at) {
+      final closingThen = at < 0.5;
+      final phaseThen = closingThen
+          ? Curves.easeInOutCubic.transform(_unit(at / 0.5))
+          : 1 - Curves.easeInOutCubic.transform(_unit((at - 0.5) / 0.5));
+      return (1 - phaseThen) * travel + 8;
+    }
+
+    final gap = gapAt(t);
+
+    // Trails, which is most of what makes this read as a hit rather than a
+    // diagram. Two ghosts a frame or two behind, faint, and the sticks stop
+    // looking like they are being placed and start looking like they are
+    // being swung.
+    for (final behind in const <double>[0.055, 0.028]) {
+      final ghostGap = gapAt(_unit(t - behind));
+      final ghostAlpha = veil * (behind > 0.04 ? 0.13 : 0.24);
+      _stick(canvas, centre.translate(-ghostGap, 26), -0.34, ghostAlpha);
+      _stick(canvas, centre.translate(ghostGap, 26), 0.34, ghostAlpha);
+    }
 
     _stick(canvas, centre.translate(-gap, 26), -0.34, veil);
     _stick(canvas, centre.translate(gap, 26), 0.34, veil);
@@ -186,6 +218,21 @@ class _SticksPainter extends CustomPainter {
     // The click, and everything that comes off it.
     if (!closing) {
       final since = _unit((t - 0.5) / 0.5);
+
+      // The flash. Two frames of white, gone before anybody registers it as a
+      // shape — which is exactly why the hit lands. Rings alone read as a
+      // ripple in water; this reads as something being struck.
+      if (since < 0.16) {
+        final flash = 1 - since / 0.16;
+        canvas.drawCircle(
+          centre,
+          18 + (1 - flash) * 40,
+          Paint()
+            ..color = Colors.white.withValues(alpha: flash * 0.9 * veil)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, 10 + flash * 26),
+        );
+      }
+
       for (var i = 0; i < 3; i += 1) {
         final ring = (since - i * 0.12).clamp(0.0, 1.0);
         if (ring <= 0) continue;
@@ -199,20 +246,26 @@ class _SticksPainter extends CustomPainter {
             ..color = AppColors.cyan.withValues(alpha: (1 - eased) * veil),
         );
       }
-      // Sparks, because a click is percussive and rings alone read as a
-      // ripple in water.
-      for (var i = 0; i < 8; i += 1) {
-        final angle = (i / 8) * math.pi * 2 + 0.2;
-        final reach = Curves.easeOutCubic.transform(since) * 78;
-        final from = centre + Offset(math.cos(angle), math.sin(angle)) * 16;
-        final to = centre + Offset(math.cos(angle), math.sin(angle)) * reach;
+      // Sparks. Longer, more of them, and uneven — a ring of eight identical
+      // spokes is a diagram of an impact rather than one.
+      final sparks = math.Random(31);
+      for (var i = 0; i < 16; i += 1) {
+        final angle = (i / 16) * math.pi * 2 + sparks.nextDouble() * 0.5;
+        final length = 60 + sparks.nextDouble() * 110;
+        final reach = Curves.easeOutCubic.transform(since) * length;
+        final direction = Offset(math.cos(angle), math.sin(angle));
+        final from = centre + direction * (12 + reach * 0.55);
+        final to = centre + direction * reach;
         canvas.drawLine(
           from,
           to,
           Paint()
-            ..strokeWidth = 2
+            // Tapering: a spark that keeps its width all the way out is a
+            // line, and lines are not sparks.
+            ..strokeWidth = 2.6 * (1 - since)
             ..strokeCap = StrokeCap.round
-            ..color = AppColors.gold.withValues(alpha: (1 - since) * veil),
+            ..color = Color.lerp(Colors.white, AppColors.gold, since)!
+                .withValues(alpha: (1 - since) * (1 - since) * veil),
         );
       }
     }
@@ -231,9 +284,13 @@ class _SticksPainter extends CustomPainter {
 
     const length = 138.0;
     final side = lean < 0 ? 1.0 : -1.0;
-    const pale = Color(0xFFEBCB9C);
-    const wood = Color(0xFFCEA470);
-    const shade = Color(0xFF9C7443);
+    // Worn hickory rather than pale maple. The light version looked like a
+    // toy drumstick from a gift shop; a stick somebody actually plays with is
+    // darker, and the contrast between the lit edge and the shaded underside
+    // is what sells it.
+    const pale = Color(0xFFE0BC86);
+    const wood = Color(0xFFA8794A);
+    const shade = Color(0xFF5E4023);
 
     // Taper: wider at the butt than at the tip.
     final shaft = Path()
@@ -305,6 +362,22 @@ class _PicksPainter extends CustomPainter {
 
   static const int _count = 26;
 
+  /// What picks are made of.
+  ///
+  /// Lit face and shaded face for each. Weighted by repetition rather than by
+  /// a random roll, so the mix is the same every time and the bright ones stay
+  /// occasional: five neutrals to two brights.
+  static const List<List<Color>> _materials = <List<Color>>[
+    <Color>[Color(0xFFF0E7D3), Color(0xFFB2A48C)], // cream celluloid
+    <Color>[Color(0xFFCE8F42), Color(0xFF6B3F16)], // tortoiseshell
+    <Color>[Color(0xFF3B3F49), Color(0xFF15181F)], // black
+    <Color>[Color(0xFFF0E7D3), Color(0xFFB2A48C)], // cream again
+    <Color>[Color(0xFF6E7788), Color(0xFF2A303B)], // graphite
+    <Color>[Color(0xFFCE8F42), Color(0xFF6B3F16)], // tortoiseshell again
+    <Color>[Color(0xFFE3B34D), Color(0xFF8A6420)], // the app's gold
+    <Color>[Color(0xFF9FDCF2), Color(0xFF3E6E85)], // pearl, tinted to brand
+  ];
+
   @override
   void paint(Canvas canvas, Size size) {
     final veil = _veil(t);
@@ -320,7 +393,16 @@ class _PicksPainter extends CustomPainter {
     final random = math.Random(7);
 
     for (var i = 0; i < _count; i += 1) {
-      final inbound = (i / _count) * math.pi * 2 + random.nextDouble() * 0.4;
+      final inbound = (i / _count) * math.pi * 2 + random.nextDouble() * 0.75;
+      // Each one arrives on its own beat.
+      //
+      // The tidy ring was the cheesiest thing here: twenty-six picks leaving
+      // at the same instant, travelling the same distance, arriving together.
+      // Nothing thrown by hand does that. A per-pick head start of up to a
+      // tenth of the run breaks the circle into a scatter without changing
+      // anything about where they end up.
+      final early = random.nextDouble() * 0.11;
+      final ownTime = _unit(t + early);
       final outbound = inbound + math.pi + (random.nextDouble() - 0.5);
       final spin = (random.nextDouble() - 0.5) * 9;
       // A handful thrown by hand are not all the same size.
@@ -333,17 +415,18 @@ class _PicksPainter extends CustomPainter {
       // pixels of huddle, different for each, and the same instant becomes a
       // tight rosette of picks touching.
       final huddle = 17 + random.nextDouble() * 15;
-      final colour = AppColors.memberPalette[i % AppColors.memberPalette.length];
+      final material = _materials[i % _materials.length];
 
       final double distance;
       final double fade;
-      if (t < 0.54) {
+      if (ownTime < 0.54) {
         // In, fast, from off screen — arriving at 0.46 rather than 0.5, so
         // there is a moment where they are actually together. Sampled across
         // eight frames the collision previously fell in the gap between two
         // of them, which is a fair sign that it was too brief to read at
         // sixty frames a second either.
-        final closing = Curves.easeInOutCubic.transform(_unit(t / 0.46));
+        final closing =
+            Curves.easeInOutCubic.transform(_unit(ownTime / 0.46));
         distance = reach * (1 - closing) + huddle * closing;
         fade = 1;
       } else {
@@ -355,7 +438,8 @@ class _PicksPainter extends CustomPainter {
         // showing an empty screen. A gentler curve keeps them in flight, and
         // the fade trails the distance rather than matching it so they are
         // still solid while they are still on screen.
-        final flying = Curves.easeOutQuad.transform(_unit((t - 0.54) / 0.46));
+        final flying =
+            Curves.easeOutQuad.transform(_unit((ownTime - 0.54) / 0.46));
         distance = huddle + (reach - huddle) * flying;
         // Held solid for most of the flight and dropped at the end. Fading in
         // step with the distance meant they were ghosts by the time they were
@@ -363,13 +447,13 @@ class _PicksPainter extends CustomPainter {
         // screen with a veil over it.
         fade = 1 - _unit((flying - 0.55) / 0.45);
       }
-      final angle = t < 0.54 ? inbound : outbound;
+      final angle = ownTime < 0.54 ? inbound : outbound;
       final at = centre + Offset(math.cos(angle), math.sin(angle)) * distance;
 
       canvas.save();
       canvas.translate(at.dx, at.dy);
-      canvas.rotate(t * spin + i.toDouble());
-      _pick(canvas, colour.withValues(alpha: fade * veil), scale);
+      canvas.rotate(ownTime * spin * 1.7 + i.toDouble());
+      _pick(canvas, material, fade * veil, scale);
       canvas.restore();
     }
 
@@ -398,61 +482,235 @@ class _PicksPainter extends CustomPainter {
     }
   }
 
-  /// A plectrum: two shoulders and a point, lit from the top left.
+  /// A plectrum, in something a pick is actually made of.
   ///
-  /// Celluloid is glossy, and gloss is the whole reason a pick reads as a
-  /// pick rather than a coloured triangle. Three things do it: a gradient
-  /// across the body, a bright edge on the lit side only, and a small
-  /// highlight sitting on the surface rather than on the outline.
-  void _pick(Canvas canvas, Color colour, double scale) {
-    final w = 15.0 * scale;
-    final h = 17.0 * scale;
+  /// This was drawn in `AppColors.memberPalette`, which was lazy in a way that
+  /// showed: that palette is the *collaborator identity* set — ten bright
+  /// hues chosen so two people writing on the same line never share a colour.
+  /// Borrowing it for decoration produced confetti, which belongs to a
+  /// different app than this one.
+  ///
+  /// These are the materials picks come in. Tortoiseshell, cream celluloid,
+  /// black and graphite carry it, with the app's own gold and a brand-tinted
+  /// pearl as the occasional bright one — so a handful reads as something
+  /// tipped out of a case rather than a party.
+  ///
+  /// The shape is the standard 351: a broad rounded top, sides tapering in,
+  /// and a tip with a real radius on it. The previous outline was three
+  /// quadratics and read as a rounded triangle, which is the shape people
+  /// draw when they have not looked at a pick recently.
+  void _pick(Canvas canvas, List<Color> material, double alpha, double scale) {
+    final w = 15.5 * scale;
+    final h = 16.5 * scale;
+
     final path = Path()
       ..moveTo(0, h)
-      ..quadraticBezierTo(-w * 0.95, h * 0.28, -w * 0.72, -h * 0.5)
-      ..quadraticBezierTo(0, -h * 1.05, w * 0.72, -h * 0.5)
-      ..quadraticBezierTo(w * 0.95, h * 0.28, 0, h)
+      // Down the left side and up to the shoulder.
+      ..cubicTo(-w * 0.52, h * 0.62, -w * 0.99, -h * 0.08, -w * 0.66, -h * 0.62)
+      // Over the top.
+      ..cubicTo(-w * 0.34, -h * 1.02, w * 0.34, -h * 1.02, w * 0.66, -h * 0.62)
+      // And back down to the tip.
+      ..cubicTo(w * 0.99, -h * 0.08, w * 0.52, h * 0.62, 0, h)
       ..close();
 
-    final lit = Color.lerp(colour, Colors.white, 0.35)!
-        .withValues(alpha: colour.a);
-    final deep = Color.lerp(colour, const Color(0xFF06101F), 0.35)!
-        .withValues(alpha: colour.a);
+    final lit = material[0].withValues(alpha: alpha);
+    final deep = material[1].withValues(alpha: alpha);
 
     canvas.drawPath(
       path,
       Paint()
         ..shader = ui.Gradient.linear(
-          Offset(-w * 0.6, -h * 0.8),
-          Offset(w * 0.6, h * 0.8),
-          <Color>[lit, colour, deep],
-          <double>[0, 0.45, 1],
+          Offset(-w * 0.7, -h * 0.9),
+          Offset(w * 0.7, h * 0.9),
+          <Color>[lit, Color.lerp(lit, deep, 0.55)!, deep],
+          <double>[0, 0.5, 1],
         ),
     );
-    // Bright on the lit shoulder, nothing on the shaded one. A stroke all the
-    // way round is an outline; a stroke on one side is a bevel.
+
+    // A bevel on the lit shoulder only. A stroke all the way round is an
+    // outline; a stroke on one side is an edge catching the light — and it is
+    // the only thing that keeps a near-black pick visible on a navy screen.
     final rim = Path()
-      ..moveTo(-w * 0.72, -h * 0.5)
-      ..quadraticBezierTo(0, -h * 1.05, w * 0.72, -h * 0.5);
+      ..moveTo(-w * 0.66, -h * 0.62)
+      ..cubicTo(-w * 0.34, -h * 1.02, w * 0.34, -h * 1.02, w * 0.66, -h * 0.62);
     canvas.drawPath(
       rim,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4 * scale
+        ..strokeWidth = 1.5 * scale
         ..strokeCap = StrokeCap.round
-        ..color = Colors.white.withValues(alpha: colour.a * 0.55),
+        ..color = Colors.white.withValues(alpha: alpha * 0.5),
     );
+
+    // Celluloid is glossy. One soft highlight sitting on the surface rather
+    // than on the outline is what says so.
     canvas.drawOval(
       Rect.fromCenter(
-          center: Offset(-w * 0.22, -h * 0.34),
-          width: w * 0.34,
-          height: h * 0.22),
-      Paint()..color = Colors.white.withValues(alpha: colour.a * 0.4),
+        center: Offset(-w * 0.2, -h * 0.4),
+        width: w * 0.4,
+        height: h * 0.24,
+      ),
+      Paint()
+        ..color = Colors.white.withValues(alpha: alpha * 0.3)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.6),
     );
   }
 
   @override
   bool shouldRepaint(_PicksPainter old) => old.t != t;
+}
+
+// ------------------------------------------------------------------- meters
+
+/// A row of channel meters, climbing until they clip.
+///
+/// The only one of these four that is a picture of the app's own subject.
+/// Sticks and picks and falling notes say "music" in general; a desk with the
+/// levels moving says *this* — takes, layers, somebody riding a fader while
+/// three other people play.
+///
+/// Everything here is the honest anatomy of a meter, because the details are
+/// what makes one recognisable at a glance:
+///
+///   * **Segments, not a bar.** A smooth gradient is a progress indicator. A
+///     stack of lit blocks with dark gaps between them is a meter.
+///   * **Green, amber, red, in that order and at those proportions.** The
+///     colour tells you how close you are to trouble, and putting the red
+///     anywhere but the last fifth makes it decoration.
+///   * **Peak hold.** The single bright segment that hangs above the level
+///     and sinks slowly is the thing every real meter does and no drawing of
+///     one ever remembers. It is also what gives the eye something to track
+///     while the level itself is flickering.
+///   * **Unlit segments stay visible.** A meter you can only see the lit part
+///     of is a bar chart; the dark stack is what shows you the headroom.
+class _MetersPainter extends CustomPainter {
+  _MetersPainter(this.t);
+
+  final double t;
+
+  static const int _channels = 11;
+  static const int _segments = 20;
+
+  /// Where the colour changes, as a fraction of the stack.
+  static const double _amberFrom = 0.62;
+  static const double _redFrom = 0.84;
+
+  static const Color _red = Color(0xFFFF6B6B);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final veil = _veil(t);
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()..color = AppColors.ink.withValues(alpha: veil),
+    );
+
+    final stackTop = size.height * 0.24;
+    final stackBottom = size.height * 0.76;
+    final stackHeight = stackBottom - stackTop;
+    final pitch = stackHeight / _segments;
+    final segmentHeight = pitch * 0.62;
+
+    final channelPitch = size.width / (_channels + 1);
+    final barWidth = math.min(channelPitch * 0.52, 26.0);
+
+    for (var c = 0; c < _channels; c += 1) {
+      final x = channelPitch * (c + 1);
+      final level = _levelAt(c, t);
+      final peak = _peakAt(c, t);
+
+      for (var i = 0; i < _segments; i += 1) {
+        final position = i / (_segments - 1);
+        final lit = position <= level;
+        final isPeak = (peak * (_segments - 1)).round() == i && peak > 0.02;
+        if (!lit && !isPeak) {
+          // The dark stack. Without it there is no headroom to read.
+          _segment(canvas, x, stackBottom - i * pitch, barWidth, segmentHeight,
+              _colourAt(position).withValues(alpha: 0.10 * veil));
+          continue;
+        }
+        final colour = _colourAt(position);
+        _segment(canvas, x, stackBottom - i * pitch, barWidth, segmentHeight,
+            colour.withValues(alpha: (isPeak && !lit ? 0.85 : 1) * veil),
+            glow: position >= _redFrom && lit);
+      }
+    }
+  }
+
+  Color _colourAt(double position) {
+    if (position >= _redFrom) return _red;
+    if (position >= _amberFrom) {
+      final into = (position - _amberFrom) / (_redFrom - _amberFrom);
+      return Color.lerp(AppColors.gold, AppColors.orange, into)!;
+    }
+    return Color.lerp(
+      AppColors.green,
+      AppColors.gold,
+      (position / _amberFrom) * 0.55,
+    )!;
+  }
+
+  void _segment(Canvas canvas, double x, double y, double width, double height,
+      Color colour,
+      {bool glow = false}) {
+    final rect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(x, y), width: width, height: height),
+      const Radius.circular(2),
+    );
+    if (glow) {
+      canvas.drawRRect(
+        rect,
+        Paint()
+          ..color = colour.withValues(alpha: colour.a * 0.7)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+      );
+    }
+    canvas.drawRRect(rect, Paint()..color = colour);
+  }
+
+  /// How loud channel [c] is at [at].
+  ///
+  /// An envelope over the whole interlude so the desk arrives, peaks and
+  /// falls away — the loudest moment lands on the midpoint, which is also
+  /// when the screen is fully covered and the question underneath changes.
+  ///
+  /// Two sine components per channel at unrelated rates, so no two channels
+  /// move together and none of them is periodic enough to look like a
+  /// waveform. Music does not, and a meter that pulses in time reads as a
+  /// loading animation.
+  static double _levelAt(int c, double at) {
+    if (at <= 0) return 0;
+    final seed = math.Random(c * 7919 + 11);
+    final rate1 = 5.5 + seed.nextDouble() * 6;
+    final rate2 = 12.0 + seed.nextDouble() * 14;
+    final phase = seed.nextDouble() * math.pi * 2;
+    final ceiling = 0.78 + seed.nextDouble() * 0.42;
+
+    final envelope = math.sin(_unit(at) * math.pi);
+    final wobble = 0.66 +
+        0.24 * math.sin(at * rate1 + phase) +
+        0.10 * math.sin(at * rate2 + phase * 1.7);
+    return _unit(envelope * wobble * ceiling * 1.45);
+  }
+
+  /// The peak-hold marker: the highest level recently, sinking slowly.
+  ///
+  /// Sampled backwards rather than remembered, because a painter has no
+  /// memory between frames — and a fixed decay per step is exactly what the
+  /// hardware does anyway.
+  static double _peakAt(int c, double at) {
+    var peak = 0.0;
+    for (var k = 0; k <= 14; k += 1) {
+      final back = at - k * 0.025;
+      if (back < 0) break;
+      final decayed = _levelAt(c, back) - k * 0.014;
+      if (decayed > peak) peak = decayed;
+    }
+    return peak;
+  }
+
+  @override
+  bool shouldRepaint(_MetersPainter old) => old.t != t;
 }
 
 // -------------------------------------------------------------------- notes
@@ -462,8 +720,13 @@ class _NotesPainter extends CustomPainter {
 
   final double t;
 
-  static const int _columns = 19;
-  static const int _trail = 11;
+  // Denser than it was, twice.
+  //
+  // "Could use more notes falling" — and the fix is columns rather than speed.
+  // A faster fall reads as fewer things moving quicker; more columns with
+  // longer tails is what makes it look like weather.
+  static const int _columns = 27;
+  static const int _trail = 15;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -477,7 +740,7 @@ class _NotesPainter extends CustomPainter {
     final columnWidth = size.width / _columns;
 
     for (var c = 0; c < _columns; c += 1) {
-      final speed = 1.5 + random.nextDouble() * 1.6;
+      final speed = 1.35 + random.nextDouble() * 1.9;
       final offset = random.nextDouble();
       final x = columnWidth * (c + 0.5);
       // Wraps, so a fast column keeps falling rather than leaving a gap —
@@ -489,7 +752,7 @@ class _NotesPainter extends CustomPainter {
           ((t * speed + offset + 0.35) % 1.15) * (size.height + 300) - 150;
 
       for (var i = 0; i < _trail; i += 1) {
-        final y = head - i * 34.0;
+        final y = head - i * 29.0;
         if (y < -40 || y > size.height + 40) continue;
         final depth = i / _trail;
         final glyph = _glyphs[(c + i) % _glyphs.length];

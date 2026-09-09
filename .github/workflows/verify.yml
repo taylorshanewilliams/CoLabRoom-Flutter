@@ -84,6 +84,18 @@ jobs:
 
       - name: Install psql
         run: |
+          # The runner image ships third-party apt sources this job has no use
+          # for — Chrome, mostly — and `apt-get update` fails the whole step
+          # when any one of them is unhappy. On 2026-09-09 Google's CDN served
+          # a package index whose hash did not match its own Release file for
+          # several hours, and every database check in the repo went red with
+          # "Hash Sum mismatch" on a pull request that had touched one
+          # animation file.
+          #
+          # Nothing here needs anything outside the Ubuntu archive, so the
+          # rest are removed before updating rather than being a shared
+          # dependency on somebody else's uptime.
+          sudo rm -f /etc/apt/sources.list.d/*.list
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client
 
