@@ -17,6 +17,7 @@ import '../workspace/song_analysis_screen.dart';
 import '../../services/current_route.dart';
 import '../../services/now_playing.dart';
 import '../../widgets/app_top_bar.dart';
+import '../welcome/welcome_flow.dart';
 import '../../widgets/now_playing_bar.dart';
 import '../../services/user_facing_error.dart';
 
@@ -88,6 +89,23 @@ class _AppShellState extends State<AppShell> {
     if (kIsWeb && Uri.base.queryParameters['deleteAccount'] == '1') {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openAccount());
     }
+    // The four columns Open Mic matches on, asked once, before anybody has
+    // anything else to do.
+    //
+    // `plays`, `city` and `soundsLike` are what `find_musicians` searches,
+    // and nothing in this app has ever asked for any of them — so the room a
+    // new person walks into has one person in it and the feature the whole
+    // app points at looks broken when it is merely empty. Asked here rather
+    // than deeper in because there is no later moment when somebody is more
+    // willing, and every question can be skipped.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(WelcomeFlow.offerOnce(
+        context,
+        repository: BetaScope.of(context, listen: false).repository,
+        displayName: widget.displayName,
+      ));
+    });
     // Where a listen gets recorded.
     //
     // The player knows a song has been playing and for how long; it has no
