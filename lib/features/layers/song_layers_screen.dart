@@ -217,9 +217,26 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         // meant a song with a recording on it showed an empty screen and gave
         // no reason — the one failure here that is guaranteed to look like a
         // missing feature rather than a problem.
-        _referenceNote =
-            'The song has a recording but it could not be loaded here. '
-            'Everything else still works. ($error)';
+        //
+        // Said out loud to the right audience, though. This used to end
+        // `($error)`, so what a musician actually read on the Takes screen was
+        //
+        //   Everything else still works. ('package:supabase_flutter/src/
+        //   supabase.dart': Failed assertion: line 45 pos 7:
+        //   '_instance._isInitialized': You must initialize the supabase
+        //   instance before calling Supabase.instance)
+        //
+        // which is the exact defect user_facing_error.dart was written to end,
+        // surviving in the one place nothing had looked. The detail is worth
+        // keeping — it just belongs in the table rather than on the phone.
+        _referenceNote = 'The song has a recording but it could not be loaded '
+            'here. Everything else still works.';
+        reportAndDescribe(
+          error,
+          service: 'app',
+          stage: 'takes.reference',
+          projectId: widget.projectId,
+        );
       }
 
       final layers = await _service.listLayers(widget.projectId);
