@@ -171,14 +171,38 @@ class _SticksPainter extends CustomPainter {
     // Closing for the first half, withdrawing for the second, with the click
     // exactly on the boundary.
     final closing = t < 0.5;
-    // easeInOut rather than easeIn: the sticks swing rather than snap, and
-    // the acceleration into the middle was the part that read as a lurch.
-    final phase = closing
-        ? Curves.easeInOutCubic.transform(_unit(t / 0.5))
-        : 1 - Curves.easeInOutCubic.transform(_unit((t - 0.5) / 0.5));
 
     final travel = size.width * 0.42;
-    final gap = (1 - phase) * travel + 8;
+
+    /// How far apart the sticks are at [at].
+    ///
+    /// A function of time rather than a value, because the trails need the
+    /// same answer for a moment that has already passed — and two ghosts a
+    /// frame behind is most of what makes this read as a swing rather than a
+    /// diagram of one.
+    ///
+    /// easeInOut rather than easeIn: the acceleration into the middle was the
+    /// part that read as a lurch.
+    double gapAt(double at) {
+      final closingThen = at < 0.5;
+      final phaseThen = closingThen
+          ? Curves.easeInOutCubic.transform(_unit(at / 0.5))
+          : 1 - Curves.easeInOutCubic.transform(_unit((at - 0.5) / 0.5));
+      return (1 - phaseThen) * travel + 8;
+    }
+
+    final gap = gapAt(t);
+
+    // Trails, which is most of what makes this read as a hit rather than a
+    // diagram. Two ghosts a frame or two behind, faint, and the sticks stop
+    // looking like they are being placed and start looking like they are
+    // being swung.
+    for (final behind in const <double>[0.055, 0.028]) {
+      final ghostGap = gapAt(_unit(t - behind));
+      final ghostAlpha = veil * (behind > 0.04 ? 0.13 : 0.24);
+      _stick(canvas, centre.translate(-ghostGap, 26), -0.34, ghostAlpha);
+      _stick(canvas, centre.translate(ghostGap, 26), 0.34, ghostAlpha);
+    }
 
     _stick(canvas, centre.translate(-gap, 26), -0.34, veil);
     _stick(canvas, centre.translate(gap, 26), 0.34, veil);
@@ -186,6 +210,21 @@ class _SticksPainter extends CustomPainter {
     // The click, and everything that comes off it.
     if (!closing) {
       final since = _unit((t - 0.5) / 0.5);
+
+      // The flash. Two frames of white, gone before anybody registers it as a
+      // shape — which is exactly why the hit lands. Rings alone read as a
+      // ripple in water; this reads as something being struck.
+      if (since < 0.16) {
+        final flash = 1 - since / 0.16;
+        canvas.drawCircle(
+          centre,
+          18 + (1 - flash) * 40,
+          Paint()
+            ..color = Colors.white.withValues(alpha: flash * 0.9 * veil)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, 10 + flash * 26),
+        );
+      }
+
       for (var i = 0; i < 3; i += 1) {
         final ring = (since - i * 0.12).clamp(0.0, 1.0);
         if (ring <= 0) continue;
@@ -199,20 +238,26 @@ class _SticksPainter extends CustomPainter {
             ..color = AppColors.cyan.withValues(alpha: (1 - eased) * veil),
         );
       }
-      // Sparks, because a click is percussive and rings alone read as a
-      // ripple in water.
-      for (var i = 0; i < 8; i += 1) {
-        final angle = (i / 8) * math.pi * 2 + 0.2;
-        final reach = Curves.easeOutCubic.transform(since) * 78;
-        final from = centre + Offset(math.cos(angle), math.sin(angle)) * 16;
-        final to = centre + Offset(math.cos(angle), math.sin(angle)) * reach;
+      // Sparks. Longer, more of them, and uneven — a ring of eight identical
+      // spokes is a diagram of an impact rather than one.
+      final sparks = math.Random(31);
+      for (var i = 0; i < 16; i += 1) {
+        final angle = (i / 16) * math.pi * 2 + sparks.nextDouble() * 0.5;
+        final length = 60 + sparks.nextDouble() * 110;
+        final reach = Curves.easeOutCubic.transform(since) * length;
+        final direction = Offset(math.cos(angle), math.sin(angle));
+        final from = centre + direction * (12 + reach * 0.55);
+        final to = centre + direction * reach;
         canvas.drawLine(
           from,
           to,
           Paint()
-            ..strokeWidth = 2
+            // Tapering: a spark that keeps its width all the way out is a
+            // line, and lines are not sparks.
+            ..strokeWidth = 2.6 * (1 - since)
             ..strokeCap = StrokeCap.round
-            ..color = AppColors.gold.withValues(alpha: (1 - since) * veil),
+            ..color = Color.lerp(Colors.white, AppColors.gold, since)!
+                .withValues(alpha: (1 - since) * (1 - since) * veil),
         );
       }
     }
@@ -231,9 +276,13 @@ class _SticksPainter extends CustomPainter {
 
     const length = 138.0;
     final side = lean < 0 ? 1.0 : -1.0;
-    const pale = Color(0xFFEBCB9C);
-    const wood = Color(0xFFCEA470);
-    const shade = Color(0xFF9C7443);
+    // Worn hickory rather than pale maple. The light version looked like a
+    // toy drumstick from a gift shop; a stick somebody actually plays with is
+    // darker, and the contrast between the lit edge and the shaded underside
+    // is what sells it.
+    const pale = Color(0xFFE0BC86);
+    const wood = Color(0xFFA8794A);
+    const shade = Color(0xFF5E4023);
 
     // Taper: wider at the butt than at the tip.
     final shaft = Path()
@@ -320,7 +369,16 @@ class _PicksPainter extends CustomPainter {
     final random = math.Random(7);
 
     for (var i = 0; i < _count; i += 1) {
-      final inbound = (i / _count) * math.pi * 2 + random.nextDouble() * 0.4;
+      final inbound = (i / _count) * math.pi * 2 + random.nextDouble() * 0.75;
+      // Each one arrives on its own beat.
+      //
+      // The tidy ring was the cheesiest thing here: twenty-six picks leaving
+      // at the same instant, travelling the same distance, arriving together.
+      // Nothing thrown by hand does that. A per-pick head start of up to a
+      // tenth of the run breaks the circle into a scatter without changing
+      // anything about where they end up.
+      final early = random.nextDouble() * 0.11;
+      final ownTime = _unit(t + early);
       final outbound = inbound + math.pi + (random.nextDouble() - 0.5);
       final spin = (random.nextDouble() - 0.5) * 9;
       // A handful thrown by hand are not all the same size.
@@ -337,13 +395,14 @@ class _PicksPainter extends CustomPainter {
 
       final double distance;
       final double fade;
-      if (t < 0.54) {
+      if (ownTime < 0.54) {
         // In, fast, from off screen — arriving at 0.46 rather than 0.5, so
         // there is a moment where they are actually together. Sampled across
         // eight frames the collision previously fell in the gap between two
         // of them, which is a fair sign that it was too brief to read at
         // sixty frames a second either.
-        final closing = Curves.easeInOutCubic.transform(_unit(t / 0.46));
+        final closing =
+            Curves.easeInOutCubic.transform(_unit(ownTime / 0.46));
         distance = reach * (1 - closing) + huddle * closing;
         fade = 1;
       } else {
@@ -355,7 +414,8 @@ class _PicksPainter extends CustomPainter {
         // showing an empty screen. A gentler curve keeps them in flight, and
         // the fade trails the distance rather than matching it so they are
         // still solid while they are still on screen.
-        final flying = Curves.easeOutQuad.transform(_unit((t - 0.54) / 0.46));
+        final flying =
+            Curves.easeOutQuad.transform(_unit((ownTime - 0.54) / 0.46));
         distance = huddle + (reach - huddle) * flying;
         // Held solid for most of the flight and dropped at the end. Fading in
         // step with the distance meant they were ghosts by the time they were
@@ -363,12 +423,12 @@ class _PicksPainter extends CustomPainter {
         // screen with a veil over it.
         fade = 1 - _unit((flying - 0.55) / 0.45);
       }
-      final angle = t < 0.54 ? inbound : outbound;
+      final angle = ownTime < 0.54 ? inbound : outbound;
       final at = centre + Offset(math.cos(angle), math.sin(angle)) * distance;
 
       canvas.save();
       canvas.translate(at.dx, at.dy);
-      canvas.rotate(t * spin + i.toDouble());
+      canvas.rotate(ownTime * spin * 1.7 + i.toDouble());
       _pick(canvas, colour.withValues(alpha: fade * veil), scale);
       canvas.restore();
     }
@@ -462,8 +522,13 @@ class _NotesPainter extends CustomPainter {
 
   final double t;
 
-  static const int _columns = 19;
-  static const int _trail = 11;
+  // Denser than it was, twice.
+  //
+  // "Could use more notes falling" — and the fix is columns rather than speed.
+  // A faster fall reads as fewer things moving quicker; more columns with
+  // longer tails is what makes it look like weather.
+  static const int _columns = 27;
+  static const int _trail = 15;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -477,7 +542,7 @@ class _NotesPainter extends CustomPainter {
     final columnWidth = size.width / _columns;
 
     for (var c = 0; c < _columns; c += 1) {
-      final speed = 1.5 + random.nextDouble() * 1.6;
+      final speed = 1.35 + random.nextDouble() * 1.9;
       final offset = random.nextDouble();
       final x = columnWidth * (c + 0.5);
       // Wraps, so a fast column keeps falling rather than leaving a gap —
@@ -489,7 +554,7 @@ class _NotesPainter extends CustomPainter {
           ((t * speed + offset + 0.35) % 1.15) * (size.height + 300) - 150;
 
       for (var i = 0; i < _trail; i += 1) {
-        final y = head - i * 34.0;
+        final y = head - i * 29.0;
         if (y < -40 || y > size.height + 40) continue;
         final depth = i / _trail;
         final glyph = _glyphs[(c + i) % _glyphs.length];
