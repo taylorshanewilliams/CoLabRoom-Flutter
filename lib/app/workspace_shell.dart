@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../features/shell/app_shell.dart';
+import '../services/browser_history.dart';
+import '../services/current_route.dart';
 import 'beta_scope.dart';
 import 'music_beta_controller.dart';
 
@@ -40,6 +42,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         },
         child: Navigator(
           key: _navigatorKey,
+          // The observers belong here, not only on the MaterialApp.
+          //
+          // MaterialApp.navigatorObservers watches the navigator MaterialApp
+          // builds. This is a different one — every push inside the app goes
+          // to it — so a history observer up there sees none of them, and
+          // the browser back button stays broken while looking fixed.
+          observers: <NavigatorObserver>[RouteTracker(), BrowserHistory()],
           onGenerateRoute: (settings) => MaterialPageRoute<void>(
             settings: settings,
             builder: (_) => AppShell(
