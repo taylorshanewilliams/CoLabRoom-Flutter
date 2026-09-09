@@ -258,6 +258,8 @@ Future<SongAudienceChoice?> showAudienceSheet(
                 audience.onOpenMic
                     ? 'Take it off the Open Mic'
                     : 'Put it on the Open Mic',
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w800),
               ),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(48),
@@ -265,8 +267,6 @@ Future<SongAudienceChoice?> showAudienceSheet(
                     audience.onOpenMic ? AppColors.raised : AppColors.gold,
                 foregroundColor:
                     audience.onOpenMic ? AppColors.text : AppColors.ink,
-                textStyle: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w800),
               ),
             ),
             const SizedBox(height: 8),

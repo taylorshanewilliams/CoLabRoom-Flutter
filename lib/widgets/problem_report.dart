@@ -300,12 +300,14 @@ class ProblemNote extends StatelessWidget {
             minimumSize: const Size(0, 32),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             foregroundColor: AppColors.cyan,
-            textStyle: const TextStyle(
+          ),
+          child: const Text(
+            'Tell us what you were doing',
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
           ),
-          child: const Text('Tell us what you were doing'),
         ),
       ],
     );

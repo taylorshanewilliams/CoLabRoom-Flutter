@@ -150,11 +150,13 @@ class _BlockedPeopleScreenState extends State<BlockedPeopleScreen> {
                                   onPressed: () => unawaited(_unblock(person)),
                                   style: TextButton.styleFrom(
                                     foregroundColor: AppColors.cyan,
-                                    textStyle: const TextStyle(
+                                  ),
+                                  child: const Text(
+                                    'Unblock',
+                                    style: TextStyle(
                                         fontSize: 12.5,
                                         fontWeight: FontWeight.w700),
                                   ),
-                                  child: const Text('Unblock'),
                                 ),
                               ],
                             ),

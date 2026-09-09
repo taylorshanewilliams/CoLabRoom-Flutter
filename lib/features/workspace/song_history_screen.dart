@@ -115,14 +115,16 @@ class _SongHistoryScreenState extends State<SongHistoryScreen> {
                   ? null
                   : () => unawaited(_export()),
               icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
-              label: const Text('Export'),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.cyan,
-                disabledForegroundColor: AppColors.line,
-                textStyle: const TextStyle(
+              label: const Text(
+                'Export',
+                style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w700,
                 ),
+              ),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.cyan,
+                disabledForegroundColor: AppColors.line,
               ),
             ),
           ),

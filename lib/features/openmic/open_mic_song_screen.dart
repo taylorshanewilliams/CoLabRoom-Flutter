@@ -296,13 +296,15 @@ class _OpenMicSongScreenState extends State<OpenMicSongScreen> {
                     FilledButton.icon(
                       onPressed: () => unawaited(_offer()),
                       icon: const Icon(Icons.pan_tool_alt_outlined, size: 18),
-                      label: const Text('Offer to play on this'),
+                      label: const Text(
+                        'Offer to play on this',
+                        style: TextStyle(
+                            fontSize: 14.5, fontWeight: FontWeight.w800),
+                      ),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(50),
                         backgroundColor: AppColors.cyan,
                         foregroundColor: AppColors.ink,
-                        textStyle: const TextStyle(
-                            fontSize: 14.5, fontWeight: FontWeight.w800),
                       ),
                     ),
                     const SizedBox(height: 7),

@@ -263,13 +263,15 @@ class _AskBarState extends State<AskBar> {
           TextButton.icon(
             onPressed: _busy ? null : () => unawaited(_ask()),
             icon: const Icon(Icons.campaign_outlined, size: 17),
-            label: Text(asks.isEmpty ? 'Ask the room' : 'Ask for something else'),
+            label: Text(
+              asks.isEmpty ? 'Ask the room' : 'Ask for something else',
+              style:
+                  const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+            ),
             style: TextButton.styleFrom(
               foregroundColor: AppColors.gold,
               disabledForegroundColor: AppColors.line,
               padding: const EdgeInsets.symmetric(horizontal: 10),
-              textStyle:
-                  const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
             ),
           ),
           TextButton.icon(
@@ -286,14 +288,14 @@ class _AskBarState extends State<AskBar> {
               _iHaveNodded
                   ? (heard > 1 ? 'Heard it · $heard' : 'Heard it')
                   : (heard > 0 ? '$heard heard it' : 'Heard it'),
+              style:
+                  const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
             ),
             style: TextButton.styleFrom(
               foregroundColor:
                   _iHaveNodded ? AppColors.cyan : AppColors.muted,
               disabledForegroundColor: AppColors.line,
               padding: const EdgeInsets.symmetric(horizontal: 10),
-              textStyle:
-                  const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
             ),
           ),
         ],
@@ -401,12 +403,14 @@ class _AskSheet extends StatelessWidget {
                   backgroundColor: AppColors.green,
                   foregroundColor: AppColors.ink,
                   minimumSize: const Size.fromHeight(52),
-                  textStyle: const TextStyle(
+                ),
+                child: const Text(
+                  "I don't know — what do you hear?",
+                  style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                child: const Text("I don't know — what do you hear?"),
               )
             else
               Container(
@@ -445,12 +449,14 @@ class _AskSheet extends StatelessWidget {
                           color: AppColors.gold.withValues(alpha: 0.35),
                         ),
                         padding: const EdgeInsets.symmetric(horizontal: 14),
-                        textStyle: const TextStyle(
+                      ),
+                      child: Text(
+                        part.label,
+                        style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      child: Text(part.label),
                     ),
               ],
             ),
