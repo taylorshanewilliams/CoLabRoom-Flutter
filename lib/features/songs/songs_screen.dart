@@ -60,6 +60,8 @@ class SongsScreen extends StatefulWidget {
     required this.displayName,
     required this.onOpenAccount,
     required this.onOpenNotifications,
+    this.onRecord,
+    this.onFindMusicians,
     super.key,
   });
 
@@ -67,6 +69,11 @@ class SongsScreen extends StatefulWidget {
   final String displayName;
   final VoidCallback onOpenAccount;
   final VoidCallback onOpenNotifications;
+
+  /// The two doors this screen cannot open on its own: the record button
+  /// lives in the shell, and finding people means changing tab.
+  final VoidCallback? onRecord;
+  final VoidCallback? onFindMusicians;
 
   @override
   State<SongsScreen> createState() => _SongsScreenState();
@@ -442,8 +449,34 @@ class _SongsScreenState extends State<SongsScreen> {
               ),
             ),
           ),
+        // Empty first, and before the grouping question.
+        //
+        // The grouped branch had no empty state at all: with no rooms it
+        // drew a list of nothing and stopped, so a brand-new account saw a
+        // blank screen. Grouped is the default, so that was every new
+        // account.
+        if (showingSongs && results.isEmpty)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(30, 20, 30, 60),
+              child: Center(
+                child: searching
+                    ? Text(
+                        'Nothing matches “${_query.trim()}”.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: AppColors.muted),
+                      )
+                    : _ThreeDoors(
+                        onRecord: widget.onRecord,
+                        onNewSong: () => unawaited(_newSong()),
+                        onFindMusicians: widget.onFindMusicians,
+                      ),
+              ),
+            ),
+          )
         // Grouped: the library as the places it lives in.
-        if (showingSongs && grouped)
+        else if (showingSongs && grouped)
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(18, 0, 18, 30),
             sliver: SliverList.list(
@@ -459,37 +492,6 @@ class _SongsScreenState extends State<SongsScreen> {
             ),
           )
         else if (showingSongs)
-          if (results.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(30, 20, 30, 60),
-                child: Center(
-                  // What the app can do, said once, where somebody is
-                  // deciding what it is.
-                  //
-                  // "Tap New song to start one" describes a button. Nothing
-                  // anywhere told a new person that a phone recording comes
-                  // back with the chords and the words on it — which is the
-                  // whole product, and the reason to make a first song
-                  // rather than close the app.
-                  //
-                  // One sentence, not a lesson. "Humming counts" because
-                  // the barrier is not knowing how, it is thinking you need
-                  // something good enough first.
-                  child: Text(
-                    searching
-                        ? 'Nothing matches “${_query.trim()}”.'
-                        : 'No songs yet.\n\nRecord anything — humming counts '
-                            '— and it comes back with the chords and the '
-                            'words written down.',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppColors.muted),
-                  ),
-                ),
-              ),
-            )
-          else
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(18, 0, 18, 30),
               sliver: SliverList.separated(
@@ -934,6 +936,153 @@ class _SongRow extends StatelessWidget {
             const SizedBox(width: 4),
             const Icon(Icons.chevron_right_rounded, color: AppColors.muted, size: 20),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+
+/// What this app is for, offered as three things to do.
+///
+/// Somebody arrives as one of three people and the app cannot tell which:
+/// working alone, working with a band, or looking for somebody to play with.
+/// Two tabs holding songs serve the first two and abandon the third, who has
+/// no songs to put in either.
+///
+/// The old landing rule sent a new person to the Open Mic on the reasoning
+/// that it is "a room with music in it" — which was true against seventy-five
+/// seeded musicians and is false against four real ones. So neither tab had
+/// anything for somebody on their first morning.
+///
+/// This is not a mode picker and not a tour. It is an empty state, which is
+/// the one place in an interface where saying what is possible is
+/// unambiguously right — and it is gone for good the moment there is a single
+/// song to show instead.
+class _ThreeDoors extends StatelessWidget {
+  const _ThreeDoors({
+    required this.onRecord,
+    required this.onNewSong,
+    required this.onFindMusicians,
+  });
+
+  final VoidCallback? onRecord;
+  final VoidCallback onNewSong;
+  final VoidCallback? onFindMusicians;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        const Text(
+          'Nothing here yet',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: AppColors.text,
+            fontSize: 19,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 22),
+        _Door(
+          key: const Key('door_record'),
+          icon: Icons.mic_rounded,
+          tint: AppColors.gold,
+          title: 'Play something',
+          // The promise, not the mechanism. Nothing anywhere told a new
+          // person that a phone recording comes back with the chords and
+          // the words on it, and that is the whole product.
+          detail: 'Humming counts. It comes back with the chords and the '
+              'words written down.',
+          onTap: onRecord ?? onNewSong,
+        ),
+        const SizedBox(height: 10),
+        _Door(
+          key: const Key('door_band'),
+          icon: Icons.group_rounded,
+          tint: AppColors.cyan,
+          title: 'Start something with your band',
+          detail: 'A room everybody adds to, from wherever they are, whenever '
+              'they are free.',
+          onTap: onNewSong,
+        ),
+        const SizedBox(height: 10),
+        _Door(
+          key: const Key('door_find'),
+          icon: Icons.travel_explore_rounded,
+          tint: AppColors.green,
+          title: 'Find somebody to play with',
+          detail: 'Hear what people are working on, and put yourself where '
+              'they can hear you.',
+          onTap: onFindMusicians,
+        ),
+      ],
+    );
+  }
+}
+
+class _Door extends StatelessWidget {
+  const _Door({
+    required this.icon,
+    required this.tint,
+    required this.title,
+    required this.detail,
+    required this.onTap,
+    super.key,
+  });
+
+  final IconData icon;
+  final Color tint;
+  final String title;
+  final String detail;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.raised,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: tint.withValues(alpha: 0.34)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Icon(icon, color: tint, size: 22),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      detail,
+                      style: const TextStyle(
+                        color: AppColors.muted,
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

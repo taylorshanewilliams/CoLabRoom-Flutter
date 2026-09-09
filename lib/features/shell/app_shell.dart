@@ -50,7 +50,18 @@ class _AppShellState extends State<AppShell> {
     // a room with music in it and can see what the app is for before making
     // anything — and the moment they have one song of their own, that becomes
     // the more useful place to land, so it does.
-    _index = _landing();
+    // Everybody lands on their own music.
+    //
+    // This used to route somebody with no songs to the Open Mic instead, on
+    // the reasoning that it is "a room with music in it" while their own
+    // shelf is empty. That was true against seventy-five seeded musicians.
+    // Against four real accounts, one findable and no songs on the mic, it
+    // put a new person in an empty room before they had made anything, which
+    // is the worst of both tabs.
+    //
+    // Their own tab is no longer an empty shelf: with nothing on it, it
+    // offers the three things this app is for. See _ThreeDoors.
+    _index = 0;
     // So a crash on a tab names that tab. Thirty-four of this app's route
     // pushes are unnamed, so a navigator observer alone would record nothing;
     // the destination is the cheap fact that is always true.
@@ -75,6 +86,10 @@ class _AppShellState extends State<AppShell> {
         displayName: widget.displayName,
         onOpenAccount: _openAccount,
         onOpenNotifications: _openNotifications,
+        // The two doors the songs tab cannot open for itself: the record
+        // button lives here, and finding people means changing tab.
+        onRecord: () => unawaited(_record()),
+        onFindMusicians: () => _go(1),
       ),
       // Built through a Builder because it needs the repository, and the
       // scope is not reachable from initState.
@@ -145,19 +160,6 @@ class _AppShellState extends State<AppShell> {
   /// Read once, on launch. Re-deciding it later would move the ground under
   /// somebody the moment they made their first song, which is exactly the
   /// wrong moment to move anything.
-  int _landing() {
-    try {
-      final controller = BetaScope.of(context, listen: false);
-      final anySongs =
-          controller.rooms.any((room) => room.projects.isNotEmpty);
-      return anySongs ? 0 : 1;
-    } catch (_) {
-      // No scope yet in some test harnesses. Your own music is the safe
-      // default: it is the tab that works with no network at all.
-      return 0;
-    }
-  }
-
   /// Recording, from anywhere.
   ///
   /// The Studio's one capability nothing else had was *record something that
