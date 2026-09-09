@@ -31,15 +31,35 @@ import 'interludes.dart';
 /// one can be skipped, and between them the app does something worth
 /// watching — see [Interlude]. Nobody reads an onboarding. They will tap
 /// through one that is fun to look at.
+/// Why this flow is running.
+enum WelcomeMode {
+  /// The first time, before anybody has anything else to do.
+  firstRun,
+
+  /// Asked for, from the Account screen, at any time afterwards.
+  ///
+  /// The same questions, filled in with what you already said — which turns
+  /// them from *tell us about yourself* into *here is what we have, change
+  /// anything* — with a short tour of what the app does woven between them.
+  ///
+  /// Both jobs at once, deliberately. Somebody who comes here to change their
+  /// instruments gets shown what Open Mic is for on the way past, and somebody
+  /// who comes here because they are lost ends up with a filled-in profile.
+  /// Neither is a detour from the other.
+  tour,
+}
+
 class WelcomeFlow extends StatefulWidget {
   const WelcomeFlow({
     required this.repository,
     required this.displayName,
+    this.mode = WelcomeMode.firstRun,
     super.key,
   });
 
   final MusicRepository repository;
   final String displayName;
+  final WelcomeMode mode;
 
   static const String _seenKey = 'welcome_flow_seen_v1';
 
@@ -69,8 +89,41 @@ class WelcomeFlow extends StatefulWidget {
     ));
   }
 
+  /// Run it again, from wherever somebody asked.
+  static Future<void> show(
+    BuildContext context, {
+    required MusicRepository repository,
+    required String displayName,
+  }) {
+    return Navigator.of(context).push(MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      settings: const RouteSettings(name: 'Tour'),
+      builder: (_) => WelcomeFlow(
+        repository: repository,
+        displayName: displayName,
+        mode: WelcomeMode.tour,
+      ),
+    ));
+  }
+
   @override
   State<WelcomeFlow> createState() => _WelcomeFlowState();
+}
+
+/// One screen in the sequence.
+///
+/// A list rather than an index, because the two modes are different lengths
+/// and different orders, and arithmetic over "stage 3" stopped meaning
+/// anything the moment a tour card sat between two questions.
+enum _Stage {
+  hello,
+  aboutSongs,
+  plays,
+  aboutRooms,
+  where,
+  aboutOpenMic,
+  sounds,
+  findable,
 }
 
 class _WelcomeFlowState extends State<WelcomeFlow> {
@@ -86,7 +139,69 @@ class _WelcomeFlowState extends State<WelcomeFlow> {
   bool _saving = false;
   String? _error;
 
-  static const int _stages = 5;
+  /// The first run stays four questions. Adding the tour to it would be
+  /// exactly the wall this flow was written to avoid — somebody who has not
+  /// seen the app yet has nothing to hang a tour on.
+  late final List<_Stage> _order = widget.mode == WelcomeMode.firstRun
+      ? const <_Stage>[
+          _Stage.hello,
+          _Stage.plays,
+          _Stage.where,
+          _Stage.sounds,
+          _Stage.findable,
+        ]
+      : const <_Stage>[
+          _Stage.hello,
+          _Stage.aboutSongs,
+          _Stage.plays,
+          _Stage.aboutRooms,
+          _Stage.where,
+          _Stage.aboutOpenMic,
+          _Stage.sounds,
+          _Stage.findable,
+        ];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.mode == WelcomeMode.tour) unawaited(_loadWhatTheySaid());
+  }
+
+  /// What is already on the profile, so nothing has to be typed twice.
+  ///
+  /// Best effort and silent. Somebody who came here to be shown around should
+  /// not be met by an error about a profile fetch; the worst case is a form
+  /// that starts empty, which is exactly what the first run does anyway.
+  Future<void> _loadWhatTheySaid() async {
+    try {
+      final me =
+          await widget.repository.loadMusician(widget.repository.currentUserId);
+      if (me == null || !mounted) return;
+      setState(() {
+        _plays
+          ..clear()
+          ..addAll(me.plays
+              .map(_roleFor)
+              .whereType<MusicalRole>());
+        _sounds
+          ..clear()
+          ..addAll(me.soundsLike);
+        _city.text = me.city ?? '';
+        _findable = me.discoverable ?? false;
+      });
+    } catch (_) {
+      // Nothing to say about it. See above.
+    }
+  }
+
+  /// A stored value back to the role it names, or null for one this build does
+  /// not know — `plays` is production data and may hold a word retired since.
+  MusicalRole? _roleFor(String value) {
+    for (final role in MusicalRole.values) {
+      if (role.value == value) return role;
+    }
+    return null;
+  }
 
   @override
   void dispose() {
@@ -96,7 +211,7 @@ class _WelcomeFlowState extends State<WelcomeFlow> {
   }
 
   void _advance() {
-    if (_stage >= _stages - 1) {
+    if (_stage >= _order.length - 1) {
       unawaited(_finish());
       return;
     }
@@ -122,6 +237,10 @@ class _WelcomeFlowState extends State<WelcomeFlow> {
       _saving = true;
       _error = null;
     });
+    // Taken before anything pops. Both outlive this widget; `context` does
+    // not, and the snackbar has to be shown after the flow has gone.
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
     try {
       await widget.repository.setOpenMicPresence(
         discoverable: _findable,
@@ -130,11 +249,19 @@ class _WelcomeFlowState extends State<WelcomeFlow> {
         soundsLike: _sounds.toList(growable: false),
       );
       if (!mounted) return;
-      Navigator.of(context).pop();
-      // After the flow rather than inside it. A permission prompt is the one
-      // thing here that cannot be undone by tapping again, and it is worth
-      // far more once somebody has said what they play — the reason can then
-      // name their own answer back to them.
+
+      // After every question and before the flow closes.
+      //
+      // After the questions because a permission prompt is the one thing here
+      // that cannot be undone by tapping again, and it is worth far more once
+      // somebody has said what they play — the reason can name their own
+      // answer back to them.
+      //
+      // Before the close because `offerNotifications` checks `context.mounted`
+      // before it shows anything, and popping first unmounts this widget. It
+      // was being called on a dead context and doing nothing at all, silently,
+      // which is exactly the shape of bug that never gets noticed: the prompt
+      // not appearing looks identical to the prompt having been declined.
       await offerNotifications(
         context,
         title: 'Want to know when somebody answers?',
@@ -145,6 +272,23 @@ class _WelcomeFlowState extends State<WelcomeFlow> {
                 '${_plays.first.label.toLowerCase()} on a song, and when '
                 'somebody offers to play on yours.',
       );
+      navigator.pop();
+
+      // Where to find this again, said once, at the only moment it means
+      // anything — the flow has just closed, the Account button is on screen,
+      // and somebody has just been shown that these questions are painless.
+      // Said on the way out rather than as a card of its own, because a
+      // screen whose entire content is "by the way, you can do this again"
+      // is a screen that earns a tap and gives nothing back.
+      if (widget.mode == WelcomeMode.firstRun) {
+        messenger.showSnackBar(const SnackBar(
+          duration: Duration(seconds: 7),
+          content: Text(
+            'Saved. Account → Show me around takes you back through this any '
+            'time, with a tour of the app.',
+          ),
+        ));
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -169,7 +313,11 @@ class _WelcomeFlowState extends State<WelcomeFlow> {
           SafeArea(
             child: Column(
               children: <Widget>[
-                _Progress(stage: _stage, of: _stages, onSkip: _skipAll),
+                _Progress(
+                  stage: _stage,
+                  of: _order.length,
+                  onSkip: _skipAll,
+                ),
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 220),
@@ -196,17 +344,41 @@ class _WelcomeFlowState extends State<WelcomeFlow> {
     );
   }
 
-  Widget _card() => switch (_stage) {
-        0 => _Hello(name: widget.displayName, onStart: _advance),
-        1 => _WhatYouPlay(
+  Widget _card() => switch (_order[_stage]) {
+        _Stage.hello => _Hello(
+            name: widget.displayName,
+            tour: widget.mode == WelcomeMode.tour,
+            onStart: _advance,
+          ),
+        _Stage.aboutSongs => _About(
+            icon: Icons.library_music_rounded,
+            title: 'A song is one place',
+            line: 'Words, chords and every take you record, together.',
+            onNext: _advance,
+          ),
+        _Stage.aboutRooms => _About(
+            icon: Icons.groups_2_rounded,
+            title: 'You choose who hears it',
+            line: 'Every song has an audience, from nobody to everybody. '
+                'You can move it any time.',
+            onNext: _advance,
+          ),
+        _Stage.aboutOpenMic => _About(
+            icon: Icons.mic_external_on_rounded,
+            title: 'Say what a song needs',
+            line: 'Put it on the Open Mic and somebody who plays that thing '
+                'can answer.',
+            onNext: _advance,
+          ),
+        _Stage.plays => _WhatYouPlay(
             chosen: _plays,
             onToggle: (role) => setState(() {
               _plays.contains(role) ? _plays.remove(role) : _plays.add(role);
             }),
             onNext: _advance,
           ),
-        2 => _WhereYouAre(controller: _city, onNext: _advance),
-        3 => _WhatYouSoundLike(
+        _Stage.where => _WhereYouAre(controller: _city, onNext: _advance),
+        _Stage.sounds => _WhatYouSoundLike(
             chosen: _sounds,
             field: _sound,
             onToggle: (tag) => setState(() {
@@ -214,7 +386,8 @@ class _WelcomeFlowState extends State<WelcomeFlow> {
             }),
             onNext: _advance,
           ),
-        _ => _CanTheyFindYou(
+        _Stage.findable => _CanTheyFindYou(
+            tour: widget.mode == WelcomeMode.tour,
             findable: _findable,
             saving: _saving,
             error: _error,
@@ -422,10 +595,15 @@ const EdgeInsets _pagePadding = EdgeInsets.fromLTRB(20, 10, 20, 20);
 // ------------------------------------------------------------------- cards
 
 class _Hello extends StatelessWidget {
-  const _Hello({required this.name, required this.onStart});
+  const _Hello({
+    required this.name,
+    required this.onStart,
+    this.tour = false,
+  });
 
   final String name;
   final VoidCallback onStart;
+  final bool tour;
 
   @override
   Widget build(BuildContext context) {
@@ -438,14 +616,21 @@ class _Hello extends StatelessWidget {
           const BrandMark(),
           const SizedBox(height: 22),
           _Ask(
-            name.trim().isEmpty ? 'Welcome.' : 'Welcome, ${name.trim()}.',
+            tour
+                ? 'A look around.'
+                : (name.trim().isEmpty
+                    ? 'Welcome.'
+                    : 'Welcome, ${name.trim()}.'),
             // The only sentence in the flow that explains anything, and it
             // exists to promise how short this is.
-            hint: 'Four questions. Then the app knows who to put in front of '
-                'you.',
+            hint: tour
+                ? 'What the app does, and everything you told us — change '
+                    'anything as we go.'
+                : 'Four questions. Then the app knows who to put in front of '
+                    'you.',
           ),
           const Spacer(),
-          _Onward(label: "Let's go", onTap: onStart),
+          _Onward(label: tour ? 'Show me' : "Let's go", onTap: onStart),
         ],
       ),
     );
@@ -692,6 +877,7 @@ class _WhatYouSoundLikeState extends State<_WhatYouSoundLike> {
 
 class _CanTheyFindYou extends StatelessWidget {
   const _CanTheyFindYou({
+    required this.tour,
     required this.findable,
     required this.saving,
     required this.error,
@@ -701,6 +887,7 @@ class _CanTheyFindYou extends StatelessWidget {
     required this.onFinish,
   });
 
+  final bool tour;
   final bool findable;
   final bool saving;
   final String? error;
@@ -776,7 +963,56 @@ class _CanTheyFindYou extends StatelessWidget {
             ProblemNote(error!, route: 'Welcome'),
             const SizedBox(height: 10),
           ],
-          _Onward(label: 'Start playing', onTap: onFinish, busy: saving),
+          _Onward(
+            label: tour ? 'Save it' : 'Start playing',
+            onTap: onFinish,
+            busy: saving,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One thing the app does, in a sentence.
+///
+/// Deliberately thin. Three of these is the entire walkthrough, because a
+/// tour that has to be read is a tour that gets skipped — and the sentence is
+/// only here to give the question after it something to hang on.
+class _About extends StatelessWidget {
+  const _About({
+    required this.icon,
+    required this.title,
+    required this.line,
+    required this.onNext,
+  });
+
+  final IconData icon;
+  final String title;
+  final String line;
+  final VoidCallback onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: _pagePadding,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Spacer(),
+          Container(
+            height: 84,
+            width: 84,
+            decoration: BoxDecoration(
+              color: AppColors.cyan.withValues(alpha: 0.13),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 40, color: AppColors.cyan),
+          ),
+          const SizedBox(height: 22),
+          _Ask(title, hint: line),
+          const Spacer(),
+          _Onward(label: 'Next', onTap: onNext),
         ],
       ),
     );

@@ -106,6 +106,68 @@ void main() {
         ));
   });
 
+  // The same flow asked for a second time: the tour.
+  testWidgets('the tour', (tester) async {
+    tester.view.physicalSize = _phone.size;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MediaQuery(
+      // No motion, so the walk spends its frames on cards rather than on
+      // waiting out seven interludes.
+      data: const MediaQueryData(disableAnimations: true),
+      child: RepaintBoundary(
+        key: rootKey,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: CoLabRoomTheme.dark(),
+          home: WelcomeFlow(
+            repository: InMemoryMusicRepository.seeded(),
+            displayName: 'Taylor',
+            mode: WelcomeMode.tour,
+          ),
+        ),
+      ),
+    ));
+    await _frames(tester);
+
+    final shots = <Shot>[];
+    Future<void> shoot(String name) async {
+      final captured = await tester.runAsync(() async {
+        final ui.Image image = await take(tester);
+        await writePng(image, 'welcome', name);
+        return image;
+      });
+      if (captured != null) shots.add(Shot(name, captured));
+    }
+
+    await shoot('tour-1-hello');
+    for (final step in const <String>[
+      'Show me',
+      'Next',
+      'Next',
+      'Next',
+      'Next',
+      'Next',
+      'Next',
+    ]) {
+      final finder = find.text(step);
+      if (finder.evaluate().isEmpty) continue;
+      await tester.tap(finder.last);
+      await _frames(tester);
+      await shoot('tour-${shots.length + 1}');
+    }
+
+    await tester.runAsync(() => contactSheet(
+          shots,
+          folder: 'welcome',
+          title: 'The tour, asked for again — 390x844',
+          name: '_sheet-tour',
+          columns: shots.length,
+          thumbWidth: 230,
+        ));
+  });
+
   // Each interlude, sampled across its own run. A still of a transition is
   // not the transition, but five stills say whether the shapes are right —
   // which is the part that cannot be checked any other way without a device.

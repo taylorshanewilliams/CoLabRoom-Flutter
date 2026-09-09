@@ -1,5 +1,6 @@
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
+import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/features/welcome/interludes.dart';
 import 'package:colabroom/features/welcome/welcome_flow.dart';
 import 'package:flutter/material.dart';
@@ -13,7 +14,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// nobody in production is findable… nobody says what they play either". The
 /// room a new person walks into has one person in it.
 class _Spy extends InMemoryMusicRepository {
-  _Spy() : super.from(InMemoryMusicRepository.seeded());
+  _Spy({this.existing}) : super.from(InMemoryMusicRepository.seeded());
+
+  /// What this account already said, for the tour to fill in.
+  final Musician? existing;
+
+  @override
+  Future<Musician?> loadMusician(String profileId) async =>
+      existing ?? super.loadMusician(profileId);
 
   bool saved = false;
   bool? discoverable;
@@ -44,15 +52,42 @@ Future<void> _settle(WidgetTester tester) async {
   }
 }
 
-Future<void> _open(WidgetTester tester, _Spy spy,
-    {bool motion = true}) async {
+Future<void> _open(
+  WidgetTester tester,
+  _Spy spy, {
+  bool motion = true,
+  WelcomeMode mode = WelcomeMode.firstRun,
+}) async {
+  // Pushed over something, the way the app does it. Making the flow the
+  // `home` route instead means popping it leaves an empty navigator with no
+  // Scaffold — and then the closing snackbar has nowhere to render, which
+  // looks exactly like the app forgetting to show it.
   await tester.pumpWidget(MediaQuery(
     data: MediaQueryData(disableAnimations: !motion),
     child: MaterialApp(
       theme: CoLabRoomTheme.dark(),
-      home: WelcomeFlow(repository: spy, displayName: 'Taylor'),
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: Center(
+            child: TextButton(
+              key: const Key('host_open'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => WelcomeFlow(
+                    repository: spy,
+                    displayName: 'Taylor',
+                    mode: mode,
+                  ),
+                ),
+              ),
+              child: const Text('host'),
+            ),
+          ),
+        ),
+      ),
     ),
   ));
+  await tester.tap(find.byKey(const Key('host_open')));
   await _settle(tester);
 }
 
@@ -91,6 +126,14 @@ void main() {
     await _settle(tester);
 
     expect(spy.saved, isTrue, reason: 'the flow finished without saving');
+    // Said once, on the way out, at the only moment it means anything: the
+    // flow has just closed and the Account button is on screen.
+    expect(
+      find.textContaining('Show me around'),
+      findsOneWidget,
+      reason: 'nothing told them these questions can be reopened, so the '
+          'tour is a feature only somebody who goes looking will find',
+    );
     expect(spy.plays, containsAll(<String>['vocal', 'keys']),
         reason: 'plays is what find_musicians matches on');
     expect(spy.city, 'Deltona');
@@ -181,5 +224,85 @@ void main() {
       expect(size.height, greaterThanOrEqualTo(48),
           reason: '"$label" is ${size.height} tall');
     }
+  });
+
+  group('asked for again', () {
+    _Spy withProfile() => _Spy(
+          existing: const Musician(
+            id: 'preview-user',
+            displayName: 'Taylor',
+            plays: <String>['drums', 'keys'],
+            partsRecorded: <String, int>{},
+            songsPlayedOn: 0,
+            peopleWorkedWith: 0,
+            city: 'Deltona',
+            discoverable: true,
+            soundsLike: <String>['folk', 'indie'],
+          ),
+        );
+
+    testWidgets('arrives holding what you already said', (tester) async {
+      final spy = withProfile();
+      await _open(tester, spy, motion: false, mode: WelcomeMode.tour);
+
+      await tester.tap(find.text('Show me'));
+      await _settle(tester);
+      // Past the first tour card.
+      await tester.tap(find.text('Next'));
+      await _settle(tester);
+
+      // The chips are already on, which is what turns this from "tell us
+      // about yourself" into "here is what we have".
+      final drums = tester.widget<AnimatedContainer>(find.ancestor(
+        of: find.text('Drums'),
+        matching: find.byType(AnimatedContainer),
+      ).first);
+      final decoration = drums.decoration! as BoxDecoration;
+      expect(decoration.color, isNot(AppColors.raised),
+          reason: 'Drums is on the profile and arrived unselected');
+    });
+
+    testWidgets('keeps an untouched answer rather than clearing it',
+        (tester) async {
+      final spy = withProfile();
+      await _open(tester, spy, motion: false, mode: WelcomeMode.tour);
+
+      // Straight through, changing nothing at all.
+      for (final label in <String>['Show me', 'Next', 'Next', 'Next', 'Next',
+        'Next', 'Next']) {
+        final finder = find.text(label);
+        if (finder.evaluate().isEmpty) continue;
+        await tester.tap(finder.last);
+        await _settle(tester);
+      }
+      final save = find.text('Save it');
+      if (save.evaluate().isNotEmpty) {
+        await tester.tap(save);
+        await _settle(tester);
+      }
+
+      expect(spy.saved, isTrue);
+      expect(find.textContaining('Show me around'), findsNothing,
+          reason: 'somebody who just used the tour does not need telling '
+              'where the tour is');
+      expect(spy.plays, containsAll(<String>['drums', 'keys']),
+          reason: 'a tour nobody edited must not empty the profile it was '
+              'showing — that would be the worst possible outcome of asking '
+              'for help');
+      expect(spy.city, 'Deltona');
+      expect(spy.soundsLike, containsAll(<String>['folk', 'indie']));
+    });
+
+    testWidgets('the first run is not given the tour', (tester) async {
+      final spy = _Spy();
+      await _open(tester, spy, motion: false);
+      await tester.tap(find.text("Let's go"));
+      await _settle(tester);
+
+      expect(find.text('A song is one place'), findsNothing,
+          reason: 'somebody who has not seen the app has nothing to hang a '
+              'tour on');
+      expect(find.text('What do you play?'), findsOneWidget);
+    });
   });
 }
