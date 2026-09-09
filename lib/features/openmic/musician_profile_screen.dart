@@ -158,6 +158,50 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
     }
   }
 
+  /// Writing the one thing on this page nobody counted.
+  Future<void> _editBio() async {
+    final current = _musician?.bio ?? '';
+    final written = await showDialog<String>(
+      context: context,
+      builder: (_) => _BioDialog(initial: current),
+    );
+    if (written == null || !mounted) return;
+    try {
+      await widget.repository.setBio(written);
+      if (!mounted) return;
+      // Shown immediately rather than after a reload. Somebody who has just
+      // written a sentence about themselves should see it on their page, not
+      // a spinner where it will eventually be.
+      final me = _musician;
+      if (me != null) {
+        setState(() => _musician = Musician(
+              id: me.id,
+              displayName: me.displayName,
+              avatarPath: me.avatarPath,
+              city: me.city,
+              bio: written.trim().isEmpty ? null : written.trim(),
+              plays: me.plays,
+              soundsLike: me.soundsLike,
+              partsRecorded: me.partsRecorded,
+              songsPlayedOn: me.songsPlayedOn,
+              peopleWorkedWith: me.peopleWorkedWith,
+              discoverable: me.discoverable,
+              locationVisibility: me.locationVisibility,
+              isDemo: me.isDemo,
+            ));
+      }
+      unawaited(_load());
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = reportAndDescribe(
+            error,
+            service: 'app',
+            stage: 'set_bio',
+            route: 'Profile',
+          ));
+    }
+  }
+
   Future<void> _open(ShowcaseLink link) async {
     final uri = Uri.tryParse(link.url);
     if (uri == null) return;
@@ -560,6 +604,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
                 sharedCity: _sharedCity,
                 error: _error,
                 face: _face,
+                onEditBio: () => unawaited(_editBio()),
                 isMe: _isMe,
                 noticed: _noticed,
                 claiming: _claiming,
@@ -587,6 +632,7 @@ class _Body extends StatelessWidget {
     required this.sharedCity,
     required this.error,
     required this.face,
+    required this.onEditBio,
     required this.isMe,
     required this.noticed,
     required this.claiming,
@@ -605,6 +651,8 @@ class _Body extends StatelessWidget {
   /// Their picture, or null while it is still coming — or for good, if they
   /// have not set one.
   final Uint8List? face;
+
+  final VoidCallback onEditBio;
 
   /// Only ever non-empty on your own page.
   final List<Noticed> noticed;
@@ -725,6 +773,55 @@ class _Body extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ],
+        // What they said about themselves, above the buttons.
+        //
+        // This is the context for the decision the buttons ask for. Somebody
+        // about to ask a stranger onto their song wants to know who they are
+        // before they are offered three ways to contact them, and every other
+        // thing on this page is either a number the app worked out or a chip
+        // somebody tapped.
+        if (musician.bio != null && musician.bio!.trim().isNotEmpty) ...<Widget>[
+          const SizedBox(height: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  musician.bio!,
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontSize: 14.5,
+                    height: 1.5,
+                  ),
+                ),
+              ),
+              if (isMe)
+                IconButton(
+                  onPressed: onEditBio,
+                  tooltip: 'Edit what you said',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.edit_outlined,
+                      size: 17, color: AppColors.muted),
+                ),
+            ],
+          ),
+        ] else if (isMe) ...<Widget>[
+          const SizedBox(height: 14),
+          // Only ever offered to you, and only when it is empty. A stranger's
+          // page with a "no bio yet" line on it says nothing except that the
+          // app was expecting more.
+          TextButton.icon(
+            onPressed: onEditBio,
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.cyan,
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 36),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('Say something about yourself'),
           ),
         ],
         if (error != null) ...<Widget>[
@@ -1752,6 +1849,96 @@ class _SheetHeading extends StatelessWidget {
         fontWeight: FontWeight.w900,
         letterSpacing: 1.3,
       ),
+    );
+  }
+}
+
+/// Writing the one thing on a profile nobody counted.
+///
+/// Three hundred characters, and the counter is visible from the first
+/// keystroke rather than appearing at the limit — a field that only tells you
+/// about its cap once you have hit it has already wasted somebody's sentence.
+class _BioDialog extends StatefulWidget {
+  const _BioDialog({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_BioDialog> createState() => _BioDialogState();
+}
+
+class _BioDialogState extends State<_BioDialog> {
+  late final TextEditingController _text =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void initState() {
+    super.initState();
+    _text.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final left = 300 - _text.text.characters.length;
+    return AlertDialog(
+      backgroundColor: AppColors.raised,
+      title: const Text('About you'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            'Whatever you would tell somebody who asked what you play.',
+            style: TextStyle(color: AppColors.muted, fontSize: 12.5),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _text,
+            autofocus: true,
+            maxLines: 5,
+            minLines: 3,
+            maxLength: 300,
+            // The counter is the whole point of maxLength here; hiding it and
+            // then silently refusing the 301st character is the version of
+            // this that annoys people.
+            style: const TextStyle(color: AppColors.text, fontSize: 15),
+            decoration: const InputDecoration(
+              hintText: 'Sing mostly, write when nobody is listening…',
+              hintStyle: TextStyle(color: AppColors.muted),
+            ),
+          ),
+          if (left < 0)
+            const Text(
+              'A bit long — it will be cut at 300.',
+              style: TextStyle(color: AppColors.orange, fontSize: 12),
+            ),
+        ],
+      ),
+      actions: <Widget>[
+        // Clearing it is a first-class action rather than "delete all the
+        // text and save". A field you can fill in and not empty is not a
+        // field.
+        if (widget.initial.trim().isNotEmpty)
+          TextButton(
+            onPressed: () => Navigator.pop(context, ''),
+            style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+            child: const Text('Take it down'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _text.text),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

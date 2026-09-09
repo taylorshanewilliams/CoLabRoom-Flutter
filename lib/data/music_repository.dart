@@ -396,6 +396,15 @@ abstract interface class MusicRepository {
 
   Future<Musician?> loadMusician(String profileId);
 
+  /// What you say about yourself, in your own words.
+  ///
+  /// Its own call rather than another argument on [setOpenMicPresence],
+  /// which takes `discoverable` as a required parameter — editing a sentence
+  /// about yourself must never be able to flip a privacy switch, and the
+  /// cheapest way to guarantee that is a function that cannot. An empty
+  /// string clears it.
+  Future<void> setBio(String bio);
+
   /// Turning yourself on or off in Open Mic, and what strangers may know.
   ///
   /// A null [city] leaves the existing one alone; an empty one removes it.

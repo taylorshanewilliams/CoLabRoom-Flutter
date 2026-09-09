@@ -1661,6 +1661,15 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  @override
+  Future<void> setBio(String bio) async {
+    await client.rpc<dynamic>(
+      'set_bio',
+      params: <String, dynamic>{'in_bio': bio},
+    );
+  }
+
+  @override
   Future<void> setOpenMicPresence({
     required bool discoverable,
     String? city,
@@ -1694,6 +1703,7 @@ class SupabaseMusicRepository implements MusicRepository {
       displayName: row['display_name'] as String? ?? 'Someone',
       avatarPath: row['avatar_path'] as String?,
       city: row['city'] as String?,
+      bio: row['bio'] as String?,
       plays: <String>[
         for (final p in (row['plays'] as List<dynamic>? ?? const <dynamic>[]))
           '$p',

@@ -76,4 +76,65 @@ void main() {
 
     expect(tester.getSize(find.byType(PartsSignature)), Size.zero);
   });
+
+  testWidgets('somebody can say something in their own words', (tester) async {
+    tester.view.physicalSize = const Size(390, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: CoLabRoomTheme.dark(),
+      home: MusicianProfileScreen(
+        profileId: 'preview-mara',
+        repository: InMemoryMusicRepository.seeded(),
+      ),
+    ));
+    for (var i = 0; i < 5; i += 1) {
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    expect(
+      find.textContaining('write when nobody is listening'),
+      findsOneWidget,
+      reason: 'every other field on this page is either counted by the app or '
+          'picked from a list; this is the only one that is a sentence',
+    );
+  });
+
+  testWidgets('a stranger is never told what is missing from their page',
+      (tester) async {
+    // "Say something about yourself" is an offer, and an offer only makes
+    // sense to the person who could accept it. On somebody else's page it
+    // would say nothing except that the app expected more of them.
+    tester.view.physicalSize = const Size(390, 1000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: CoLabRoomTheme.dark(),
+      home: MusicianProfileScreen(
+        // Dev has no bio.
+        profileId: 'preview-dev',
+        repository: InMemoryMusicRepository.seeded(),
+      ),
+    ));
+    for (var i = 0; i < 5; i += 1) {
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    expect(find.text('Say something about yourself'), findsNothing);
+  });
+
+  test('an empty bio clears the field rather than storing a blank', () async {
+    final repository = InMemoryMusicRepository.seeded();
+    await repository.setBio('  Plays bass, mostly badly.  ');
+    var me = await repository.loadMusician(repository.currentUserId);
+    expect(me!.bio, 'Plays bass, mostly badly.',
+        reason: 'trimmed, the way set_bio does it on the server');
+
+    await repository.setBio('   ');
+    me = await repository.loadMusician(repository.currentUserId);
+    expect(me!.bio, isNull,
+        reason: 'a field you can fill in and not empty is not a field');
+  });
 }
