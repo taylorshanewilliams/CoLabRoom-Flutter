@@ -465,10 +465,24 @@ class _SongsScreenState extends State<SongsScreen> {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(30, 20, 30, 60),
                 child: Center(
+                  // What the app can do, said once, where somebody is
+                  // deciding what it is.
+                  //
+                  // "Tap New song to start one" describes a button. Nothing
+                  // anywhere told a new person that a phone recording comes
+                  // back with the chords and the words on it — which is the
+                  // whole product, and the reason to make a first song
+                  // rather than close the app.
+                  //
+                  // One sentence, not a lesson. "Humming counts" because
+                  // the barrier is not knowing how, it is thinking you need
+                  // something good enough first.
                   child: Text(
                     searching
                         ? 'Nothing matches “${_query.trim()}”.'
-                        : 'No songs yet. Tap New song to start one.',
+                        : 'No songs yet.\n\nRecord anything — humming counts '
+                            '— and it comes back with the chords and the '
+                            'words written down.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: AppColors.muted),
                   ),
