@@ -267,6 +267,10 @@ class _StemTransport extends StatelessWidget {
             button: true,
             label: '${playing ? 'Pause' : 'Play'} $stemLabel track',
             child: IconButton(
+              // The Semantics above named this for a screen reader and gave
+              // a pointer nothing. On a desk the hover text is the half
+              // that was missing.
+              tooltip: '${playing ? 'Pause' : 'Play'} $stemLabel track',
               onPressed: () => unawaited(onPlayPause()),
               iconSize: 28,
               padding: const EdgeInsets.all(6),

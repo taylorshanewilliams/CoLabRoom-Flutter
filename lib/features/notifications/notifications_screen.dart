@@ -697,13 +697,16 @@ class _NotificationCard extends StatelessWidget {
                 margin: const EdgeInsets.only(top: 4, left: 8),
                 decoration: const BoxDecoration(color: AppColors.cyan, shape: BoxShape.circle),
               ),
-            InkResponse(
-              onTap: onClear,
-              radius: 18,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 8, top: 2),
-                child: Icon(Icons.close_rounded,
-                    size: 16, color: AppColors.muted),
+            Tooltip(
+              message: 'Clear this notification',
+              child: InkResponse(
+                onTap: onClear,
+                radius: 18,
+                child: const Padding(
+                  padding: EdgeInsets.only(left: 8, top: 2),
+                  child: Icon(Icons.close_rounded,
+                      size: 16, color: AppColors.muted),
+                ),
               ),
             ),
           ],

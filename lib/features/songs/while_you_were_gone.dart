@@ -173,13 +173,16 @@ class _ActivityRow extends StatelessWidget {
                   style: const TextStyle(color: AppColors.muted, fontSize: 11),
                 ),
                 const SizedBox(height: 4),
-                InkResponse(
-                  onTap: onDismiss,
-                  radius: 18,
-                  child: const Padding(
-                    padding: EdgeInsets.all(2),
-                    child: Icon(Icons.close_rounded,
-                        size: 15, color: AppColors.muted),
+                Tooltip(
+                  message: 'Dismiss',
+                  child: InkResponse(
+                    onTap: onDismiss,
+                    radius: 18,
+                    child: const Padding(
+                      padding: EdgeInsets.all(2),
+                      child: Icon(Icons.close_rounded,
+                          size: 15, color: AppColors.muted),
+                    ),
                   ),
                 ),
               ],
