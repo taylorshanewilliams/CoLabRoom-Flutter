@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../app/routes.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/colabroom_theme.dart';
@@ -388,6 +389,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
       // Straight into the song, because the point is to be working rather
       // than to be told a room exists.
       await Navigator.of(context).push(MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.song(made.projectId)),
         builder: (_) => SongWorkspaceScreen(projectId: made.projectId),
       ));
       if (!mounted) return;

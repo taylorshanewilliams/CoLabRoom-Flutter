@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app/routes.dart';
 
 import '../app/beta_scope.dart';
 import '../app/colabroom_theme.dart';
@@ -64,7 +65,10 @@ class AppTopBar extends StatelessWidget {
             child: InkResponse(
               key: const Key('top_bar_help'),
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const HelpScreen()),
+                MaterialPageRoute<void>(
+                  settings: const RouteSettings(name: AppRoutes.help),
+                  builder: (_) => const HelpScreen(),
+                ),
               ),
               radius: 22,
               child: const Padding(

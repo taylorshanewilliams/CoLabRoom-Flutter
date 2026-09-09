@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../app/routes.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
@@ -50,6 +51,8 @@ class WhileYouWereGone extends StatelessWidget {
               item: activity[i],
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
+                  settings: RouteSettings(
+                      name: AppRoutes.song(activity[i].projectId)),
                   builder: (_) =>
                       SongWorkspaceScreen(projectId: activity[i].projectId),
                 ),

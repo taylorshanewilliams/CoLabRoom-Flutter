@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../../app/routes.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../app/beta_scope.dart';
@@ -339,6 +340,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
   Future<void> _openLive() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.songLive(widget.project.id)),
         builder: (_) => LivePerformanceScreen(project: widget.project, analysis: _bundle),
         fullscreenDialog: true,
       ),
@@ -366,6 +368,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     if (reference == null) return;
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
+        settings: RouteSettings(name: AppRoutes.songLyrics(widget.project.id)),
         builder: (_) => LyricReviewScreen(project: widget.project, reference: reference),
         fullscreenDialog: true,
       ),
