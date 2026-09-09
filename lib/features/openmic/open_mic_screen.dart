@@ -39,6 +39,7 @@ class OpenMicScreen extends StatefulWidget {
     this.displayName = '',
     this.onOpenAccount,
     this.onOpenNotifications,
+    this.showTopBar = true,
     super.key,
   });
 
@@ -49,6 +50,9 @@ class OpenMicScreen extends StatefulWidget {
   final String displayName;
   final VoidCallback? onOpenAccount;
   final VoidCallback? onOpenNotifications;
+
+  /// False when the shell draws one across the top for every tab.
+  final bool showTopBar;
 
   @override
   State<OpenMicScreen> createState() => _OpenMicScreenState();
@@ -335,7 +339,9 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
         // stopped being a tab they had to live somewhere both tabs could
         // reach — which is here, identically positioned, so it is a place
         // people learn once.
-        if (widget.onOpenAccount != null && widget.onOpenNotifications != null)
+        if (widget.showTopBar &&
+            widget.onOpenAccount != null &&
+            widget.onOpenNotifications != null)
           AppTopBar(
             displayName: widget.displayName,
             onOpenAccount: widget.onOpenAccount!,

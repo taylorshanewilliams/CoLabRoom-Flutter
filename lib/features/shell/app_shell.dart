@@ -16,15 +16,18 @@ import '../songs/songs_screen.dart';
 import '../workspace/song_analysis_screen.dart';
 import '../../services/current_route.dart';
 import '../../services/now_playing.dart';
+import '../../widgets/app_top_bar.dart';
 import '../../widgets/now_playing_bar.dart';
 import '../../services/user_facing_error.dart';
 
 /// How wide the content gets on a desk.
 ///
 /// Wide enough that a list of songs is not a phone in a frame, narrow enough
-/// that a line of lyrics still has a measure. The rail takes 116 either way,
-/// so on a 1440 browser this leaves a margin that reads as deliberate.
-const double kDeskColumn = 1000;
+/// that a line of lyrics still has a measure.
+///
+/// Went from 1000 to 1240 when the navigation moved to the top bar: nothing
+/// takes a column off the left any more, so the work gets it.
+const double kDeskColumn = 1240;
 
 class AppShell extends StatefulWidget {
   const AppShell({
@@ -48,6 +51,12 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   late int _index;
   late final List<Widget> _screens;
+
+  /// Whether there is room to put the destinations along the top.
+  ///
+  /// Read by the lazily-built screens, so it is set before they are asked
+  /// for rather than passed down through every one of them.
+  bool _wide = false;
 
   @override
   void initState() {
@@ -94,6 +103,7 @@ class _AppShellState extends State<AppShell> {
     _screens = <Widget>[
       SongsScreen(
         displayName: widget.displayName,
+        showTopBar: !_wide,
         onOpenAccount: _openAccount,
         onOpenNotifications: _openNotifications,
         // The two doors the songs tab cannot open for itself: the record
@@ -280,6 +290,9 @@ class _AppShellState extends State<AppShell> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 900;
+        // Set before the lazy screens are asked for, so the first build of
+        // each already knows whether to draw its own top bar.
+        _wide = wide;
         if (wide) {
           return Focus(
             autofocus: true,
@@ -288,17 +301,25 @@ class _AppShellState extends State<AppShell> {
             body: SafeArea(
               child: Column(
                 children: <Widget>[
+                  // Two destinations, along the top, where they take no room.
+                  //
+                  // They used to be a 116px strip down the left holding two
+                  // words — the phone's bottom bar rotated onto its side,
+                  // spending a column of a desk to say what fits in a
+                  // sentence, while the work sat in a narrow lane beside it.
+                  AppTopBar(
+                    displayName: widget.displayName,
+                    onOpenAccount: _openAccount,
+                    onOpenNotifications: _openNotifications,
+                    tabs: <String>[
+                      for (final d in _destinations) d.label,
+                    ],
+                    selectedTab: _index,
+                    onSelectTab: _go,
+                  ),
                   Expanded(
                     child: Row(
                       children: <Widget>[
-                        SizedBox(
-                          width: 116,
-                          child: _NavigationRail(
-                            index: _index,
-                            destinations: _destinations,
-                            onSelect: _go,
-                          ),
-                        ),
                         // A column, not a stretch.
                         //
                         // The rail was already right at this width; the
@@ -455,39 +476,6 @@ class _BottomNavigation extends StatelessWidget {
             child: _NavButton(
               destination: item,
               selected: selected,
-              onTap: () => onSelect(itemIndex),
-            ),
-          );
-        }),
-      ),
-    );
-  }
-}
-
-class _NavigationRail extends StatelessWidget {
-  const _NavigationRail({
-    required this.index,
-    required this.destinations,
-    required this.onSelect,
-  });
-
-  final int index;
-  final List<_Destination> destinations;
-  final ValueChanged<int> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: AppColors.deepNavy,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: List<Widget>.generate(destinations.length, (itemIndex) {
-          final item = destinations[itemIndex];
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: _NavButton(
-              destination: item,
-              selected: itemIndex == index,
               onTap: () => onSelect(itemIndex),
             ),
           );

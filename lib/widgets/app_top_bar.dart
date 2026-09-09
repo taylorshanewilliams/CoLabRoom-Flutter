@@ -20,12 +20,26 @@ class AppTopBar extends StatelessWidget {
     required this.displayName,
     required this.onOpenAccount,
     required this.onOpenNotifications,
+    this.tabs = const <String>[],
+    this.selectedTab = 0,
+    this.onSelectTab,
     super.key,
   });
 
   final String displayName;
   final VoidCallback onOpenAccount;
   final VoidCallback onOpenNotifications;
+
+  /// Where you can go, when there is room to say so along the top.
+  ///
+  /// On a phone these are the bottom tabs, where a thumb can reach them. On a
+  /// desk that bar became a 116px strip down the left holding two words —
+  /// the phone's navigation rotated, taking a column of the screen to say
+  /// what fits in a sentence. Up here they cost nothing and give the whole
+  /// width back to the work.
+  final List<String> tabs;
+  final int selectedTab;
+  final ValueChanged<int>? onSelectTab;
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +66,34 @@ class AppTopBar extends StatelessWidget {
           // Expanded, and no Spacer after it: both are flex children, so a
           // Spacer here would split the free space and squeeze the app's own
           // name to half a row with the other half sitting empty beside it.
-          const Expanded(child: BrandMark()),
+          // Flexible, not fixed: on a 360px phone the wordmark has to be
+          // able to give way to the bell and the avatar. It was Expanded
+          // before the tabs existed, and taking that away overflowed the
+          // bar by 104px on every phone.
+          const Flexible(child: BrandMark()),
+          if (tabs.isEmpty)
+            const Spacer()
+          else ...<Widget>[
+            const SizedBox(width: 26),
+            for (var i = 0; i < tabs.length; i += 1)
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: TextButton(
+                  onPressed: () => onSelectTab?.call(i),
+                  style: TextButton.styleFrom(
+                    foregroundColor:
+                        i == selectedTab ? AppColors.text : AppColors.muted,
+                    textStyle: TextStyle(
+                      fontSize: 14.5,
+                      fontWeight:
+                          i == selectedTab ? FontWeight.w800 : FontWeight.w600,
+                    ),
+                  ),
+                  child: Text(tabs[i]),
+                ),
+              ),
+            const Spacer(),
+          ],
           // A question mark in the corner, beside the bell.
           //
           // The help screen was reachable only from Account, which is where
