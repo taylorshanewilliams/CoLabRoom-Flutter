@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/beta_scope.dart';
@@ -234,11 +235,38 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    // Space plays and pauses, the way it does in every other place
+    // somebody listens to audio on a desk.
+    //
+    // Guarded on whether the focus is in a text field, because the whole
+    // point of a keyboard here is writing lyrics, and a space that plays a
+    // song instead of typing a space would be worse than no shortcut. Also
+    // silent when nothing is loaded: a shortcut that starts something
+    // unexpected is not a convenience.
+    KeyEventResult onKey(FocusNode node, KeyEvent event) {
+      if (event is! KeyDownEvent) return KeyEventResult.ignored;
+      if (event.logicalKey != LogicalKeyboardKey.space) {
+        return KeyEventResult.ignored;
+      }
+      final focused = FocusManager.instance.primaryFocus?.context;
+      if (focused != null &&
+          focused.findAncestorStateOfType<EditableTextState>() != null) {
+        return KeyEventResult.ignored;
+      }
+      final playing = NowPlaying.instance.path;
+      if (playing == null) return KeyEventResult.ignored;
+      unawaited(NowPlaying.instance.toggle(playing));
+      return KeyEventResult.handled;
+    }
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 900;
         if (wide) {
-          return Scaffold(
+          return Focus(
+            autofocus: true,
+            onKeyEvent: onKey,
+            child: Scaffold(
             body: SafeArea(
               child: Column(
                 children: <Widget>[
@@ -286,6 +314,7 @@ class _AppShellState extends State<AppShell> {
             ),
             floatingActionButton: _RecordButton(
                 onTap: () => unawaited(_record()), extended: true),
+          ),
           );
         }
 
