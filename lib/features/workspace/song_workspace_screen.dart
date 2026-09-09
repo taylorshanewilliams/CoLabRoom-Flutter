@@ -56,9 +56,22 @@ enum _SongMenuAction {
 }
 
 class SongWorkspaceScreen extends StatefulWidget {
-  const SongWorkspaceScreen({required this.projectId, super.key});
+  const SongWorkspaceScreen({
+    required this.projectId,
+    this.embedded = false,
+    super.key,
+  });
 
   final String projectId;
+
+  /// True when this is a pane rather than a route.
+  ///
+  /// On a desk the library sits beside the song instead of in front of it, so
+  /// there is nothing to go back *to* — the list never left. The only visible
+  /// difference is the back arrow, which would otherwise sit there doing
+  /// nothing, because `Navigator.maybePop` on a route nobody pushed is a
+  /// no-op that looks exactly like a broken button.
+  final bool embedded;
 
   @override
   State<SongWorkspaceScreen> createState() => _SongWorkspaceScreenState();
@@ -1361,9 +1374,9 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 key: const Key('workspace_landscape_panel'),
                 project: project,
                 room: room,
-                onBack: () {
-                  Navigator.maybePop(context);
-                },
+                onBack: widget.embedded
+                    ? null
+                    : () => Navigator.maybePop(context),
                 onRename: () => _rename(project),
                 onOpenLayers: () => _openLayers(project),
                 onOpenLive: () => _openLivePerformance(project),
@@ -1383,9 +1396,9 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     project: project,
                     room: room,
                     compact: keyboardOpen,
-                    onBack: () {
-                      Navigator.maybePop(context);
-                    },
+                    onBack: widget.embedded
+                        ? null
+                        : () => Navigator.maybePop(context),
                     onRename: () => _rename(project),
                     onExport: (action) => _exportSong(project, action),
                   ),
@@ -1448,7 +1461,7 @@ class _PortraitProjectHeader extends StatelessWidget {
     required this.project,
     required this.room,
     required this.compact,
-    required this.onBack,
+    this.onBack,
     required this.onRename,
     required this.onExport,
   });
@@ -1456,7 +1469,7 @@ class _PortraitProjectHeader extends StatelessWidget {
   final SongProject project;
   final MusicRoom room;
   final bool compact;
-  final VoidCallback onBack;
+  final VoidCallback? onBack;
   final VoidCallback onRename;
   final ValueChanged<_SongMenuAction> onExport;
 
@@ -1469,11 +1482,12 @@ class _PortraitProjectHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: <Widget>[
-          IconButton(
-            onPressed: onBack,
-            tooltip: 'Back to rooms',
-            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 19),
-          ),
+          if (onBack != null)
+            IconButton(
+              onPressed: onBack,
+              tooltip: 'Back to rooms',
+              icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 19),
+            ),
           if (!compact) ...<Widget>[
             _RoomMark(size: 42, logoBytes: logoBytes, fallbackIcon: room.icon),
             const SizedBox(width: 11),
@@ -1596,7 +1610,7 @@ class _LandscapeWorkspace extends StatelessWidget {
   const _LandscapeWorkspace({
     required this.project,
     required this.room,
-    required this.onBack,
+    this.onBack,
     required this.onRename,
     required this.onOpenLayers,
     required this.onOpenLive,
@@ -1614,7 +1628,7 @@ class _LandscapeWorkspace extends StatelessWidget {
 
   final SongProject project;
   final MusicRoom room;
-  final VoidCallback onBack;
+  final VoidCallback? onBack;
   final VoidCallback onRename;
   final VoidCallback onOpenLayers;
   final VoidCallback onOpenLive;
@@ -1644,11 +1658,15 @@ class _LandscapeWorkspace extends StatelessWidget {
           height: 48,
           child: Row(
             children: <Widget>[
-              IconButton(
-                onPressed: onBack,
-                tooltip: 'Back to rooms',
-                icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
-              ),
+              // Gone rather than disabled when there is nowhere to go back
+              // to. A greyed-out arrow in the corner of a pane reads as a
+              // broken control, which is worse than no control.
+              if (onBack != null)
+                IconButton(
+                  onPressed: onBack,
+                  tooltip: 'Back to rooms',
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                ),
               Expanded(
                 child: InkWell(
                   onTap: onRename,
@@ -1812,10 +1830,17 @@ class _LandscapeWorkspace extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: Align(
-                  alignment: Alignment.topLeft,
+                  // Centred rather than pinned left.
+                  //
+                  // In a pane 1500 wide the words took 720 on the left, the
+                  // panel took 340 on the right, and the four hundred pixels
+                  // between them were a hole with the divider on the far side
+                  // of it. Centring closes the hole without stretching a line
+                  // of lyrics across a monitor.
+                  alignment: Alignment.topCenter,
                   child: ConstrainedBox(
                     // A line of lyrics wants a measure, not a monitor.
-                    constraints: const BoxConstraints(maxWidth: 720),
+                    constraints: const BoxConstraints(maxWidth: 820),
                     child: editor,
                   ),
                 ),

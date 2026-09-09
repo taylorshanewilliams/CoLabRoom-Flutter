@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import '../../app/routes.dart';
+import '../../services/current_route.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
@@ -106,6 +107,19 @@ class _SongsScreenState extends State<SongsScreen> {
   /// none of it was on this screen.
   _SongsView _view = _SongsView.songs;
 
+  /// The song open in the pane beside the library, on a desk.
+  ///
+  /// Null on a phone, where opening a song is a route and this screen is not
+  /// on top of it any more.
+  String? _openedId;
+
+  /// Whether there is room to show a song rather than only list it.
+  ///
+  /// Set by the layout builder before the body is built, the same way the
+  /// shell does it, so `_open` knows which of its two behaviours it has
+  /// without every caller having to be told.
+  bool _desk = false;
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -113,6 +127,21 @@ class _SongsScreenState extends State<SongsScreen> {
   }
 
   void _open(SongProject project) {
+    // On a desk the song opens *beside* the library rather than on top of it.
+    //
+    // This is the whole difference between a web app and a phone in a frame.
+    // A phone hides everything except the one thing you are looking at,
+    // because that is all that fits; a screen with room shows the list and
+    // the thing at once, and moving between songs stops being a push and a
+    // pop and becomes a click.
+    if (_desk) {
+      setState(() => _openedId = project.id);
+      // The address bar still has to follow, or the back button and a shared
+      // link both stop meaning anything on the one platform where people
+      // expect them to work.
+      CurrentRoute.enter(AppRoutes.song(project.id));
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         settings: RouteSettings(name: AppRoutes.song(project.id)),
@@ -197,6 +226,72 @@ class _SongsScreenState extends State<SongsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Below this, a song is a route. Above it, a song is a pane.
+    //
+    // 1100 rather than the shell's 900: the library needs 400 and a song
+    // needs a readable measure beside it, and at 1000 the song would get
+    // less than a phone gives it — which is worse than the push it replaced.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final desk = constraints.maxWidth >= 1100;
+        // Set before the body is built, so `_open` knows which of its two
+        // behaviours it has without every caller being told.
+        _desk = desk;
+        if (!desk) return _library(context);
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            SizedBox(width: 400, child: _library(context)),
+            const VerticalDivider(width: 1, color: AppColors.line),
+            Expanded(child: _openSong(context)),
+          ],
+        );
+      },
+    );
+  }
+
+  /// The song showing beside the library.
+  ///
+  /// Falls back to the most recently touched one rather than to an empty
+  /// pane. A desk that opens on "pick something" has spent two thirds of a
+  /// monitor asking a question, which is the exact complaint this layout is
+  /// answering — and the answer is almost always the song you were last in.
+  Widget _openSong(BuildContext context) {
+    final controller = BetaScope.of(context);
+    final projects = controller.rooms
+        .expand((room) => room.projects)
+        .toList(growable: false)
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+    if (projects.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(28),
+          child: Text(
+            'Your songs will open here.',
+            style: TextStyle(color: AppColors.muted, fontSize: 15),
+          ),
+        ),
+      );
+    }
+
+    // The opened one, if it still exists — a song can be deleted from the
+    // list on the left while it is the thing on the right.
+    final opened = _openedId == null
+        ? null
+        : projects.where((p) => p.id == _openedId).firstOrNull;
+    final showing = opened ?? projects.first;
+
+    return SongWorkspaceScreen(
+      // Keyed by song, so switching songs rebuilds the workspace rather than
+      // handing the new song the old one's editor state.
+      key: ValueKey<String>(showing.id),
+      projectId: showing.id,
+      embedded: true,
+    );
+  }
+
+  Widget _library(BuildContext context) {
     final controller = BetaScope.of(context);
     final rooms = controller.rooms;
     final searching = _query.trim().isNotEmpty;
