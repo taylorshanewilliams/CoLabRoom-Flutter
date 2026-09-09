@@ -63,6 +63,7 @@ class SongsScreen extends StatefulWidget {
     required this.onOpenNotifications,
     this.onRecord,
     this.onFindMusicians,
+    this.showTopBar = true,
     super.key,
   });
 
@@ -75,6 +76,10 @@ class SongsScreen extends StatefulWidget {
   /// lives in the shell, and finding people means changing tab.
   final VoidCallback? onRecord;
   final VoidCallback? onFindMusicians;
+
+  /// False when the shell is drawing one across the top for every tab, which
+  /// it does once there is width to put the destinations up there.
+  final bool showTopBar;
 
   @override
   State<SongsScreen> createState() => _SongsScreenState();
@@ -223,6 +228,7 @@ class _SongsScreenState extends State<SongsScreen> {
 
     return CustomScrollView(
       slivers: <Widget>[
+        if (widget.showTopBar)
         SliverToBoxAdapter(
           child: AppTopBar(
             displayName: widget.displayName,

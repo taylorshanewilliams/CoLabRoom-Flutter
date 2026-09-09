@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:cross_file/cross_file.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:colabroom/data/music_repository.dart';
 import '../../app/routes.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
@@ -1371,6 +1372,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 onAnalyze: () => _openAnalysis(project),
                 onRecord: () => _openAnalysis(project, autoRecord: true),
                 editor: editor,
+                audience: _audience,
+                onOpenAudience: () => unawaited(_openAudience(project)),
+                projectId: widget.projectId,
+                repository: controller.repository,
               )
             : Column(
                 children: <Widget>[
@@ -1600,6 +1605,10 @@ class _LandscapeWorkspace extends StatelessWidget {
     required this.onAnalyze,
     required this.onRecord,
     required this.editor,
+    required this.audience,
+    required this.onOpenAudience,
+    required this.projectId,
+    required this.repository,
     super.key,
   });
 
@@ -1614,6 +1623,18 @@ class _LandscapeWorkspace extends StatelessWidget {
   final VoidCallback onAnalyze;
   final VoidCallback onRecord;
   final Widget editor;
+
+  /// The two things portrait shows and landscape did not.
+  ///
+  /// The audience dial exists to answer the one question nothing in this app
+  /// used to answer — who can hear this — and the layout with the most room
+  /// on screen was the one that left it out. Same for the asks: what a song
+  /// is missing is the whole collaborative half, and it was visible on a
+  /// phone and invisible on a desk.
+  final SongAudience? audience;
+  final VoidCallback onOpenAudience;
+  final String projectId;
+  final MusicRepository repository;
 
   @override
   Widget build(BuildContext context) {
@@ -1759,7 +1780,68 @@ class _LandscapeWorkspace extends StatelessWidget {
           ),
         ),
         const Divider(height: 1),
-        Expanded(child: editor),
+        // Two panes, because there is room for two.
+        //
+        // This was one: the editor across the whole width, with lyrics
+        // sitting in a column of their natural measure and a thousand pixels
+        // of empty navy beside them. Everything else was behind an icon in
+        // the corner.
+        //
+        // Words keep a readable measure on the left. What the song *is* —
+        // who can hear it, what it is asking for — moves into the space that
+        // was doing nothing.
+        Expanded(
+          child: LayoutBuilder(builder: (context, constraints) {
+            // A second pane needs room for two. A phone held sideways is
+            // landscape too, and 340 of side panel there would leave the
+            // words about two hundred pixels — worse than the single column
+            // this replaces.
+            final roomForTwo = constraints.maxWidth >= 1000;
+            if (!roomForTwo) {
+              return Column(
+                children: <Widget>[
+                  AudienceDial(audience: audience, onTap: onOpenAudience),
+                  AskBar(projectId: projectId, repository: repository),
+                  const Divider(height: 1),
+                  Expanded(child: editor),
+                ],
+              );
+            }
+            return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Expanded(
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: ConstrainedBox(
+                    // A line of lyrics wants a measure, not a monitor.
+                    constraints: const BoxConstraints(maxWidth: 720),
+                    child: editor,
+                  ),
+                ),
+              ),
+              const VerticalDivider(width: 1),
+              SizedBox(
+                width: 340,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      const SizedBox(height: 10),
+                      AudienceDial(
+                        audience: audience,
+                        onTap: onOpenAudience,
+                      ),
+                      AskBar(projectId: projectId, repository: repository),
+                      const SizedBox(height: 10),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+          }),
+        ),
       ],
     );
   }
