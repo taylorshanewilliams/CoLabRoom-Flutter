@@ -8,6 +8,7 @@ import '../app/beta_scope.dart';
 import '../app/colabroom_theme.dart';
 import '../domain/music_models.dart';
 import '../services/current_route.dart';
+import '../services/recent_trouble.dart';
 import '../services/user_facing_error.dart';
 
 /// Says that something failed, records it, and offers to hear about it.
@@ -63,11 +64,17 @@ void showProblem(
 ///
 /// [detail] is the machine's half — the exception, already captured. The
 /// person writes the half only they have: what they were trying to do.
+///
+/// Both halves default to the last failure this session, so the sheet arrives
+/// already knowing what went wrong even when it is opened from somewhere with
+/// no idea — the Account screen, a help page, a button two screens later.
 Future<void> showProblemReport(
   BuildContext context, {
   String? route,
   String? detail,
 }) {
+  final about = detail ?? RecentTrouble.detail;
+  final where = route ?? RecentTrouble.route;
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -78,7 +85,7 @@ Future<void> showProblemReport(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
       ),
-      child: _ProblemReportSheet(route: route, detail: detail),
+      child: _ProblemReportSheet(route: where, detail: about),
     ),
   );
 }
@@ -237,6 +244,70 @@ class _ProblemReportSheetState extends State<_ProblemReportSheet> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// A sentence about something that failed, with a way to say more.
+///
+/// Twelve screens showed an error as a coloured `Text` and nothing else. Each
+/// one is a moment where somebody has just been let down and is thinking about
+/// what they were doing — which is the only moment they will ever describe it,
+/// and the moment they otherwise decide a text message is easier.
+///
+/// Deliberately quiet. The sentence stays the size and colour the screen chose
+/// for it, and the offer sits underneath in small type. Somebody who does not
+/// want to file a report should barely notice this is here.
+class ProblemNote extends StatelessWidget {
+  const ProblemNote(
+    this.message, {
+    this.color = AppColors.orange,
+    this.fontSize = 12.5,
+    this.height = 1.4,
+    this.textAlign,
+    this.route,
+    super.key,
+  });
+
+  final String message;
+  final Color color;
+  final double fontSize;
+  final double height;
+  final TextAlign? textAlign;
+
+  /// Where this happened, when the screen knows better than [CurrentRoute].
+  final String? route;
+
+  @override
+  Widget build(BuildContext context) {
+    final centred = textAlign == TextAlign.center;
+    return Column(
+      crossAxisAlignment:
+          centred ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Text(
+          message,
+          textAlign: textAlign,
+          style: TextStyle(color: color, fontSize: fontSize, height: height),
+        ),
+        // The exception is already held by RecentTrouble, so this carries no
+        // arguments: whatever just failed is what the sheet will attach.
+        TextButton(
+          onPressed: () => unawaited(showProblemReport(context, route: route)),
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            minimumSize: const Size(0, 32),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            foregroundColor: AppColors.cyan,
+            textStyle: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          child: const Text('Tell us what you were doing'),
+        ),
+      ],
     );
   }
 }

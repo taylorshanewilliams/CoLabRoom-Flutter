@@ -11,6 +11,7 @@ import '../../services/user_facing_error.dart';
 import '../../widgets/play_button.dart';
 import 'ask_musician_sheet.dart';
 import 'report_sheet.dart';
+import '../../widgets/problem_report.dart';
 
 /// A song somebody put up for anybody to hear.
 ///
@@ -272,11 +273,7 @@ class _OpenMicSongScreenState extends State<OpenMicSongScreen> {
 
                   if (_error != null) ...<Widget>[
                     const SizedBox(height: 14),
-                    Text(
-                      _error!,
-                      style: const TextStyle(
-                          color: AppColors.orange, fontSize: 12.5),
-                    ),
+                    ProblemNote(_error!),
                   ],
 
                 ],

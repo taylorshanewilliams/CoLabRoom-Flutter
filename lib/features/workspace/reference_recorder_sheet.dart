@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import '../../widgets/microphone_disclosure.dart';
+import '../../widgets/problem_report.dart';
 
 class ReferenceRecorderSheet extends StatefulWidget {
   const ReferenceRecorderSheet({required this.songTitle, super.key});
@@ -183,14 +184,10 @@ class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
               ),
               if (_error != null) ...<Widget>[
                 const SizedBox(height: 14),
-                Text(
-                  _error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Color(0xFFFF9CAA),
+                ProblemNote(_error!,
+                    color: const Color(0xFFFF9CAA),
                     fontSize: 11,
-                  ),
-                ),
+                    textAlign: TextAlign.center),
               ],
               const SizedBox(height: 24),
               Row(

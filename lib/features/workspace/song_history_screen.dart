@@ -7,6 +7,7 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../services/provenance_export.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/problem_report.dart';
 
 /// Everything that has happened to this song, in the order it happened.
 ///
@@ -141,10 +142,8 @@ class _SongHistoryScreenState extends State<SongHistoryScreen> {
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: AppColors.orange.withValues(alpha: 0.4)),
                       ),
-                      child: Text(
-                        _error!,
-                        style: const TextStyle(color: AppColors.text, fontSize: 13),
-                      ),
+                      child: ProblemNote(_error!,
+                          color: AppColors.text, fontSize: 13),
                     ),
                     const SizedBox(height: 16),
                   ],

@@ -8,6 +8,7 @@ import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/player_face.dart';
+import '../../widgets/problem_report.dart';
 
 /// Who you have blocked, and the way back.
 ///
@@ -99,11 +100,7 @@ class _BlockedPeopleScreenState extends State<BlockedPeopleScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 30),
                 children: <Widget>[
                   if (_error != null) ...<Widget>[
-                    Text(
-                      _error!,
-                      style: const TextStyle(
-                          color: AppColors.orange, fontSize: 13),
-                    ),
+                    ProblemNote(_error!, fontSize: 13),
                     const SizedBox(height: 14),
                   ],
                   if (people.isEmpty)

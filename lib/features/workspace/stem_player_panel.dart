@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/chord_beat_grid.dart';
+import '../../widgets/problem_report.dart';
 
 /// Plays the separated instrument stems Demucs produced during analysis —
 /// one at a time, deliberately.
@@ -208,10 +209,8 @@ class _StemPlayerPanelState extends State<StemPlayerPanel> {
         ],
         if (_error != null) ...<Widget>[
           const SizedBox(height: 10),
-          Text(
-            _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 11.5),
-          ),
+          ProblemNote(_error!,
+              color: Theme.of(context).colorScheme.error, fontSize: 11.5),
         ],
       ],
     );

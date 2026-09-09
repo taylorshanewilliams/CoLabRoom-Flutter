@@ -6,6 +6,7 @@ import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/problem_report.dart';
 
 /// Inviting somebody you met into a whole room.
 ///
@@ -182,11 +183,7 @@ class _InviteToRoomSheetState extends State<InviteToRoomSheet> {
               ],
               if (_error != null) ...<Widget>[
                 const SizedBox(height: 6),
-                Text(
-                  _error!,
-                  style: const TextStyle(
-                      color: AppColors.orange, fontSize: 12.5, height: 1.4),
-                ),
+                ProblemNote(_error!),
               ],
               const SizedBox(height: 14),
               FilledButton(
