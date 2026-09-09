@@ -103,6 +103,20 @@ abstract final class CoLabRoomTheme {
         labelTextStyle: WidgetStatePropertyAll(TextStyle(fontWeight: FontWeight.w700)),
       ),
       dividerColor: AppColors.line,
+      // Thirty modal sheets, one width.
+      //
+      // A bottom sheet is a phone idiom: it comes up from the bottom edge
+      // because on a phone the bottom edge is where your thumb is. Given a
+      // 1300px browser it becomes a drawer the width of the desk, which is
+      // the single most phone-ish thing left on the web build.
+      //
+      // Constraining it here rather than at thirty call sites means it is
+      // a centred panel everywhere at once, and stays one on the next sheet
+      // somebody writes. On a phone this is wider than the screen and so
+      // changes nothing at all.
+      bottomSheetTheme: const BottomSheetThemeData(
+        constraints: BoxConstraints(maxWidth: 640),
+      ),
       dialogTheme: DialogThemeData(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(
