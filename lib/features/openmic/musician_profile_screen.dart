@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import '../../app/routes.dart';
@@ -19,6 +20,7 @@ import 'open_mic_song_screen.dart';
 import 'report_sheet.dart';
 import '../workspace/song_workspace_screen.dart';
 import 'the_app_noticed.dart';
+import '../../widgets/profile_face.dart';
 
 /// Somebody's own room.
 ///
@@ -87,9 +89,18 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
     unawaited(_load());
   }
 
+  /// Their picture, once it has been fetched.
+  ///
+  /// This page had no avatar on it at all — not a small one, not a fallback,
+  /// nothing. A musician's profile that never shows their face is a database
+  /// row with headings, and it is the first thing anybody deciding whether to
+  /// work with a stranger looks for.
+  Uint8List? _face;
+
   Future<void> _load() async {
     try {
       final musician = await widget.repository.loadMusician(widget.profileId);
+      unawaited(_loadFace(musician?.avatarPath ?? widget.initial?.avatarPath));
       final links = await widget.repository.loadShowcase(widget.profileId);
       final songs = await widget.repository.songsBy(widget.profileId);
       // Only about yourself. What the app has worked out about somebody else
@@ -128,6 +139,22 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
           route: 'Profile',
         );
       });
+    }
+  }
+
+  /// Best effort, and silent.
+  ///
+  /// A picture that will not load is a page with initials on it, which is a
+  /// perfectly good page. Putting an error on the screen because somebody's
+  /// avatar 404'd would be the tail wagging the dog.
+  Future<void> _loadFace(String? path) async {
+    if (path == null || path.isEmpty) return;
+    try {
+      final bytes = await widget.repository.loadAvatar(path);
+      if (!mounted) return;
+      setState(() => _face = bytes);
+    } catch (_) {
+      // Initials, then.
     }
   }
 
@@ -532,6 +559,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
                 onOpenSong: (song) => unawaited(_openSong(song)),
                 sharedCity: _sharedCity,
                 error: _error,
+                face: _face,
                 isMe: _isMe,
                 noticed: _noticed,
                 claiming: _claiming,
@@ -558,6 +586,7 @@ class _Body extends StatelessWidget {
     required this.onOpenSong,
     required this.sharedCity,
     required this.error,
+    required this.face,
     required this.isMe,
     required this.noticed,
     required this.claiming,
@@ -572,6 +601,10 @@ class _Body extends StatelessWidget {
   });
 
   final Musician musician;
+
+  /// Their picture, or null while it is still coming — or for good, if they
+  /// have not set one.
+  final Uint8List? face;
 
   /// Only ever non-empty on your own page.
   final List<Noticed> noticed;
@@ -618,21 +651,40 @@ class _Body extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
-            Flexible(
-              child: Text(
-                musician.displayName,
-                style: const TextStyle(
-                  color: AppColors.text,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                  height: 1.15,
-                ),
+            ProfileFace(
+              name: musician.displayName,
+              bytes: face,
+              seed: musician.id,
+              size: 78,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Flexible(
+                        child: Text(
+                          musician.displayName,
+                          style: const TextStyle(
+                            color: AppColors.text,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                            height: 1.15,
+                          ),
+                        ),
+                      ),
+                      if (musician.isDemo) ...<Widget>[
+                        const SizedBox(width: 9),
+                        const DemoChip(),
+                      ],
+                    ],
+                  ),
+                ],
               ),
             ),
-            if (musician.isDemo) ...<Widget>[
-              const SizedBox(width: 9),
-              const DemoChip(),
-            ],
           ],
         ),
         if (musician.isDemo) ...<Widget>[
@@ -764,6 +816,17 @@ class _Body extends StatelessWidget {
         const SizedBox(height: 24),
         const _Heading('Played here', note: 'counted, not claimed'),
         const SizedBox(height: 9),
+        if (musician.partsRecorded.isNotEmpty) ...<Widget>[
+          // The same numbers as the chips below, as a shape.
+          //
+          // Under the name it was two thin marks with no heading over them and
+          // read as a glitch; here the section says what it is, so it can be
+          // the thing you see first and the chips can be the detail you read
+          // second. It is also the one element on this page that could not
+          // belong to any other directory of people.
+          PartsSignature(parts: musician.partsRecorded, seed: musician.id),
+          const SizedBox(height: 12),
+        ],
         if (top.isEmpty)
           Text(
             isMe
