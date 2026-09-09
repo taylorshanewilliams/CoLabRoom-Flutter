@@ -61,7 +61,19 @@ class WelcomeFlow extends StatefulWidget {
   final String displayName;
   final WelcomeMode mode;
 
-  static const String _seenKey = 'welcome_flow_seen_v1';
+  /// Bumped to ask again.
+  ///
+  /// Everybody who already has the app has never been asked any of this, so
+  /// their `plays`, `city` and `soundsLike` are empty and Open Mic cannot see
+  /// them. Changing this string is the whole mechanism: the old key stops
+  /// being read, every existing install looks like a fresh one, and the flow
+  /// runs once more.
+  ///
+  /// Do it deliberately and rarely. It is the one thing in this app that can
+  /// interrupt every user at once, and a version that shipped a bump by
+  /// accident would put a questionnaire in front of people who had already
+  /// answered it.
+  static const String _seenKey = 'welcome_flow_seen_v2';
 
   /// Shows this once, ever, and never blocks a returning person.
   ///
@@ -77,6 +89,16 @@ class WelcomeFlow extends StatefulWidget {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(_seenKey) ?? false) return;
     await prefs.setBool(_seenKey, true);
+
+    // Somebody already using the app is not new, and telling them "Welcome,
+    // Taylor. Four questions." reads as the app having forgotten them. They
+    // get the tour instead: the same questions, holding whatever they have
+    // already said, with what the app does woven between them.
+    //
+    // Which is also the better outcome for the thing this is for. A returning
+    // person with an empty `plays` still ends up filling it in; they just are
+    // not greeted like a stranger on the way.
+    final returning = await _hasBeenHere(repository);
     if (!context.mounted) return;
 
     await Navigator.of(context).push(MaterialPageRoute<void>(
@@ -85,8 +107,27 @@ class WelcomeFlow extends StatefulWidget {
       builder: (_) => WelcomeFlow(
         repository: repository,
         displayName: displayName,
+        mode: returning ? WelcomeMode.tour : WelcomeMode.firstRun,
       ),
     ));
+  }
+
+  /// Whether this account has been using the app already.
+  ///
+  /// Anything at all on the shelf counts. A profile is the wrong signal —
+  /// nothing has ever asked for one, so a person who has been here for weeks
+  /// has exactly the same empty profile as somebody who signed up a minute
+  /// ago, which is the whole reason this flow exists.
+  ///
+  /// Best effort: a repository that cannot answer gets the first-run
+  /// greeting, which is wrong for a returning person and harmless.
+  static Future<bool> _hasBeenHere(MusicRepository repository) async {
+    try {
+      final rooms = await repository.loadRooms();
+      return rooms.any((room) => room.projects.isNotEmpty);
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Run it again, from wherever somebody asked.
@@ -311,23 +352,35 @@ class _WelcomeFlowState extends State<WelcomeFlow> {
       body: Stack(
         children: <Widget>[
           SafeArea(
-            child: Column(
-              children: <Widget>[
-                _Progress(
-                  stage: _stage,
-                  of: _order.length,
-                  onSkip: _skipAll,
-                ),
-                Expanded(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    child: KeyedSubtree(
-                      key: ValueKey<int>(_stage),
-                      child: _card(),
+            // A column, centred, at every width.
+            //
+            // Nothing here wants a monitor. Sixteen genre chips spread across
+            // 1900 pixels is a search result, not a question, and a heading
+            // set at 27px in the corner of that much empty navy reads as an
+            // error page. On a phone this constraint does nothing at all; on
+            // a desk it is the difference between a form and a card.
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Column(
+                  children: <Widget>[
+                    _Progress(
+                      stage: _stage,
+                      of: _order.length,
+                      onSkip: _skipAll,
                     ),
-                  ),
+                    Expanded(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        child: KeyedSubtree(
+                          key: ValueKey<int>(_stage),
+                          child: _card(),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
           if (_playing != null)

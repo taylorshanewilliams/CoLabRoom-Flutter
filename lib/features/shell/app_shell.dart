@@ -26,9 +26,14 @@ import '../../services/user_facing_error.dart';
 /// Wide enough that a list of songs is not a phone in a frame, narrow enough
 /// that a line of lyrics still has a measure.
 ///
-/// Went from 1000 to 1240 when the navigation moved to the top bar: nothing
-/// takes a column off the left any more, so the work gets it.
-const double kDeskColumn = 1240;
+/// Went from 1000 to 1240 when the navigation moved to the top bar, and from
+/// 1240 to 1680 when the screens behind it stopped being one column.
+///
+/// The cap was only ever there to stop a line of lyrics being drawn across
+/// 1300 pixels. Once a screen puts the library beside the song, the text is
+/// inside a pane with its own measure and the cap is holding back the layout
+/// rather than protecting the reading.
+const double kDeskColumn = 1680;
 
 class AppShell extends StatefulWidget {
   const AppShell({
@@ -51,7 +56,6 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   late int _index;
-  late final List<Widget> _screens;
 
   /// Whether there is room to put the destinations along the top.
   ///
@@ -118,29 +122,43 @@ class _AppShellState extends State<AppShell> {
       );
     };
 
-    _screens = <Widget>[
-      SongsScreen(
-        displayName: widget.displayName,
-        showTopBar: !_wide,
-        onOpenAccount: _openAccount,
-        onOpenNotifications: _openNotifications,
-        // The two doors the songs tab cannot open for itself: the record
-        // button lives here, and finding people means changing tab.
-        onRecord: () => unawaited(_record()),
-        onFindMusicians: () => _go(1),
-      ),
-      // Built through a Builder because it needs the repository, and the
-      // scope is not reachable from initState.
-      Builder(
-        builder: (context) => OpenMicScreen(
-          repository: BetaScope.of(context, listen: false).repository,
+  }
+
+  /// The tabs, rebuilt each time rather than made once.
+  ///
+  /// This was a `late final` assigned in `initState`, which is where it went
+  /// wrong: `_wide` is still false at that point, so `showTopBar: !_wide` was
+  /// baked in as `true` and stayed true for the life of the shell. Every desk
+  /// has been drawing **two top bars** — the shell's across the top and the
+  /// screen's own inside it — since the rail was removed. The comment there
+  /// claimed the value was set before the screens were asked for; the screens
+  /// were not lazy, they were eager, and nobody had looked at a desk.
+  ///
+  /// Constructing widgets is cheap and the list shape never changes, so the
+  /// element tree keeps every screen's state across the rebuild.
+  List<Widget> get _screens => <Widget>[
+        SongsScreen(
           displayName: widget.displayName,
+          showTopBar: !_wide,
           onOpenAccount: _openAccount,
           onOpenNotifications: _openNotifications,
+          // The two doors the songs tab cannot open for itself: the record
+          // button lives here, and finding people means changing tab.
+          onRecord: () => unawaited(_record()),
+          onFindMusicians: () => _go(1),
         ),
-      ),
-    ];
-  }
+        // Built through a Builder because it needs the repository, and the
+        // scope is not reachable from initState.
+        Builder(
+          builder: (context) => OpenMicScreen(
+            repository: BetaScope.of(context, listen: false).repository,
+            displayName: widget.displayName,
+            showTopBar: !_wide,
+            onOpenAccount: _openAccount,
+            onOpenNotifications: _openNotifications,
+          ),
+        ),
+      ];
 
   // Account is no longer one of the four tabs — it's reached the same way it
   // always has been from Home's top-right icon, just as a pushed route

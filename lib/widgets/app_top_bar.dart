@@ -83,13 +83,26 @@ class AppTopBar extends StatelessWidget {
                   style: TextButton.styleFrom(
                     foregroundColor:
                         i == selectedTab ? AppColors.text : AppColors.muted,
-                    textStyle: TextStyle(
+                  ),
+                  // Styled on the Text rather than through
+                  // `styleFrom(textStyle:)`.
+                  //
+                  // `ButtonStyleButton` picks the widget's text style *or*
+                  // the theme's — `??`, not a merge — so a style given there
+                  // replaces the resolved one entirely and takes the font
+                  // family with it. It resolves to the platform font on a
+                  // device and so looks fine; it also means these tabs would
+                  // silently ignore a custom family the day the theme sets
+                  // one, and they render with no font at all under the render
+                  // harness, which is where the app is looked at.
+                  child: Text(
+                    tabs[i],
+                    style: TextStyle(
                       fontSize: 14.5,
                       fontWeight:
                           i == selectedTab ? FontWeight.w800 : FontWeight.w600,
                     ),
                   ),
-                  child: Text(tabs[i]),
                 ),
               ),
             const Spacer(),
