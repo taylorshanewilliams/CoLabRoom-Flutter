@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app/beta_scope.dart';
 import '../app/colabroom_theme.dart';
+import '../features/help/help_screen.dart';
 import 'brand_mark.dart';
 
 /// The mark, the news, and you.
@@ -51,6 +52,28 @@ class AppTopBar extends StatelessWidget {
           // Spacer here would split the free space and squeeze the app's own
           // name to half a row with the other half sitting empty beside it.
           const Expanded(child: BrandMark()),
+          // A question mark in the corner, beside the bell.
+          //
+          // The help screen was reachable only from Account, which is where
+          // somebody goes to change their password — not where they are
+          // standing when they wonder what this app can do. It answers good
+          // questions and nobody could find it.
+          Semantics(
+            button: true,
+            label: 'Help',
+            child: InkResponse(
+              key: const Key('top_bar_help'),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const HelpScreen()),
+              ),
+              radius: 22,
+              child: const Padding(
+                padding: EdgeInsets.all(8),
+                child: Icon(Icons.help_outline_rounded,
+                    color: AppColors.muted, size: 24),
+              ),
+            ),
+          ),
           Semantics(
             button: true,
             label: 'Notifications',
