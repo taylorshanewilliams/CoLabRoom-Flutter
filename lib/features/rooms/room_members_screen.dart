@@ -290,10 +290,12 @@ class _MemberRow extends StatelessWidget {
                   onPressed: onRemove,
                   style: TextButton.styleFrom(
                     foregroundColor: AppColors.muted,
-                    textStyle: const TextStyle(
+                  ),
+                  child: Text(
+                    isMe ? 'Leave' : 'Remove',
+                    style: const TextStyle(
                         fontSize: 12.5, fontWeight: FontWeight.w700),
                   ),
-                  child: Text(isMe ? 'Leave' : 'Remove'),
                 ),
             ],
           ),

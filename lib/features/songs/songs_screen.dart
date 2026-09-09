@@ -739,10 +739,12 @@ class _RoomSection extends StatelessWidget {
                 style: TextButton.styleFrom(
                   visualDensity: VisualDensity.compact,
                   foregroundColor: AppColors.cyan,
-                  textStyle: const TextStyle(
+                ),
+                child: Text(
+                  'All ${songs.length} in ${room.name}  ›',
+                  style: const TextStyle(
                       fontSize: 12.5, fontWeight: FontWeight.w700),
                 ),
-                child: Text('All ${songs.length} in ${room.name}  ›'),
               ),
             ),
         ],

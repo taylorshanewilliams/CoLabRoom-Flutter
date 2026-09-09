@@ -146,10 +146,6 @@ class _One extends StatelessWidget {
                     backgroundColor: AppColors.gold,
                     foregroundColor: AppColors.ink,
                     visualDensity: VisualDensity.compact,
-                    textStyle: const TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
-                    ),
                   ),
                   // Named, because "Add" beside a sentence about bass is a
                   // button that could be doing anything.
@@ -157,6 +153,10 @@ class _One extends StatelessWidget {
                     busy ? 'Adding…' : 'Add ${item.subject}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               )
@@ -168,10 +168,6 @@ class _One extends StatelessWidget {
                     backgroundColor: AppColors.gold,
                     foregroundColor: AppColors.ink,
                     visualDensity: VisualDensity.compact,
-                    textStyle: const TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w800,
-                    ),
                   ),
                   child: Text(
                     item.kind == NoticedKind.discoverable
@@ -179,6 +175,10 @@ class _One extends StatelessWidget {
                         : 'Say what I sound like',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ),

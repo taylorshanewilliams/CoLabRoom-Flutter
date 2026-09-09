@@ -207,12 +207,14 @@ class TakeLane extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(horizontal: 6),
                           minimumSize: const Size(0, 26),
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          textStyle: const TextStyle(
+                        ),
+                        child: const Text(
+                          'Share',
+                          style: TextStyle(
                             fontSize: 10.5,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
-                        child: const Text('Share'),
                       ),
                   ],
                 ),

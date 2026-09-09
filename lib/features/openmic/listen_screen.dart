@@ -401,13 +401,13 @@ class _TrackPage extends StatelessWidget {
                   icon: const Icon(Icons.pan_tool_alt_outlined, size: 18),
                   label: Text(
                     track.isAsking ? 'I could play that' : 'Offer to play',
+                    style: const TextStyle(
+                        fontSize: 14.5, fontWeight: FontWeight.w800),
                   ),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(50),
                     backgroundColor: AppColors.cyan,
                     foregroundColor: AppColors.ink,
-                    textStyle: const TextStyle(
-                        fontSize: 14.5, fontWeight: FontWeight.w800),
                   ),
                 ),
               ),

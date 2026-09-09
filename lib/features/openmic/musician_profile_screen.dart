@@ -693,13 +693,14 @@ class _Body extends StatelessWidget {
             key: const Key('start_something_with'),
             onPressed: onStartSomething,
             icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-            label: const Text('Start something together'),
+            label: const Text(
+              'Start something together',
+              style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800),
+            ),
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
               backgroundColor: AppColors.gold,
               foregroundColor: AppColors.ink,
-              textStyle: const TextStyle(
-                  fontSize: 14.5, fontWeight: FontWeight.w800),
             ),
           ),
           const SizedBox(height: 6),
@@ -716,13 +717,14 @@ class _Body extends StatelessWidget {
           FilledButton.icon(
             onPressed: onAsk,
             icon: const Icon(Icons.piano_rounded, size: 18),
-            label: const Text('Ask them to play on…'),
+            label: const Text(
+              'Ask them to play on…',
+              style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800),
+            ),
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
               backgroundColor: AppColors.cyan,
               foregroundColor: AppColors.ink,
-              textStyle: const TextStyle(
-                  fontSize: 14.5, fontWeight: FontWeight.w800),
             ),
           ),
           const SizedBox(height: 8),
@@ -733,13 +735,14 @@ class _Body extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: onInvite,
               icon: const Icon(Icons.library_music_outlined, size: 17),
-              label: const Text('Invite to a room'),
+              label: const Text(
+                'Invite to a room',
+                style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+              ),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(44),
                 foregroundColor: AppColors.text,
                 side: const BorderSide(color: AppColors.line),
-                textStyle: const TextStyle(
-                    fontSize: 13.5, fontWeight: FontWeight.w700),
               ),
             ),
           const SizedBox(height: 7),
@@ -868,12 +871,13 @@ class _Body extends StatelessWidget {
               TextButton.icon(
                 onPressed: onAdd,
                 icon: const Icon(Icons.add_rounded, size: 17),
-                label: const Text('Add'),
+                label: const Text(
+                  'Add',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                ),
                 style: TextButton.styleFrom(
                   foregroundColor: AppColors.cyan,
                   visualDensity: VisualDensity.compact,
-                  textStyle: const TextStyle(
-                      fontSize: 12.5, fontWeight: FontWeight.w700),
                 ),
               ),
           ],
@@ -1039,10 +1043,11 @@ class _NotListedYet extends StatelessWidget {
               onPressed: onEdit,
               style: FilledButton.styleFrom(
                 visualDensity: VisualDensity.compact,
-                textStyle:
-                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
               ),
-              child: const Text('Open Mic settings'),
+              child: const Text(
+                'Open Mic settings',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
             ),
           ),
         ],

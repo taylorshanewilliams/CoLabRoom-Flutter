@@ -1330,14 +1330,16 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                   ? null
                   : () => unawaited(_export()),
               icon: const Icon(Icons.ios_share_rounded, size: 18),
-              label: const Text('Save'),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.cyan,
-                disabledForegroundColor: AppColors.line,
-                textStyle: const TextStyle(
+              label: const Text(
+                'Save',
+                style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w700,
                 ),
+              ),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.cyan,
+                disabledForegroundColor: AppColors.line,
               ),
             ),
           ),
@@ -1552,14 +1554,16 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                     ? null
                     : () => unawaited(_importTake()),
                 icon: const Icon(Icons.file_upload_outlined, size: 17),
-                label: const Text('Recorded it elsewhere? Add a file'),
-                style: TextButton.styleFrom(
-                  foregroundColor: AppColors.muted,
-                  disabledForegroundColor: AppColors.line,
-                  textStyle: const TextStyle(
+                label: const Text(
+                  'Recorded it elsewhere? Add a file',
+                  style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
                   ),
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.muted,
+                  disabledForegroundColor: AppColors.line,
                   minimumSize: const Size.fromHeight(36),
                 ),
               ),

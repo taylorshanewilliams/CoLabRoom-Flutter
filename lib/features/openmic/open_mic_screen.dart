@@ -385,13 +385,14 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
                 key: const Key('open_mic_listen'),
                 onPressed: () => unawaited(_listen()),
                 icon: const Icon(Icons.play_arrow_rounded, size: 19),
-                label: const Text('Listen'),
+                label: const Text(
+                  'Listen',
+                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
+                ),
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.cyan,
                   foregroundColor: AppColors.ink,
                   padding: const EdgeInsets.symmetric(horizontal: 15),
-                  textStyle: const TextStyle(
-                      fontSize: 13.5, fontWeight: FontWeight.w800),
                 ),
               ),
             ],
