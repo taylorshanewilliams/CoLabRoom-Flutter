@@ -9,6 +9,7 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../domain/musical_roles.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/problem_report.dart';
 
 /// Asking somebody who is not here yet.
 ///
@@ -261,9 +262,7 @@ class _AskSomebodyNotHereState extends State<AskSomebodyNotHere> {
           ),
           if (_error != null) ...<Widget>[
             const SizedBox(height: 10),
-            Text(_error!,
-                style:
-                    const TextStyle(color: AppColors.orange, fontSize: 12.5)),
+            ProblemNote(_error!),
           ],
           const SizedBox(height: 16),
           Align(

@@ -31,6 +31,7 @@ import 'layer_group.dart';
 import 'take_lane.dart';
 import 'take_prompt.dart';
 import 'timeline_ruler.dart';
+import '../../widgets/problem_report.dart';
 
 /// The takes a song is built from, and adding another one.
 ///
@@ -1424,9 +1425,11 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                           color: const Color(0xFFFF718B).withValues(alpha: 0.09),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Text(_error!,
-                            style: const TextStyle(
-                                color: Color(0xFFFFA0B0), fontSize: 12, height: 1.45)),
+                        child: ProblemNote(_error!,
+                            color: const Color(0xFFFFA0B0),
+                            fontSize: 12,
+                            height: 1.45,
+                            route: 'Takes'),
                       ),
                     ],
                     if (hasSomethingToHear) ...<Widget>[

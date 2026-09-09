@@ -7,6 +7,7 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../domain/musical_roles.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/problem_report.dart';
 
 /// Asking one musician to play on one song.
 ///
@@ -297,11 +298,7 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
 
               if (_error != null) ...<Widget>[
                 const SizedBox(height: 6),
-                Text(
-                  _error!,
-                  style: const TextStyle(
-                      color: AppColors.orange, fontSize: 12.5, height: 1.4),
-                ),
+                ProblemNote(_error!),
               ],
 
               const SizedBox(height: 14),

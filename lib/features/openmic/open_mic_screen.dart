@@ -18,6 +18,7 @@ import 'open_mic_song_screen.dart';
 import '../../widgets/offer_to_be_found.dart';
 import 'out_there.dart';
 import 'what_are_you_after.dart';
+import '../../widgets/problem_report.dart';
 
 /// Open Mic — where you meet somebody you have not met.
 ///
@@ -432,13 +433,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                     children: <Widget>[
                       if (_error != null) ...<Widget>[
-                        Text(
-                          _error!,
-                          style: const TextStyle(
-                            color: AppColors.orange,
-                            fontSize: 13,
-                          ),
-                        ),
+                        ProblemNote(_error!, fontSize: 13),
                         const SizedBox(height: 14),
                       ],
                       if (found.isEmpty)

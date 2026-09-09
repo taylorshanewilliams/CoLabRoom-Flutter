@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/name_policy.dart';
 import 'error_reporter.dart';
+import 'recent_trouble.dart';
 
 /// What to put on screen when an action fails, and what to send home about it.
 ///
@@ -82,5 +83,9 @@ String reportAndDescribe(
     projectId: projectId,
     route: route,
   ));
+  // Held on to for a few minutes, so that if the person decides to say what
+  // they were doing, the exception rides along without them being asked to
+  // retype an error message they were shown and dismissed.
+  RecentTrouble.remember(error, route: route);
   return describeForUser(error);
 }
