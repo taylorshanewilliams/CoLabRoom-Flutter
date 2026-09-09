@@ -304,6 +304,7 @@ Future<File> contactSheet(
   List<Shot> shots, {
   required String folder,
   required String title,
+  String name = '_sheet',
   int columns = 4,
   double thumbWidth = 320,
 }) async {
@@ -367,7 +368,7 @@ Future<File> contactSheet(
 
   final picture = recorder.endRecording();
   final image = await picture.toImage(width.ceil(), height.ceil());
-  return writePng(image, folder, '_sheet');
+  return writePng(image, folder, name);
 }
 
 void _paintText(

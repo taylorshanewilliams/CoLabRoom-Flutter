@@ -22,6 +22,7 @@ import '../../widgets/audio_privacy_note.dart';
 import '../dev/latency_probe_screen.dart';
 import 'blocked_people_screen.dart';
 import '../help/help_screen.dart';
+import '../welcome/welcome_flow.dart';
 import 'what_you_get.dart';
 import '../notifications/notification_settings_screen.dart';
 import '../openmic/musician_profile_screen.dart';
@@ -352,6 +353,26 @@ class _AccountScreenState extends State<AccountScreen> {
                       ),
                     ),
                   );
+                },
+              ),
+              // The same flow as the first run, on purpose.
+              //
+              // It is two things at once and that is the point: somebody who
+              // comes here to change what they play gets shown what Open Mic
+              // is for on the way past, and somebody who comes here because
+              // they are lost leaves with a filled-in profile. The questions
+              // arrive already holding their answers, so it reads as "here is
+              // what we have" rather than "tell us about yourself".
+              _AccountRow(
+                icon: Icons.explore_outlined,
+                label: 'Show me around',
+                onTap: () {
+                  final controller = BetaScope.of(context, listen: false);
+                  unawaited(WelcomeFlow.show(
+                    context,
+                    repository: controller.repository,
+                    displayName: displayName,
+                  ));
                 },
               ),
               _AccountRow(
