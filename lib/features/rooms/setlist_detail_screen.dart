@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../app/routes.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
@@ -192,6 +193,8 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                           child: InkWell(
                             onTap: () => Navigator.of(context).push(
                               MaterialPageRoute<void>(
+                                settings: RouteSettings(
+                                    name: AppRoutes.song(project.id)),
                                 builder: (_) => SongWorkspaceScreen(projectId: project.id),
                               ),
                             ),

@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../app/routes.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/beta_config.dart';
@@ -362,7 +363,11 @@ class _AccountScreenState extends State<AccountScreen> {
                 icon: Icons.notifications_outlined,
                 label: 'Notifications',
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const NotificationSettingsScreen()),
+                  MaterialPageRoute<void>(
+                    settings: const RouteSettings(
+                        name: AppRoutes.notificationSettings),
+                    builder: (_) => const NotificationSettingsScreen(),
+                  ),
                 ),
               ),
               // Above privacy and below notifications, because it is the
@@ -373,7 +378,10 @@ class _AccountScreenState extends State<AccountScreen> {
                 icon: Icons.workspace_premium_outlined,
                 label: 'What you get',
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const WhatYouGet()),
+                  MaterialPageRoute<void>(
+                    settings: const RouteSettings(name: AppRoutes.whatYouGet),
+                    builder: (_) => const WhatYouGet(),
+                  ),
                 ),
               ),
               _AccountRow(
@@ -381,7 +389,10 @@ class _AccountScreenState extends State<AccountScreen> {
                 icon: Icons.help_outline_rounded,
                 label: 'Help',
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const HelpScreen()),
+                  MaterialPageRoute<void>(
+                    settings: const RouteSettings(name: AppRoutes.help),
+                    builder: (_) => const HelpScreen(),
+                  ),
                 ),
               ),
               _AccountRow(
@@ -416,7 +427,10 @@ class _AccountScreenState extends State<AccountScreen> {
                   icon: Icons.timer_outlined,
                   label: 'Recording latency (debug)',
                   onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const LatencyProbeScreen()),
+                    MaterialPageRoute<void>(
+                    settings: const RouteSettings(name: AppRoutes.latency),
+                    builder: (_) => const LatencyProbeScreen(),
+                  ),
                   ),
                 ),
             ],

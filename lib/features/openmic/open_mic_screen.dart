@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../app/routes.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
@@ -245,6 +246,7 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   Future<void> _openProfile(Musician musician) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.musician(musician.id)),
         builder:
             (_) => MusicianProfileScreen(
               profileId: musician.id,

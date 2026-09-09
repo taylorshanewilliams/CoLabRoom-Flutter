@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../../app/routes.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
@@ -566,6 +567,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
       if (project != null && context.mounted) {
         await Navigator.of(context).push(
           MaterialPageRoute<void>(
+            settings: RouteSettings(name: AppRoutes.song(project.id)),
             builder: (_) => SongWorkspaceScreen(projectId: project.id),
           ),
         );
@@ -919,6 +921,8 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                           }
                           Navigator.of(context).push(
                             MaterialPageRoute<void>(
+                              settings: RouteSettings(
+                                  name: AppRoutes.song(project.id)),
                               builder: (_) => SongWorkspaceScreen(projectId: project.id),
                             ),
                           );

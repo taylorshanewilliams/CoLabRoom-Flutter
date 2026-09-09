@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../app/routes.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -110,7 +111,10 @@ class _AppShellState extends State<AppShell> {
   // reason: see the note above _destinations.
   void _openAccount() {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => AccountScreen(supabase: widget.supabase)),
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.account),
+        builder: (_) => AccountScreen(supabase: widget.supabase),
+      ),
     );
   }
 
@@ -127,7 +131,10 @@ class _AppShellState extends State<AppShell> {
 
   void _openNotifications() {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const NotificationsScreen()),
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.notifications),
+        builder: (_) => const NotificationsScreen(),
+      ),
     );
   }
 

@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:cross_file/cross_file.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../app/routes.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart';
@@ -700,6 +701,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.songLive(project.id)),
         builder: (_) => LivePerformanceScreen(project: project, analysis: bundle),
         fullscreenDialog: true,
       ),
@@ -723,6 +725,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     final controller = BetaScope.of(context);
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.songTakes(project.id)),
         builder: (_) => SongLayersScreen(
           roomId: project.roomId,
           projectId: project.id,
@@ -736,6 +739,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   Future<void> _openAnalysis(SongProject project, {bool autoRecord = false}) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.songSheet(project.id)),
         builder: (_) => SongAnalysisScreen(project: project, autoRecord: autoRecord),
         fullscreenDialog: true,
       ),

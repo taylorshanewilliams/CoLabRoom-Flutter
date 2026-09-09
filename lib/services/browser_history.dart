@@ -53,6 +53,10 @@ class BrowserHistory extends NavigatorObserver {
   /// that is not there yet.
   String _pathFor(Route<dynamic>? route) {
     final named = route?.settings.name;
+    // A route named from AppRoutes is already an address; slugifying it
+    // would turn /song/abc into -song-abc and lose the only real path in
+    // the app.
+    if (named != null && named.startsWith('/')) return named;
     final label = named ?? CurrentRoute.name ?? 'view';
     final slug = label
         .toLowerCase()

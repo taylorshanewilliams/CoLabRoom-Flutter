@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import '../../app/routes.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
@@ -108,7 +109,10 @@ class _SongsScreenState extends State<SongsScreen> {
 
   void _open(SongProject project) {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => SongWorkspaceScreen(projectId: project.id)),
+      MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.song(project.id)),
+        builder: (_) => SongWorkspaceScreen(projectId: project.id),
+      ),
     );
   }
 
@@ -138,7 +142,10 @@ class _SongsScreenState extends State<SongsScreen> {
 
   void _openSet(Setlist setlist) {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => SetlistDetailScreen(setlistId: setlist.id)),
+      MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.setlist(setlist.id)),
+        builder: (_) => SetlistDetailScreen(setlistId: setlist.id),
+      ),
     );
   }
 
