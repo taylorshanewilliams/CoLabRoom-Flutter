@@ -15,6 +15,7 @@ import '../openmic/open_mic_song_screen.dart';
 import '../songs/songs_screen.dart';
 import '../workspace/song_analysis_screen.dart';
 import '../../services/current_route.dart';
+import '../../services/people_presence.dart';
 import '../../services/now_playing.dart';
 import '../../widgets/app_top_bar.dart';
 import '../welcome/welcome_flow.dart';
@@ -102,6 +103,15 @@ class _AppShellState extends State<AppShell> {
     // app points at looks broken when it is merely empty. Asked here rather
     // than deeper in because there is no later moment when somebody is more
     // willing, and every question can be skipped.
+    // Here, so other people can see it. Announced once the app is open and
+    // signed in rather than when the People screen opens: presence that only
+    // exists while you are looking at the presence list would mean two people
+    // could never see each other unless both were staring at it.
+    final me = widget.supabase?.auth.currentUser?.id;
+    if (me != null) {
+      unawaited(PeoplePresence.instance.announce(userId: me));
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(WelcomeFlow.offerOnce(

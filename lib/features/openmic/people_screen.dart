@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
+import '../../services/people_presence.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/player_face.dart';
 import '../../widgets/problem_report.dart';
@@ -35,10 +36,28 @@ class _PeopleScreenState extends State<PeopleScreen> {
   bool _loading = true;
   String? _busyWith;
 
+  /// Who is here this second, as opposed to who said they were around this
+  /// fortnight. The two answer different questions and the row shows both.
+  Set<String> _online = PeoplePresence.instance.onlineNow;
+  StreamSubscription<Set<String>>? _presenceSub;
+
   @override
   void initState() {
     super.initState();
+    _presenceSub = PeoplePresence.instance.online.listen((who) {
+      if (mounted) setState(() => _online = who);
+    });
     unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    _presenceSub?.cancel();
+    // Watching stops; announcing does not. You stay visible to everybody else
+    // after closing this screen -- you simply stop paying for a socket per
+    // person while looking at something else.
+    unawaited(PeoplePresence.instance.stopWatching());
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -52,6 +71,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
         _suggestions = suggestions;
         _loading = false;
       });
+      // Only the people actually on screen, and only while it is open. The
+      // traffic this client sees is bounded by its own list rather than by
+      // how many people use the app.
+      unawaited(PeoplePresence.instance.watch(
+        connections.where((c) => c.accepted).map((c) => c.personId),
+      ));
     } catch (error) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -138,6 +163,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
                         _ConnectionRow(
                           connection: person,
                           busy: _busyWith == person.personId,
+                          here: _online.contains(person.personId),
                           onRemove: () => _act(
                             person.personId,
                             () => BetaScope.of(context, listen: false)
@@ -301,6 +327,7 @@ class _ConnectionRow extends StatelessWidget {
   const _ConnectionRow({
     required this.connection,
     required this.busy,
+    this.here = false,
     this.onAccept,
     this.onDecline,
     this.onRemove,
@@ -308,6 +335,11 @@ class _ConnectionRow extends StatelessWidget {
 
   final Connection connection;
   final bool busy;
+
+  /// Online right now. Shown as well as the status rather than instead of
+  /// it: the dot says message them now, the status says whether it is worth
+  /// asking at all, and on most days only the second one exists.
+  final bool here;
   final VoidCallback? onAccept;
   final VoidCallback? onDecline;
   final VoidCallback? onRemove;
@@ -321,11 +353,34 @@ class _ConnectionRow extends StatelessWidget {
       child: AppSurface(
         child: Row(
           children: <Widget>[
-            PlayerFace(
-              name: connection.displayName,
-              color: AppColors.cyan,
-              photo: controller.avatarBytesFor(connection.avatarPath),
-              size: 38,
+            // The dot rides on the face rather than sitting in the row.
+            // A green circle in a column of its own reads as a column of
+            // grey circles on every day nobody happens to be online, which
+            // is the failure this whole design is trying to avoid.
+            Stack(
+              children: <Widget>[
+                PlayerFace(
+                  name: connection.displayName,
+                  color: AppColors.cyan,
+                  photo: controller.avatarBytesFor(connection.avatarPath),
+                  size: 38,
+                ),
+                if (here)
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      key: Key('here_${connection.personId}'),
+                      width: 11,
+                      height: 11,
+                      decoration: BoxDecoration(
+                        color: AppColors.green,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.deepNavy, width: 2),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -346,7 +401,33 @@ class _ConnectionRow extends StatelessWidget {
                   // play, otherwise nothing. Never a made-up "offline":
                   // saying nothing is not the same as being away, and the
                   // app does not know which.
-                  if (line != null)
+                  if (here)
+                    Row(
+                      children: <Widget>[
+                        const Text(
+                          'Here now',
+                          style: TextStyle(
+                              color: AppColors.green,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700),
+                        ),
+                        if (line != null) ...<Widget>[
+                          const Text(' · ',
+                              style: TextStyle(
+                                  color: AppColors.muted, fontSize: 12.5)),
+                          Flexible(
+                            child: Text(
+                              line,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: AppColors.muted, fontSize: 12.5),
+                            ),
+                          ),
+                        ],
+                      ],
+                    )
+                  else if (line != null)
                     Text(
                       line,
                       maxLines: 1,
