@@ -1,4 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+
+import '../../services/set_aside.dart';
+
+import '../../services/what_works_here.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../services/music_reference.dart';
@@ -10,15 +16,38 @@ import 'guitar_chord_diagram.dart';
 /// and then transpose its example into your own key. These open on the chord
 /// or the key you just tapped, already in that key, and close again.
 
-Future<void> showChordReference(BuildContext context, String chordLabel) {
+/// The chord, and — when the caller knows them — the song it is in.
+///
+/// [keyLabel] and [used] are what turn a reference into an answer. Without
+/// them this sheet can say what a C chord is; with them it can say that it is
+/// the IV here, and which chords of this key the song has not reached for
+/// yet. [roles] is what the person plays, and only changes the order.
+Future<void> showChordReference(
+  BuildContext context,
+  String chordLabel, {
+  String? keyLabel,
+  List<String> used = const <String>[],
+  Set<String> roles = const <String>{},
+}) {
   final reference = chordReference(chordLabel);
   if (reference == null) return Future<void>.value();
+  // The hint has done its whole job the moment somebody taps a chord, so it
+  // retires itself here rather than waiting to be dismissed. A hint that
+  // keeps explaining something you have already done is the same nag as a
+  // card that will not close.
+  unawaited(SetAside.add(SetAside.hint, 'tap_a_chord'));
+  final help = whatWorksHere(
+    chordLabel: chordLabel,
+    keyLabel: keyLabel,
+    used: used,
+    roles: roles,
+  );
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
     backgroundColor: AppColors.deepNavy,
-    builder: (_) => _ChordReferenceSheet(reference: reference),
+    builder: (_) => _ChordReferenceSheet(reference: reference, help: help),
   );
 }
 
@@ -35,19 +64,64 @@ Future<void> showKeyReference(BuildContext context, String keyLabel) {
 }
 
 class _ChordReferenceSheet extends StatelessWidget {
-  const _ChordReferenceSheet({required this.reference});
+  const _ChordReferenceSheet({required this.reference, this.help});
 
   final ChordReference reference;
+
+  /// What would work here, when the caller knew enough about the song to ask.
+  final WhatWorksHere? help;
 
   @override
   Widget build(BuildContext context) {
     return _SheetFrame(
       key: const Key('chord_reference_sheet'),
       title: reference.display,
-      subtitle: reference.recognised
-          ? reference.qualityName
-          : 'No shape stored for this one',
+      // Where it sits in this song, said in the subtitle rather than buried
+      // in a section. "The IV of G major" is the orientation somebody who is
+      // stuck actually needs, and it is the one thing the old sheet could
+      // never say -- it was handed a chord with no song attached.
+      subtitle: <String>[
+        if (reference.recognised) reference.qualityName
+        else 'No shape stored for this one',
+        if (help?.degree != null) 'the ${help!.degree} here',
+      ].join('  ·  '),
       children: <Widget>[
+        // First, above the shapes. Somebody who opened this because they are
+        // stuck wants an answer, not a diagram they already understand.
+        if (help != null && help!.suggestions.isNotEmpty) ...<Widget>[
+          for (final suggestion in help!.suggestions)
+            _Section(
+              heading: suggestion.heading,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    suggestion.detail,
+                    style: const TextStyle(
+                        color: AppColors.muted, fontSize: 12.5, height: 1.45),
+                  ),
+                  if (suggestion.chords.isNotEmpty ||
+                      suggestion.notes.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 9),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: <Widget>[
+                        // Chords stay tappable, so one answer leads to the
+                        // next: "try the vi" is worth more when the vi opens
+                        // its own shapes.
+                        for (final chord in suggestion.chords)
+                          _ChordChip(chord: chord, degree: ''),
+                        for (final note in suggestion.notes)
+                          _NoteChip(note: note, caption: ''),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          const Divider(height: 26, color: AppColors.line),
+        ],
         if (!reference.recognised)
           const _Note(
             'This is an unusual chord and guessing at its shape would be '

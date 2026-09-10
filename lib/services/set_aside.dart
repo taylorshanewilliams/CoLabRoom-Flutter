@@ -29,6 +29,14 @@ abstract final class SetAside {
   /// The card that offers to make a song sheet.
   static const String songSheet = 'song_sheet';
 
+  /// Hints somebody has read and does not need again.
+  ///
+  /// A hint is a suggestion like any other, and the rule is the same: it has
+  /// to be possible to say no. The difference is that a hint answers itself —
+  /// once you have tapped the thing it points at, it has done its whole job
+  /// and should never appear again.
+  static const String hint = 'hint';
+
   static String _key(String kind) => 'set_aside_$kind';
 
   /// Held in memory so a list can be drawn without waiting for a disk read,
@@ -45,7 +53,7 @@ abstract final class SetAside {
   static Future<void> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      for (final kind in <String>[pickItBackUp, songSheet]) {
+      for (final kind in <String>[pickItBackUp, songSheet, hint]) {
         _held[kind] = prefs.getStringList(_key(kind))?.toSet() ?? <String>{};
       }
     } catch (_) {

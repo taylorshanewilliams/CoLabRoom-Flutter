@@ -563,6 +563,9 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             rows: _chart,
             transpose: _transpose,
             fontScale: _fontScale,
+            // The song, so a tapped chord can say where it sits in it rather
+            // than only what it is.
+            musicalKey: _bundle.reference?.musicalKey,
           )
         else
           Focus(

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../services/set_aside.dart';
+
 import '../../app/colabroom_theme.dart';
 import '../../services/chord_chart.dart';
 import '../../services/chord_names.dart';
@@ -17,17 +19,69 @@ import 'musician_sheet_logic.dart' show transposeChord;
 /// rather than being a rule imposed here — snapping already merged repeated
 /// chords into one cue, so a chord held for four bars is one cue that starts
 /// in the first of them.
+/// What the sheet needs to know about the song a chord came from.
+typedef _SongContext = ({String? musicalKey, List<String> used, Set<String> roles});
+
+/// The one line that says the chords are worth tapping.
+///
+/// Taylor: "lets make it easily accessible and known that this help is
+/// available, without being overbearing or intrusive. seemless and intuitive,
+/// thats the name of the game for this app."
+///
+/// So: said once, in the smallest type on the screen, under the chart rather
+/// than over it — and never again after somebody has tapped a chord, because
+/// at that point they know. A hint that keeps explaining a thing you have
+/// already done is the same nag as the card that would not close.
+///
+/// It also only appears when there is something worth tapping *for*: with no
+/// key detected the sheet can still show shapes, but "what works here" is
+/// most of the reason to look, and promising it when the song cannot answer
+/// is worse than staying quiet.
+const String _chordHintId = 'tap_a_chord';
+
 class ChordChartView extends StatelessWidget {
   const ChordChartView({
     required this.rows,
     required this.transpose,
     required this.fontScale,
+    this.musicalKey,
+    this.roles = const <String>{},
     super.key,
   });
 
   final List<ChartRow> rows;
   final int transpose;
   final double fontScale;
+
+  /// The song's key, so a tapped chord can say where it sits rather than only
+  /// what it is. Null when detection did not find one, which is a real
+  /// outcome on plenty of recordings and simply means fewer answers.
+  final String? musicalKey;
+
+  /// What the person plays. Order only -- see `whatWorksHere`.
+  final Set<String> roles;
+
+  /// The song, gathered once and handed down to the chords.
+  ///
+  /// Passed rather than looked up from an InheritedWidget: three widgets deep
+  /// is not far enough to justify one, and a chart that could be built with
+  /// or without its song attached is a chart that will one day be built
+  /// without it by accident.
+  _SongContext get _song => (
+        musicalKey: musicalKey,
+        used: _used,
+        roles: roles,
+      );
+
+  /// Every chord on this chart, so the sheet can say which of the key's
+  /// chords the song has not reached for yet. That question is the whole
+  /// difference between a reference and an answer.
+  List<String> get _used => <String>[
+        for (final row in rows)
+          for (final bar in row.bars)
+            for (final chord in bar.chords)
+              if (chord.chord.trim().isNotEmpty) chord.chord,
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +129,29 @@ class ChordChartView extends StatelessWidget {
               ),
             ),
           ),
+        // Under the chart, not over it. Somebody who already knows does not
+        // read it, and somebody who does not is looking at the chords when
+        // they run out of ideas -- which is exactly where this sits.
+        if (musicalKey != null && !SetAside.has(SetAside.hint, _chordHintId))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8, left: 2),
+            child: Row(
+              children: <Widget>[
+                Icon(Icons.touch_app_outlined,
+                    size: 13, color: AppColors.muted.withValues(alpha: 0.8)),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'Tap any chord for what works over it',
+                    style: TextStyle(
+                      color: AppColors.muted.withValues(alpha: 0.8),
+                      fontSize: 11.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         for (final row in drawn) ...<Widget>[
           if (row.sectionLabel != null)
             Padding(
@@ -89,7 +166,11 @@ class ChordChartView extends StatelessWidget {
                 ),
               ),
             ),
-          _ChartRowView(row: row, transpose: transpose, fontScale: fontScale),
+          _ChartRowView(
+              row: row,
+              transpose: transpose,
+              fontScale: fontScale,
+              song: _song),
         ],
       ],
     );
@@ -101,11 +182,13 @@ class _ChartRowView extends StatelessWidget {
     required this.row,
     required this.transpose,
     required this.fontScale,
+    required this.song,
   });
 
   final ChartRow row;
   final int transpose;
   final double fontScale;
+  final _SongContext song;
 
   @override
   Widget build(BuildContext context) {
@@ -150,6 +233,7 @@ class _ChartRowView extends StatelessWidget {
           for (var i = 0; i < row.bars.length; i += 1)
             Expanded(
               child: _BarCell(
+                song: song,
                 bar: row.bars[i],
                 transpose: transpose,
                 fontScale: fontScale,
@@ -170,9 +254,11 @@ class _BarCell extends StatelessWidget {
     required this.transpose,
     required this.fontScale,
     required this.closing,
+    required this.song,
   });
 
   final ChartBar bar;
+  final _SongContext song;
   final int transpose;
   final double fontScale;
 
@@ -204,7 +290,10 @@ class _BarCell extends StatelessWidget {
         children: <Widget>[
           for (var beat = 1; beat <= bar.beatsInBar; beat += 1)
             Expanded(
-              child: _BeatSlot(chord: byBeat[beat] ?? '', fontScale: fontScale),
+              child: _BeatSlot(
+                  chord: byBeat[beat] ?? '',
+                  fontScale: fontScale,
+                  song: song),
             ),
         ],
       ),
@@ -219,10 +308,15 @@ class _BarCell extends StatelessWidget {
 /// play every chord on it. The Toolbox used to answer that question in a
 /// different tab, in a different key.
 class _BeatSlot extends StatelessWidget {
-  const _BeatSlot({required this.chord, required this.fontScale});
+  const _BeatSlot({
+    required this.chord,
+    required this.fontScale,
+    required this.song,
+  });
 
   final String chord;
   final double fontScale;
+  final _SongContext song;
 
   @override
   Widget build(BuildContext context) {
@@ -246,7 +340,13 @@ class _BeatSlot extends StatelessWidget {
     if (chord.isEmpty) return text;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => showChordReference(context, chord),
+      onTap: () => showChordReference(
+        context,
+        chord,
+        keyLabel: song.musicalKey,
+        used: song.used,
+        roles: song.roles,
+      ),
       child: text,
     );
   }
