@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:colabroom/data/music_repository.dart';
 import '../../app/routes.dart';
+import '../../services/current_route.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart';
@@ -55,6 +56,20 @@ enum _SongMenuAction {
   share,
 }
 
+/// What the middle of the song is showing.
+///
+/// Taylor, on the web: opening the song sheet or the takes "opens that up for
+/// screen and feels very stretched and takes you out of the project... can we
+/// find a way to have that open in the project so you still feel in the same
+/// place".
+///
+/// Both were routes. A route is the right answer on a phone, where there is
+/// room for exactly one thing and the song has to get out of the way. On a
+/// desk it throws away the two things that say where you are - the library on
+/// the left and the song's own header above - to draw a screen designed for a
+/// 390px phone across 1500px, which is both disorienting and stretched.
+enum _WorkspacePanel { words, sheet, takes }
+
 class SongWorkspaceScreen extends StatefulWidget {
   const SongWorkspaceScreen({
     required this.projectId,
@@ -78,6 +93,13 @@ class SongWorkspaceScreen extends StatefulWidget {
 }
 
 class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsBindingObserver {
+  /// Which panel the song is showing. Only ever anything but [words] when
+  /// this workspace is embedded - on a phone these are still routes.
+  _WorkspacePanel _panel = _WorkspacePanel.words;
+
+  /// Whether the recorder should open with the sheet panel.
+  bool _panelAutoRecord = false;
+
   SongAudience? _audience;
   final ScrollController _contributionScroll = ScrollController();
   final ContinuousSongEditorController _continuousController = ContinuousSongEditorController();
@@ -737,6 +759,18 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     // heard nothing, and clearing the badge for them would mean a bandmate's
     // part is never surfaced again.
     final controller = BetaScope.of(context);
+    if (widget.embedded) {
+      setState(() => _panel = _WorkspacePanel.takes);
+      CurrentRoute.enter(AppRoutes.songTakes(project.id));
+      // Marked now rather than on the way out, because there is no way out to
+      // hook: the panel closes by becoming a different panel. The rule it is
+      // keeping is that opening is not hearing, and a panel somebody switched
+      // to deliberately is closer to hearing than a route they bounced off.
+      await controller.markProjectSeen(project.id);
+      return;
+    }
+    // Marked on the way out, not on the way in. Opening the screen is not
+    // hearing the takes.
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         settings: RouteSettings(name: AppRoutes.songTakes(project.id)),
@@ -751,6 +785,14 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   }
 
   Future<void> _openAnalysis(SongProject project, {bool autoRecord = false}) async {
+    if (widget.embedded) {
+      setState(() {
+        _panel = _WorkspacePanel.sheet;
+        _panelAutoRecord = autoRecord;
+      });
+      CurrentRoute.enter(AppRoutes.songSheet(project.id));
+      return;
+    }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         settings: RouteSettings(name: AppRoutes.songSheet(project.id)),
@@ -758,6 +800,20 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         fullscreenDialog: true,
       ),
     );
+    unawaited(_loadAnalysisBundle());
+  }
+
+  /// Back to the lyrics, and back to the song's own address.
+  ///
+  /// The bundle is reloaded the way the route's `await` used to reload it:
+  /// somebody who has just made a song sheet has changed what the header
+  /// above them should say.
+  void _closePanel() {
+    setState(() {
+      _panel = _WorkspacePanel.words;
+      _panelAutoRecord = false;
+    });
+    CurrentRoute.enter(AppRoutes.song(widget.projectId));
     unawaited(_loadAnalysisBundle());
   }
 
@@ -1352,6 +1408,34 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     final landscape = media.orientation == Orientation.landscape && media.size.width >= 540;
     final keyboardOpen = media.viewInsets.bottom > 0;
     final authorColor = _authorColorFor(room);
+    // What sits where the lyrics normally are. A panel replaces the words
+    // and nothing else: the song's header, its toolbar, the audience dial
+    // and the asks all stay exactly where they were, which is the whole of
+    // "you still feel in the same place".
+    //
+    // Each panel keeps its own Scaffold and app bar, so the inner bar names
+    // the panel and offers the way back while the outer header goes on
+    // naming the song. Nesting Scaffolds is ordinary Flutter and it is what
+    // lets these screens stay one screen rather than becoming two.
+    final Widget? panel = switch (_panel) {
+      _WorkspacePanel.words => null,
+      _WorkspacePanel.takes => SongLayersScreen(
+          key: ValueKey<String>('takes-${project.id}'),
+          roomId: project.roomId,
+          projectId: project.id,
+          songTitle: project.title,
+          embedded: true,
+          onClose: _closePanel,
+        ),
+      _WorkspacePanel.sheet => SongAnalysisScreen(
+          key: ValueKey<String>('sheet-${project.id}'),
+          project: project,
+          autoRecord: _panelAutoRecord,
+          embedded: true,
+          onClose: _closePanel,
+        ),
+    };
+
     final editor = ContinuousSongEditor(
       project: project,
       controller: _continuousController,
@@ -1364,6 +1448,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       loadingVoiceContributionId: _loadingVoiceContributionId,
       playingContributionId: _playingContributionId,
     );
+
+    final middle = panel ?? editor;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -1384,7 +1470,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 hasRecording: _analysisBundle?.reference != null,
                 onAnalyze: () => _openAnalysis(project),
                 onRecord: () => _openAnalysis(project, autoRecord: true),
-                editor: editor,
+                editor: middle,
                 audience: _audience,
                 onOpenAudience: () => unawaited(_openAudience(project)),
                 projectId: widget.projectId,
@@ -1432,7 +1518,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                       repository: controller.repository,
                     ),
                   const Divider(height: 1),
-                  Expanded(child: editor),
+                  Expanded(child: middle),
                 ],
               ),
       ),

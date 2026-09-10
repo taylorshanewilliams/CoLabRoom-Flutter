@@ -297,6 +297,24 @@ class _AppShellState extends State<AppShell> {
     CurrentRoute.enter(_destinations[value].label);
   }
 
+  /// Out, from however deep this is.
+  ///
+  /// The mark in the corner was drawn, placed and wired to nothing, and on a
+  /// desk there was no other way up: the tabs are along the top rather than
+  /// under a thumb, and a song, a room or the account can sit several routes
+  /// above them with nothing on screen that says *out*.
+  ///
+  /// Pops everything first, then lands on the first destination. Popping
+  /// after selecting would switch the tab underneath a route still covering
+  /// it, which looks like the button doing nothing.
+  void _goHome() {
+    final navigator = Navigator.of(context);
+    while (navigator.canPop()) {
+      navigator.pop();
+    }
+    _go(0);
+  }
+
   @override
   Widget build(BuildContext context) {
     // Space plays and pauses, the way it does in every other place
@@ -352,6 +370,7 @@ class _AppShellState extends State<AppShell> {
                     ],
                     selectedTab: _index,
                     onSelectTab: _go,
+                    onGoHome: _goHome,
                   ),
                   Expanded(
                     child: Row(
