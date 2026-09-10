@@ -485,6 +485,71 @@ List<Finding> auditInk(
   return findings;
 }
 
+// ------------------------------------------------- how much a screen asks
+
+/// How many separate things a person could tap here.
+///
+/// The best single proxy for "is this screen asking too much of somebody".
+/// Not a threshold — a dense list of songs is *supposed* to have forty
+/// tappable rows, and a screen with one button is not therefore better. What
+/// it is good for is comparison: two screens doing a similar job with very
+/// different counts is worth a look, and a screen whose count climbed without
+/// anybody adding a feature is worth a look too.
+///
+/// Counted off the semantics tree, so it is what an assistive technology
+/// would enumerate — which is also a fair model of what somebody scanning a
+/// screen has to work through.
+int countControls(WidgetTester tester) {
+  final seen = <String>{};
+  _walkSemantics(tester, (node, data, rect) {
+    if (!data.hasAction(SemanticsAction.tap)) return;
+    if (data.hasAction(SemanticsAction.scrollUp) ||
+        data.hasAction(SemanticsAction.scrollLeft)) {
+      return;
+    }
+    if (rect.width <= 0 || rect.height <= 0) return;
+    // Position, so two buttons with the same label are two buttons and one
+    // button drawn twice is one.
+    seen.add('${rect.left.round()},${rect.top.round()},'
+        '${rect.width.round()}x${rect.height.round()}');
+  });
+  return seen.length;
+}
+
+/// How many words a person is actually presented with.
+///
+/// Counted off the **semantics tree**, and the first two attempts at this got
+/// it wrong in ways worth recording.
+///
+/// Walking `allRenderObjects` counts every built paragraph, which on a pushed
+/// route means the screen underneath as well: `MaterialPageRoute` keeps the
+/// route below in the tree, so the Inbox was being credited with the whole of
+/// the Songs tab sitting behind it. That is why compressing three sentences on
+/// the Inbox moved the number by six words while visibly changing the screen —
+/// most of what was being counted was not the Inbox at all.
+///
+/// Clipping to the viewport rectangle does not fix it, because the route below
+/// occupies exactly the same rectangle. What does fix it is asking the same
+/// tree an assistive technology asks: semantics stops at the top route, which
+/// is also the honest definition of what somebody is being presented with.
+int countWords(WidgetTester tester, Size viewport) {
+  var words = 0;
+  final counted = <String>{};
+  _walkSemantics(tester, (node, data, rect) {
+    if (!rect.overlaps(Offset.zero & viewport)) return;
+    final text = <String>[data.label, data.value]
+        .where((part) => part.trim().isNotEmpty)
+        .join(' ');
+    if (text.trim().isEmpty) return;
+    // A node and its merged parent can carry the same string; counting a
+    // heading twice because a card repeated it is not the screen's fault.
+    final key = '${rect.left.round()},${rect.top.round()}|$text';
+    if (!counted.add(key)) return;
+    words += text.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+  });
+  return words;
+}
+
 // ------------------------------------------------------- what actually threw
 
 /// A screen that threw while being drawn.
