@@ -716,9 +716,18 @@ class _NotificationCard extends StatelessWidget {
               message: 'Clear this notification',
               child: InkResponse(
                 onTap: onClear,
-                radius: 18,
+                radius: 22,
+                // The glyph stays 16. The *target* was 24x18, which is under
+                // the 24x24 floor in WCAG 2.2 SC 2.5.8 — and this is a
+                // dismiss button sitting beside a row somebody wants to open,
+                // so a miss either loses the thing they meant to read or
+                // clears the thing they meant to keep.
+                //
+                // Padding rather than a bigger icon: 44 is Apple's number and
+                // 48 is Material's, and a close cross drawn at either is a
+                // statement rather than a dismissal.
                 child: const Padding(
-                  padding: EdgeInsets.only(left: 8, top: 2),
+                  padding: EdgeInsets.fromLTRB(17, 14, 11, 14),
                   child: Icon(Icons.close_rounded,
                       size: 16, color: AppColors.muted),
                 ),
