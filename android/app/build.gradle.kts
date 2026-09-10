@@ -13,6 +13,11 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // flutter_local_notifications schedules against java.time, which is
+        // API 26. Desugaring backfills it for older phones; without this the
+        // build fails at checkDebugAarMetadata with a message about AAR
+        // metadata rather than about notifications.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -56,4 +61,11 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // The library the line above promises. Pinned rather than floating: a
+    // desugaring library that changes under a build is a class of failure
+    // nobody would think to look for here.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
