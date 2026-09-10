@@ -206,7 +206,10 @@ jobs:
       # build is the same one the earlier validation run already proved
       # works; fastlane's build_app below does the real signed archive.
       - name: Generate Podfile and prime the iOS build
-        run: flutter build ios --release --no-codesign
+        # The dart-define belongs here rather than on fastlane's
+        # build_app: this step is what compiles Dart into
+        # App.framework, and xcodebuild only archives what it finds.
+        run: flutter build ios --release --no-codesign --dart-define=BUILD_REF=${GITHUB_SHA::7}
 
       # Written fresh every run rather than committed — keeps the signing
       # pipeline entirely inside this workflow file, matching how the

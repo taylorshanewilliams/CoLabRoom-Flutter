@@ -103,7 +103,11 @@ jobs:
         # sold in the last several years — is around a third of that. The
         # feature work is not what makes testing slow; waiting on 175MB
         # twice for every one-line fix is.
-        run: flutter build apk --split-per-abi --${{ (github.event_name == 'workflow_dispatch' && inputs.build_mode == 'release') && 'release' || 'debug' }}
+        # BUILD_REF so the Account screen can say exactly which build
+        # this is. Every release otherwise reports the same version
+        # number, which makes an APK that failed to install over its
+        # predecessor indistinguishable from one that worked.
+        run: flutter build apk --split-per-abi --${{ (github.event_name == 'workflow_dispatch' && inputs.build_mode == 'release') && 'release' || 'debug' }} --dart-define=BUILD_REF=${GITHUB_SHA::7}
 
       - uses: actions/upload-artifact@v4
         with:

@@ -97,7 +97,7 @@ class ErrorReporter {
           'in_message': cleaned.length > 2000 ? cleaned.substring(0, 2000) : cleaned,
           'in_stage': stage,
           'in_severity': severity,
-          'in_app_version': BetaConfig.appVersion,
+          'in_app_version': BetaConfig.fullVersion,
           'in_platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
         });
         return;
@@ -136,7 +136,7 @@ class ErrorReporter {
             ),
             'in_stage': stage,
             'in_severity': severity,
-            'in_app_version': BetaConfig.appVersion,
+            'in_app_version': BetaConfig.fullVersion,
             'in_platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
           },
         );
@@ -175,7 +175,7 @@ class ErrorReporter {
         // and a background upload finishing an hour later is not part of the
         // session that began it.
         'session_id': AppSession.id,
-        'app_version': BetaConfig.appVersion,
+        'app_version': BetaConfig.fullVersion,
         'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
     });
   }
