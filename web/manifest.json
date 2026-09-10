@@ -5,7 +5,7 @@
     "display": "standalone",
     "background_color": "#050B16",
     "theme_color": "#050B16",
-    "description": "Songwriting for bands \u2014 lyrics, chords, and voice notes in one room.",
+    "description": "Songwriting for musicians \u2014 lyrics, chords, and voice notes in one room.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

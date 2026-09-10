@@ -1069,7 +1069,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       builder: (dialogContext) => AlertDialog(
         title: Text('Delete ${TakeNaming.describe(layer.toTake('', enabled: true))}?'),
         content: const Text(
-          'This removes it for the whole band, and the audio goes with it. '
+          'This removes it for everyone, and the audio goes with it. '
           'Muting keeps a take out of your mix without touching anyone '
           'else\'s.',
         ),
