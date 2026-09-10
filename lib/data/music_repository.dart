@@ -434,6 +434,13 @@ abstract interface class MusicRepository {
     String? soundsLike,
   });
 
+  /// Find somebody by name.
+  ///
+  /// Only people who have turned discoverability on — being findable is off
+  /// until somebody switches it on, and a name search that ignored that
+  /// would quietly undo the one privacy control the Open Mic has.
+  Future<List<FoundPerson>> searchPeople(String query);
+
   /// Who can be told about this song, and why each of them is on the list.
   ///
   /// Everybody in the room it lives in, plus your own people. Not anybody

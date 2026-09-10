@@ -698,6 +698,39 @@ class Connection {
   }
 }
 
+/// Somebody found by name, and where the two of you already stand.
+class FoundPerson {
+  const FoundPerson({
+    required this.personId,
+    required this.displayName,
+    this.avatarPath,
+    this.plays = const <String>[],
+    this.city,
+    this.already = ConnectionStanding.none,
+  });
+
+  final String personId;
+  final String displayName;
+  final String? avatarPath;
+  final List<String> plays;
+
+  /// Shown only by somebody who chose to show it.
+  final String? city;
+
+  /// What the button should say. Decided by the server rather than by the
+  /// client guessing from a list it may not have loaded.
+  final ConnectionStanding already;
+}
+
+/// Where two people stand: strangers, asked, or connected.
+enum ConnectionStanding { none, pending, accepted }
+
+ConnectionStanding standingFrom(String? raw) => switch (raw) {
+      'pending' => ConnectionStanding.pending,
+      'accepted' => ConnectionStanding.accepted,
+      _ => ConnectionStanding.none,
+    };
+
 /// Somebody the app can say a true sentence about, who is not connected yet.
 class SuggestedPerson {
   const SuggestedPerson({
