@@ -1020,6 +1020,41 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<SuggestedPerson>> peopleToTell(String projectId) async {
+    final rows = await client.rpc<dynamic>(
+      'people_to_tell',
+      params: <String, dynamic>{'in_project': projectId},
+    );
+    return <SuggestedPerson>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        SuggestedPerson(
+          personId: (row as Map)['person_id'] as String,
+          displayName: (row['display_name'] as String?) ?? 'Someone',
+          avatarPath: row['avatar_path'] as String?,
+          because: (row['because'] as String?) ?? '',
+        ),
+    ];
+  }
+
+  @override
+  Future<int> tellAboutSong(
+    String projectId, {
+    String? note,
+    List<String>? personIds,
+  }) async {
+    final told = await client.rpc<dynamic>(
+      'tell_about_song',
+      params: <String, dynamic>{
+        'in_project': projectId,
+        'in_note': note,
+        'in_targets':
+            (personIds == null || personIds.isEmpty) ? null : personIds,
+      },
+    );
+    return (told as int?) ?? 0;
+  }
+
+  @override
   Future<List<Connection>> listConnections() async {
     final rows = await client.rpc<dynamic>('my_connections');
     return <Connection>[
