@@ -2,6 +2,7 @@ import 'package:colabroom/app/beta_scope.dart';
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
+import 'package:colabroom/features/rooms/room_detail_screen.dart';
 import 'package:colabroom/features/songs/songs_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -104,6 +105,32 @@ void main() {
             reason: 'found "$glyph" in "$text"');
       }
     }
+  });
+
+  testWidgets('a room with no logo asks for one where the logo would be',
+      (tester) async {
+    // Optional, and the user decides — but only if they can find it. The
+    // upload lived in the overflow menu, which is where people find things
+    // they already know exist. Removing the glyph left an empty circle in
+    // exactly the place somebody looks for a room's picture, so the circle
+    // does the asking.
+    final controller = await _rooms(tester);
+    tester.view.physicalSize = const Size(500, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(BetaScope(
+      controller: controller,
+      child: MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: RoomDetailScreen(roomId: controller.rooms.first.id),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byKey(const Key('room_logo_button')), findsOneWidget);
+    expect(find.byIcon(Icons.add_photo_alternate_outlined), findsOneWidget,
+        reason: 'an empty circle is a hole; this one is an invitation');
   });
 
   test('the glyph is still stored, so nothing that reads it breaks', () async {
