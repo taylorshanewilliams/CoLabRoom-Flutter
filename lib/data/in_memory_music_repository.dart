@@ -1214,6 +1214,29 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> setBio(String bio) async {
+    final cleaned = bio.trim();
+    _me = Musician(
+      id: _me.id,
+      displayName: _me.displayName,
+      avatarPath: _me.avatarPath,
+      city: _me.city,
+      // Empty clears it, the same as set_bio does. A field you can fill in
+      // and not empty is not a field.
+      bio: cleaned.isEmpty
+          ? null
+          : (cleaned.length > 300 ? cleaned.substring(0, 300) : cleaned),
+      plays: _me.plays,
+      soundsLike: _me.soundsLike,
+      partsRecorded: _me.partsRecorded,
+      songsPlayedOn: _me.songsPlayedOn,
+      peopleWorkedWith: _me.peopleWorkedWith,
+      discoverable: _me.discoverable,
+      locationVisibility: _me.locationVisibility,
+    );
+  }
+
+  @override
   Future<void> setOpenMicPresence({
     required bool discoverable,
     String? city,
@@ -1226,6 +1249,7 @@ class InMemoryMusicRepository implements MusicRepository {
       displayName: _me.displayName,
       avatarPath: _me.avatarPath,
       city: city == null ? _me.city : (city.trim().isEmpty ? null : city.trim()),
+      bio: _me.bio,
       plays: plays ?? _me.plays,
       // Five, deduplicated, the way tidy_sounds_like does it on the server —
       // so the preview cannot show a profile the database would not accept.
@@ -1251,6 +1275,10 @@ class InMemoryMusicRepository implements MusicRepository {
       id: 'preview-mara',
       displayName: 'Mara Ellison',
       city: 'Glasgow',
+      bio: 'Sing mostly, write when nobody is listening. Twelve years in '
+          'bands and none of them lasted. Happiest singing on a song that '
+          'somebody else started.',
+      soundsLike: <String>['indie', 'folk', 'alt-country'],
       plays: <String>['vocal', 'harmony'],
       partsRecorded: <String, int>{'vocal': 9, 'harmony': 4},
       songsPlayedOn: 7,

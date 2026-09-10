@@ -644,6 +644,7 @@ class Musician {
     required this.peopleWorkedWith,
     this.avatarPath,
     this.city,
+    this.bio,
     this.discoverable,
     this.locationVisibility,
     this.soundsLike = const <String>[],
@@ -659,6 +660,16 @@ class Musician {
   final String id;
   final String displayName;
   final String? avatarPath;
+
+  /// What somebody says about themselves, in their own words.
+  ///
+  /// The only field on a profile that is neither counted by the app nor
+  /// picked from a list. Everything else here is a number the app worked out
+  /// or a chip somebody tapped; this is the sentence a person would actually
+  /// lead with — twenty years of playing, only writes at night, looking for a
+  /// band rather than a session. Null is the normal case and not a gap to
+  /// apologise for.
+  final String? bio;
 
   /// What they say their music sounds like, in their own words.
   ///

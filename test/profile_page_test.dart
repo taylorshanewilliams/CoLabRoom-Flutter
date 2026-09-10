@@ -79,10 +79,20 @@ void main() {
     // Two sections, two different promises, both said out loud. The notes are
     // the whole design: a number nobody can inflate, beside a list anybody can
     // write, and the page saying which is which.
-    expect(find.text('PLAYED HERE'), findsOneWidget);
+    // Revealed rather than found where it used to sit. The page grew a bio
+    // above this, and a lazy scroll view does not build what is below the
+    // fold — which looks exactly like the section having been deleted.
+    expect(await _reveal(tester, find.text('PLAYED HERE')), findsOneWidget);
     expect(find.text('counted, not claimed'), findsOneWidget);
     expect(await _reveal(tester, find.text('ALSO PLAYS')), findsOneWidget);
-    expect(find.text('their own words'), findsOneWidget);
+    // Two of them now, and that is the point rather than a regression.
+    // "Sounds like" has existed on this page since it was written and never
+    // had anything to show, because `musician_profile` did not return the
+    // column — so the section that makes "like-minded" mean anything was
+    // reaching the matcher and nobody else. Both are claims, both carry the
+    // note that says so.
+    expect(find.text('their own words'), findsWidgets);
+    expect(find.text('SOUNDS LIKE'), findsOneWidget);
 
     // The count is shown per part rather than as a single score, because
     // "vocal · 9" is a fact somebody can check and a rating is not.
@@ -195,7 +205,8 @@ void main() {
 
     // The verb this page did not have. Open Mic could find you a bass player
     // and then the app stopped.
-    expect(find.text('Ask them to play on…'), findsOneWidget);
+    expect(await _reveal(tester, find.text('Ask them to play on…')),
+        findsOneWidget);
     // Two doors, deliberately different sizes: one song to meet somebody,
     // a whole room once you know them. The small one is the loud one.
     expect(find.text('Invite to a room'), findsOneWidget);
@@ -305,7 +316,10 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Invite to a room'));
+    // Scrolled to first: the bio above these buttons pushed them off the
+    // first screen, and tapping a widget a lazy list has not built yet fails
+    // in a way that reads as the button having been removed.
+    await tester.tap(await _reveal(tester, find.text('Invite to a room')));
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 60));
     }
