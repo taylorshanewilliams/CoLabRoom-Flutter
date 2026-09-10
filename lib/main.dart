@@ -12,6 +12,7 @@ import 'services/app_session.dart';
 import 'services/crash_reporter.dart';
 import 'services/notification_shade.dart';
 import 'services/push_registration.dart';
+import 'services/set_aside.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,6 +37,9 @@ Future<void> main() async {
     // open -- which Android does not do for you, and which is why pressing
     // the test button and watching the screen produced nothing at all.
     unawaited(NotificationShade.start());
+    // What somebody has already said no to, read once before the first
+    // screen draws, so a dismissed card does not flash back up on launch.
+    await SetAside.load();
     // The denominator for every error rate. Unawaited: a session that cannot
     // be recorded costs one missing count, and an app that will not open
     // because its analytics failed costs a user.
