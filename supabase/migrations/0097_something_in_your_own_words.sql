@@ -83,7 +83,15 @@ grant execute on function public.set_bio(text) to authenticated;
 -- `sounds_like` is added at the same time because it has been collected since
 -- 0076 and shown on this page never. It is the field that makes "like-minded"
 -- mean anything and it was only ever reaching the matcher.
-create or replace function public.musician_profile(target uuid)
+-- Dropped first, because two of its output columns are new.
+--
+-- `create or replace` refuses to change a function's return type — the smoke
+-- replay caught this before it reached anything, with "cannot change return
+-- type of existing function". Dropping takes the grants with it, so they are
+-- restated below rather than assumed.
+drop function if exists public.musician_profile(uuid);
+
+create function public.musician_profile(target uuid)
 returns table (
   id uuid,
   display_name text,
@@ -155,7 +163,10 @@ grant execute on function public.musician_profile(uuid) to authenticated;
 -- written to be read by somebody deciding whether to work with you — which is
 -- precisely what that page is for. Nothing here reaches anybody who has not
 -- turned themselves on.
-create or replace function public.public_musicians(
+-- Same again: `bio` is a new output column, so this one has to go first too.
+drop function if exists public.public_musicians(integer, integer);
+
+create function public.public_musicians(
   in_limit integer default 500,
   in_offset integer default 0
 )
