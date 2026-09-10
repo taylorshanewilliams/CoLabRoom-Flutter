@@ -36,6 +36,17 @@ const Map<String, int> _pitchValues = <String, int>{
 
 /// Spelling follows the name you were given. A song in Eb should not be told
 /// its fifth is A#, and a song in F# should not be told its root is Gb.
+/// Whether two note names are the same pitch.
+///
+/// Compared as pitches rather than as text, because Bb and A# are the same
+/// note — and a chart spelled one way against a key spelled the other would
+/// otherwise never match.
+bool samePitch(String a, String b) {
+  final pa = _pitchValues[a.trim()];
+  final pb = _pitchValues[b.trim()];
+  return pa != null && pa == pb;
+}
+
 String noteName(int pitch, {required bool flats}) {
   final index = (pitch % 12 + 12) % 12;
   return flats ? _flatNames[index] : _sharpNames[index];
