@@ -57,8 +57,22 @@ class SongLayersScreen extends StatefulWidget {
     required this.songTitle,
     this.layerService,
     this.analysisService,
+    this.embedded = false,
+    this.onClose,
     super.key,
   });
+
+  /// True when this is a panel inside the song rather than a route on top of
+  /// it.
+  ///
+  /// On a desk the song does not go anywhere to show its takes: the library
+  /// stays on the left, the song's own header stays above, and this fills the
+  /// middle. What changes is the way out - [onClose] returns to the words
+  /// rather than popping a route that was never pushed.
+  final bool embedded;
+
+  /// Back to the lyrics, when there is no route to pop.
+  final VoidCallback? onClose;
 
   /// Substituted in tests, real everywhere else.
   ///
@@ -1296,6 +1310,14 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       backgroundColor: AppColors.deepNavy,
       appBar: AppBar(
         backgroundColor: AppColors.deepNavy,
+        automaticallyImplyLeading: !widget.embedded,
+        leading: widget.embedded
+            ? IconButton(
+                onPressed: widget.onClose,
+                tooltip: 'Back to the words',
+                icon: const Icon(Icons.arrow_back_rounded),
+              )
+            : null,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[

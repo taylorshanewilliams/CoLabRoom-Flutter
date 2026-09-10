@@ -28,9 +28,22 @@ import '../../services/user_facing_error.dart';
 enum _ReferenceSource { record, file }
 
 class SongAnalysisScreen extends StatefulWidget {
-  const SongAnalysisScreen({required this.project, this.autoRecord = false, super.key});
+  const SongAnalysisScreen({
+    required this.project,
+    this.autoRecord = false,
+    this.embedded = false,
+    this.onClose,
+    super.key,
+  });
 
   final SongProject project;
+
+  /// True when this is a panel inside the song rather than a route on top of
+  /// it. See `SongLayersScreen.embedded`, which means the same thing.
+  final bool embedded;
+
+  /// Back to the lyrics, when there is no route to pop.
+  final VoidCallback? onClose;
 
   /// When true (the "Record Audio" song-menu entry), jump straight into the
   /// recorder instead of landing on this screen's "Add/Replace recording"
@@ -515,6 +528,14 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
       appBar: AppBar(
         title: const Text('Song Sheet'),
         backgroundColor: AppColors.deepNavy,
+        automaticallyImplyLeading: !widget.embedded,
+        leading: widget.embedded
+            ? IconButton(
+                onPressed: widget.onClose,
+                tooltip: 'Back to the words',
+                icon: const Icon(Icons.arrow_back_rounded),
+              )
+            : null,
       ),
       body: SafeArea(
         child: _loading

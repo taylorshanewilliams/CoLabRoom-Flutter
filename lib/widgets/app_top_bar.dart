@@ -23,6 +23,7 @@ class AppTopBar extends StatelessWidget {
     this.tabs = const <String>[],
     this.selectedTab = 0,
     this.onSelectTab,
+    this.onGoHome,
     super.key,
   });
 
@@ -40,6 +41,20 @@ class AppTopBar extends StatelessWidget {
   final List<String> tabs;
   final int selectedTab;
   final ValueChanged<int>? onSelectTab;
+
+  /// The way back to the top, from anywhere.
+  ///
+  /// Taylor, on the web: the mark "does nothing, maybe pressing that could be
+  /// the home button that brings you back to just full screen home, because
+  /// im not seeing a way to even do that on the web version." He is right
+  /// that there was no way. On a phone the bottom bar is always under your
+  /// thumb and every screen has a back arrow; on a desk the tabs are up here
+  /// and a song, a room or the account can be several routes deep with
+  /// nothing that says *out*.
+  ///
+  /// A logo that goes home is the oldest convention the web has, and this one
+  /// was drawn, placed in the corner, and wired to nothing.
+  final VoidCallback? onGoHome;
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +85,20 @@ class AppTopBar extends StatelessWidget {
           // able to give way to the bell and the avatar. It was Expanded
           // before the tabs existed, and taking that away overflowed the
           // bar by 104px on every phone.
-          const Flexible(child: BrandMark()),
+          Flexible(
+            child: onGoHome == null
+                ? const BrandMark()
+                : Semantics(
+                    button: true,
+                    label: 'Home',
+                    child: InkWell(
+                      key: const Key('brand_home_button'),
+                      onTap: onGoHome,
+                      borderRadius: BorderRadius.circular(15),
+                      child: const BrandMark(),
+                    ),
+                  ),
+          ),
           if (tabs.isEmpty)
             const Spacer()
           else ...<Widget>[
