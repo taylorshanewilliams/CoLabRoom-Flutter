@@ -491,7 +491,7 @@ class _AccountScreenState extends State<AccountScreen> {
         // whole app on the one screen where somebody goes looking for
         // reassurance that it is not broken.
           Text(
-            'CoLabRoom · ${BetaConfig.appVersion}',
+            'CoLabRoom · ${BetaConfig.fullVersion}',
             textAlign: TextAlign.center,
             style: const TextStyle(color: AppColors.muted),
           ),

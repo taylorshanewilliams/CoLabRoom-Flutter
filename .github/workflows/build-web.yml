@@ -57,7 +57,8 @@ jobs:
       - name: Build web
         run: |
           flutter build web --release \
-            --dart-define=AUTH_REDIRECT_URL=https://app.colabroom.com/
+            --dart-define=AUTH_REDIRECT_URL=https://app.colabroom.com/ \
+            --dart-define=BUILD_REF=${GITHUB_SHA::7}
 
       - uses: actions/upload-artifact@v4
         with:
