@@ -1346,6 +1346,31 @@ class InMemoryMusicRepository implements MusicRepository {
       <({String projectId, String? note, List<String>? personIds, int told})>[];
 
   @override
+  Future<List<FoundPerson>> searchPeople(String query) async {
+    final needle = query.trim().toLowerCase();
+    if (needle.isEmpty) return const <FoundPerson>[];
+    final hidden = _blocked.map((b) => b.id).toSet();
+    return <FoundPerson>[
+      for (final m in _everyone)
+        if (!hidden.contains(m.id) &&
+            m.displayName.toLowerCase().contains(needle))
+          FoundPerson(
+            personId: m.id,
+            displayName: m.displayName,
+            avatarPath: m.avatarPath,
+            plays: m.plays,
+            city: m.city,
+            already: standingFrom(
+              _connections
+                  .where((c) => c.personId == m.id)
+                  .map((c) => c.accepted ? 'accepted' : 'pending')
+                  .firstOrNull,
+            ),
+          ),
+    ];
+  }
+
+  @override
   Future<List<SuggestedPerson>> peopleToTell(String projectId) async {
     final hidden = _blocked.map((b) => b.id).toSet();
     final room = _rooms.firstWhere(

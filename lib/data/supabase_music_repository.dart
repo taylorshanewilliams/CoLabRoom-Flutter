@@ -1020,6 +1020,30 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<FoundPerson>> searchPeople(String query) async {
+    if (query.trim().isEmpty) return const <FoundPerson>[];
+    final rows = await client.rpc<dynamic>(
+      'search_people',
+      params: <String, dynamic>{'q': query.trim()},
+    );
+    return <FoundPerson>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        FoundPerson(
+          personId: (row as Map)['person_id'] as String,
+          displayName: (row['display_name'] as String?) ?? 'Someone',
+          avatarPath: row['avatar_path'] as String?,
+          plays: <String>[
+            for (final part
+                in (row['plays'] as List<dynamic>? ?? const <dynamic>[]))
+              part.toString(),
+          ],
+          city: row['city'] as String?,
+          already: standingFrom(row['already'] as String?),
+        ),
+    ];
+  }
+
+  @override
   Future<List<SuggestedPerson>> peopleToTell(String projectId) async {
     final rows = await client.rpc<dynamic>(
       'people_to_tell',
