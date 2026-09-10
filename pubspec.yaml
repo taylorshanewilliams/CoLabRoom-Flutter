@@ -38,6 +38,7 @@ dependencies:
   # scheme — https only, which is also all the link allowlist admits.
   url_launcher: ^6.3.1
   xml: ^7.0.1
+  flutter_local_notifications: ^22.3.0
 
 dev_dependencies:
   flutter_test:

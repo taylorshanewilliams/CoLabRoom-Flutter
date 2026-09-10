@@ -35,6 +35,13 @@
                 <data android:scheme="com.colabroom.beta" android:host="login-callback"/>
             </intent-filter>
         </activity>
+        <!-- Must name a channel the app has actually created; see
+             NotificationShade.channelId. Naming one that does not exist
+             makes Android drop every notification that arrives while the
+             app is closed, silently. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="colabroom_default" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
