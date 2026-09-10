@@ -1113,7 +1113,12 @@ class _ThreeDoors extends StatelessWidget {
           key: const Key('door_band'),
           icon: Icons.group_rounded,
           tint: AppColors.cyan,
-          title: 'Start something with your band',
+          // Not "with your band". This screen's three doors are meant to
+          // cover somebody at any stage — play something alone, start
+          // something with other people, go and find those people — and the
+          // middle one was the only one that first required you to already
+          // have them.
+          title: 'Start something together',
           detail: 'A room everybody adds to, from wherever they are, whenever '
               'they are free.',
           onTap: onNewSong,

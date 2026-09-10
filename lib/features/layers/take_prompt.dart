@@ -35,7 +35,7 @@ Future<({TakePart part, String? performer})?> askWhatThatWas(
           ),
           const SizedBox(height: 4),
           const Text(
-            'So the band can tell the takes apart.',
+            'So everyone can tell the takes apart.',
             style: TextStyle(color: AppColors.muted, fontSize: 12.5),
           ),
           const SizedBox(height: 14),
