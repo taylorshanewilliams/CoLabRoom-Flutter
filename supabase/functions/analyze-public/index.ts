@@ -114,6 +114,30 @@ Deno.serve(async (request: Request) => {
   if (request.method !== 'POST') {
     return json({ error: 'Method not allowed' }, 405);
   }
+
+  // POST /analyze-public/note {"step": "..."} adds one to a daily counter.
+  //
+  // It rides on this function rather than getting its own so that the static
+  // site needs no Supabase key of its own — the marketing pages currently
+  // ship no credentials at all, and a counter is not worth being the reason
+  // they start.
+  //
+  // Answered before the configuration check below on purpose: measurement has
+  // to keep working on a day the chord service does not, because that is one
+  // of the days it has something to say.
+  if (new URL(request.url).pathname.endsWith('/note')) {
+    try {
+      const { step } = await request.json();
+      if (typeof step === 'string' && step.length < 32) {
+        await createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+          .rpc('note_public_tool_step', { in_step: step });
+      }
+    } catch (_) {
+      // A counter must never be the reason a page reports a problem.
+    }
+    return new Response(null, { status: 204, headers: CORS });
+  }
+
   if (!CHORD_SERVICE_URL || !CHORD_SERVICE_API_KEY || !PUBLIC_TOOL_SALT) {
     return json({ error: 'The chord tool is not configured.' }, 503);
   }
