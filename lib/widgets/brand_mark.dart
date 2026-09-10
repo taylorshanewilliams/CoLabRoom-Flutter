@@ -25,7 +25,7 @@ class BrandMark extends StatelessWidget {
               BoxShadow(color: Color(0x243AD3FF), blurRadius: 24),
             ],
           ),
-          child: const CustomPaint(painter: _CoLabRoomMarkPainter()),
+          child: const CustomPaint(painter: CoLabRoomMarkPainter()),
         ),
         const SizedBox(width: 12),
         // FittedBox, not an ellipsis, and not a fixed size.
@@ -66,8 +66,17 @@ class BrandMark extends StatelessWidget {
   }
 }
 
-class _CoLabRoomMarkPainter extends CustomPainter {
-  const _CoLabRoomMarkPainter();
+/// The mark itself, without the wordmark beside it or a box around it.
+///
+/// Public so that there is exactly one definition of it. The launcher icon,
+/// the favicon and the Progressive Web App icons are all generated from this
+/// painter rather than drawn again by hand somewhere else - which is how
+/// app.colabroom.com came to be serving Flutter's own logo in the browser tab
+/// for three weeks: web/ was bootstrapped with the SDK's placeholder icons
+/// and nothing ever replaced them, because replacing them meant finding a
+/// rasteriser rather than reusing the drawing the app already had.
+class CoLabRoomMarkPainter extends CustomPainter {
+  const CoLabRoomMarkPainter();
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -100,5 +109,5 @@ class _CoLabRoomMarkPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _CoLabRoomMarkPainter oldDelegate) => false;
+  bool shouldRepaint(covariant CoLabRoomMarkPainter oldDelegate) => false;
 }
