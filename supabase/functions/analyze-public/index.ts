@@ -111,33 +111,41 @@ Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS });
   }
-  if (request.method !== 'POST') {
-    return json({ error: 'Method not allowed' }, 405);
-  }
-
-  // POST /analyze-public/note {"step": "..."} adds one to a daily counter.
+  // GET /analyze-public/note?step=... adds one to a daily counter.
   //
   // It rides on this function rather than getting its own so that the static
   // site needs no Supabase key of its own — the marketing pages currently
   // ship no credentials at all, and a counter is not worth being the reason
   // they start.
   //
-  // Answered before the configuration check below on purpose: measurement has
-  // to keep working on a day the chord service does not, because that is one
-  // of the days it has something to say.
-  if (new URL(request.url).pathname.endsWith('/note')) {
-    try {
-      const { step } = await request.json();
-      if (typeof step === 'string' && step.length < 32) {
+  // **A GET for a call that changes a number.** The rule below — anything
+  // that is not a POST is refused — runs before the quota is claimed, and the
+  // quota is claimed before the body is read. So a POST beacon arriving at a
+  // version of this function that predates it would spend one of somebody's
+  // five free songs on a page load. GET is the one shape that is harmless in
+  // both directions of a deploy skew, and this endpoint has no side effect
+  // worth protecting from a prefetch.
+  //
+  // Answered before the method rule and the configuration check on purpose:
+  // measurement has to keep working on a day the chord service does not,
+  // because that is one of the days it has something to say.
+  const url = new URL(request.url);
+  if (url.pathname.endsWith('/note')) {
+    const step = url.searchParams.get('step') ?? '';
+    if (step && step.length < 32) {
+      try {
         await createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
           .rpc('note_public_tool_step', { in_step: step });
+      } catch (_) {
+        // A counter must never be the reason a page reports a problem.
       }
-    } catch (_) {
-      // A counter must never be the reason a page reports a problem.
     }
     return new Response(null, { status: 204, headers: CORS });
   }
 
+  if (request.method !== 'POST') {
+    return json({ error: 'Method not allowed' }, 405);
+  }
   if (!CHORD_SERVICE_URL || !CHORD_SERVICE_API_KEY || !PUBLIC_TOOL_SALT) {
     return json({ error: 'The chord tool is not configured.' }, 503);
   }
