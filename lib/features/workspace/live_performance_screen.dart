@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+
+import '../../services/audio_source_for.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/colabroom_theme.dart';
@@ -137,7 +139,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       final path = await SongAnalysisService().ensureLocalReference(reference);
       if (!mounted) return;
       final player = AudioPlayer();
-      await player.setSource(DeviceFileSource(path));
+      await player.setSource(audioSourceFor(path));
       if (!mounted) {
         await player.dispose();
         return;
