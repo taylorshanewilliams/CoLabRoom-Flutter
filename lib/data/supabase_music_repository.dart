@@ -1020,6 +1020,90 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<Connection>> listConnections() async {
+    final rows = await client.rpc<dynamic>('my_connections');
+    return <Connection>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        _connection(Map<String, dynamic>.from(row as Map)),
+    ];
+  }
+
+  Connection _connection(Map<String, dynamic> row) => Connection(
+        personId: row['person_id'] as String,
+        displayName: (row['display_name'] as String?) ?? 'Someone',
+        avatarPath: row['avatar_path'] as String?,
+        plays: <String>[
+          for (final part in (row['plays'] as List<dynamic>? ?? const <dynamic>[]))
+            part.toString(),
+        ],
+        accepted: row['state'] == 'accepted',
+        incoming: row['direction'] == 'incoming',
+        availability: availabilityFrom(row['availability'] as String?),
+        availabilityNote: row['availability_note'] as String?,
+        availabilityUntil: row['availability_until'] == null
+            ? null
+            : DateTime.parse(row['availability_until'] as String).toLocal(),
+        since: row['since'] == null
+            ? null
+            : DateTime.parse(row['since'] as String).toLocal(),
+      );
+
+  @override
+  Future<bool> requestConnection(String personId) async {
+    final state = await client.rpc<dynamic>(
+      'request_connection',
+      params: <String, dynamic>{'other_id': personId},
+    );
+    return state == 'accepted';
+  }
+
+  @override
+  Future<void> respondToConnection(String personId, {required bool accept}) async {
+    await client.rpc<dynamic>(
+      'respond_to_connection',
+      params: <String, dynamic>{'other_id': personId, 'accept': accept},
+    );
+  }
+
+  @override
+  Future<void> removeConnection(String personId) async {
+    await client.rpc<dynamic>(
+      'remove_connection',
+      params: <String, dynamic>{'other_id': personId},
+    );
+  }
+
+  @override
+  Future<List<SuggestedPerson>> peopleYouMightAdd() async {
+    final rows = await client.rpc<dynamic>('people_you_might_add');
+    return <SuggestedPerson>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        SuggestedPerson(
+          personId: (row as Map)['person_id'] as String,
+          displayName: (row['display_name'] as String?) ?? 'Someone',
+          avatarPath: row['avatar_path'] as String?,
+          because: (row['because'] as String?) ?? '',
+        ),
+    ];
+  }
+
+  @override
+  Future<void> setAvailability(
+    Availability state, {
+    String? note,
+    DateTime? until,
+  }) async {
+    await client.rpc<dynamic>(
+      'set_availability',
+      params: <String, dynamic>{
+        'new_state': state.name,
+        'note': note,
+        'until': until?.toUtc().toIso8601String(),
+      },
+    );
+  }
+
+  @override
   Future<void> removeRoomMember({
     required String roomId,
     required String userId,
