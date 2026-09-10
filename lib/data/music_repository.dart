@@ -434,6 +434,25 @@ abstract interface class MusicRepository {
     String? soundsLike,
   });
 
+  /// Who can be told about this song, and why each of them is on the list.
+  ///
+  /// Everybody in the room it lives in, plus your own people. Not anybody
+  /// whose id you happen to hold.
+  Future<List<SuggestedPerson>> peopleToTell(String projectId);
+
+  /// Tell some people, or the whole room, about this song.
+  ///
+  /// [personIds] null or empty means everybody in the room. A band does not
+  /// divide neatly into "one person" and "all of them", so this takes however
+  /// many were picked. Returns how many were actually told — a list where
+  /// everybody has blocked you tells nobody, and the button must not claim
+  /// otherwise.
+  Future<int> tellAboutSong(
+    String projectId, {
+    String? note,
+    List<String>? personIds,
+  });
+
   /// Everybody you are connected to, plus anybody waiting on an answer.
   ///
   /// Pending first, because a request nobody answers is the one thing here

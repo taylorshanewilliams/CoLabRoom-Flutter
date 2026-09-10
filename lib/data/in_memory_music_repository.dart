@@ -1340,6 +1340,60 @@ class InMemoryMusicRepository implements MusicRepository {
   Availability _myAvailability = Availability.unset;
   String? _myAvailabilityNote;
 
+  /// What the preview would have sent, so a test can read it back.
+  final List<({String projectId, String? note, List<String>? personIds, int told})>
+      toldAbout =
+      <({String projectId, String? note, List<String>? personIds, int told})>[];
+
+  @override
+  Future<List<SuggestedPerson>> peopleToTell(String projectId) async {
+    final hidden = _blocked.map((b) => b.id).toSet();
+    final room = _rooms.firstWhere(
+      (r) => r.projects.any((p) => p.id == projectId),
+      orElse: () => _rooms.first,
+    );
+    return <SuggestedPerson>[
+      for (final member in room.members)
+        if (member.userId != 'preview-user' && !hidden.contains(member.userId))
+          SuggestedPerson(
+            personId: member.userId,
+            displayName: member.displayName,
+            because: 'In this room',
+          ),
+      for (final c in _connections)
+        if (c.accepted &&
+            !hidden.contains(c.personId) &&
+            !room.members.any((m) => m.userId == c.personId))
+          SuggestedPerson(
+            personId: c.personId,
+            displayName: c.displayName,
+            because: 'One of your people',
+          ),
+    ];
+  }
+
+  @override
+  Future<int> tellAboutSong(
+    String projectId, {
+    String? note,
+    List<String>? personIds,
+  }) async {
+    final room = _rooms.firstWhere(
+      (r) => r.projects.any((p) => p.id == projectId),
+      orElse: () => _rooms.first,
+    );
+    final told = (personIds == null || personIds.isEmpty)
+        ? room.members.where((m) => m.userId != 'preview-user').length
+        : personIds.length;
+    toldAbout.add((
+      projectId: projectId,
+      note: note,
+      personIds: personIds,
+      told: told,
+    ));
+    return told;
+  }
+
   @override
   Future<List<Connection>> listConnections() async {
     final hidden = _blocked.map((b) => b.id).toSet();

@@ -35,6 +35,7 @@ import 'live_performance_screen.dart';
 import 'lyric_import_flow.dart';
 import '../layers/song_layers_screen.dart';
 import 'song_analysis_screen.dart';
+import 'tell_about_song_sheet.dart';
 
 enum _VoiceNoteAction { play, rerecord, delete }
 
@@ -46,6 +47,7 @@ enum _VoiceNoteAction { play, rerecord, delete }
 /// under two different names — the "Recording" pill and the "Analyze Song"
 /// menu item pushed the exact same screen.
 enum _SongMenuAction {
+  tell,
   importLyrics,
   invite,
   markFinished,
@@ -822,6 +824,12 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       await _importLyrics(project);
       return;
     }
+    if (action == _SongMenuAction.tell) {
+      // Somebody deciding that a person should hear this, which is a
+      // different thing from a trigger noticing that a row changed.
+      await showTellAboutSong(context, project: project);
+      return;
+    }
     if (action == _SongMenuAction.color) {
       await _showColorPicker();
       return;
@@ -867,6 +875,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         case _SongMenuAction.markFinished:
         case _SongMenuAction.deleteSong:
         case _SongMenuAction.color:
+        case _SongMenuAction.tell:
+          // Handled above, before this switch, because it opens a sheet
+          // rather than producing an export.
+          return;
         case _SongMenuAction.history:
           break; // handled above
       }
@@ -1636,6 +1648,14 @@ class _PortraitProjectHeader extends StatelessWidget {
             tooltip: 'Song options',
             onSelected: onExport,
             itemBuilder: (_) => const <PopupMenuEntry<_SongMenuAction>>[
+              PopupMenuItem<_SongMenuAction>(
+                value: _SongMenuAction.tell,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.campaign_outlined),
+                  title: Text('Tell somebody'),
+                ),
+              ),
               PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.importLyrics,
                 child: ListTile(
