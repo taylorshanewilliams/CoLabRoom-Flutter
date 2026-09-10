@@ -762,28 +762,47 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: <Widget>[
-                  Container(
-                    width: 56,
-                    height: 56,
-                    alignment: Alignment.center,
-                    clipBehavior: Clip.antiAlias,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: <Color>[Color(0x7A2B6FFF), Color(0x382B6FFF), Color(0x082B6FFF)],
+                  // The room's picture, and the way to give it one.
+                  //
+                  // Optional on purpose: a room without a logo is named
+                  // rather than decorated, and most rooms will never have
+                  // one. But the empty circle is where somebody looks for
+                  // it, so it asks rather than sitting there as a hole —
+                  // "Set room logo" was in an overflow menu, which is a
+                  // place people find things they already know exist.
+                  Tooltip(
+                    message: controller.roomLogoBytes(room) == null
+                        ? 'Add a logo for this room'
+                        : 'Change this room’s logo',
+                    child: InkWell(
+                      key: const Key('room_logo_button'),
+                      onTap: () => unawaited(_pickRoomLogo(room)),
+                      customBorder: const CircleBorder(),
+                      child: Container(
+                        width: 56,
+                        height: 56,
+                        alignment: Alignment.center,
+                        clipBehavior: Clip.antiAlias,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: <Color>[Color(0x7A2B6FFF), Color(0x382B6FFF), Color(0x082B6FFF)],
+                          ),
+                        ),
+                        child: controller.roomLogoBytes(room) != null
+                            ? Image.memory(
+                                controller.roomLogoBytes(room)!,
+                                fit: BoxFit.cover,
+                                width: 56,
+                                height: 56,
+                              )
+                            : const Icon(
+                                Icons.add_photo_alternate_outlined,
+                                size: 22,
+                                color: AppColors.muted,
+                              ),
                       ),
                     ),
-                    child: controller.roomLogoBytes(room) != null
-                        ? Image.memory(
-                            controller.roomLogoBytes(room)!,
-                            fit: BoxFit.cover,
-                            width: 56,
-                            height: 56,
-                          )
-                        // Nothing rather than the default glyph. A room with
-                        // its own logo shows it; a room without one is named,
-                        // not decorated.
-                        : const SizedBox.shrink(),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -815,13 +834,25 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                           borderRadius: BorderRadius.circular(6),
                           child: Padding(
                             padding: const EdgeInsets.symmetric(vertical: 2),
+                            // Flexible, because this line is the width of
+                            // whatever the room happens to hold and the row
+                            // it sits in also carries a 56px logo and a New
+                            // Song button. It overflowed by 79px at 500 wide
+                            // before this — the room screen's own version of
+                            // the Home overflow, and invisible in release
+                            // where an overflow is silently clipped rather
+                            // than striped.
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: <Widget>[
-                                Text(
-                                  '${room.members.length} '
-                                  '${room.members.length == 1 ? 'member' : 'members'}'
-                                  ' · ${room.projects.length} songs',
+                                Flexible(
+                                  child: Text(
+                                    '${room.members.length} '
+                                    '${room.members.length == 1 ? 'member' : 'members'}'
+                                    ' · ${room.projects.length} songs',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
                                 const SizedBox(width: 3),
                                 const Icon(Icons.chevron_right_rounded,
