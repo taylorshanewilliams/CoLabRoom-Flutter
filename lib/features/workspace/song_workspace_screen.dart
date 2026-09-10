@@ -1588,8 +1588,11 @@ class _PortraitProjectHeader extends StatelessWidget {
               tooltip: 'Back to rooms',
               icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 19),
             ),
-          if (!compact) ...<Widget>[
-            _RoomMark(size: 42, logoBytes: logoBytes, fallbackIcon: room.icon),
+          // Only when the room has a logo of its own. The mark used to fall
+          // back to the room's default glyph, so every room without one wore
+          // a gradient tile with a tiny guitar in it.
+          if (!compact && logoBytes != null) ...<Widget>[
+            _RoomMark(size: 42, logoBytes: logoBytes),
             const SizedBox(width: 11),
           ],
           Expanded(
@@ -1618,7 +1621,7 @@ class _PortraitProjectHeader extends StatelessWidget {
                     ),
                     if (!compact)
                       Text(
-                        '${room.icon}  ${room.name}  ·  ${room.members.length} ${room.members.length == 1 ? 'member' : 'members'}',
+                        '${room.name}  ·  ${room.members.length} ${room.members.length == 1 ? 'member' : 'members'}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: AppColors.muted, fontSize: 12),
@@ -1784,7 +1787,7 @@ class _LandscapeWorkspace extends StatelessWidget {
                           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
                         ),
                         Text(
-                          '${room.icon} ${room.name}',
+                          room.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(color: AppColors.muted, fontSize: 10.5),
@@ -1972,12 +1975,17 @@ class _LandscapeWorkspace extends StatelessWidget {
   }
 }
 
+/// A room's own logo, when it has uploaded one.
+///
+/// It used to fall back to `room.icon` — the default glyph — which is why
+/// every room that had never uploaded anything still wore a gradient tile
+/// with an emoji in it. There is no fallback now: callers draw this only when
+/// there are bytes to draw.
 class _RoomMark extends StatelessWidget {
-  const _RoomMark({required this.size, required this.logoBytes, required this.fallbackIcon});
+  const _RoomMark({required this.size, required this.logoBytes});
 
   final double size;
   final Uint8List? logoBytes;
-  final String fallbackIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -1992,9 +2000,9 @@ class _RoomMark extends StatelessWidget {
         borderRadius: BorderRadius.circular(size * 0.33),
         boxShadow: const <BoxShadow>[BoxShadow(color: Color(0x2932D4FF), blurRadius: 24)],
       ),
-      child: bytes != null
-          ? Image.memory(bytes, fit: BoxFit.cover, width: size, height: size)
-          : Text(fallbackIcon, style: TextStyle(fontSize: size * 0.5)),
+      child: bytes == null
+          ? null
+          : Image.memory(bytes, fit: BoxFit.cover, width: size, height: size),
     );
   }
 }

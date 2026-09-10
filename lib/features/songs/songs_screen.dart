@@ -798,8 +798,10 @@ class _RoomSection extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
                 children: <Widget>[
-                  Text(room.icon, style: const TextStyle(fontSize: 20)),
-                  const SizedBox(width: 9),
+                  // No glyph. The name is the thing somebody is reading, and
+                  // an emoji beside it was decoration paid for out of the
+                  // name's own size: 20 points of guitar so the room could
+                  // have 16.
                   Flexible(
                     child: Text(
                       room.name,
@@ -807,7 +809,7 @@ class _RoomSection extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: AppColors.text,
-                        fontSize: 16,
+                        fontSize: 18.5,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -1075,6 +1077,7 @@ class _RoomTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final songs = room.projects.length;
+    final logo = controller.roomLogoBytes(room);
     return BloomTap(
       onTap: onTap,
       semanticLabel: 'Open ${room.name}',
@@ -1084,16 +1087,15 @@ class _RoomTile extends StatelessWidget {
           children: <Widget>[
             Row(
               children: <Widget>[
-                Container(
-                  width: 44,
-                  height: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: AppColors.raised,
+                // A real logo if the room has one, and otherwise nothing at
+                // all. The square used to hold the default glyph, which meant
+                // every room without a logo wore the same tiny guitar.
+                if (logo != null)
+                  ClipRRect(
                     borderRadius: BorderRadius.circular(14),
+                    child: Image.memory(logo, width: 44, height: 44,
+                        fit: BoxFit.cover),
                   ),
-                  child: Text(room.icon, style: const TextStyle(fontSize: 21)),
-                ),
                 const Spacer(),
                 if (room.members.length > 1)
                   _Faces(room: room, controller: controller)
@@ -1105,9 +1107,15 @@ class _RoomTile extends StatelessWidget {
             const Spacer(),
             Text(
               room.name,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleMedium,
+              // Larger than titleMedium, which is what the glyph was taking.
+              style: const TextStyle(
+                color: AppColors.text,
+                fontSize: 19,
+                fontWeight: FontWeight.w800,
+                height: 1.15,
+              ),
             ),
             const SizedBox(height: 3),
             Text(
@@ -1237,7 +1245,7 @@ class _SongRow extends StatelessWidget {
                     )
                   else
                     Text(
-                      '${result.room.icon}  ${result.room.name}',
+                      result.room.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: AppColors.muted, fontSize: 12),

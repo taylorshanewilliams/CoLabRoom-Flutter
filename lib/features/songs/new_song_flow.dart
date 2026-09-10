@@ -83,7 +83,15 @@ class _CreateRoomDialog extends StatefulWidget {
 
 class _CreateRoomDialogState extends State<_CreateRoomDialog> {
   final _name = TextEditingController();
-  String _icon = '♪';
+
+  /// Still written, never shown.
+  ///
+  /// The glyph is a column on the room row and the app no longer draws it
+  /// anywhere — so the picker that asked for one was asking somebody to
+  /// decide something with no consequence, on the screen where they are
+  /// trying to name a band. Kept as a constant so existing rooms, the
+  /// database default and anything that reads the column all go on working.
+  static const String _icon = '♪';
 
   @override
   void dispose() {
@@ -109,23 +117,6 @@ class _CreateRoomDialogState extends State<_CreateRoomDialog> {
               autofocus: true,
               textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Room name'),
-            ),
-            const SizedBox(height: 18),
-            const Text('Choose an icon', style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 10,
-              children: <String>['♪', '♬', '♫', '🎸', '🎹', '🎤'].map((candidate) {
-                final selected = candidate == _icon;
-                return ChoiceChip(
-                  selected: selected,
-                  showCheckmark: false,
-                  label: Text(candidate, style: const TextStyle(fontSize: 21)),
-                  onSelected: (_) => setState(() => _icon = candidate),
-                  selectedColor: AppColors.raised,
-                  side: BorderSide(color: selected ? AppColors.cyan : AppColors.line),
-                );
-              }).toList(growable: false),
             ),
           ],
         ),
@@ -254,12 +245,14 @@ class _RoomPickerSheetState extends State<_RoomPickerSheet> {
                               padding: const EdgeInsets.all(14),
                               child: Row(
                                 children: <Widget>[
-                                  Text(room.icon, style: const TextStyle(fontSize: 26)),
-                                  const SizedBox(width: 14),
                                   Expanded(
                                     child: Text(
                                       room.name,
-                                      style: Theme.of(context).textTheme.titleMedium,
+                                      style: const TextStyle(
+                                        color: AppColors.text,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
                                   ),
                                   Text('${room.projects.length} songs'),
