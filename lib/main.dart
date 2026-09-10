@@ -10,6 +10,7 @@ import 'app/music_beta_controller.dart';
 import 'data/in_memory_music_repository.dart';
 import 'services/app_session.dart';
 import 'services/crash_reporter.dart';
+import 'services/notification_shade.dart';
 import 'services/push_registration.dart';
 
 Future<void> main() async {
@@ -31,6 +32,10 @@ Future<void> main() async {
     // PushRegistration.enable.
     await PushRegistration.start();
     unawaited(PushRegistration.refreshIfAllowed());
+    // Creates the channel, and draws anything that arrives while the app is
+    // open -- which Android does not do for you, and which is why pressing
+    // the test button and watching the screen produced nothing at all.
+    unawaited(NotificationShade.start());
     // The denominator for every error rate. Unawaited: a session that cannot
     // be recorded costs one missing count, and an app that will not open
     // because its analytics failed costs a user.
