@@ -516,19 +516,37 @@ int countControls(WidgetTester tester) {
   return seen.length;
 }
 
-/// How many words are on screen, as a second axis.
+/// How many words a person is actually presented with.
 ///
-/// A screen can ask too much without offering a single control. Taylor's
-/// standing note on this app is "not forcing too much reading" — and reading
-/// is the one kind of demand a tap-target count is completely blind to.
-int countWords(WidgetTester tester) {
+/// Counted off the **semantics tree**, and the first two attempts at this got
+/// it wrong in ways worth recording.
+///
+/// Walking `allRenderObjects` counts every built paragraph, which on a pushed
+/// route means the screen underneath as well: `MaterialPageRoute` keeps the
+/// route below in the tree, so the Inbox was being credited with the whole of
+/// the Songs tab sitting behind it. That is why compressing three sentences on
+/// the Inbox moved the number by six words while visibly changing the screen —
+/// most of what was being counted was not the Inbox at all.
+///
+/// Clipping to the viewport rectangle does not fix it, because the route below
+/// occupies exactly the same rectangle. What does fix it is asking the same
+/// tree an assistive technology asks: semantics stops at the top route, which
+/// is also the honest definition of what somebody is being presented with.
+int countWords(WidgetTester tester, Size viewport) {
   var words = 0;
-  for (final paragraph in tester.allRenderObjects.whereType<RenderParagraph>()) {
-    if (!paragraph.attached || paragraph.debugNeedsLayout) continue;
-    final text = paragraph.text.toPlainText(includeSemanticsLabels: false);
-    if (_isIconOrEmpty(text)) continue;
+  final counted = <String>{};
+  _walkSemantics(tester, (node, data, rect) {
+    if (!rect.overlaps(Offset.zero & viewport)) return;
+    final text = <String>[data.label, data.value]
+        .where((part) => part.trim().isNotEmpty)
+        .join(' ');
+    if (text.trim().isEmpty) return;
+    // A node and its merged parent can carry the same string; counting a
+    // heading twice because a card repeated it is not the screen's fault.
+    final key = '${rect.left.round()},${rect.top.round()}|$text';
+    if (!counted.add(key)) return;
     words += text.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
-  }
+  });
   return words;
 }
 

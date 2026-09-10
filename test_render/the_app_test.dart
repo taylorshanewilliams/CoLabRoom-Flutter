@@ -255,7 +255,7 @@ void main() {
           _density.add(<String>[
             name,
             countControls(tester).toString(),
-            countWords(tester).toString(),
+            countWords(tester, device.size).toString(),
           ]);
         }
       }
