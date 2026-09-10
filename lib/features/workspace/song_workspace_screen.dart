@@ -1923,20 +1923,37 @@ class _WorkspaceToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The three things a musician opens a song to do, always visible. Analyze
-    // in particular used to be buried in the overflow menu between "Record
-    // Audio" and "Send to printer" despite being the app's most distinctive
-    // capability. Everything that isn't one of these three verbs — import,
-    // invite, colour, print, share — lives in the overflow, listed once.
+    // The things a musician opens a song to do, always visible. Analyze in
+    // particular used to be buried in the overflow menu between "Record Audio"
+    // and "Send to printer" despite being the app's most distinctive
+    // capability. Everything that isn't one of these verbs — import, invite,
+    // colour, print, share — lives in the overflow, listed once.
+    //
+    // **Exactly one of them is lit, and which one depends on the song.**
+    //
+    // Measured: this toolbar carried five equal-weight pills, and on a song
+    // with nothing recorded *none* of them was emphasised — the one state
+    // where somebody most needs telling what to do next, and the screen said
+    // nothing. It already knew: `hasRecording` is right there, and two of the
+    // labels change on it.
     final actions = <Widget>[
-      _ToolPill(
-        key: const Key('workspace_analyze_button'),
-        icon: Icons.graphic_eq_rounded,
-        label: hasRecording ? 'Song Sheet' : 'Make it',
-        active: hasRecording,
-        activeColor: AppColors.gold,
-        onTap: onAnalyze,
-      ),
+      // Only once there is something to make a sheet from.
+      //
+      // On an empty song this pill and Record were the same destination —
+      // both push SongAnalysisScreen, one of them with `autoRecord` — so two
+      // of the five buttons went to the same place, and the one that got you
+      // there in fewer taps was the quieter of the two. Nothing is hidden by
+      // dropping it: pressing Record *is* the analyze path, which is what
+      // gave that capability top billing in the first place.
+      if (hasRecording)
+        _ToolPill(
+          key: const Key('workspace_analyze_button'),
+          icon: Icons.graphic_eq_rounded,
+          label: 'Song Sheet',
+          active: true,
+          activeColor: AppColors.gold,
+          onTap: onAnalyze,
+        ),
       // A first-class verb, beside Analyze rather than inside it. Songs are
       // words and sound; the editor behind this toolbar holds the words.
       _ToolPill(
@@ -1950,7 +1967,11 @@ class _WorkspaceToolbar extends StatelessWidget {
         key: const Key('workspace_record_button'),
         icon: Icons.mic_none_rounded,
         label: hasRecording ? 'New take' : 'Record',
-        active: false,
+        // Lit on an empty song, because nothing else on this screen can
+        // happen until something is recorded. Quiet once there is a
+        // recording, where the sheet is the thing worth looking at.
+        active: !hasRecording,
+        activeColor: AppColors.gold,
         onTap: onRecord,
       ),
       _ToolPill(

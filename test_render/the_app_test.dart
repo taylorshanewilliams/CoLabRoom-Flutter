@@ -18,7 +18,6 @@ import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'eyes.dart';
@@ -149,18 +148,15 @@ void main() {
     // ignore: invalid_use_of_visible_for_testing_member
     SharedPreferences.setMockInitialValues(<String, Object>{});
     // Analyze titles itself in Fraunces, which google_fonts fetches from
-    // fonts.gstatic.com at runtime. There is no network here, so the request
-    // fails asynchronously *after* the screen has drawn, and the exception
-    // gets attributed to whatever the walk did next.
-    GoogleFonts.config.allowRuntimeFetching = false;
-    // The test binding turns shadows off so goldens stay stable across
-    // platforms. These images are for looking at rather than diffing, and an
-    // app photographed without its elevation is flatter than the real thing.
-    debugDisableShadows = false;
+    // fonts.gstatic.com at runtime. There is no network here, so it throws
+    // whichever way this is set: left alone it fails on the request, turned
+    // off it fails on the missing asset. Left alone is the honest one — it is
+    // what a device with no connection does — and `collectComplaints` sorts
+    // the result out of the findings, because a fetched font falling back to
+    // the platform one is not a defect in this app.
   });
 
   tearDownAll(() async {
-    debugDisableShadows = true;
     await _writeDensity();
     final report = await writeReport(_findings, path: 'build/eyes/REPORT.md');
     // ignore: avoid_print
@@ -174,6 +170,21 @@ void main() {
       // tearDowns, so an addTearDown here fails the test it just passed.
       stubPlatformChannels();
       final restoreErrors = collectComplaints();
+
+      // Shadows on, per test, and put back before the test ends.
+      //
+      // The binding turns them off so goldens stay stable across platforms,
+      // and these images are for looking at rather than diffing — an app
+      // photographed without its elevation is flatter than the real thing.
+      //
+      // But it has to be a *per test* change. Set once in `setUpAll` it is
+      // still changed at the end of every test body, and the framework checks
+      // painting debug variables exactly there: every device failed with "the
+      // value of a painting debug variable was changed by the test", which
+      // reads like a rendering fault and is nothing of the kind. The harness
+      // has been exiting non-zero over it since it was written, which trains
+      // people to ignore the one tool meant to tell them something is wrong.
+      debugDisableShadows = false;
 
       final semantics = tester.ensureSemantics();
 
@@ -307,7 +318,11 @@ void main() {
           await shoot('06-takes');
           await _back(tester);
         }
-        if (await _tapKey(tester, 'workspace_analyze_button')) {
+        // Whichever of the two the song's state offers. On an empty song the
+        // sheet pill is gone — it was the same destination as Record and the
+        // slower of the two — so the walk follows the same path a person does.
+        if (await _tapKey(tester, 'workspace_analyze_button') ||
+            await _tapKey(tester, 'workspace_record_button')) {
           await shoot('07-analyze');
         }
       }
@@ -331,6 +346,7 @@ void main() {
       ));
 
       semantics.dispose();
+      debugDisableShadows = true;
 
       // Take the tree down before the test ends.
       //
