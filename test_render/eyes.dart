@@ -209,6 +209,23 @@ final Set<String> absentPlugins = <String>{};
 
 /// Collects rather than aborts.
 ///
+/// **One thing this cannot catch, and it is why the harness still exits
+/// non-zero.** The Analyze screen titles itself in Fraunces, which
+/// `google_fonts` fetches from fonts.gstatic.com at first use. There is no
+/// network in a test, so it throws — and it throws as a raw zone error that
+/// reaches flutter_test directly rather than through `FlutterError.onError`,
+/// so nothing here can sort it out of the findings. Every device that walks as
+/// far as Analyze fails on it.
+///
+/// It is not an app defect: on a device the fetch succeeds, and on a device
+/// with no connection the heading falls back to the platform font and the
+/// screen is fine. It *is* an argument for bundling that one face — it would
+/// remove a network dependency from a screen people open offline, and it would
+/// make this harness green.
+///
+/// Until then: judge a run by the sheets and the two reports, which are all
+/// written regardless, and not by the exit code.
+///
 /// The suite in `test/` is a gate and is supposed to stop at the first
 /// problem. This is a survey: a screen that throws is the most interesting
 /// thing it could possibly find, and stopping there means never photographing
