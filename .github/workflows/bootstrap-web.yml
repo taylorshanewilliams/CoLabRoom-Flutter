@@ -43,7 +43,7 @@ jobs:
               data = json.load(f)
           data["name"] = "CoLabRoom"
           data["short_name"] = "CoLabRoom"
-          data["description"] = "Songwriting for bands — lyrics, chords, and voice notes in one room."
+          data["description"] = "Songwriting for musicians — lyrics, chords, and voice notes in one room."
           data["theme_color"] = "#050B16"
           data["background_color"] = "#050B16"
           with open(path, "w") as f:
@@ -52,7 +52,7 @@ jobs:
           PY
 
           sed -i 's/<title>colabroom<\/title>/<title>CoLabRoom<\/title>/' web/index.html
-          sed -i 's/A new Flutter project\./Songwriting for bands./' web/index.html
+          sed -i 's/A new Flutter project\./Songwriting for musicians./' web/index.html
 
       - name: Commit and push web/
         if: env.SHOULD_COMMIT == 'true'
