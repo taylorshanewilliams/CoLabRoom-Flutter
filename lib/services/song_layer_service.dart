@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'multitrack.dart';
@@ -155,6 +155,15 @@ class SongLayerService {
   /// the id is what makes the cache safe: a layer's audio is immutable, so a
   /// file that exists is correct by definition and never needs revalidating.
   Future<String> ensureLocal(SharedLayer layer) async {
+    // No filesystem in a browser, and `path_provider` does not degrade -- it
+    // throws MissingPluginException out of getApplicationDocumentsDirectory,
+    // which is the exception behind the first bug report this app ever
+    // received. A signed URL is the browser's version of "the file is here".
+    if (kIsWeb) {
+      return _client.storage
+          .from(_bucket)
+          .createSignedUrl(layer.storagePath, const Duration(hours: 2).inSeconds);
+    }
     final root = await getApplicationDocumentsDirectory();
     final directory = Directory('${root.path}/layers/${layer.projectId}');
     if (!await directory.exists()) await directory.create(recursive: true);

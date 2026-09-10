@@ -516,8 +516,17 @@ class SongAnalysisService {
     }
   }
 
+  /// A playable handle on the reference recording.
+  ///
+  /// A local file on a phone, and a **signed URL** in a browser, where there
+  /// is no filesystem to put one in. It used to throw on the web, which is
+  /// why the Takes screen said "The song has a recording but it could not be
+  /// loaded here" for every song, to everybody, on app.colabroom.com.
+  ///
+  /// Both are handed to `audioSourceFor`, which builds the right kind of
+  /// source without the caller needing to know which it got.
   Future<String> ensureLocalReference(ReferenceTrack reference) async {
-    if (kIsWeb) throw UnsupportedError('Reference download is not available on web yet.');
+    if (kIsWeb) return _signedUrl(reference.storagePath);
     final directory = await getTemporaryDirectory();
     final ext = audioFileExtension(reference.storagePath);
     final path = '${directory.path}/colabroom_reference_${reference.fileId}.$ext';
@@ -528,6 +537,17 @@ class SongAnalysisService {
     return path;
   }
 
+  /// A URL the browser can stream, good for two hours.
+  ///
+  /// Short-lived because after signing, the URL itself is the credential.
+  /// Long enough to listen to a song and the few after it without a re-sign
+  /// mid-listen.
+  Future<String> _signedUrl(String storagePath) async {
+    return client.storage
+        .from('room-files')
+        .createSignedUrl(storagePath, const Duration(hours: 2).inSeconds);
+  }
+
   Future<Uint8List> downloadReferenceBytes(ReferenceTrack reference) {
     return client.storage.from('room-files').download(reference.storagePath);
   }
@@ -536,7 +556,7 @@ class SongAnalysisService {
   /// audio player by path, mirroring [ensureLocalReference]. Stems are
   /// always MP3 (the worker encodes them before upload).
   Future<String> ensureLocalStem(SongStem stem) async {
-    if (kIsWeb) throw UnsupportedError('Stem playback is not available on web yet.');
+    if (kIsWeb) return _signedUrl(stem.storagePath);
     final directory = await getTemporaryDirectory();
     final path = '${directory.path}/colabroom_stem_${stem.projectId}_${stem.kind.name}.mp3';
     final file = File(path);

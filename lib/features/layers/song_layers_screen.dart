@@ -6,6 +6,8 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../../services/audio_source_for.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:share_plus/share_plus.dart';
@@ -506,7 +508,33 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// Whether what is about to play is a click on its own, and so should loop.
   bool _loopingClick = false;
 
+  /// The one thing a browser can play: a single file, by URL.
+  ///
+  /// The console below mixes every enabled take into one WAV on disk and
+  /// plays that, which is how levels, the click and punching in all work at
+  /// once. None of it exists in a browser -- there is no file to write and no
+  /// decoder to write it with -- so on the web the transport plays the
+  /// reference recording, or failing that the first take that is switched on,
+  /// and the screen says plainly that the rest needs the app.
+  ///
+  /// Chosen over silently doing nothing, which is what a web build did until
+  /// now: the mix path threw MissingPluginException out of path_provider and
+  /// the button simply never worked.
+  String? get _webSinglePath {
+    final reference = _referencePath;
+    if (reference != null) return reference;
+    for (final layer in _layers ?? const <SharedLayer>[]) {
+      if (_enabled.contains(layer.id) && _localPaths[layer.id] != null) {
+        return _localPaths[layer.id];
+      }
+    }
+    return null;
+  }
+
   Future<bool> _rebuildMix() async {
+    // Nothing to build, and nothing broken: the caller falls back to
+    // [_webSinglePath].
+    if (kIsWeb) return false;
     final takes = _takes;
     final anythingToPlay = takes.any((take) => take.enabled);
     // A click with nothing under it is still something to play against — it
@@ -605,7 +633,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     await _player.setReleaseMode(
       _loopingClick ? ReleaseMode.loop : ReleaseMode.release,
     );
-    await _player.play(DeviceFileSource(path));
+    await _player.play(audioSourceFor(path));
     // Seeked after play rather than before. There is no source to seek into
     // until one is set, so a seek beforehand lands on the previous mix or on
     // nothing at all.
@@ -1030,7 +1058,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // on a thirty-second sketch and unusable on a three-minute song when
       // the part you want to hear is at 2:40.
       await _player.pause();
-      _pausedAt = _lastMixPath;
+      _pausedAt = kIsWeb ? _webSinglePath : _lastMixPath;
       if (mounted) setState(() => _playing = false);
       return;
     }
@@ -1040,6 +1068,19 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     // so by the time somebody presses play it is already current. Rebuilding
     // here as well wrote a second identical file under a new name, and a new
     // name is a new source, which starts at zero.
+    if (kIsWeb) {
+      final single = _webSinglePath;
+      if (single == null) return;
+      if (_pausedAt == single) {
+        await _player.resume();
+      } else {
+        await _player.play(audioSourceFor(single));
+      }
+      _pausedAt = null;
+      if (mounted) setState(() => _playing = true);
+      return;
+    }
+
     if (_lastMixPath == null) {
       if (!await _rebuildMix() || _lastMixPath == null) return;
     }
@@ -1400,6 +1441,32 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
                   children: <Widget>[
                     if (!hasSomethingToHear) _EmptyState(),
+                    // What a browser cannot do, said before somebody presses
+                    // a fader and wonders why nothing moved.
+                    //
+                    // Mixing every take into one track, the click and punching
+                    // in all work by writing a WAV to disk and playing that.
+                    // There is no disk here. Playing one thing at a time does
+                    // work, and that is worth having -- it is how you hear
+                    // what somebody sent you without reaching for a phone.
+                    if (kIsWeb) ...<Widget>[
+                      Container(
+                        key: const Key('takes_web_note'),
+                        margin: const EdgeInsets.only(bottom: 14),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.cyan.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text(
+                          'In a browser you can play the song and hear each '
+                          'take on its own. Mixing them together, the click '
+                          'and recording a new take need the app.',
+                          style: TextStyle(
+                              color: AppColors.cyan, fontSize: 12, height: 1.45),
+                        ),
+                      ),
+                    ],
                     if (_referenceNote != null) ...<Widget>[
                       Container(
                         margin: const EdgeInsets.only(bottom: 14),

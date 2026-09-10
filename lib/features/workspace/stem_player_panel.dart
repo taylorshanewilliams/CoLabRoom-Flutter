@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/audio_source_for.dart';
+
 import '../../app/colabroom_theme.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/chord_beat_grid.dart';
@@ -118,7 +120,7 @@ class _StemPlayerPanelState extends State<StemPlayerPanel> {
       // re-download every time.
       final path = await widget.ensureLocalStem(stem);
       await player.stop();
-      await player.setSource(DeviceFileSource(path));
+      await player.setSource(audioSourceFor(path));
       final keepPosition = resumeAt > Duration.zero && resumeAt < _duration;
       if (keepPosition) await player.seek(resumeAt);
       await player.resume();
