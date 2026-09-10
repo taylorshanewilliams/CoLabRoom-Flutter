@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
+import '../../app/colabroom_theme.dart';
 import '../../services/push_registration.dart';
+import '../../services/test_when_closed.dart';
 import '../../widgets/problem_report.dart';
 import '../../widgets/app_surface.dart';
 
@@ -34,6 +36,7 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile> {
   bool? _reachable;
   bool _busy = false;
   bool _testing = false;
+  bool _armed = TestWhenClosed.instance.isArmed;
 
   @override
   void initState() {
@@ -135,7 +138,7 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile> {
           ),
           // Only once there is something to test. A button that can only
           // report failure is a way of telling somebody their app is broken.
-          if (reachable == true)
+          if (reachable == true) ...<Widget>[
             ListTile(
               dense: true,
               title: const Text('Send this phone a test notification'),
@@ -151,6 +154,40 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile> {
                   : const Icon(Icons.send_rounded, size: 18),
               onTap: _testing ? null : () => unawaited(_sendTest()),
             ),
+            // The half the instant test cannot reach.
+            //
+            // Android draws a pushed notification itself only while the app
+            // is in the background; with the app open it hands it to the app,
+            // which is a different mechanism entirely. A notification that
+            // arrives in under a second arrives before anybody can press the
+            // home button, so this one waits for the app to be closed and
+            // sends itself on the way out.
+            ListTile(
+              key: const Key('test_when_closed'),
+              dense: true,
+              title: Text(_armed
+                  ? 'Now close the app'
+                  : 'Test it with the app closed'),
+              subtitle: Text(_armed
+                  ? 'It will send itself as you leave, and should arrive a '
+                      'moment later.'
+                  : 'Arms one. Press it, then close the app.'),
+              trailing: Icon(
+                _armed ? Icons.hourglass_top_rounded : Icons.schedule_rounded,
+                size: 18,
+                color: _armed ? AppColors.gold : null,
+              ),
+              onTap: () => setState(() {
+                if (_armed) {
+                  TestWhenClosed.instance.disarm();
+                  _armed = false;
+                } else {
+                  TestWhenClosed.instance.arm();
+                  _armed = true;
+                }
+              }),
+            ),
+          ],
         ],
       ),
     );
