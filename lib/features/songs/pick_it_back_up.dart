@@ -73,6 +73,7 @@ class PickItBackUp extends StatelessWidget {
     required this.onOpen,
     this.skip = 0,
     this.onSkip,
+    this.onSetAside,
     super.key,
   });
 
@@ -82,6 +83,14 @@ class PickItBackUp extends StatelessWidget {
   /// How many times somebody has said "something else" today.
   final int skip;
   final VoidCallback? onSkip;
+
+  /// Stop offering this one, for good.
+  ///
+  /// "Something else" moves along the pile and brings this song back
+  /// tomorrow, which is right for a song you are not in the mood for and
+  /// wrong for one you have deliberately finished with. Without this, a card
+  /// somebody had answered kept asking — see [SetAside].
+  final ValueChanged<SongProject>? onSetAside;
 
   /// Nothing counts as left behind until it has been quiet for this long.
   ///
@@ -174,23 +183,43 @@ class PickItBackUp extends StatelessWidget {
                 ],
               ),
             ),
-            if (onSkip != null)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  key: const Key('pick_something_else'),
-                  onPressed: onSkip,
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 2),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            // Two different noes, because they are two different answers.
+            //
+            // "Something else" is not being in the mood for this one today.
+            // "Not this one" is having finished with it, and it is the one
+            // that was missing: without it a card somebody had already
+            // answered asked again every time they opened the app.
+            Row(
+              children: <Widget>[
+                if (onSkip != null)
+                  TextButton(
+                    key: const Key('pick_something_else'),
+                    onPressed: onSkip,
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Something else',
+                        style: TextStyle(color: AppColors.muted, fontSize: 12)),
                   ),
-                  // Not "dismiss". Saying no to one idea should not be an act
-                  // of throwing it away, and the pile is the point.
-                  child: const Text('Something else',
+                if (onSkip != null && onSetAside != null)
+                  const Text('  ·  ',
                       style: TextStyle(color: AppColors.muted, fontSize: 12)),
-                ),
-              ),
+                if (onSetAside != null)
+                  TextButton(
+                    key: const Key('pick_not_this_one'),
+                    onPressed: () => onSetAside!(left.song),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Stop asking about this one',
+                        style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                  ),
+              ],
+            ),
           ],
         ),
       ),

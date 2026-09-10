@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../app/routes.dart';
 import '../../services/current_route.dart';
+import '../../services/set_aside.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
@@ -219,6 +220,12 @@ class _SongsScreenState extends State<SongsScreen> {
     );
   }
 
+  /// Said no, and remembered.
+  Future<void> _setAside(String kind, String id) async {
+    await SetAside.add(kind, id);
+    if (mounted) setState(() {});
+  }
+
   Future<void> _newSong() async {
     final controller = BetaScope.of(context);
     final project = await showNewSongFlow(context, controller);
@@ -355,7 +362,9 @@ class _SongsScreenState extends State<SongsScreen> {
     // where a song is; a search is the moment they have stopped remembering
     // and want everything at once.
     final grouped = showingSongs && !searching;
-    final queue = SongSheetQueue.from(rooms);
+    final queue = SongSheetQueue.from(rooms).without(
+      SetAside.of(SetAside.songSheet),
+    );
     // Rooms matching what was typed, for the Rooms segment. Matched on the
     // name only: a room is a place, and somebody searching here is looking
     // for the place rather than for something inside it — that is what the
@@ -414,10 +423,15 @@ class _SongsScreenState extends State<SongsScreen> {
             sliver: SliverToBoxAdapter(
               child: PickItBackUp(
                 songs: <SongProject>[
-                  for (final room in controller.rooms) ...room.projects,
+                  for (final room in controller.rooms)
+                    for (final project in room.projects)
+                      if (!SetAside.has(SetAside.pickItBackUp, project.id))
+                        project,
                 ],
                 skip: _somethingElse,
                 onSkip: () => setState(() => _somethingElse += 1),
+                onSetAside: (song) =>
+                    unawaited(_setAside(SetAside.pickItBackUp, song.id)),
                 onOpen: _open,
               ),
             ),
@@ -487,6 +501,8 @@ class _SongsScreenState extends State<SongsScreen> {
               child: _SheetQueueBanner(
                 queue: queue,
                 onTap: () => _openSheet(queue.lead!.project),
+                onSetAside: () => unawaited(
+                    _setAside(SetAside.songSheet, queue.lead!.project.id)),
               ),
             ),
           ),
@@ -938,10 +954,21 @@ class _Faces extends StatelessWidget {
 /// was a room with three things in it and a permanent place in the
 /// navigation. A banner can be absent; a tab cannot.
 class _SheetQueueBanner extends StatelessWidget {
-  const _SheetQueueBanner({required this.queue, required this.onTap});
+  const _SheetQueueBanner({
+    required this.queue,
+    required this.onTap,
+    required this.onSetAside,
+  });
 
   final SongSheetQueue queue;
   final VoidCallback onTap;
+
+  /// Stop offering this song a sheet.
+  ///
+  /// The card had one verb — open it — and no way to decline, so a song
+  /// somebody had decided not to analyse asked again every time they opened
+  /// the app. See [SetAside].
+  final VoidCallback onSetAside;
 
   @override
   Widget build(BuildContext context) {
@@ -990,8 +1017,28 @@ class _SheetQueueBanner extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded,
-                  color: AppColors.muted, size: 18),
+              // The verb, said out loud rather than implied by a chevron.
+              // Taylor: "it just goes to a song with no option to accept or
+              // deny".
+              FilledButton(
+                key: const Key('sheet_queue_do'),
+                onPressed: onTap,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.gold,
+                  foregroundColor: AppColors.ink,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                ),
+                child: Text(queue.leadIsSheet ? 'Open' : 'Make it'),
+              ),
+              IconButton(
+                key: const Key('sheet_queue_dismiss'),
+                onPressed: onSetAside,
+                tooltip: 'Stop asking about this one',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.close_rounded,
+                    color: AppColors.muted, size: 18),
+              ),
             ],
           ),
         ),

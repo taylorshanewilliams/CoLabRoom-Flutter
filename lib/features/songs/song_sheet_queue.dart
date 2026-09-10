@@ -31,6 +31,31 @@ class SongSheetQueue {
     required this.sheets,
   });
 
+  /// The same queue without the songs somebody has told it to stop asking
+  /// about.
+  ///
+  /// Applied after the queue is built rather than inside it, so the counts
+  /// beneath the lead ("2 more waiting") stay true to the pile rather than
+  /// to one person's patience — and so a song set aside on a phone is not a
+  /// song hidden from the room.
+  SongSheetQueue without(Set<String> setAside) {
+    if (setAside.isEmpty) return this;
+    bool kept(SheetQueueEntry e) => !setAside.contains(e.project.id);
+
+    final keptWaiting = waiting.where(kept).toList(growable: false);
+    final keptSheets = sheets.where(kept).toList(growable: false);
+    final nowLeadIsSheet = keptWaiting.isEmpty && keptSheets.isNotEmpty;
+    return SongSheetQueue._(
+      lead: keptWaiting.isNotEmpty
+          ? keptWaiting.first
+          : (keptSheets.isNotEmpty ? keptSheets.first : null),
+      leadIsSheet: nowLeadIsSheet,
+      working: working,
+      waiting: keptWaiting,
+      sheets: keptSheets,
+    );
+  }
+
   factory SongSheetQueue.from(List<MusicRoom> rooms) {
     final recordings = <SheetQueueEntry>[
       for (final room in rooms)
