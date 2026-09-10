@@ -6,6 +6,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/missed_on_your_phone.dart';
 import '../../widgets/problem_report.dart';
 import '../../widgets/app_surface.dart';
 import '../../domain/musical_roles.dart';
@@ -176,6 +177,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             : ListView(
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
                 children: <Widget>[
+                  // Above everything, and usually not there at all.
+                  //
+                  // It draws nothing unless this inbox holds something that
+                  // could not have reached the phone. That is what stops it
+                  // being a campaign for notifications and makes it a report
+                  // of a cost already paid.
+                  MissedOnYourPhone(notifications: notifications),
                   // First, above invitations. Somebody has asked *you*, by
                   // name, to play something — that is the most personal thing
                   // this inbox can hold and the one thing in it that another
