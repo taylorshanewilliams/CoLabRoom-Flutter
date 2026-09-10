@@ -19,7 +19,8 @@ import '../../widgets/music_tiles.dart';
 import '../../widgets/app_top_bar.dart';
 import 'new_song_flow.dart';
 import 'pick_it_back_up.dart';
-import 'while_you_were_gone.dart';
+import 'waiting_on_you.dart';
+import '../openmic/musician_profile_screen.dart';
 import '../rooms/room_detail_screen.dart';
 import '../rooms/setlist_detail_screen.dart';
 import '../workspace/song_workspace_screen.dart';
@@ -139,6 +140,16 @@ class _SongsScreenState extends State<SongsScreen> {
   bool _desk = false;
 
   @override
+  void initState() {
+    super.initState();
+    // After the first frame: BetaScope needs a mounted context, and the strip
+    // is a convenience the screen works without.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_loadRequests());
+    });
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
@@ -218,6 +229,131 @@ class _SongsScreenState extends State<SongsScreen> {
         builder: (_) => SetlistDetailScreen(setlistId: setlist.id),
       ),
     );
+  }
+
+  /// Connection requests waiting on an answer, loaded once when this screen
+  /// opens. Empty until they arrive, which is the right default: a strip that
+  /// guessed would flicker.
+  List<Connection> _requests = const <Connection>[];
+
+  Future<void> _loadRequests() async {
+    try {
+      final all = await BetaScope.of(context, listen: false)
+          .repository
+          .listConnections();
+      if (!mounted) return;
+      setState(() => _requests =
+          all.where((c) => !c.accepted && c.incoming).toList(growable: false));
+    } catch (_) {
+      // The strip is a convenience over screens that all work without it.
+      // A failure here must not be the reason somebody cannot see their songs.
+    }
+  }
+
+  Future<void> _openPerson(String personId) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'Musician'),
+      builder: (_) => MusicianProfileScreen(
+        profileId: personId,
+        repository: BetaScope.of(context, listen: false).repository,
+      ),
+    ));
+    if (mounted) await _loadRequests();
+  }
+
+  void _openProjectById(String projectId) {
+    for (final room in BetaScope.of(context, listen: false).rooms) {
+      for (final project in room.projects) {
+        if (project.id == projectId) {
+          _open(project);
+          return;
+        }
+      }
+    }
+  }
+
+  /// Everything that wants something from you, gathered from wherever it
+  /// lives.
+  ///
+  /// Ordered by who is waiting. A person who has asked to connect is waiting
+  /// on an answer; a song that has been sitting for a fortnight is not
+  /// waiting on anything and will still be there tomorrow. Anything somebody
+  /// has closed is gone from here for good -- see [SetAside].
+  List<WaitingItem> _waiting() {
+    final controller = BetaScope.of(context);
+    final items = <WaitingItem>[];
+
+    // People first. Somebody is on the other end of this one.
+    for (final person in _requests) {
+      items.add(WaitingItem(
+        id: 'request-${person.personId}',
+        kind: WaitingKind.request,
+        line: '${person.displayName} wants to connect',
+        actionLabel: 'See',
+        onAction: () => unawaited(_openPerson(person.personId)),
+      ));
+    }
+
+    // A recording with no sheet. One, not a queue: the queue was a card that
+    // announced how many other songs were behind this one, which is a fact
+    // about the pile rather than a thing to do.
+    final queue = SongSheetQueue.from(controller.rooms)
+        .without(SetAside.of(SetAside.songSheet));
+    final lead = queue.lead;
+    if (lead != null && !queue.leadIsSheet) {
+      items.add(WaitingItem(
+        id: 'sheet-${lead.project.id}',
+        kind: WaitingKind.sheet,
+        line: 'Make the song sheet for ${lead.project.title}',
+        actionLabel: 'Make it',
+        onAction: () => _openSheet(lead.project),
+        onDismiss: () =>
+            unawaited(_setAside(SetAside.songSheet, lead.project.id)),
+      ));
+    }
+
+    // Something you left. `_somethingElse` still rotates which one is
+    // offered; closing it stops this song being offered at all.
+    final left = PickItBackUp.choose(
+      <SongProject>[
+        for (final room in controller.rooms)
+          for (final project in room.projects)
+            if (!SetAside.has(SetAside.pickItBackUp, project.id)) project,
+      ],
+      skip: _somethingElse,
+    );
+    if (left != null) {
+      items.add(WaitingItem(
+        id: 'left-${left.song.id}',
+        kind: WaitingKind.unfinished,
+        // "Buried My Fears, two weeks ago" rather than "You left this two
+        // weeks ago" — the song's name is the thing being talked about and
+        // it was the one word the old card left out of its own heading.
+        line: '${left.song.title} — ${left.when.replaceFirst('You left this ', '')}',
+        detail: left.known,
+        actionLabel: 'Open',
+        onAction: () => _open(left.song),
+        onDismiss: () =>
+            unawaited(_setAside(SetAside.pickItBackUp, left.song.id)),
+      ));
+    }
+
+    // And what other people did. Last, because it is news rather than a
+    // request -- nobody is waiting on you to read it.
+    for (final entry in controller.activity.take(3)) {
+      final id = 'news-${entry.id}';
+      if (SetAside.has(SetAside.pickItBackUp, id)) continue;
+      items.add(WaitingItem(
+        id: id,
+        kind: WaitingKind.news,
+        line: '${entry.projectTitle} — ${entry.sentence}',
+        actionLabel: 'Open',
+        onAction: () => _openProjectById(entry.projectId),
+        onDismiss: () => unawaited(_setAside(SetAside.pickItBackUp, id)),
+      ));
+    }
+
+    return items;
   }
 
   /// Said no, and remembered.
@@ -362,9 +498,6 @@ class _SongsScreenState extends State<SongsScreen> {
     // where a song is; a search is the moment they have stopped remembering
     // and want everything at once.
     final grouped = showingSongs && !searching;
-    final queue = SongSheetQueue.from(rooms).without(
-      SetAside.of(SetAside.songSheet),
-    );
     // Rooms matching what was typed, for the Rooms segment. Matched on the
     // name only: a room is a place, and somebody searching here is looking
     // for the place rather than for something inside it — that is what the
@@ -402,39 +535,14 @@ class _SongsScreenState extends State<SongsScreen> {
             onOpenNotifications: widget.onOpenNotifications,
           ),
         ),
-        // The news, at the top of the songs somebody was going to open
-        // anyway. It was the only thing on Home that existed nowhere else.
+        // Everything that wants something from you, in one place and in one
+        // grammar. Three cards in two positions, each with its own shape and
+        // its own idea of how to be dismissed, was one feature built three
+        // times -- and two of the three could not be closed at all.
         if (!searching)
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
-            sliver: SliverToBoxAdapter(
-              child: WhileYouWereGone(
-                activity:
-                    controller.activity.take(6).toList(growable: false),
-              ),
-            ),
-          ),
-        // And what *you* left. The news says what other people did, which on
-        // a quiet week is nothing — and an app with nothing to say on a quiet
-        // week gets opened when somebody remembers it exists.
-        if (!searching)
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
-            sliver: SliverToBoxAdapter(
-              child: PickItBackUp(
-                songs: <SongProject>[
-                  for (final room in controller.rooms)
-                    for (final project in room.projects)
-                      if (!SetAside.has(SetAside.pickItBackUp, project.id))
-                        project,
-                ],
-                skip: _somethingElse,
-                onSkip: () => setState(() => _somethingElse += 1),
-                onSetAside: (song) =>
-                    unawaited(_setAside(SetAside.pickItBackUp, song.id)),
-                onOpen: _open,
-              ),
-            ),
+            sliver: SliverToBoxAdapter(child: WaitingOnYou(items: _waiting())),
           ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(18, 6, 18, 10),
@@ -491,21 +599,6 @@ class _SongsScreenState extends State<SongsScreen> {
             ),
           ),
         ),
-        // Present only when there is something to act on, and absent when
-        // there is not. The Control Room was a permanent tab for this
-        // question and answered it with an empty room most of the time.
-        if (queue.lead != null && queue.waiting.length + 1 > 0 && !searching)
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
-            sliver: SliverToBoxAdapter(
-              child: _SheetQueueBanner(
-                queue: queue,
-                onTap: () => _openSheet(queue.lead!.project),
-                onSetAside: () => unawaited(
-                    _setAside(SetAside.songSheet, queue.lead!.project.id)),
-              ),
-            ),
-          ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
           sliver: SliverToBoxAdapter(
@@ -953,110 +1046,6 @@ class _Faces extends StatelessWidget {
 /// say. In production 19 of 22 recordings already had their sheet, so the tab
 /// was a room with three things in it and a permanent place in the
 /// navigation. A banner can be absent; a tab cannot.
-class _SheetQueueBanner extends StatelessWidget {
-  const _SheetQueueBanner({
-    required this.queue,
-    required this.onTap,
-    required this.onSetAside,
-  });
-
-  final SongSheetQueue queue;
-  final VoidCallback onTap;
-
-  /// Stop offering this song a sheet.
-  ///
-  /// The card had one verb — open it — and no way to decline, so a song
-  /// somebody had decided not to analyse asked again every time they opened
-  /// the app. See [SetAside].
-  final VoidCallback onSetAside;
-
-  @override
-  Widget build(BuildContext context) {
-    final lead = queue.lead!;
-    final alsoWaiting = queue.waiting.length;
-    final working = queue.working.length;
-
-    return Material(
-      color: AppColors.gold.withValues(alpha: 0.1),
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(13),
-        side: BorderSide(color: AppColors.gold.withValues(alpha: 0.5)),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-          child: Row(
-            children: <Widget>[
-              const Icon(Icons.graphic_eq_rounded,
-                  color: AppColors.gold, size: 20),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      queue.leadIsSheet
-                          ? 'Open the sheet for ${lead.project.title}'
-                          : 'Make the song sheet for ${lead.project.title}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.text,
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _rest(alsoWaiting, working),
-                      style: const TextStyle(
-                          color: AppColors.muted, fontSize: 11.5),
-                    ),
-                  ],
-                ),
-              ),
-              // The verb, said out loud rather than implied by a chevron.
-              // Taylor: "it just goes to a song with no option to accept or
-              // deny".
-              FilledButton(
-                key: const Key('sheet_queue_do'),
-                onPressed: onTap,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.gold,
-                  foregroundColor: AppColors.ink,
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                ),
-                child: Text(queue.leadIsSheet ? 'Open' : 'Make it'),
-              ),
-              IconButton(
-                key: const Key('sheet_queue_dismiss'),
-                onPressed: onSetAside,
-                tooltip: 'Stop asking about this one',
-                visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.close_rounded,
-                    color: AppColors.muted, size: 18),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// The rest of the queue in one line, and nothing when there is no rest.
-  /// "1 more waiting" is worth saying; "0 more waiting" is noise.
-  static String _rest(int waiting, int working) {
-    final parts = <String>[
-      if (waiting > 0) '$waiting more waiting',
-      if (working > 0) '$working being worked out',
-    ];
-    return parts.isEmpty ? 'Nothing else is waiting' : parts.join(' · ');
-  }
-}
-
 class _NewSetDialog extends StatefulWidget {
   const _NewSetDialog();
 
