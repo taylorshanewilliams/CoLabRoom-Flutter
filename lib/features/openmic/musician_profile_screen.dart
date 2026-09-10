@@ -20,6 +20,7 @@ import 'open_mic_song_screen.dart';
 import 'report_sheet.dart';
 import '../workspace/song_workspace_screen.dart';
 import 'the_app_noticed.dart';
+import '../../app/beta_scope.dart';
 import '../../widgets/profile_face.dart';
 
 /// Somebody's own room.
@@ -147,6 +148,29 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
   /// A picture that will not load is a page with initials on it, which is a
   /// perfectly good page. Putting an error on the screen because somebody's
   /// avatar 404'd would be the tail wagging the dog.
+  /// Whether this person owns a room at all.
+  ///
+  /// "Invite to a room" is offered on every stranger's page, and somebody who
+  /// owns no room can only tap it to be told they cannot use it — the sheet
+  /// says "You do not own a room yet. Only an owner can invite somebody into
+  /// one." That is a button whose whole job is to explain that it has no job,
+  /// on the profile of the first musician a new person ever opens.
+  ///
+  /// Answered from rooms the shell has already loaded, so it costs nothing.
+  /// Whether they are already in *every* room you own is a different question
+  /// and still needs the round trip the sheet makes; the sheet handles that
+  /// one, and it is a fair thing to find out after tapping.
+  ///
+  /// Defaults to true when there is no controller in the tree — a screen
+  /// mounted on its own in a test keeps the behaviour it had.
+  bool get _ownsARoom {
+    final controller = BetaScope.maybeOf(context, listen: false);
+    if (controller == null) return true;
+    final me = widget.repository.currentUserId;
+    return controller.rooms.any((room) => room.members.any(
+        (member) => member.userId == me && member.role == RoomRole.owner));
+  }
+
   Future<void> _loadFace(String? path) async {
     if (path == null || path.isEmpty) return;
     try {
@@ -616,7 +640,8 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
                 onAsk: _isMe ? null : () => unawaited(_ask()),
                 onStartSomething:
                     _isMe ? null : () => unawaited(_startSomething()),
-                onInvite: _isMe ? null : () => unawaited(_invite()),
+                onInvite:
+                    (_isMe || !_ownsARoom) ? null : () => unawaited(_invite()),
               ),
       ),
     );

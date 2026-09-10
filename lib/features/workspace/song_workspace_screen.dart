@@ -1450,7 +1450,21 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         onPressed: _toggleSpeech,
         tooltip: _listening ? 'Stop dictation' : 'Dictate lyrics',
         backgroundColor: _listening ? const Color(0xFFFF6178) : AppColors.cyan,
-        child: Icon(_listening ? Icons.stop_rounded : Icons.mic_rounded),
+        // A person speaking, not a microphone.
+        //
+        // `Icons.mic_rounded` means "record a take" everywhere else in this
+        // app — the shell's record button, the Songs tab, the voice-note
+        // re-record, the permission dialog, the history entry for a take —
+        // and it is also the icon for a singer. This button does none of
+        // that: it turns speech into lyric text. The two were separated by
+        // colour alone, gold for recording and cyan here, on a screen where
+        // the gold record pill sits fifteen pixels above it.
+        //
+        // `record_voice_over` is somebody talking rather than a device that
+        // captures, which is the actual distinction.
+        child: Icon(
+          _listening ? Icons.stop_rounded : Icons.record_voice_over_rounded,
+        ),
       ),
     );
   }
