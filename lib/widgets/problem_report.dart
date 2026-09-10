@@ -9,6 +9,7 @@ import '../app/colabroom_theme.dart';
 import '../domain/music_models.dart';
 import '../services/current_route.dart';
 import '../services/recent_trouble.dart';
+import '../services/telemetry_health.dart';
 import '../services/user_facing_error.dart';
 
 /// Says that something failed, records it, and offers to hear about it.
@@ -96,6 +97,26 @@ class _ProblemReportSheet extends StatefulWidget {
   final String? route;
   final String? detail;
 
+  /// The exception, plus — when the app has been unable to file its own
+  /// reports this session — a line saying so.
+  ///
+  /// That line is the only way the fact ever escapes the device. If
+  /// `analysis_errors` is refusing this account's rows, every automatic report
+  /// it produced is already gone; feedback is a different table down a
+  /// different path, and it is the one thing still getting out. So the health
+  /// of the reporter travels with the one message a person sends by hand.
+  ///
+  /// Shown in the sheet like everything else. A report that quietly carries
+  /// something the sender was not shown is not a report they agreed to, and
+  /// that applies to a line about the app as much as to a stack trace.
+  String? get _machineHalf {
+    final parts = <String>[
+      if (detail != null) detail!,
+      if (TelemetryHealth.summary != null) TelemetryHealth.summary!,
+    ];
+    return parts.isEmpty ? null : parts.join('\n\n');
+  }
+
   @override
   State<_ProblemReportSheet> createState() => _ProblemReportSheetState();
 }
@@ -120,6 +141,7 @@ class _ProblemReportSheetState extends State<_ProblemReportSheet> {
     if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
 
+    final machine = widget._machineHalf;
     final controller = BetaScope.of(context, listen: false);
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -128,9 +150,9 @@ class _ProblemReportSheetState extends State<_ProblemReportSheet> {
         // The exception rides along under what the person wrote, rather than
         // in a separate field they cannot see. A report that quietly carries
         // something the sender was not shown is not a report they agreed to.
-        message: widget.detail == null
+        message: machine == null
             ? text
-            : '$text\n\n— what the app said —\n${widget.detail}',
+            : '$text\n\n— what the app said —\n$machine',
         // The screen they were on, not the screen the form lives on. The old
         // form hardcoded 'account' and would have mislabelled every report it
         // ever received.
@@ -205,7 +227,7 @@ class _ProblemReportSheetState extends State<_ProblemReportSheet> {
                 border: OutlineInputBorder(),
               ),
             ),
-            if (widget.detail != null) ...<Widget>[
+            if (widget._machineHalf != null) ...<Widget>[
               const SizedBox(height: 10),
               // Shown, not hidden. Somebody sending a report is entitled to
               // see everything it contains before it leaves their phone.
@@ -217,8 +239,8 @@ class _ProblemReportSheetState extends State<_ProblemReportSheet> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  widget.detail!,
-                  maxLines: 4,
+                  widget._machineHalf!,
+                  maxLines: 5,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: AppColors.muted,
