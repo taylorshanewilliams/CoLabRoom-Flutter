@@ -24,6 +24,19 @@ jobs:
       MATCH_GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       MATCH_GIT_REPOSITORY: ${{ github.repository }}
       GITHUB_RUN_NUMBER: ${{ github.run_number }}
+      # `xcodebuild -showBuildSettings` against this workspace takes about
+      # forty-five seconds, and fastlane waits three, four times, before
+      # giving up. That is what failed the 10 September build: signing had
+      # already succeeded — "All required keys, certificates and provisioning
+      # profiles are installed" — and then the run died on a stopwatch.
+      #
+      # It got slow because the iOS project resolves thirty Swift packages
+      # now (Firebase, gRPC, Abseil, leveldb and the rest), and every one of
+      # them is checked out before the settings can be read. That number only
+      # goes up, so the timeout is set well past the current cost rather than
+      # just past it.
+      FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 180
+      FASTLANE_XCODEBUILD_SETTINGS_RETRIES: 6
     steps:
       - uses: actions/checkout@v4
 
