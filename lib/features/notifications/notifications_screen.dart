@@ -227,7 +227,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     const SizedBox(height: 8),
                   ],
                   if (invites.isNotEmpty) ...<Widget>[
-                    const _SectionLabel('Invitations'),
+                    // No second heading. The note above says these belong in
+                    // the same section "because to a person they are the same
+                    // thing: somebody wants you in their band" — and then the
+                    // code printed INVITATIONS twice whenever both lists had
+                    // something in them, which is most of the time somebody
+                    // is being invited at all.
+                    if (roomInvites.isEmpty) const _SectionLabel('Invitations'),
                     for (final invite in invites) ...<Widget>[
                       _InviteCard(
                         invite: invite,
@@ -585,20 +591,24 @@ class _InviteCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
+          // Join first and filled, No thanks quiet and second — the same
+          // shape as the room invitation directly above it. These two cards
+          // asked the identical question in opposite orders, with the
+          // dismissive answer sitting where the eye and the thumb both go
+          // first on one of them.
           Row(
             children: <Widget>[
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: busy ? null : onDecline,
-                  child: const Text('Decline'),
-                ),
-              ),
-              const SizedBox(width: 10),
               Expanded(
                 child: FilledButton(
                   onPressed: busy ? null : onJoin,
                   child: const Text('Join'),
                 ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: busy ? null : onDecline,
+                style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+                child: const Text('No thanks'),
               ),
             ],
           ),

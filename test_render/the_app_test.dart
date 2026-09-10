@@ -10,6 +10,7 @@
 //
 // Not run by `flutter test`, which walks `test/` only. This is a thing you
 // point at the app when you want to know how it is doing, not a gate.
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:colabroom/app/colabroom_app.dart';
@@ -25,6 +26,13 @@ import 'rules.dart';
 
 /// Everything measured across every device, collected for one report.
 final List<Finding> _findings = <Finding>[];
+
+/// How much each screen asks of somebody, on one phone.
+///
+/// Only the iPhone: the point of this table is comparing screens with each
+/// other, and six copies of every row at different widths would bury that
+/// under exactly the kind of noise it exists to cut through.
+final List<List<String>> _density = <List<String>>[];
 
 /// Enough frames for a route transition and a rebuild, without requiring the
 /// app to ever stop moving.
@@ -109,6 +117,29 @@ Future<void> _back(WidgetTester tester) async {
   }
 }
 
+/// What each screen asks of somebody, as a table.
+///
+/// Two numbers, and neither is a threshold. A dense list of songs is supposed
+/// to have forty tappable rows and a screen with one button is not therefore
+/// better. What they are good for is comparison — two screens doing a similar
+/// job with very different numbers is worth a look, and so is a screen whose
+/// numbers climbed without anybody adding a feature.
+Future<void> _writeDensity() async {
+  final rows = <String>[
+    '# What each screen asks of you',
+    '',
+    'Measured on a 390x844 phone. Neither number is a threshold; they are for',
+    'comparing screens with each other and with themselves over time.',
+    '',
+    '| Screen | Things you can tap | Words to read |',
+    '|---|---|---|',
+    for (final row in _density) '| ${row[0]} | ${row[1]} | ${row[2]} |',
+  ];
+  final file = File('build/eyes/DENSITY.md');
+  file.parent.createSync(recursive: true);
+  file.writeAsStringSync(rows.join(Platform.lineTerminator), flush: true);
+}
+
 void main() {
   setUpAll(() async {
     await loadRealFonts();
@@ -130,6 +161,7 @@ void main() {
 
   tearDownAll(() async {
     debugDisableShadows = true;
+    await _writeDensity();
     final report = await writeReport(_findings, path: 'build/eyes/REPORT.md');
     // ignore: avoid_print
     print('\neyes: ${_findings.length} findings → ${report.path}');
@@ -216,6 +248,16 @@ void main() {
         }
         _findings.addAll(found);
 
+        // One phone only. The point of this table is comparing screens with
+        // each other, and six copies of every row at different widths would
+        // bury that under the noise it exists to cut through.
+        if (device.name == 'iPhone') {
+          _density.add(<String>[
+            name,
+            countControls(tester).toString(),
+            countWords(tester).toString(),
+          ]);
+        }
       }
 
       // Where the app opens. For a seeded account that is the shelf; for an

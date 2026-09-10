@@ -485,6 +485,53 @@ List<Finding> auditInk(
   return findings;
 }
 
+// ------------------------------------------------- how much a screen asks
+
+/// How many separate things a person could tap here.
+///
+/// The best single proxy for "is this screen asking too much of somebody".
+/// Not a threshold — a dense list of songs is *supposed* to have forty
+/// tappable rows, and a screen with one button is not therefore better. What
+/// it is good for is comparison: two screens doing a similar job with very
+/// different counts is worth a look, and a screen whose count climbed without
+/// anybody adding a feature is worth a look too.
+///
+/// Counted off the semantics tree, so it is what an assistive technology
+/// would enumerate — which is also a fair model of what somebody scanning a
+/// screen has to work through.
+int countControls(WidgetTester tester) {
+  final seen = <String>{};
+  _walkSemantics(tester, (node, data, rect) {
+    if (!data.hasAction(SemanticsAction.tap)) return;
+    if (data.hasAction(SemanticsAction.scrollUp) ||
+        data.hasAction(SemanticsAction.scrollLeft)) {
+      return;
+    }
+    if (rect.width <= 0 || rect.height <= 0) return;
+    // Position, so two buttons with the same label are two buttons and one
+    // button drawn twice is one.
+    seen.add('${rect.left.round()},${rect.top.round()},'
+        '${rect.width.round()}x${rect.height.round()}');
+  });
+  return seen.length;
+}
+
+/// How many words are on screen, as a second axis.
+///
+/// A screen can ask too much without offering a single control. Taylor's
+/// standing note on this app is "not forcing too much reading" — and reading
+/// is the one kind of demand a tap-target count is completely blind to.
+int countWords(WidgetTester tester) {
+  var words = 0;
+  for (final paragraph in tester.allRenderObjects.whereType<RenderParagraph>()) {
+    if (!paragraph.attached || paragraph.debugNeedsLayout) continue;
+    final text = paragraph.text.toPlainText(includeSemanticsLabels: false);
+    if (_isIconOrEmpty(text)) continue;
+    words += text.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+  }
+  return words;
+}
+
 // ------------------------------------------------------- what actually threw
 
 /// A screen that threw while being drawn.
