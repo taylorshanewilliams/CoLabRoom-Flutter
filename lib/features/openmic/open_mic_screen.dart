@@ -13,6 +13,7 @@ import '../../widgets/demo_chip.dart';
 import '../../widgets/play_button.dart';
 import 'ask_somebody_not_here.dart';
 import 'listen_screen.dart';
+import 'people_screen.dart';
 import 'musician_profile_screen.dart';
 import 'open_mic_song_screen.dart';
 import '../../widgets/offer_to_be_found.dart';
@@ -235,6 +236,13 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   }
 
   /// Sitting down in front of the whole room, one song at a time.
+  Future<void> _people() async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'People'),
+      builder: (_) => const PeopleScreen(),
+    ));
+  }
+
   Future<void> _listen() async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
       settings: const RouteSettings(name: 'Listen'),
@@ -364,15 +372,41 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 2),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  'Open Mic',
-                  style: Theme.of(context).textTheme.displaySmall,
+          // A title and two labelled buttons do not fit a 360px phone at
+          // 1.3x text, and the header is not the place to find that out: an
+          // overflow throws in a test and is silently clipped in release, so
+          // the first person to see it is holding a phone.
+          //
+          // Below the fold the two actions get their own line rather than
+          // losing their words. `_narrow` here means the screen, not the
+          // question the Open Mic asks.
+          child: LayoutBuilder(builder: (context, constraints) {
+            final tight = constraints.maxWidth < 380 ||
+                MediaQuery.textScalerOf(context).scale(14) > 16;
+            final actions = <Widget>[
+              // The people you already know, beside the people you have
+              // not met. Open Mic is where the app keeps people, and a
+              // connection is the layer between a stranger here and a
+              // bandmate in a room -- so this is where it belongs, as a mode
+              // rather than a fourth tab, exactly like Listen.
+              TextButton.icon(
+                key: const Key('open_mic_people'),
+                onPressed: () => unawaited(_people()),
+                icon: const Icon(Icons.group_outlined, size: 18),
+                // 'Your people', not 'People'. 'People' was one of the tabs
+                // the trail replaced in #135, and a test guards against those
+                // words coming back to the top of this screen -- correctly,
+                // because a returning tab is exactly what this would look
+                // like. It is also the truer label: this is the people you
+                // know, not the room of everybody, which is the screen you
+                // are already standing on.
+                label: const Text(
+                  'Your people',
+                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
                 ),
+                style: TextButton.styleFrom(foregroundColor: AppColors.text),
               ),
+              const SizedBox(width: 4),
               // The stage is a mode, not a fourth tab.
               //
               // Browsing and listening are two ways of using the same room,
@@ -395,8 +429,37 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 15),
                 ),
               ),
-            ],
-          ),
+            ];
+
+            if (tight) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    'Open Mic',
+                    style: Theme.of(context).textTheme.displaySmall,
+                  ),
+                  const SizedBox(height: 6),
+                  // Wrap rather than Row: at 1.3x text on a 360px phone the
+                  // two labelled buttons do not fit each other either, and a
+                  // Row here just moves the overflow down a line.
+                  Wrap(spacing: 6, runSpacing: 6, children: actions),
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    'Open Mic',
+                    style: Theme.of(context).textTheme.displaySmall,
+                  ),
+                ),
+                ...actions,
+              ],
+            );
+          }),
         ),
         _Statement(query: _query, onTap: _busy ? null : _narrow),
         const Divider(height: 1),

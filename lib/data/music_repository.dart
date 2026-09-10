@@ -434,6 +434,32 @@ abstract interface class MusicRepository {
     String? soundsLike,
   });
 
+  /// Everybody you are connected to, plus anybody waiting on an answer.
+  ///
+  /// Pending first, because a request nobody answers is the one thing here
+  /// that goes stale.
+  Future<List<Connection>> listConnections();
+
+  /// Ask somebody to connect. Returns true when the pair ended up connected,
+  /// which happens immediately if they had already asked you.
+  Future<bool> requestConnection(String personId);
+
+  /// Answer somebody who asked.
+  Future<void> respondToConnection(String personId, {required bool accept});
+
+  /// Undo, from either side, whatever the state.
+  Future<void> removeConnection(String personId);
+
+  /// People the app can say something true about, who are not connected yet.
+  Future<List<SuggestedPerson>> peopleYouMightAdd();
+
+  /// Say how reachable you are, and until when.
+  Future<void> setAvailability(
+    Availability state, {
+    String? note,
+    DateTime? until,
+  });
+
   /// Everything that has happened to this song, oldest first.
   ///
   /// Visible only to somebody the song is already visible to — the function

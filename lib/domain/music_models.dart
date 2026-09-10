@@ -634,6 +634,89 @@ class ShowcaseLink {
 /// [plays] is what they said — how they get found for work they want, and
 /// aspiration is welcome in it. [partsRecorded] is what they have actually
 /// done, counted from takes the room kept, declared by nobody.
+/// How reachable somebody has said they are.
+///
+/// Set on purpose and lasting for days, which is the timescale a band works
+/// on. A live presence dot answers "message them now"; this answers "is it
+/// worth asking at all", and it is the half that still says something when
+/// nobody happens to be online.
+enum Availability { unset, open, busy, away }
+
+Availability availabilityFrom(String? raw) => switch (raw) {
+      'open' => Availability.open,
+      'busy' => Availability.busy,
+      'away' => Availability.away,
+      _ => Availability.unset,
+    };
+
+/// Somebody you know, and which way round the knowing currently is.
+class Connection {
+  const Connection({
+    required this.personId,
+    required this.displayName,
+    required this.accepted,
+    required this.incoming,
+    this.avatarPath,
+    this.plays = const <String>[],
+    this.availability = Availability.unset,
+    this.availabilityNote,
+    this.availabilityUntil,
+    this.since,
+  });
+
+  final String personId;
+  final String displayName;
+  final String? avatarPath;
+  final List<String> plays;
+
+  /// False while somebody has been asked and has not answered.
+  final bool accepted;
+
+  /// True when they asked you. Only meaningful while [accepted] is false:
+  /// a pair that has agreed is symmetric, but a pending one is either
+  /// something you are waiting on or something waiting on you, and those
+  /// are different rows with different buttons.
+  final bool incoming;
+
+  final Availability availability;
+  final String? availabilityNote;
+  final DateTime? availabilityUntil;
+  final DateTime? since;
+
+  /// What to say about how reachable they are, or null when they have not
+  /// said. Never invents a status: "unset" means unknown, not "away".
+  String? get availabilityLine {
+    if (availability == Availability.unset) return null;
+    final note = availabilityNote;
+    final head = switch (availability) {
+      Availability.open => 'Up for playing',
+      Availability.busy => 'Heads down',
+      Availability.away => 'Away',
+      Availability.unset => '',
+    };
+    return note == null || note.isEmpty ? head : '$head - $note';
+  }
+}
+
+/// Somebody the app can say a true sentence about, who is not connected yet.
+class SuggestedPerson {
+  const SuggestedPerson({
+    required this.personId,
+    required this.displayName,
+    required this.because,
+    this.avatarPath,
+  });
+
+  final String personId;
+  final String displayName;
+  final String? avatarPath;
+
+  /// Why they are here, in words. A fact rather than a score: this app does
+  /// not have enough people to guess with, and would not be forgiven for
+  /// guessing wrong about who somebody plays with.
+  final String because;
+}
+
 class Musician {
   const Musician({
     required this.id,

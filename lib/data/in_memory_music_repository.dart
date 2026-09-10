@@ -1303,6 +1303,147 @@ class InMemoryMusicRepository implements MusicRepository {
     ),
   ];
 
+  /// The preview's connection graph, in memory.
+  ///
+  /// Seeded with one of each state so the People screen has all three of its
+  /// rows to draw without anybody having to arrange them: a connection, a
+  /// request waiting on you, and a request you are waiting on.
+  final List<Connection> _connections = <Connection>[
+    Connection(
+      personId: 'preview-jess',
+      displayName: 'Jess',
+      accepted: true,
+      incoming: false,
+      plays: const <String>['Bass'],
+      availability: Availability.open,
+      availabilityNote: 'around most evenings',
+      since: DateTime.now().subtract(const Duration(days: 6)),
+    ),
+    Connection(
+      personId: 'preview-mara',
+      displayName: 'Mara',
+      accepted: false,
+      incoming: true,
+      plays: const <String>['Drums'],
+      since: DateTime.now().subtract(const Duration(hours: 5)),
+    ),
+    Connection(
+      personId: 'preview-sam',
+      displayName: 'Sam',
+      accepted: false,
+      incoming: false,
+      plays: const <String>['Keys'],
+      since: DateTime.now().subtract(const Duration(days: 1)),
+    ),
+  ];
+
+  Availability _myAvailability = Availability.unset;
+  String? _myAvailabilityNote;
+
+  @override
+  Future<List<Connection>> listConnections() async {
+    final hidden = _blocked.map((b) => b.id).toSet();
+    final visible = _connections
+        .where((c) => !hidden.contains(c.personId))
+        .toList(growable: false);
+    return <Connection>[
+      ...visible.where((c) => !c.accepted),
+      ...visible.where((c) => c.accepted),
+    ];
+  }
+
+  @override
+  Future<bool> requestConnection(String personId) async {
+    final at = _connections.indexWhere((c) => c.personId == personId);
+    if (at >= 0) {
+      // They had already asked. Two people who have each pressed the button
+      // are connected, the same as on the server.
+      final held = _connections[at];
+      _connections[at] = Connection(
+        personId: held.personId,
+        displayName: held.displayName,
+        avatarPath: held.avatarPath,
+        plays: held.plays,
+        accepted: true,
+        incoming: held.incoming,
+        availability: held.availability,
+        availabilityNote: held.availabilityNote,
+        since: DateTime.now(),
+      );
+      return true;
+    }
+    final person = _everyone.where((m) => m.id == personId).firstOrNull;
+    _connections.add(Connection(
+      personId: personId,
+      displayName: person?.displayName ?? 'Someone',
+      avatarPath: person?.avatarPath,
+      plays: person?.plays ?? const <String>[],
+      accepted: false,
+      incoming: false,
+      since: DateTime.now(),
+    ));
+    return false;
+  }
+
+  @override
+  Future<void> respondToConnection(String personId, {required bool accept}) async {
+    final at = _connections.indexWhere((c) => c.personId == personId);
+    if (at < 0) return;
+    if (!accept) {
+      _connections.removeAt(at);
+      return;
+    }
+    final held = _connections[at];
+    _connections[at] = Connection(
+      personId: held.personId,
+      displayName: held.displayName,
+      avatarPath: held.avatarPath,
+      plays: held.plays,
+      accepted: true,
+      incoming: held.incoming,
+      availability: held.availability,
+      availabilityNote: held.availabilityNote,
+      since: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<void> removeConnection(String personId) async {
+    _connections.removeWhere((c) => c.personId == personId);
+  }
+
+  @override
+  Future<List<SuggestedPerson>> peopleYouMightAdd() async {
+    final known = _connections.map((c) => c.personId).toSet();
+    final hidden = _blocked.map((b) => b.id).toSet();
+    return <SuggestedPerson>[
+      for (final room in _rooms)
+        for (final member in room.members)
+          if (member.userId != 'preview-user' &&
+              !known.contains(member.userId) &&
+              !hidden.contains(member.userId))
+            SuggestedPerson(
+              personId: member.userId,
+              displayName: member.displayName,
+              because: 'In a room with you',
+            ),
+    ];
+  }
+
+  @override
+  Future<void> setAvailability(
+    Availability state, {
+    String? note,
+    DateTime? until,
+  }) async {
+    _myAvailability = state;
+    _myAvailabilityNote = note;
+  }
+
+  /// What the preview would show for the signed-in person.
+  Availability get myAvailability => _myAvailability;
+  String? get myAvailabilityNote => _myAvailabilityNote;
+
   @override
   Future<List<Musician>> findMusicians({
     List<String>? parts,
