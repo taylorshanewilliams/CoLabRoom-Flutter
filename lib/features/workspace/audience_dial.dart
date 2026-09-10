@@ -179,7 +179,7 @@ Future<SongAudienceChoice?> showAudienceSheet(
               here: audience.reach == SongReach.room,
               title: audience.roomName.isEmpty
                   ? 'Your room'
-                  : '${audience.roomIcon} ${audience.roomName}'.trim(),
+                  : audience.roomName,
               body: 'Everybody in the room hears it, and can work on it.',
             ),
             _Step(

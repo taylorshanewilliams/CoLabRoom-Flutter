@@ -218,7 +218,6 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
               onPressed: () => Navigator.pop(dialogContext, room),
               child: ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: Text(room.icon, style: const TextStyle(fontSize: 24)),
                 title: Text(room.name),
               ),
             ),
@@ -781,10 +780,10 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                             width: 56,
                             height: 56,
                           )
-                        : Text(
-                            room.icon,
-                            style: const TextStyle(fontSize: 27, color: AppColors.cyan),
-                          ),
+                        // Nothing rather than the default glyph. A room with
+                        // its own logo shows it; a room without one is named,
+                        // not decorated.
+                        : const SizedBox.shrink(),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
