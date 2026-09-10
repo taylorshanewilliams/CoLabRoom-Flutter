@@ -66,6 +66,29 @@ String describeForUser(Object error) {
 /// The reporting is deliberately fire-and-forget and deliberately unawaited:
 /// telemetry must never be the reason a screen takes longer to tell somebody
 /// their action failed. [ErrorReporter] already swallows its own failures.
+/// The same, for something that degraded rather than failed.
+///
+/// Warnings matter more than they look: a stage that quietly falls back still
+/// produces a result, so it is invisible in any success/failure count, which
+/// is exactly why it needs its own signal. Returns nothing, because nobody is
+/// being shown a sentence - this is for the table only.
+void reportWarningAndDescribe(
+  Object error, {
+  required String service,
+  String? stage,
+  String? projectId,
+  String? route,
+  ErrorReporter? reporter,
+}) {
+  unawaited((reporter ?? ErrorReporter()).reportWarning(
+    service: service,
+    stage: stage,
+    message: error.toString(),
+    projectId: projectId,
+    route: route,
+  ));
+}
+
 String reportAndDescribe(
   Object error, {
   required String service,

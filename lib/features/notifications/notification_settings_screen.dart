@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
 import '../../services/push_registration.dart';
+import '../../widgets/problem_report.dart';
 import '../../widgets/app_surface.dart';
 
 /// Whether this phone is on the list at all.
@@ -24,7 +25,15 @@ class _PhoneNotificationsTile extends StatefulWidget {
 
 class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile> {
   bool? _allowed;
+
+  /// Whether the server has a token for this account.
+  ///
+  /// The thing the old subtitle claimed and never checked. The OS permission
+  /// and a registered token are two different facts, and only the second one
+  /// decides whether a notification can arrive.
+  bool? _reachable;
   bool _busy = false;
+  bool _testing = false;
 
   @override
   void initState() {
@@ -34,15 +43,23 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile> {
 
   Future<void> _check() async {
     final allowed = await PushRegistration.isAllowed();
-    if (mounted) setState(() => _allowed = allowed);
+    final reachable = allowed ? await PushRegistration.reachesThisAccount() : false;
+    if (mounted) {
+      setState(() {
+        _allowed = allowed;
+        _reachable = reachable;
+      });
+    }
   }
 
   Future<void> _turnOn() async {
     setState(() => _busy = true);
     final allowed = await PushRegistration.enable();
+    final reachable = allowed ? await PushRegistration.reachesThisAccount() : false;
     if (!mounted) return;
     setState(() {
       _allowed = allowed;
+      _reachable = reachable;
       _busy = false;
     });
     if (allowed) return;
@@ -54,28 +71,87 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile> {
     ));
   }
 
+  Future<void> _sendTest() async {
+    setState(() => _testing = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final sent = await PushRegistration.sendTestNotification();
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(
+        content: Text(sent
+            ? 'Sent. Close the app and it should arrive in a moment.'
+            : 'This phone is not registered, so nothing was sent.'),
+      ));
+    } catch (error) {
+      if (!mounted) return;
+      showProblem(context, error,
+          service: 'app', stage: 'push.test', route: 'Notifications');
+    } finally {
+      if (mounted) setState(() => _testing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // A build with no Firebase configured has nothing to offer here, and a
     // switch that cannot do anything is worse than no switch.
     if (!PushRegistration.isAvailable) return const SizedBox.shrink();
     final allowed = _allowed;
+    final reachable = _reachable;
     return AppSurface(
       padding: EdgeInsets.zero,
-      child: SwitchListTile(
-        title: const Text('On this phone'),
-        subtitle: Text(
-          allowed == true
-              ? 'Notifications reach you when the app is closed.'
-              : 'Notifications only appear when you open the app.',
-        ),
-        value: allowed ?? false,
-        // Turning it off is the phone's own setting, not ours to fake. Sending
-        // somebody to Settings is honest; a switch that appears to turn it off
-        // while the system still allows it is not.
-        onChanged: _busy || allowed == true
-            ? null
-            : (_) => unawaited(_turnOn()),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          SwitchListTile(
+            title: const Text('On this phone'),
+            // Three states, not two, because there are three.
+            //
+            // The old subtitle read the OS permission and then made a claim
+            // about this app: allowed meant "notifications reach you when the
+            // app is closed". Those are different facts. On 2026-09-10 the
+            // second was false for every account in production while the
+            // first could be perfectly true - the permission is granted, the
+            // token never registers, and the screen says everything is fine.
+            //
+            // The middle state is the one worth having. It is what iOS does
+            // when the Firebase project has no APNs key, and it looked
+            // exactly like success.
+            subtitle: Text(
+              allowed != true
+                  ? 'Notifications only appear when you open the app.'
+                  : reachable == true
+                      ? 'Notifications reach you when the app is closed.'
+                      : 'Allowed on this phone, but not registered yet, so '
+                          'nothing can arrive while the app is closed.',
+            ),
+            value: allowed ?? false,
+            // Turning it off is the phone's own setting, not ours to fake.
+            // Sending somebody to Settings is honest; a switch that appears
+            // to turn it off while the system still allows it is not.
+            onChanged: _busy || allowed == true
+                ? null
+                : (_) => unawaited(_turnOn()),
+          ),
+          // Only once there is something to test. A button that can only
+          // report failure is a way of telling somebody their app is broken.
+          if (reachable == true)
+            ListTile(
+              dense: true,
+              title: const Text('Send this phone a test notification'),
+              subtitle: const Text(
+                'Goes down the real path, so if it arrives, they all will.',
+              ),
+              trailing: _testing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send_rounded, size: 18),
+              onTap: _testing ? null : () => unawaited(_sendTest()),
+            ),
+        ],
       ),
     );
   }
