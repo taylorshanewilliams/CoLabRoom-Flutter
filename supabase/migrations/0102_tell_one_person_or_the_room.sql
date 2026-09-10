@@ -108,8 +108,8 @@ begin
     and project_id = in_project
     and created_at > now() - interval '1 hour';
   if recent >= 3 then
-    raise exception 'You have told people about this song a few times '
-      || 'already. Try again in a little while.' using errcode = '53400';
+    raise exception 'You have told people about this song a few times already. Try again in a little while.'
+      using errcode = '53400';
   end if;
 
   select coalesce(display_name, 'Somebody') into my_name
