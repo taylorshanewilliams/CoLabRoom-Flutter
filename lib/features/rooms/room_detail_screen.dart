@@ -41,9 +41,37 @@ extension on _ProjectSort {
 }
 
 class RoomDetailScreen extends StatefulWidget {
-  const RoomDetailScreen({required this.roomId, super.key});
+  const RoomDetailScreen({
+    required this.roomId,
+    this.embedded = false,
+    this.onOpenSong,
+    super.key,
+  });
 
   final String roomId;
+
+  /// True when this is a pane beside the library rather than a route on top
+  /// of it.
+  ///
+  /// Same meaning as on `SongWorkspaceScreen`, and for the same reason: on a
+  /// desk the list never left, so there is nothing to go back *to*, and a
+  /// back arrow that pops a route nobody pushed is a no-op that looks
+  /// exactly like a broken button.
+  ///
+  /// It also fixes the title. As a route this screen is reached from one
+  /// place and says 'Rooms', plural, above a single room — which is a label
+  /// for where you came from rather than what you are looking at. Beside the
+  /// library, where the room is one of several listed an inch to the left,
+  /// that is not survivable: it has to say which room this is.
+  final bool embedded;
+
+  /// Where a song goes when there is somewhere better than a new route.
+  ///
+  /// Given by the library on a desk so that opening a song from inside a room
+  /// lands in the pane the room is currently occupying, rather than stacking
+  /// a third screen on top of a two-pane layout and leaving the way back to
+  /// be guessed at.
+  final ValueChanged<SongProject>? onOpenSong;
 
   @override
   State<RoomDetailScreen> createState() => _RoomDetailScreenState();
@@ -56,6 +84,26 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
   // sort menu first.
   _ProjectSort _sort = _ProjectSort.manual;
   String _query = '';
+
+  /// One way in to a song, whichever slot this screen is sitting in.
+  ///
+  /// Both call sites used to push. On a desk that put a full-screen song on
+  /// top of a room that was itself on top of the library — three deep, two
+  /// pops to get back, and the second pop landed on a room screen nobody
+  /// asked to see again.
+  void _openProject(SongProject project) {
+    final handler = widget.onOpenSong;
+    if (handler != null) {
+      handler(project);
+      return;
+    }
+    unawaited(Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.song(project.id)),
+        builder: (_) => SongWorkspaceScreen(projectId: project.id),
+      ),
+    ));
+  }
 
   List<SongProject> _sortedProjects(MusicRoom room) {
     // The same matcher the Songs tab uses, so a lyric you can find from the
@@ -564,14 +612,8 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
 
     Future<void> newSong() async {
       final project = await showNewSongFlow(context, controller, initialRoom: room);
-      if (project != null && context.mounted) {
-        await Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            settings: RouteSettings(name: AppRoutes.song(project.id)),
-            builder: (_) => SongWorkspaceScreen(projectId: project.id),
-          ),
-        );
-      }
+      if (project == null || !context.mounted) return;
+      _openProject(project);
     }
 
     Future<void> invite() async {
@@ -600,7 +642,9 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        title: const Text('Rooms'),
+        // Nothing to go back to when the library is already on screen.
+        automaticallyImplyLeading: !widget.embedded,
+        title: Text(widget.embedded ? room.name : 'Rooms'),
         actions: <Widget>[
           IconButton(
             onPressed: rename,
@@ -919,13 +963,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                             _toggleSelection(project.id);
                             return;
                           }
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              settings: RouteSettings(
-                                  name: AppRoutes.song(project.id)),
-                              builder: (_) => SongWorkspaceScreen(projectId: project.id),
-                            ),
-                          );
+                          _openProject(project);
                         }
 
                         if (_selectedProjectIds.isEmpty &&

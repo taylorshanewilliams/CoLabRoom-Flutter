@@ -12,6 +12,7 @@ import '../../app/music_beta_controller.dart';
 import '../../widgets/player_face.dart';
 import '../../domain/music_models.dart';
 import '../../widgets/app_surface.dart';
+import '../../widgets/bloom_tap.dart';
 import '../../domain/name_policy.dart';
 import '../../widgets/music_tiles.dart';
 import '../../widgets/app_top_bar.dart';
@@ -48,7 +49,7 @@ import '../../services/user_facing_error.dart';
 ///
 /// What is left is the one distinction that is not a filter at all: a song
 /// and a set are different things.
-enum _SongsView { songs, sets }
+enum _SongsView { songs, rooms, sets }
 
 /// Every song the user can reach, in one place.
 ///
@@ -113,6 +114,22 @@ class _SongsScreenState extends State<SongsScreen> {
   /// on top of it any more.
   String? _openedId;
 
+  /// The room open in that same pane instead, if one is.
+  ///
+  /// One pane, two kinds of thing in it, so these are mutually exclusive —
+  /// setting either clears the other. Holding both and picking a winner at
+  /// build time is the version of this that eventually shows a song while
+  /// the rail highlights a room.
+  String? _openedRoomId;
+
+  /// Rooms showing all of their songs rather than the first six.
+  ///
+  /// 'All 23 in South Dean' used to leave for the room screen, which is a
+  /// different place with a different layout that answers a different
+  /// question. What it was asked for is the rest of a list somebody is
+  /// already reading, so now it is the rest of the list.
+  final Set<String> _expandedRoomIds = <String>{};
+
   /// Whether there is room to show a song rather than only list it.
   ///
   /// Set by the layout builder before the body is built, the same way the
@@ -135,7 +152,10 @@ class _SongsScreenState extends State<SongsScreen> {
     // the thing at once, and moving between songs stops being a push and a
     // pop and becomes a click.
     if (_desk) {
-      setState(() => _openedId = project.id);
+      setState(() {
+        _openedId = project.id;
+        _openedRoomId = null;
+      });
       // The address bar still has to follow, or the back button and a shared
       // link both stop meaning anything on the one platform where people
       // expect them to work.
@@ -165,7 +185,23 @@ class _SongsScreenState extends State<SongsScreen> {
     );
   }
 
+  /// The room itself — members, invites, sets, the running order.
+  ///
+  /// Beside the library on a desk rather than on top of it, for the same
+  /// reason a song is: the list is the thing you navigate by, and a layout
+  /// that throws it away every time you look at a room is a layout you have
+  /// to keep rebuilding in your head.
   void _openRoom(MusicRoom room) {
+    if (_desk) {
+      setState(() {
+        _openedRoomId = room.id;
+        _openedId = null;
+      });
+      // A real address, not the word 'Room'. Every other pane in this layout
+      // puts something in the bar you could paste to somebody.
+      CurrentRoute.enter(AppRoutes.room(room.id));
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'Room'),
@@ -198,10 +234,7 @@ class _SongsScreenState extends State<SongsScreen> {
     final controller = BetaScope.of(context, listen: false);
     final room = await showCreateRoomDialog(context, controller);
     if (room == null || !mounted) return;
-    await Navigator.of(context).push(MaterialPageRoute<void>(
-      settings: const RouteSettings(name: 'Room'),
-      builder: (_) => RoomDetailScreen(roomId: room.id),
-    ));
+    _openRoom(room);
   }
 
   Future<void> _newSet() async {
@@ -258,6 +291,24 @@ class _SongsScreenState extends State<SongsScreen> {
   /// answering — and the answer is almost always the song you were last in.
   Widget _openSong(BuildContext context) {
     final controller = BetaScope.of(context);
+
+    // A room in the pane wins, because putting it there was the last thing
+    // asked for. It keeps its own Scaffold and loses only its back arrow —
+    // there is nothing behind it to go back to.
+    final roomId = _openedRoomId;
+    if (roomId != null &&
+        controller.rooms.any((room) => room.id == roomId)) {
+      return RoomDetailScreen(
+        key: ValueKey<String>('room-$roomId'),
+        roomId: roomId,
+        embedded: true,
+        // Straight into the pane the room is sitting in. Without this the
+        // room pushes a full-screen song over a two-pane layout, which is
+        // the exact jump that made this screen feel like two apps.
+        onOpenSong: _open,
+      );
+    }
+
     final projects = controller.rooms
         .expand((room) => room.projects)
         .toList(growable: false)
@@ -297,6 +348,7 @@ class _SongsScreenState extends State<SongsScreen> {
     final searching = _query.trim().isNotEmpty;
 
     final showingSongs = _view == _SongsView.songs;
+    final showingRooms = _view == _SongsView.rooms;
     // Searching flattens. Somebody typing a half-remembered line wants the
     // song, not a tour of where it might live.
     // Grouped unless you are searching. Places are how people remember
@@ -304,6 +356,16 @@ class _SongsScreenState extends State<SongsScreen> {
     // and want everything at once.
     final grouped = showingSongs && !searching;
     final queue = SongSheetQueue.from(rooms);
+    // Rooms matching what was typed, for the Rooms segment. Matched on the
+    // name only: a room is a place, and somebody searching here is looking
+    // for the place rather than for something inside it — that is what the
+    // Songs segment is for, and it already searches lyrics.
+    final visibleRooms = searching
+        ? rooms
+            .where((room) => NamePolicy.normalized(room.name)
+                .contains(NamePolicy.normalized(_query)))
+            .toList(growable: false)
+        : rooms;
 
     var results = searching ? searchSongs(rooms, _query) : allSongsByRecency(rooms);
     if (_roomFilterId != null) {
@@ -446,6 +508,14 @@ class _SongsScreenState extends State<SongsScreen> {
                     for (final option
                         in const <({_SongsView view, String label})>[
                       (view: _SongsView.songs, label: 'Songs'),
+                      // Rooms, as a place to stand rather than a grouping
+                      // somebody has to infer from a long list. Songs already
+                      // groups by room, but grouping answers "where is this
+                      // song"; it does not answer "what rooms do I have, who
+                      // is in them, and how do I make another" — which is
+                      // the question somebody has when they are setting up
+                      // rather than writing.
+                      (view: _SongsView.rooms, label: 'Rooms'),
                       (view: _SongsView.sets, label: 'Sets'),
                     ])
                       _RoomChip(
@@ -470,7 +540,9 @@ class _SongsScreenState extends State<SongsScreen> {
               decoration: InputDecoration(
                 hintText: showingSongs
                     ? 'Search songs, rooms, or a lyric you remember'
-                    : 'Search sets',
+                    : showingRooms
+                        ? 'Search rooms'
+                        : 'Search sets',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: searching
                     ? IconButton(
@@ -486,7 +558,54 @@ class _SongsScreenState extends State<SongsScreen> {
             ),
           ),
         ),
-        if (!showingSongs)
+        if (showingRooms)
+          if (visibleRooms.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(30, 20, 30, 60),
+                child: Center(
+                  child: Text(
+                    searching
+                        ? 'No rooms match “${_query.trim()}”.'
+                        : 'No rooms yet.\n\nA room is a place rather than a folder: '
+                            'your band, a side project, or just what you have '
+                            'written on your own. Everything in one is visible to '
+                            'everybody in it, which is the whole of the privacy '
+                            'rule.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppColors.muted, height: 1.5),
+                  ),
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 30),
+              sliver: SliverLayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.crossAxisExtent;
+                  final count = width >= 980 ? 4 : width >= 620 ? 3 : 2;
+                  return SliverGrid(
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: count,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 10,
+                      mainAxisExtent: 158,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) => _RoomTile(
+                        room: visibleRooms[index],
+                        controller: controller,
+                        onTap: () => _openRoom(visibleRooms[index]),
+                      ),
+                      childCount: visibleRooms.length,
+                    ),
+                  );
+                },
+              ),
+            )
+        else if (!showingSongs)
           if (sets.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
@@ -595,6 +714,12 @@ class _SongsScreenState extends State<SongsScreen> {
                     controller: controller,
                     onOpenSong: _open,
                     onOpenRoom: () => _openRoom(room),
+                    expanded: _expandedRoomIds.contains(room.id),
+                    onToggleExpanded: () => setState(() {
+                      if (!_expandedRoomIds.remove(room.id)) {
+                        _expandedRoomIds.add(room.id);
+                      }
+                    }),
                   ),
               ],
             ),
@@ -641,12 +766,20 @@ class _RoomSection extends StatelessWidget {
     required this.controller,
     required this.onOpenSong,
     required this.onOpenRoom,
+    required this.expanded,
+    required this.onToggleExpanded,
   });
 
   final MusicRoom room;
   final MusicBetaController controller;
   final ValueChanged<SongProject> onOpenSong;
   final VoidCallback onOpenRoom;
+
+  /// Whether this room is showing all of its songs or the first six.
+  final bool expanded;
+
+  /// Show the rest, or fold them back up.
+  final VoidCallback onToggleExpanded;
 
   @override
   Widget build(BuildContext context) {
@@ -713,7 +846,7 @@ class _RoomSection extends StatelessWidget {
               ),
             )
           else
-            for (final project in songs.take(6))
+            for (final project in expanded ? songs : songs.take(6))
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _SongRow(
@@ -735,13 +868,19 @@ class _RoomSection extends StatelessWidget {
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton(
-                onPressed: onOpenRoom,
+                // Unfolds here. It used to leave for the room screen, which
+                // is a different place, laid out differently, answering a
+                // different question — and the way back from it landed
+                // nowhere near the list you had been reading.
+                onPressed: onToggleExpanded,
                 style: TextButton.styleFrom(
                   visualDensity: VisualDensity.compact,
                   foregroundColor: AppColors.cyan,
                 ),
                 child: Text(
-                  'All ${songs.length} in ${room.name}  ›',
+                  expanded
+                      ? 'Fewer'
+                      : 'All ${songs.length} in ${room.name}',
                   style: const TextStyle(
                       fontSize: 12.5, fontWeight: FontWeight.w700),
                 ),
@@ -910,6 +1049,79 @@ class _NewSetDialogState extends State<_NewSetDialog> {
           child: const Text('Create'),
         ),
       ],
+    );
+  }
+}
+
+/// A room as a place, on the segment that lists them.
+///
+/// The same four facts the grouped list carries in its headings — the emoji,
+/// the name, how much is in it, and who else can see it — laid out as a card
+/// so a screen full of them can be read at a glance. Who else can see it is
+/// the important one and the reason this is not a plain list of names: it is
+/// the only privacy signal in the app, and it should never take a tap to
+/// find out.
+class _RoomTile extends StatelessWidget {
+  const _RoomTile({
+    required this.room,
+    required this.controller,
+    required this.onTap,
+  });
+
+  final MusicRoom room;
+  final MusicBetaController controller;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final songs = room.projects.length;
+    return BloomTap(
+      onTap: onTap,
+      semanticLabel: 'Open ${room.name}',
+      child: AppSurface(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Container(
+                  width: 44,
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppColors.raised,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(room.icon, style: const TextStyle(fontSize: 21)),
+                ),
+                const Spacer(),
+                if (room.members.length > 1)
+                  _Faces(room: room, controller: controller)
+                else
+                  const Icon(Icons.chevron_right_rounded,
+                      color: AppColors.muted, size: 20),
+              ],
+            ),
+            const Spacer(),
+            Text(
+              room.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 3),
+            Text(
+              room.members.length > 1
+                  ? '$songs ${songs == 1 ? 'song' : 'songs'} · '
+                      '${room.members.length} people'
+                  : '$songs ${songs == 1 ? 'song' : 'songs'} · just you',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
