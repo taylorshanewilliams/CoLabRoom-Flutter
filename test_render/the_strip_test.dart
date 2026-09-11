@@ -65,7 +65,7 @@ List<WaitingItem> _everything() {
       kind: WaitingKind.unfinished,
       eyebrow: 'Left 3 weeks ago',
       line: 'Buried My Fears',
-      detail: 'It already has a song sheet — the chords, the key, your words.',
+      detail: 'Has a song sheet',
       actionLabel: 'Open',
       onAction: () {},
       onDismiss: () {},
@@ -74,7 +74,7 @@ List<WaitingItem> _everything() {
       id: 's1',
       kind: WaitingKind.sheet,
       line: 'Hold The Line For Me',
-      detail: 'It has a recording and nothing written down.',
+      detail: 'Recorded, not written down',
       actionLabel: 'Make it',
       onAction: () {},
       onDismiss: () {},
@@ -182,6 +182,7 @@ void main() {
     Device('iPhone', Size(390, 844)),
     Device('Big text', Size(390, 844), textScale: 1.3),
     Device('Desk', Size(1100, 900)),
+    Device('Landscape phone', Size(844, 390)),
   ]) {
     testWidgets('${device.name} — a row of everything', (tester) async {
       await _shoot(tester, device, '${device.slug}-all', _everything());

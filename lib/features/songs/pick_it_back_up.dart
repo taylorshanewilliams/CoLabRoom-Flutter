@@ -61,6 +61,15 @@ class LeftBehind {
       ? 'It already has a song sheet — the chords, the key, your words.'
       : 'There is a recording on it, and no song sheet yet.';
 
+  /// The same fact, short enough for a title card.
+  ///
+  /// The row at the top of Your music gives this about twenty-five characters
+  /// before it ellipsizes, and "It already has a song sh…" says less than
+  /// nothing. Two forms of one sentence rather than one form truncated.
+  String get knownBriefly => song.analysisState == SongAnalysisState.ready
+      ? 'Has a song sheet'
+      : 'Recorded, not written down';
+
   static const _months = <String>[
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December',
