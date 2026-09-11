@@ -70,7 +70,14 @@ execute function public.remember_layer_as_event();
 --
 -- Left join, because most events are not recordings and an event whose layer
 -- has since been deleted is still a true thing that happened.
-create or replace function public.recent_activity(max_rows integer default 20)
+-- Dropped first, because this adds columns to the returned row and
+-- `create or replace` cannot change a function's return type -- it fails with
+-- "Row type defined by OUT parameters is different", which reads like a
+-- problem with the new columns rather than with the verb. Caught by the
+-- migration replay before it reached production.
+drop function if exists public.recent_activity(integer);
+
+create function public.recent_activity(max_rows integer default 20)
 returns table (
   id uuid,
   project_id uuid,
