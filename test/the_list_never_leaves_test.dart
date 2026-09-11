@@ -93,11 +93,14 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.byType(RoomDetailScreen), findsOneWidget);
+    // The search field rather than a room name: the rail is a lazy list, so
+    // which rooms happen to be built depends on how much sits above them.
+    // What this test is about is that the library did not leave.
     expect(
-      find.text('Acoustic Ideas'),
-      findsWidgets,
-      reason: 'the other room is still listed on the left, which is the '
-          'whole difference between a pane and a route',
+      find.byKey(const Key('songs_search_field')),
+      findsOneWidget,
+      reason: 'the library is still on the left, which is the whole '
+          'difference between a pane and a route',
     );
   });
 
@@ -116,7 +119,7 @@ void main() {
     expect(find.byType(RoomDetailScreen), findsNothing,
         reason: 'the room handed the pane over rather than stacking on it');
     expect(find.byType(SongWorkspaceScreen), findsOneWidget);
-    expect(find.text('Acoustic Ideas'), findsWidgets,
+    expect(find.byKey(const Key('songs_search_field')), findsOneWidget,
         reason: 'and the library never went anywhere');
   });
 
