@@ -275,6 +275,63 @@ begin
   end if;
 end $$;
 
+-- A shared take is news, and the news can be played.
+--
+-- 0104: until then project_events had never held a single 'recording' row in
+-- production -- the kind was allowed from 0032 and nothing wrote it -- so the
+-- most exciting thing this app does never reached anybody's feed. These two
+-- triggers put it there, and recent_activity carries the audio so it can be
+-- heard from the top of Your music rather than described.
+do $$
+declare
+  events integer;
+  named integer;
+begin
+  -- No psql variables in here: the substitution happens during lexing and
+  -- does not reach inside a dollar-quoted block, which is why every other
+  -- check in this file counts rather than filters by id.
+  select count(*) into events
+  from public.project_events where kind = 'recording';
+
+  -- Two shared layers were inserted above, and one of them had its shared_at
+  -- rewritten while already shared. That last one must not produce a third
+  -- event, for the same reason it must not produce a second notification.
+  if events <> 2 then
+    raise exception 'a shared take did not become news exactly once (got %)', events;
+  end if;
+
+  select count(*) into named
+  from public.project_events where kind = 'recording' and ref_id is not null;
+  if named <> 2 then
+    raise exception 'a recording event does not say which take it is about';
+  end if;
+end $$;
+
+-- A private take is a person practising. It is not news, and putting it in
+-- somebody else's feed would publish a thing they did not publish -- 0057's
+-- rule, which this trigger has to keep.
+insert into public.song_layers
+  (project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values
+  (:'project', :'writer', :'project' || '/layers/private.m4a', 'Scratch', 'other', 9000, null);
+
+do $$
+declare
+  events integer;
+begin
+  select count(*) into events
+  from public.project_events where kind = 'recording';
+  if events <> 2 then
+    raise exception 'an unshared take leaked into the feed (got % events)', events;
+  end if;
+end $$;
+
+-- Taken back out. Everything after this counts the song's layers, and a
+-- scratch take left lying around would fail a check about something else
+-- entirely -- which is what happened the first time this was written.
+delete from public.song_layers
+where project_id = :'project' and part = 'other';
+
 -- A saved version holds ids, not audio: deleting the layers it names must not
 -- be blocked by it, and a version costs one row however many layers it lists.
 insert into public.song_layer_versions (project_id, created_by, name, layer_ids)

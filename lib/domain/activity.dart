@@ -17,6 +17,8 @@ class ActivityItem {
     this.actorId,
     this.actorAvatarPath,
     this.body = '',
+    this.audioPath,
+    this.audioMs,
   });
 
   final String id;
@@ -32,8 +34,20 @@ class ActivityItem {
   final String? actorId;
   final String? actorAvatarPath;
 
-  /// What was said, for a message. Empty for everything else.
+  /// What was said, for a message. The part played, for a recording. Empty
+  /// for everything else.
   final String body;
+
+  /// Where the take is, for a recording that is still shared.
+  ///
+  /// The whole point of carrying it: a feed that can tell you somebody added
+  /// a bass part and a feed that can play you the bass part are different
+  /// products, and the second one is the reason this app exists.
+  final String? audioPath;
+  final int? audioMs;
+
+  /// Whether this is a thing that can be heard from where it is listed.
+  bool get isPlayable => (audioPath ?? '').isNotEmpty;
 
   /// The whole event as one line, without the song's name — the song is drawn
   /// separately so it can be emphasised.
@@ -48,7 +62,11 @@ class ActivityItem {
       ActivityKind.message => body.trim().isEmpty ? '$name said something' : '$name: ${body.trim()}',
       ActivityKind.edited => '$name changed the words',
       ActivityKind.analyzed => '$name made the song sheet',
-      ActivityKind.recording => '$name added a recording',
+      // The part when they named one. "Dylan added bass" is a reason to
+      // listen; "Dylan added a recording" is a fact about a database.
+      ActivityKind.recording => body.trim().isEmpty
+          ? '$name added a recording'
+          : '$name added ${body.trim()}',
       ActivityKind.joined => '$name joined',
     };
   }
