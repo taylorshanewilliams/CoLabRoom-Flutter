@@ -292,8 +292,11 @@ class _SongsScreenState extends State<SongsScreen> {
         who: person.displayName,
         whoAvatarPath: person.avatarPath,
         at: person.since,
-        line: '${person.displayName} wants to connect',
-        actionLabel: 'See',
+        // The card already says "Wants to connect" above the name and draws
+        // their face beside it, so the sentence would have been the third
+        // time in four inches.
+        line: person.displayName,
+        actionLabel: 'See who',
         onAction: () => unawaited(_openPerson(person.personId)),
       ));
     }
@@ -308,7 +311,8 @@ class _SongsScreenState extends State<SongsScreen> {
       items.add(WaitingItem(
         id: 'sheet-${lead.project.id}',
         kind: WaitingKind.sheet,
-        line: 'Make the song sheet for ${lead.project.title}',
+        line: lead.project.title,
+        detail: 'It has a recording and nothing written down.',
         actionLabel: 'Make it',
         onAction: () => _openSheet(lead.project),
         onDismiss: () =>
@@ -330,10 +334,13 @@ class _SongsScreenState extends State<SongsScreen> {
       items.add(WaitingItem(
         id: 'left-${left.song.id}',
         kind: WaitingKind.unfinished,
-        // "Buried My Fears, two weeks ago" rather than "You left this two
-        // weeks ago" — the song's name is the thing being talked about and
-        // it was the one word the old card left out of its own heading.
-        line: '${left.song.title} — ${left.when.replaceFirst('You left this ', '')}',
+        // The song's name is the thing being talked about, and it was the one
+        // word the card before last left out of its own heading. When it was
+        // left goes in the eyebrow, so the title gets the whole line and what
+        // the app already knows about it gets the one underneath — which is
+        // the actual reason to come back.
+        eyebrow: left.when.replaceFirst('You left this ', 'Left '),
+        line: left.song.title,
         detail: left.known,
         actionLabel: 'Open',
         onAction: () => _open(left.song),
@@ -357,6 +364,16 @@ class _SongsScreenState extends State<SongsScreen> {
         // Carried through so the card can play it rather than describe it.
         audioPath: entry.audioPath,
         audioMs: entry.audioMs,
+        // What kind of news it is, above the sentence. "New take" and "New
+        // message" are both somebody doing something on your song, and only
+        // one of them is worth putting headphones on for.
+        eyebrow: switch (entry.kind) {
+          ActivityKind.recording => 'New take',
+          ActivityKind.message => 'New message',
+          ActivityKind.analyzed => 'Song sheet ready',
+          ActivityKind.joined => 'Joined the room',
+          ActivityKind.edited => 'Edited',
+        },
         line: entry.sentence,
         // What the thing actually is, so the button is worth pressing. "Hear
         // it" is a different invitation from "Open".
@@ -559,7 +576,12 @@ class _SongsScreenState extends State<SongsScreen> {
         // times -- and two of the three could not be closed at all.
         if (!searching)
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
+            // No horizontal padding, on purpose. The strip is a row of cards
+            // that runs off the right edge, and it insets itself so the card
+            // edges still line up with everything else — a container 18 in
+            // from each side would clip the card that is peeking, which is
+            // the one thing telling you the row goes sideways.
+            padding: const EdgeInsets.only(top: 10),
             sliver: SliverToBoxAdapter(child: WaitingOnYou(items: _waiting())),
           ),
         SliverPadding(
