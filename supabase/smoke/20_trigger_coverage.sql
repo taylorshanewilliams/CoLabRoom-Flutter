@@ -55,7 +55,12 @@ insert into smoke_covered (name) values
   -- memory quietly filling with gaps and nothing else would notice.
   ('project_asks_remember'),
   ('project_asks_remember_answer'),
-  ('song_layers_remember_delivery');
+  ('song_layers_remember_delivery'),
+  -- 0104. The scenario shares two takes and asserts each became news exactly
+  -- once, that re-writing shared_at on an already-shared take does not
+  -- announce it twice, and that a private take never reaches the feed at all.
+  ('song_layers_remember_event'),
+  ('song_layers_remember_event_on_share');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario
