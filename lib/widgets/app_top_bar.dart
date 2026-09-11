@@ -56,6 +56,24 @@ class AppTopBar extends StatelessWidget {
   /// was drawn, placed in the corner, and wired to nothing.
   final VoidCallback? onGoHome;
 
+  /// The mark, with or without the tap that takes you home.
+  ///
+  /// Built once here because it goes into two different flex wrappers
+  /// depending on whether the tabs are showing, and duplicating it was how
+  /// one of the two ended up wrapped wrongly in the first place.
+  Widget _mark() => onGoHome == null
+      ? const BrandMark()
+      : Semantics(
+          button: true,
+          label: 'Home',
+          child: InkWell(
+            key: const Key('brand_home_button'),
+            onTap: onGoHome,
+            borderRadius: BorderRadius.circular(15),
+            child: const BrandMark(),
+          ),
+        );
+
   @override
   Widget build(BuildContext context) {
     final controller = BetaScope.of(context);
@@ -78,62 +96,70 @@ class AppTopBar extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 4),
       child: Row(
         children: <Widget>[
-          // Expanded, and no Spacer after it: both are flex children, so a
-          // Spacer here would split the free space and squeeze the app's own
-          // name to half a row with the other half sitting empty beside it.
-          // Flexible, not fixed: on a 360px phone the wordmark has to be
-          // able to give way to the bell and the avatar. It was Expanded
-          // before the tabs existed, and taking that away overflowed the
-          // bar by 104px on every phone.
-          Flexible(
-            child: onGoHome == null
-                ? const BrandMark()
-                : Semantics(
-                    button: true,
-                    label: 'Home',
-                    child: InkWell(
-                      key: const Key('brand_home_button'),
-                      onTap: onGoHome,
-                      borderRadius: BorderRadius.circular(15),
-                      child: const BrandMark(),
-                    ),
-                  ),
-          ),
+          // Expanded when it is alone up here, and a Spacer must never follow
+          // it.
+          //
+          // This is the bug Taylor reported as "the colabroom logo at the top
+          // shrunk a lot", and the comment warning about it was already
+          // sitting here when the tabs landed on top of it. `Flexible` and
+          // `Spacer` are both flex children with flex 1, so a Row holding
+          // both hands each of them half the free space — the mark got 95 of
+          // the 190 spare pixels on a 360px phone, the icon and its gap ate
+          // 58 of those, and `BrandMark`'s own `FittedBox` dutifully shrank
+          // the wordmark to fit the 37 that were left. Nothing overflowed and
+          // nothing threw. The app just quietly wrote its own name at a
+          // quarter size, next to an equal amount of nothing.
+          //
+          // So: one flex child on this side, whichever it is. With tabs, the
+          // tab strip is the thing that absorbs the slack and the mark takes
+          // its natural width beside it; without them, the mark takes it all.
           if (tabs.isEmpty)
-            const Spacer()
+            Expanded(child: _mark())
           else ...<Widget>[
+            Flexible(child: _mark()),
             const SizedBox(width: 26),
-            for (var i = 0; i < tabs.length; i += 1)
-              Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: TextButton(
-                  onPressed: () => onSelectTab?.call(i),
-                  style: TextButton.styleFrom(
-                    foregroundColor:
-                        i == selectedTab ? AppColors.text : AppColors.muted,
-                  ),
-                  // Styled on the Text rather than through
-                  // `styleFrom(textStyle:)`.
-                  //
-                  // `ButtonStyleButton` picks the widget's text style *or*
-                  // the theme's — `??`, not a merge — so a style given there
-                  // replaces the resolved one entirely and takes the font
-                  // family with it. It resolves to the platform font on a
-                  // device and so looks fine; it also means these tabs would
-                  // silently ignore a custom family the day the theme sets
-                  // one, and they render with no font at all under the render
-                  // harness, which is where the app is looked at.
-                  child: Text(
-                    tabs[i],
-                    style: TextStyle(
-                      fontSize: 14.5,
-                      fontWeight:
-                          i == selectedTab ? FontWeight.w800 : FontWeight.w600,
-                    ),
-                  ),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: <Widget>[
+                    for (var i = 0; i < tabs.length; i += 1)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: TextButton(
+                          onPressed: () => onSelectTab?.call(i),
+                          style: TextButton.styleFrom(
+                            foregroundColor: i == selectedTab
+                                ? AppColors.text
+                                : AppColors.muted,
+                          ),
+                          // Styled on the Text rather than through
+                          // `styleFrom(textStyle:)`.
+                          //
+                          // `ButtonStyleButton` picks the widget's text style
+                          // *or* the theme's — `??`, not a merge — so a style
+                          // given there replaces the resolved one entirely
+                          // and takes the font family with it. It resolves to
+                          // the platform font on a device and so looks fine;
+                          // it also means these tabs would silently ignore a
+                          // custom family the day the theme sets one, and
+                          // they render with no font at all under the render
+                          // harness, which is where the app is looked at.
+                          child: Text(
+                            tabs[i],
+                            style: TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: i == selectedTab
+                                  ? FontWeight.w800
+                                  : FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-            const Spacer(),
+            ),
           ],
           // A question mark in the corner, beside the bell.
           //
