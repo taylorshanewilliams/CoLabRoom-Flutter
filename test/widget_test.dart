@@ -22,6 +22,8 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Midnight Signal'), findsWidgets);
 
+    await tester.ensureVisible(find.text('Midnight Signal').last);
+    await tester.pump();
     await tester.tap(find.text('Midnight Signal').last);
     await tester.pumpAndSettle();
 
@@ -74,6 +76,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Songs').last);
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Midnight Signal').last);
+    await tester.pump();
     await tester.tap(find.text('Midnight Signal').last);
     await tester.pumpAndSettle();
 

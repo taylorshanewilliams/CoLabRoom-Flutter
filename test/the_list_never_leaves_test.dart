@@ -69,6 +69,8 @@ void main() {
     final more = find.textContaining('All 8 in');
     expect(more, findsOneWidget, reason: 'seven added to the one seeded');
 
+    await tester.ensureVisible(more);
+    await tester.pump();
     await tester.tap(more);
     await tester.pump(const Duration(milliseconds: 300));
 

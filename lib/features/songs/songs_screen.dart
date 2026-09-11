@@ -284,6 +284,37 @@ class _SongsScreenState extends State<SongsScreen> {
     final controller = BetaScope.of(context);
     final items = <WaitingItem>[];
 
+    // Somebody asked you, by name, to play something. The most personal
+    // thing this app can hold and the one thing in it another musician is
+    // actually waiting on.
+    for (final ask in controller.asksForMe) {
+      items.add(WaitingItem(
+        id: 'ask-${ask.id}',
+        kind: WaitingKind.ask,
+        who: ask.askedByName,
+        about: ask.songTitle,
+        at: ask.createdAt,
+        line: ask.part == null
+            ? '${ask.askedByName} asked you to play on ${ask.songTitle}'
+            : '${ask.askedByName} asked you for ${ask.part} on ${ask.songTitle}',
+        actionLabel: 'Answer',
+        onAction: widget.onOpenNotifications,
+      ));
+    }
+
+    for (final invite in controller.roomInvitesForMe) {
+      items.add(WaitingItem(
+        id: 'invite-${invite.id}',
+        kind: WaitingKind.invite,
+        who: invite.invitedByName,
+        about: invite.roomName,
+        at: invite.createdAt,
+        line: invite.headline,
+        actionLabel: 'Answer',
+        onAction: widget.onOpenNotifications,
+      ));
+    }
+
     // People first. Somebody is on the other end of this one.
     for (final person in _requests) {
       items.add(WaitingItem(

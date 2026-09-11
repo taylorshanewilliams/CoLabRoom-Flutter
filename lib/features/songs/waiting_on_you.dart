@@ -32,6 +32,12 @@ import '../../widgets/player_face.dart';
 ///   * the whole strip can be skipped for now without answering anything
 ///   * it is not shaped like a song, so nobody tries to open it as one
 enum WaitingKind {
+  /// Somebody asked you, by name, to play on their song.
+  ask,
+
+  /// Somebody invited you into a room.
+  invite,
+
   /// Somebody has asked to connect.
   request,
 
@@ -98,7 +104,34 @@ class WaitingItem {
   /// News about a person is. A chore never is.
   bool get isNews => who != null && kind != WaitingKind.sheet;
 
+  /// Where this sits against everything else.
+  ///
+  /// A person waiting on an answer outranks a person's news, which outranks
+  /// a job that will be equally true tomorrow. Nothing here is ordered by
+  /// recency: the newest thing is rarely the most important one, and an
+  /// inbox sorted by time makes you read it all to find out what matters.
+  int get rank => switch (kind) {
+        WaitingKind.ask => 0,
+        WaitingKind.invite => 1,
+        WaitingKind.request => 2,
+        WaitingKind.news => 3,
+        WaitingKind.sheet => 4,
+        WaitingKind.unfinished => 5,
+      };
+
+  /// Whether somebody is on the other end, waiting.
+  ///
+  /// These cannot be closed, only answered. Letting somebody silently drop a
+  /// request another musician is waiting on would make the strip a place
+  /// where things go to be forgotten, which is the opposite of the point.
+  bool get someoneIsWaiting =>
+      kind == WaitingKind.ask ||
+      kind == WaitingKind.invite ||
+      kind == WaitingKind.request;
+
   IconData get icon => switch (kind) {
+        WaitingKind.ask => Icons.campaign_outlined,
+        WaitingKind.invite => Icons.meeting_room_outlined,
         WaitingKind.request => Icons.person_add_alt_1_rounded,
         WaitingKind.news => Icons.graphic_eq_rounded,
         WaitingKind.unfinished => Icons.history_rounded,
@@ -106,6 +139,8 @@ class WaitingItem {
       };
 
   Color get tint => switch (kind) {
+        WaitingKind.ask => AppColors.gold,
+        WaitingKind.invite => AppColors.cyan,
         WaitingKind.request => AppColors.cyan,
         WaitingKind.news => AppColors.cyan,
         WaitingKind.unfinished => AppColors.muted,
@@ -121,10 +156,14 @@ class WaitingOnYou extends StatefulWidget {
 
   /// How many rows are shown under the lead before the rest are folded away.
   ///
-  /// Three, because this sits above somebody's songs and its job is to be
-  /// answered and gone. A list of nine things to deal with before you can see
-  /// your own music is a worse version of the problem it is solving.
-  static const int shown = 3;
+  /// Two, and it was three until the asks and invites moved in here. With a
+  /// lead card on top, three rows and a "more" line pushed the songs off a
+  /// small phone entirely — which is the definition of intrusive, and was
+  /// caught by four tests that suddenly could not tap a song.
+  ///
+  /// The strip sits above somebody's music. Its job is to be answered and
+  /// gone, and it must never be the reason you cannot see what you came for.
+  static const int shown = 2;
 
   @override
   State<WaitingOnYou> createState() => _WaitingOnYouState();
@@ -145,8 +184,13 @@ class _WaitingOnYouState extends State<WaitingOnYou> {
   Widget build(BuildContext context) {
     if (widget.items.isEmpty || _skipped) return const SizedBox.shrink();
 
-    final all = widget.items;
-    // The best piece of news leads, and only news can lead.
+    // Ordered here rather than by the caller, so every screen that ever
+    // shows this strip agrees about what matters most.
+    final all = widget.items.toList()
+      ..sort((a, b) => a.rank.compareTo(b.rank));
+
+    // The most important thing with a person attached leads. A chore never
+    // does, however near the top of the list it sits.
     WaitingItem? lead;
     for (final item in all) {
       if (item.isNews) {
@@ -155,8 +199,15 @@ class _WaitingOnYouState extends State<WaitingOnYou> {
       }
     }
     final rest = all.where((i) => i != lead).toList(growable: false);
+    // Fewer rows on a short screen. A strip that is right at 844 points is
+    // half the screen at 690 with the text scaled up, and "half the screen
+    // before you can see your own songs" is the definition of intrusive
+    // however good the contents are.
+    final room = MediaQuery.sizeOf(context).height >= 760
+        ? WaitingOnYou.shown
+        : 1;
     final visible =
-        _expanded ? rest : rest.take(WaitingOnYou.shown).toList(growable: false);
+        _expanded ? rest : rest.take(room).toList(growable: false);
     final hidden = rest.length - visible.length;
 
     return Container(

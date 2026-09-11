@@ -77,10 +77,14 @@ void main() {
             'used to abandon');
 
     // Each door goes somewhere, rather than describing something.
+    await tester.ensureVisible(find.byKey(const Key('door_record')));
+    await tester.pump();
     await tester.tap(find.byKey(const Key('door_record')));
     await tester.pump();
     expect(recorded, 1);
 
+    await tester.ensureVisible(find.byKey(const Key('door_find')));
+    await tester.pump();
     await tester.tap(find.byKey(const Key('door_find')));
     await tester.pump();
     expect(searched, 1);

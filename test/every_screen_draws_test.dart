@@ -177,7 +177,17 @@ Future<bool> _back(WidgetTester tester) async {
 /// it is invisible to `find` and to anything else looking.
 Future<Finder> _reveal(WidgetTester tester, Finder finder) async {
   if (finder.evaluate().isNotEmpty) return finder;
-  await tester.scrollUntilVisible(finder, 220, maxScrolls: 12);
+  // Names the scrollable rather than letting scrollUntilVisible guess. Once
+  // more than one Scrollable is on screen its own lookup throws before it
+  // scrolls anything, and the failure reads as if the widget were missing.
+  final scrollables = find.byType(Scrollable);
+  if (scrollables.evaluate().isEmpty) return finder;
+  await tester.scrollUntilVisible(
+    finder,
+    220,
+    scrollable: scrollables.first,
+    maxScrolls: 12,
+  );
   await _frames(tester);
   return finder;
 }
