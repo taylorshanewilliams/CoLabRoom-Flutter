@@ -905,6 +905,8 @@ class SupabaseMusicRepository implements MusicRepository {
               actorName: row['actor_name'] as String?,
               actorAvatarPath: row['actor_avatar_path'] as String?,
               body: row['body'] as String? ?? '',
+              audioPath: row['audio_path'] as String?,
+              audioMs: (row['audio_ms'] as num?)?.toInt(),
             );
           }(),
     ];

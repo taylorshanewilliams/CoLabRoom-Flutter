@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../services/now_playing.dart';
 import '../../widgets/player_face.dart';
 
 /// Everything that wants something from you, in one place.
@@ -58,6 +61,8 @@ class WaitingItem {
     this.whoAvatarPath,
     this.about,
     this.at,
+    this.audioPath,
+    this.audioMs,
   });
 
   /// Unique within the strip, so a dismissal can be remembered.
@@ -92,6 +97,16 @@ class WaitingItem {
 
   /// When, so it can be said the way a person would.
   final DateTime? at;
+
+  /// Where the audio is, when this is a thing that can be heard.
+  ///
+  /// The difference between being told somebody added a bass part and
+  /// hearing the bass part, from the top of your own screen, without opening
+  /// anything.
+  final String? audioPath;
+  final int? audioMs;
+
+  bool get isPlayable => (audioPath ?? '').isNotEmpty;
 
   /// Whether this is worth the top of the screen.
   ///
@@ -310,20 +325,42 @@ class _LeadCard extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: <Widget>[
-              FilledButton(
-                key: Key('waiting_lead_do_${item.id}'),
-                onPressed: item.onAction,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.cyan,
-                  foregroundColor: AppColors.ink,
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+              // Heard here, not somewhere else.
+              //
+              // This is the whole point of the strip. A person recorded a
+              // part on your song while you were asleep, and until now the
+              // best the app could do was tell you so and offer to open a
+              // screen. One tap, no navigation, no waiting -- the same player
+              // the rest of the app uses, so the bar at the bottom picks it
+              // up and it keeps going while you carry on reading.
+              if (item.isPlayable)
+                _PlayButton(item: item)
+              else
+                FilledButton(
+                  key: Key('waiting_lead_do_${item.id}'),
+                  onPressed: item.onAction,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.cyan,
+                    foregroundColor: AppColors.ink,
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                  ),
+                  child: Text(
+                    item.actionLabel,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
                 ),
-                child: Text(
-                  item.actionLabel,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
+              if (item.isPlayable) ...<Widget>[
+                const SizedBox(width: 4),
+                // Still a way into the song, for somebody who wants the rest
+                // of it rather than the thirty seconds.
+                TextButton(
+                  key: Key('waiting_lead_open_${item.id}'),
+                  onPressed: item.onAction,
+                  style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+                  child: const Text('Open the song'),
                 ),
-              ),
+              ],
               if (item.onDismiss != null) ...<Widget>[
                 const SizedBox(width: 4),
                 TextButton(
@@ -427,6 +464,57 @@ class _WaitingRow extends StatelessWidget {
             const SizedBox(width: 8),
         ],
       ),
+    );
+  }
+}
+
+/// Play, and then stop, without leaving the screen.
+///
+/// Listens to the one player the whole app shares, so a take started here
+/// appears in the bar at the bottom and keeps going while somebody scrolls on
+/// — and so pressing play on a second thing stops the first, which is what a
+/// person expects and what two independent players never do.
+class _PlayButton extends StatelessWidget {
+  const _PlayButton({required this.item});
+
+  final WaitingItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: NowPlaying.instance,
+      builder: (context, _) {
+        final now = NowPlaying.instance;
+        final mine = now.path == item.audioPath;
+        final playing = mine && now.playing;
+        return FilledButton.icon(
+          key: Key('waiting_lead_play_${item.id}'),
+          onPressed: () => unawaited(
+            now.toggle(
+              item.audioPath!,
+              knownLength: item.audioMs == null
+                  ? null
+                  : Duration(milliseconds: item.audioMs!),
+              title: item.about ?? '',
+              byline: item.who ?? '',
+            ),
+          ),
+          icon: Icon(
+            playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+            size: 20,
+          ),
+          label: Text(
+            playing ? 'Playing' : 'Hear it',
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.cyan,
+            foregroundColor: AppColors.ink,
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.only(left: 10, right: 16),
+          ),
+        );
+      },
     );
   }
 }

@@ -354,6 +354,9 @@ class _SongsScreenState extends State<SongsScreen> {
         whoAvatarPath: entry.actorAvatarPath,
         about: entry.projectTitle,
         at: entry.at,
+        // Carried through so the card can play it rather than describe it.
+        audioPath: entry.audioPath,
+        audioMs: entry.audioMs,
         line: entry.sentence,
         // What the thing actually is, so the button is worth pressing. "Hear
         // it" is a different invitation from "Open".
