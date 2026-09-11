@@ -312,7 +312,7 @@ class _SongsScreenState extends State<SongsScreen> {
         id: 'sheet-${lead.project.id}',
         kind: WaitingKind.sheet,
         line: lead.project.title,
-        detail: 'It has a recording and nothing written down.',
+        detail: 'Recorded, not written down',
         actionLabel: 'Make it',
         onAction: () => _openSheet(lead.project),
         onDismiss: () =>
@@ -341,7 +341,7 @@ class _SongsScreenState extends State<SongsScreen> {
         // the actual reason to come back.
         eyebrow: left.when.replaceFirst('You left this ', 'Left '),
         line: left.song.title,
-        detail: left.known,
+        detail: left.knownBriefly,
         actionLabel: 'Open',
         onAction: () => _open(left.song),
         onDismiss: () =>

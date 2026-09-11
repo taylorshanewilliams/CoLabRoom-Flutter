@@ -177,7 +177,16 @@ Future<bool> _back(WidgetTester tester) async {
 /// it is invisible to `find` and to anything else looking.
 Future<Finder> _reveal(WidgetTester tester, Finder finder) async {
   if (finder.evaluate().isNotEmpty) return finder;
-  await tester.scrollUntilVisible(finder, 220, maxScrolls: 12);
+  // Named explicitly, because Songs now holds two scrollables: the page, and
+  // the row of waiting cards that runs sideways across the top of it. Left to
+  // itself `scrollUntilVisible` asks for *the* Scrollable and throws "Bad
+  // state: Too many elements" — which reads like a broken finder rather than
+  // like a second scroll axis existing on the screen.
+  final down = find.byWidgetPredicate(
+    (widget) => widget is Scrollable && widget.axisDirection == AxisDirection.down,
+  );
+  await tester.scrollUntilVisible(finder, 220,
+      maxScrolls: 12, scrollable: down.first);
   await _frames(tester);
   return finder;
 }

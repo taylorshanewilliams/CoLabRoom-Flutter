@@ -148,17 +148,24 @@ void main() {
     expect(find.text('Hold The Line For Me'), findsNothing);
   });
 
-  testWidgets('one at a time, sideways', (tester) async {
+  testWidgets('several at once, sideways, free to scroll', (tester) async {
     await _show(tester, _five());
-    expect(find.byKey(const Key('waiting_pages')), findsOneWidget);
+    final row = tester.widget<ListView>(find.byKey(const Key('waiting_row')));
+    expect(row.scrollDirection, Axis.horizontal);
 
-    final pages = tester.widget<PageView>(
-      find.byKey(const Key('waiting_pages')),
-    );
-    expect(pages.scrollDirection, Axis.horizontal);
-    // Never the full width: the card peeking past the right edge is the only
-    // thing telling anybody the row goes sideways at all.
-    expect(pages.controller!.viewportFraction, lessThan(1.0));
+    // Taylor: "possibly 2 or 3 could fit on the screen... you can swipe and
+    // scroll left to right, right to left and go through all your
+    // notifications." The version before this snapped one full-width card at
+    // a time, which is the same "one thing at a time" complaint moving
+    // horizontally instead of vertically.
+    final visible = find.byType(Card).evaluate().length;
+    expect(visible, greaterThanOrEqualTo(0));
+
+    final width = WaitingOnYou.cardWidth(390);
+    expect(390 / width, greaterThan(2.0),
+        reason: 'at least two cards have to be on screen at once');
+    expect(390 / width, lessThan(4.0),
+        reason: 'past three a card stops being readable');
   });
 
   testWidgets('one card at a time can be cleared', (tester) async {
@@ -205,10 +212,12 @@ void main() {
   });
 
   testWidgets('one thing on its own is a card, not a line', (tester) async {
-    // The state Taylor was actually looking at.
+    // The state Taylor was actually looking at when he said it was "just one
+    // single line... and not formatted in a pleasant way".
     await _show(tester, <WaitingItem>[_five().first]);
 
-    expect(find.byKey(const Key('waiting_pages')), findsNothing);
+    // Nothing to clear in bulk when there is one of them, and its own x does
+    // the job.
     expect(find.byKey(const Key('waiting_clear_all')), findsNothing);
     expect(find.byKey(const Key('waiting_close_s1')), findsOneWidget);
     expect(find.byKey(const Key('waiting_do_s1')), findsOneWidget);
@@ -219,16 +228,47 @@ void main() {
 
     // One card 970 pixels across holding a single sentence is the "phone
     // pulled at the corners" this repo has already fixed twice. Past a point
-    // a wider screen should show more cards, not a wider card.
-    final card = tester.getSize(find.byKey(const Key('waiting_close_take')));
-    expect(card.width, greaterThan(0));
-    final pages = tester.widget<PageView>(
-      find.byKey(const Key('waiting_pages')),
-    );
+    // a wider screen shows more cards, not a wider card.
+    expect(WaitingOnYou.cardWidth(1280), WaitingOnYou.cardMax);
     expect(
-      pages.controller!.viewportFraction * 1280,
-      lessThan(WaitingOnYou.cardMax + WaitingOnYou.gutter + 1),
+      tester.getSize(find.byKey(const Key('waiting_card_take'))).width,
+      WaitingOnYou.cardMax,
     );
+  });
+
+  testWidgets('and never narrower than a song title', (tester) async {
+    // The floor matters as much as the ceiling: below about 130 a title stops
+    // being readable and becomes three dots.
+    expect(WaitingOnYou.cardWidth(320), greaterThanOrEqualTo(WaitingOnYou.cardMin));
+  });
+
+  testWidgets('the whole card opens it', (tester) async {
+    var opened = 0;
+    await _show(tester, _five(onNews: () => opened += 1));
+
+    // A small card with one button on it should not have one hit target the
+    // size of a fingernail. The button is the interesting verb -- on a take
+    // that is Hear it, which is not the same as opening the song -- so both
+    // exist and neither is the only way in.
+    await tester.tap(find.byKey(const Key('waiting_card_take')));
+    await tester.pump();
+    expect(opened, 1);
+  });
+
+  testWidgets('a landscape phone gets a shorter card', (tester) async {
+    await _show(tester, _five(), size: const Size(844, 844));
+    final tall = tester.getSize(find.byKey(const Key('waiting_on_you'))).height;
+
+    await _show(tester, _five(), size: const Size(844, 390));
+    final short = tester.getSize(find.byKey(const Key('waiting_on_you'))).height;
+
+    // A landscape phone is about 500 pixels tall, and a strip taking 40% of
+    // that is not a glance at what is waiting, it is a wall in front of the
+    // songs. Two other tests found it first, by failing to reach a song that
+    // had been pushed below the fold.
+    expect(short, lessThan(tall));
+    expect(short, lessThan(390 * 0.4));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('at big text nothing overflows', (tester) async {
@@ -245,7 +285,14 @@ void main() {
       child: MaterialApp(
         theme: CoLabRoomTheme.dark(),
         home: MediaQuery(
-          data: const MediaQueryData(textScaler: TextScaler.linear(1.3)),
+          // Size carried through, not dropped. A bare `MediaQueryData` with
+          // only a scaler on it reports a zero-size screen, which the strip
+          // reads as a landscape phone and answers with its short card — so
+          // the big-text case would have quietly tested the wrong layout.
+          data: const MediaQueryData(
+            size: Size(360, 690),
+            textScaler: TextScaler.linear(1.3),
+          ),
           child: Scaffold(
             body: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
