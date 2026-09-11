@@ -326,6 +326,12 @@ begin
   end if;
 end $$;
 
+-- Taken back out. Everything after this counts the song's layers, and a
+-- scratch take left lying around would fail a check about something else
+-- entirely -- which is what happened the first time this was written.
+delete from public.song_layers
+where project_id = :'project' and part = 'other';
+
 -- A saved version holds ids, not audio: deleting the layers it names must not
 -- be blocked by it, and a version costs one row however many layers it lists.
 insert into public.song_layer_versions (project_id, created_by, name, layer_ids)
