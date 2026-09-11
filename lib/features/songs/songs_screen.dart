@@ -11,6 +11,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../app/music_beta_controller.dart';
 import '../../widgets/player_face.dart';
+import '../../domain/activity.dart';
 import '../../domain/music_models.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/bloom_tap.dart';
@@ -288,6 +289,9 @@ class _SongsScreenState extends State<SongsScreen> {
       items.add(WaitingItem(
         id: 'request-${person.personId}',
         kind: WaitingKind.request,
+        who: person.displayName,
+        whoAvatarPath: person.avatarPath,
+        at: person.since,
         line: '${person.displayName} wants to connect',
         actionLabel: 'See',
         onAction: () => unawaited(_openPerson(person.personId)),
@@ -346,8 +350,19 @@ class _SongsScreenState extends State<SongsScreen> {
       items.add(WaitingItem(
         id: id,
         kind: WaitingKind.news,
-        line: '${entry.projectTitle} — ${entry.sentence}',
-        actionLabel: 'Open',
+        who: entry.actorName ?? 'Somebody',
+        whoAvatarPath: entry.actorAvatarPath,
+        about: entry.projectTitle,
+        at: entry.at,
+        line: entry.sentence,
+        // What the thing actually is, so the button is worth pressing. "Hear
+        // it" is a different invitation from "Open".
+        actionLabel: switch (entry.kind) {
+          ActivityKind.recording => 'Hear it',
+          ActivityKind.message => 'Read it',
+          ActivityKind.analyzed => 'See the sheet',
+          _ => 'Open',
+        },
         onAction: () => _openProjectById(entry.projectId),
         onDismiss: () => unawaited(_setAside(SetAside.pickItBackUp, id)),
       ));
