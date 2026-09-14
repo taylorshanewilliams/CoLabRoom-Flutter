@@ -10,6 +10,12 @@ on:
 env:
   RUNPOD_ENDPOINT_ID: 7ykxzcpvw4873h
   CHORD_SERVICE_URL: https://colabroom-chord-service-7nvccxceca-uc.a.run.app
+  # Once, for every step. Each deploy step used to carry its own copy, and
+  # twice now a step added to the end of the file was missing it — once
+  # transcribe-audio, and on 14 Sep 2026 check-picture, whose copy an
+  # insertion above it had quietly moved onto the new step. A step that
+  # cannot fail for want of a token is the only kind worth adding next.
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
 jobs:
   deploy:
@@ -67,5 +73,3 @@ jobs:
       # model key (ANTHROPIC_API_KEY first, OPENAI_API_KEY otherwise).
       - name: Deploy ask-the-song
         run: supabase functions deploy ask-the-song --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
