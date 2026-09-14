@@ -268,3 +268,31 @@ enum RoleFamily {
     return null;
   }
 }
+
+/// A part, as a person you would like to meet: "a singer", "a bass player".
+///
+/// The stored words are what somebody plays; a standing want is about who
+/// somebody wants to meet, and "I'd like to meet vocal" is not a sentence.
+/// Unknown parts get the honest shape rather than a guess.
+String someoneWhoPlays(String part) {
+  final cleaned = part.trim().toLowerCase();
+  return switch (cleaned) {
+    'vocal' => 'a singer',
+    'harmony' => 'a harmony singer',
+    'rap' => 'a rapper',
+    'lyrics' => 'a lyricist',
+    'topline' => 'a topline writer',
+    'lead' => 'a lead guitarist',
+    'rhythm' => 'a rhythm guitarist',
+    'bass' => 'a bass player',
+    'keys' => 'a keys player',
+    'drums' => 'a drummer',
+    'percussion' => 'a percussionist',
+    'beat' => 'a beat maker',
+    'producer' => 'a producer',
+    'engineer' => 'an engineer',
+    'mix' => 'a mix engineer',
+    'master' => 'a mastering engineer',
+    _ => 'somebody who plays $cleaned',
+  };
+}

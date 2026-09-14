@@ -6,12 +6,14 @@ import '../../app/routes.dart';
 import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
+import '../../domain/musical_roles.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/app_top_bar.dart';
 import '../../widgets/demo_chip.dart';
 import '../../widgets/play_button.dart';
 import 'ask_somebody_not_here.dart';
+import 'leave_want_sheet.dart';
 import 'listen_screen.dart';
 import 'people_screen.dart';
 import 'musician_profile_screen.dart';
@@ -43,6 +45,7 @@ class OpenMicScreen extends StatefulWidget {
     this.onOpenAccount,
     this.onOpenNotifications,
     this.showTopBar = true,
+    this.initialQuery,
     super.key,
   });
 
@@ -56,6 +59,11 @@ class OpenMicScreen extends StatefulWidget {
 
   /// False when the shell draws one across the top for every tab.
   final bool showTopBar;
+
+  /// The room already narrowed, for a caller that knows what somebody is
+  /// after -- a note they left, a link they followed. Null opens the whole
+  /// room, as before.
+  final OpenMicQuery? initialQuery;
 
   @override
   State<OpenMicScreen> createState() => _OpenMicScreenState();
@@ -73,7 +81,11 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   ///
   /// Now the room shows the answer and keeps the controls behind it. See
   /// [OpenMicQuery] and [showWhatAreYouAfter].
-  OpenMicQuery _query = const OpenMicQuery();
+  late OpenMicQuery _query = widget.initialQuery ?? const OpenMicQuery();
+
+  /// Who is looking for what you play. Read once with your own row, and only
+  /// shown when the room has nothing else to say.
+  List<WantAround> _wantsAround = const <WantAround>[];
 
   List<Musician>? _found;
   List<ShowcaseSong>? _finished;
@@ -135,6 +147,42 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
       if (mounted) setState(() => _me = me);
     } catch (_) {
       // Unknown stays unknown.
+    }
+    try {
+      final around = await widget.repository.wantsAround();
+      if (mounted) setState(() => _wantsAround = around);
+    } catch (_) {
+      // A line that cannot be read is a line not shown.
+    }
+  }
+
+  /// The shallowest ask there is, left where the room could not answer it.
+  ///
+  /// Somebody who narrowed the room to singers and found none used to be
+  /// left exactly where they were. The note lasts a month, and when a singer
+  /// turns up they hear about it -- the search gets a memory.
+  Future<void> _leaveWant() async {
+    if (_query.parts.length != 1) return;
+    final part = _query.parts.first;
+    final label = someoneWhoPlays(part);
+    final choice = await showLeaveWantSheet(context, label: label);
+    if (choice == null || !mounted) return;
+    try {
+      await widget.repository.leaveWant(
+        part: part,
+        label: label,
+        note: choice.note.isEmpty ? null : choice.note,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Noted. You will hear when $label turns up.'),
+      ));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+            reportAndDescribe(error, service: 'app', stage: 'leave_want')),
+      ));
     }
   }
 
@@ -518,6 +566,12 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
                           narrowed: _query.isNarrowed,
                           onListMe: _listMe,
                           onAskSomebody: _askSomebodyNotHere,
+                          onLeaveWant:
+                              _query.parts.length == 1 ? _leaveWant : null,
+                          lookingFor: _query.parts.length == 1
+                              ? someoneWhoPlays(_query.parts.first)
+                              : null,
+                          wantsAround: _wantsAround,
                         )
                       else ...<Widget>[
                         if (_aloneInTheRoom(found))
@@ -1025,7 +1079,30 @@ class _Empty extends StatelessWidget {
     this.narrowed = false,
     this.onListMe,
     this.onAskSomebody,
+    this.onLeaveWant,
+    this.lookingFor,
+    this.wantsAround = const <WantAround>[],
   });
+
+  /// Leaving a note that outlives the search, offered only when the room was
+  /// narrowed to one kind of person -- there is nothing to note otherwise.
+  final VoidCallback? onLeaveWant;
+
+  /// That kind of person, in words: "a singer".
+  final String? lookingFor;
+
+  /// The other direction of the same record: who is looking for what you
+  /// play. Shown only to somebody who is listed, because it is an answer to
+  /// being findable.
+  final List<WantAround> wantsAround;
+
+  static String _wantsAroundLine(List<WantAround> around) {
+    final first = around.first;
+    final head = first.people == 1
+        ? '1 person around here is looking for ${first.label}'
+        : '${first.people} people around here are looking for ${first.label}';
+    return around.length > 1 ? '$head, and others for more' : head;
+  }
 
   /// Whether *you* are findable. Null until the answer arrives.
   ///
@@ -1115,6 +1192,40 @@ class _Empty extends StatelessWidget {
               height: 1.45,
             ),
           ),
+          if (listed == true && wantsAround.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 10),
+            Text(
+              _wantsAroundLine(wantsAround),
+              key: const Key('open_mic_wants_around'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.cyan,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                height: 1.4,
+              ),
+            ),
+          ],
+          if (narrowed && onLeaveWant != null && lookingFor != null) ...<Widget>[
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              key: const Key('open_mic_leave_want'),
+              onPressed: onLeaveWant,
+              icon: const Icon(Icons.sticky_note_2_outlined, size: 18),
+              // Flexible, because "a mastering engineer" is a long way to
+              // end a sentence on a narrow phone, and a button label that
+              // cannot wrap overflows rather than reads.
+              label: Text(
+                'Leave a note: I would like to meet $lookingFor',
+                textAlign: TextAlign.center,
+              ),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(44),
+                foregroundColor: AppColors.cyan,
+                side: BorderSide(color: AppColors.cyan.withValues(alpha: 0.45)),
+              ),
+            ),
+          ],
           if (canList) ...<Widget>[
             const SizedBox(height: 16),
             FilledButton.icon(

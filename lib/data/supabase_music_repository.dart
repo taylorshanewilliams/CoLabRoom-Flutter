@@ -2155,6 +2155,70 @@ class SupabaseMusicRepository implements MusicRepository {
     await client.from('direct_messages').delete().eq('id', message.id);
   }
 
+  @override
+  Future<List<StandingWant>> myWants() async {
+    final rows = await client.rpc<dynamic>('my_wants');
+    return <StandingWant>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        _want(row as Map<String, dynamic>),
+    ];
+  }
+
+  @override
+  Future<StandingWant> leaveWant({
+    required String part,
+    required String label,
+    String? note,
+  }) async {
+    final id = await client.rpc<dynamic>(
+      'leave_want',
+      params: <String, dynamic>{
+        'in_part': part.trim().toLowerCase(),
+        'in_label': label,
+        'in_note': note == null || note.trim().isEmpty ? null : note.trim(),
+      },
+    );
+    final wants = await myWants();
+    return wants.firstWhere(
+      (want) => want.id == '$id',
+      orElse: () => StandingWant(
+        id: '$id',
+        part: part.trim().toLowerCase(),
+        label: label,
+        note: note,
+        expiresAt: DateTime.now().add(const Duration(days: 30)),
+      ),
+    );
+  }
+
+  @override
+  Future<void> dropWant(String id) async {
+    await client.rpc<dynamic>('drop_want', params: <String, dynamic>{'target': id});
+  }
+
+  @override
+  Future<List<WantAround>> wantsAround() async {
+    final rows = await client.rpc<dynamic>('wants_around');
+    return <WantAround>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        WantAround(
+          part: (row as Map)['part'] as String? ?? '',
+          label: row['label'] as String? ?? '',
+          people: (row['people'] as num?)?.toInt() ?? 0,
+        ),
+    ];
+  }
+
+  StandingWant _want(Map<String, dynamic> row) => StandingWant(
+        id: row['id'] as String,
+        part: row['part'] as String? ?? '',
+        label: row['label'] as String? ?? '',
+        note: row['note'] as String?,
+        expiresAt: DateTime.tryParse('${row['expires_at']}')?.toLocal() ??
+            DateTime.now(),
+        matched: (row['matched'] as num?)?.toInt() ?? 0,
+      );
+
   DirectMessage _message(Map<String, dynamic> row, String personId) {
     final author = row['author'];
     return DirectMessage(

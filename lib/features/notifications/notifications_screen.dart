@@ -12,6 +12,7 @@ import '../../widgets/app_surface.dart';
 import '../../domain/musical_roles.dart';
 import '../../widgets/play_button.dart';
 import '../openmic/report_sheet.dart';
+import '../openmic/musician_profile_screen.dart';
 import '../openmic/person_thread_sheet.dart';
 import '../workspace/ask_thread_sheet.dart';
 
@@ -299,6 +300,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 repository: controller.repository,
                                 personId: notification.actorId!,
                                 personName: notification.title,
+                              ));
+                            }
+                            // Somebody you left a note about has turned up:
+                            // the useful next thing is their page.
+                            if (notification.type ==
+                                    NotificationType.wantMatched &&
+                                notification.actorId != null) {
+                              unawaited(Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => MusicianProfileScreen(
+                                    profileId: notification.actorId!,
+                                    repository: controller.repository,
+                                  ),
+                                ),
                               ));
                             }
                           },
@@ -718,6 +733,8 @@ class _NotificationCard extends StatelessWidget {
         return Icons.campaign_outlined;
       case NotificationType.directMessage:
         return Icons.chat_bubble_outline_rounded;
+      case NotificationType.wantMatched:
+        return Icons.person_search_rounded;
       case NotificationType.unfamiliar:
         return Icons.notifications_none_rounded;
     }

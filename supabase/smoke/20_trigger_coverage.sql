@@ -51,6 +51,9 @@ insert into smoke_covered (name) values
   -- 0113. The scenario has an outsider nod with a line and the owner nod
   -- their own song, and asserts one project update, then none for a re-save.
   ('project_nods_announce'),
+  -- 0115. The scenario leaves a note for a bass player, toggles the bass
+  -- player's listing, and asserts one introduction, then none for a repeat.
+  ('profiles_match_wants'),
   -- Fires on every notification the scenario causes, with push_config
   -- set at the top of it so the delivery path actually runs.
   ('notifications_deliver'),

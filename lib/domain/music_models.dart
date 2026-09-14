@@ -648,6 +648,46 @@ class DirectMessage {
   final DateTime createdAt;
 }
 
+/// A note you left: you would like to meet somebody who plays [part].
+///
+/// The shallowest ask there is, with nothing attached. Lasts a month, then
+/// it is gone; [matched] is how many people it has already found you.
+class StandingWant {
+  const StandingWant({
+    required this.id,
+    required this.part,
+    required this.label,
+    required this.expiresAt,
+    this.note,
+    this.matched = 0,
+  });
+
+  final String id;
+
+  /// The stored word, as in `plays`.
+  final String part;
+
+  /// The person: "a singer".
+  final String label;
+  final String? note;
+  final DateTime expiresAt;
+  final int matched;
+}
+
+/// Who is looking for what you play, as a count. Never names: a want is
+/// not a listing.
+class WantAround {
+  const WantAround({
+    required this.part,
+    required this.label,
+    required this.people,
+  });
+
+  final String part;
+  final String label;
+  final int people;
+}
+
 /// One dated thing that happened to a song.
 ///
 /// The unit of the provenance record. Deliberately flat and deliberately
@@ -1141,6 +1181,10 @@ enum NotificationType {
   /// you and only you -- migration 0112. The sender is the actor, so the
   /// inbox can open the thread.
   directMessage,
+  /// Somebody who plays what you left a note about has turned up on the
+  /// Open Mic -- migration 0115. The newcomer is the actor, so the inbox
+  /// can open their page.
+  wantMatched,
   /// A type this build has not met. Shown with the title and body the
   /// server wrote, opens nothing, and — the point — never refuses to load
   /// the app. Every type is unknown to some build in the field.
@@ -1160,6 +1204,7 @@ NotificationType notificationTypeFromSql(String value) => switch (value) {
       'analysis_ready' => NotificationType.analysisReady,
       'song_ask' => NotificationType.songAsk,
       'direct_message' => NotificationType.directMessage,
+      'want_matched' => NotificationType.wantMatched,
       _ => NotificationType.unfamiliar,
     };
 

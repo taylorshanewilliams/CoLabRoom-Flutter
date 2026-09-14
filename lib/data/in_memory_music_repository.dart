@@ -666,6 +666,7 @@ class InMemoryMusicRepository implements MusicRepository {
   final Map<String, List<AskReply>> _replies = <String, List<AskReply>>{};
   final Map<String, List<DirectMessage>> _messages =
       <String, List<DirectMessage>>{};
+  final List<StandingWant> _wants = <StandingWant>[];
   final Map<String, Set<String>> _nods = <String, Set<String>>{};
   final Map<String, String> _nodNotes = <String, String>{};
 
@@ -1688,6 +1689,38 @@ class InMemoryMusicRepository implements MusicRepository {
     _messages[message.personId]
         ?.removeWhere((existing) => existing.id == message.id);
   }
+
+  @override
+  Future<List<StandingWant>> myWants() async => List<StandingWant>.unmodifiable(
+      _wants.where((want) => want.expiresAt.isAfter(DateTime.now())));
+
+  @override
+  Future<StandingWant> leaveWant({
+    required String part,
+    required String label,
+    String? note,
+  }) async {
+    final cleaned = part.trim().toLowerCase();
+    final trimmed = note?.trim() ?? '';
+    _wants.removeWhere((want) => want.part == cleaned);
+    final want = StandingWant(
+      id: 'want-$cleaned',
+      part: cleaned,
+      label: label,
+      note: trimmed.isEmpty ? null : trimmed,
+      expiresAt: DateTime.now().add(const Duration(days: 30)),
+    );
+    _wants.insert(0, want);
+    return want;
+  }
+
+  @override
+  Future<void> dropWant(String id) async {
+    _wants.removeWhere((want) => want.id == id);
+  }
+
+  @override
+  Future<List<WantAround>> wantsAround() async => const <WantAround>[];
 
   @override
   Future<SongAsk> askFor({

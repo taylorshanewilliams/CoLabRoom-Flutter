@@ -558,6 +558,23 @@ abstract interface class MusicRepository {
   /// Take back something you said to them.
   Future<void> deleteMessage(DirectMessage message);
 
+  /// The notes you have left, unexpired, newest first.
+  Future<List<StandingWant>> myWants();
+
+  /// Leave a note that you would like to meet somebody who plays [part].
+  /// Leaving the same one again renews it for a month.
+  Future<StandingWant> leaveWant({
+    required String part,
+    required String label,
+    String? note,
+  });
+
+  /// Not looking any more.
+  Future<void> dropWant(String id);
+
+  /// Who is looking for what you play, as counts per part.
+  Future<List<WantAround>> wantsAround();
+
   Future<InviteResult> createInvite({
     required MusicRoom room,
     required String email,
