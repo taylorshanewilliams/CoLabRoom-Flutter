@@ -2276,7 +2276,7 @@ class SupabaseMusicRepository implements MusicRepository {
   AppNotification _notification(Map<String, dynamic> row) {
     return AppNotification(
       id: row['id'] as String,
-      type: _notificationTypeFromSql(row['type'] as String),
+      type: notificationTypeFromSql(row['type'] as String? ?? ''),
       title: row['title'] as String,
       body: row['body'] as String? ?? '',
       createdAt: DateTime.parse(row['created_at'] as String),
@@ -2286,22 +2286,6 @@ class SupabaseMusicRepository implements MusicRepository {
       actorId: row['actor_id'] as String?,
       readAt: row['read_at'] == null ? null : DateTime.parse(row['read_at'] as String),
     );
-  }
-
-  NotificationType _notificationTypeFromSql(String value) {
-    switch (value) {
-      case 'invite_received':
-        return NotificationType.inviteReceived;
-      case 'invite_accepted':
-        return NotificationType.inviteAccepted;
-      case 'invite_declined':
-        return NotificationType.inviteDeclined;
-      case 'project_update':
-        return NotificationType.projectUpdate;
-      case 'analysis_ready':
-        return NotificationType.analysisReady;
-    }
-    throw ArgumentError('Unknown notification type: $value');
   }
 
   Map<String, dynamic> _memberJson(RoomMember member) => <String, dynamic>{

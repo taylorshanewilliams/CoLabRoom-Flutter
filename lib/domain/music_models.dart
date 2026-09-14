@@ -1060,7 +1060,31 @@ enum NotificationType {
   /// An analysis the user started has finished. Exists so nobody has to watch
   /// a progress bar for the minutes a GPU job takes — see migration 0036.
   analysisReady,
+  /// Somebody asked for a part on a song, or asked this person for one —
+  /// migrations 0048 and 0049. The server had been writing these for three
+  /// weeks before the app learned the word, and the first one anybody
+  /// received took their whole workspace down at load (14 Sep 2026).
+  songAsk,
+  /// A type this build has not met. Shown with the title and body the
+  /// server wrote, opens nothing, and — the point — never refuses to load
+  /// the app. Every type is unknown to some build in the field.
+  unfamiliar,
 }
+
+/// The server's name for a notification type, as the app's own.
+///
+/// Never throws. The parser used to, and one row of a type the build did
+/// not know made the load of every notification fail together, which the
+/// app reports as "we could not open the workspace" — for a notification.
+NotificationType notificationTypeFromSql(String value) => switch (value) {
+      'invite_received' => NotificationType.inviteReceived,
+      'invite_accepted' => NotificationType.inviteAccepted,
+      'invite_declined' => NotificationType.inviteDeclined,
+      'project_update' => NotificationType.projectUpdate,
+      'analysis_ready' => NotificationType.analysisReady,
+      'song_ask' => NotificationType.songAsk,
+      _ => NotificationType.unfamiliar,
+    };
 
 class AppNotification {
   const AppNotification({
