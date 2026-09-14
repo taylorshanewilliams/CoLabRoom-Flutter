@@ -10,8 +10,11 @@ import 'package:flutter/services.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
+import 'package:path_provider/path_provider.dart';
+
 import '../../services/pitch.dart';
 import '../../services/pitch_listener.dart';
+import '../../services/play_along.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
@@ -33,6 +36,7 @@ class LivePerformanceScreen extends StatefulWidget {
     required this.project,
     this.analysis,
     this.openMicrophone,
+    this.playAlongMixer,
     super.key,
   });
 
@@ -47,6 +51,15 @@ class LivePerformanceScreen extends StatefulWidget {
   /// Where the singer's voice comes from when they sing along. Production
   /// leaves this null and uses the microphone; a test hands in a tone.
   final Future<Stream<Uint8List>> Function()? openMicrophone;
+
+  /// Builds the band-without-you mix and returns its local path. Production
+  /// leaves this null and uses PlayAlong over the cached stems; a test hands
+  /// in something that answers at once.
+  final Future<String> Function(
+    List<SongStem> stems,
+    StemKind without,
+    void Function(String stage) onProgress,
+  )? playAlongMixer;
 
   @override
   State<LivePerformanceScreen> createState() => _LivePerformanceScreenState();
@@ -100,6 +113,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   bool _singing = false;
   String? _singError;
 
+  /// The band without you: which part is left out of what is playing, the
+  /// recording's own local path to go back to, and what the mixer is
+  /// saying while it works (or why it could not).
+  StemKind? _without;
+  String? _referencePath;
+  bool _mixing = false;
+  String? _mixNote;
+
   List<StructureSection> get _sections =>
       widget.analysis?.reference?.structureSections ??
       const <StructureSection>[];
@@ -113,7 +134,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// right: the words are the point. Practising, the controls *are* the
   /// point -- the first device test of this screen spent half its taps
   /// revealing the bar before the chip underneath could be pressed.
-  bool get _practising => _loop != null || _rate != 1 || _singing;
+  bool get _practising => _loop != null || _rate != 1 || _singing || _without != null;
 
   /// Whether the practice row is on screen, so the words can leave room
   /// for it rather than run underneath.
@@ -187,6 +208,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     try {
       final path = await SongAnalysisService().ensureLocalReference(reference);
       if (!mounted) return;
+      _referencePath = path;
       final player = AudioPlayer();
       await player.setSource(audioSourceFor(path));
       if (_rate != 1) await player.setPlaybackRate(_rate);
@@ -604,6 +626,90 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     if (mounted) setState(() {});
   }
 
+  /// Play along with everyone but you, or with everyone again.
+  ///
+  /// The mix is one file (see PlayAlong), built the first time a part is
+  /// left out and kept, then swapped in under the player at the moment the
+  /// song is at -- paused or playing, at whatever speed -- so the words do
+  /// not jump. Tapping the chosen part again puts the whole recording back.
+  Future<void> _setWithout(StemKind kind) async {
+    if (_mixing) return;
+    final stems = widget.analysis?.stems ?? const <SongStem>[];
+    final leaving = _without == kind;
+    setState(() {
+      _mixing = true;
+      _mixNote = leaving ? 'Everyone back in…' : 'Mixing the band without the ${kind.label.toLowerCase()}…';
+      _controlsVisible = true;
+    });
+    try {
+      final String path;
+      if (leaving) {
+        final reference = _referencePath;
+        if (reference == null) throw StateError('The recording has not loaded yet.');
+        path = reference;
+      } else {
+        final mixer = widget.playAlongMixer ?? _defaultMixer;
+        path = await mixer(stems, kind, (stage) {
+          if (mounted) setState(() => _mixNote = stage);
+        });
+      }
+      if (!mounted) return;
+      await _swapAudio(path);
+      if (!mounted) return;
+      setState(() {
+        _without = leaving ? null : kind;
+        _mixNote = null;
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(() => _mixNote = reportAndDescribe(error,
+            service: 'app', stage: 'play_along.mix', route: 'Perform'));
+      }
+    } finally {
+      if (mounted) setState(() => _mixing = false);
+      _armControlHide();
+    }
+  }
+
+  static Future<String> _defaultMixer(
+    List<SongStem> stems,
+    StemKind without,
+    void Function(String stage) onProgress,
+  ) async {
+    final directory = await getTemporaryDirectory();
+    return PlayAlong.mixWithout(
+      stems: stems,
+      without: without,
+      ensureLocalStem: SongAnalysisService().ensureLocalStem,
+      directory: directory.path,
+      onProgress: onProgress,
+    );
+  }
+
+  /// Puts [path] under the player at the current moment, keeping the speed
+  /// and whether it was playing.
+  Future<void> _swapAudio(String path) async {
+    var player = _audioPlayer;
+    final wasPlaying = _playing;
+    if (player == null) {
+      player = AudioPlayer();
+      _audioPositionSub = player.onPositionChanged.listen((position) {
+        if (_playing && _mode == LiveScrollMode.synced) _elapsed = position;
+      });
+      _audioCompleteSub = player.onPlayerComplete.listen((_) {
+        if (mounted) setState(() => _playing = false);
+      });
+      _audioPlayer = player;
+    } else {
+      await player.pause();
+    }
+    await player.setSource(audioSourceFor(path));
+    await player.seek(_elapsed);
+    if (_rate != 1) await player.setPlaybackRate(_rate);
+    if (mounted) setState(() => _audioReady = true);
+    if (wasPlaying) await player.resume();
+  }
+
   /// Sing along, or stop.
   ///
   /// Opens the same ear the tuner uses, with the same disclosure -- nothing
@@ -836,6 +942,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         onSing: _toggleSinging,
                         heard: _singing ? _ear?.reading.value : null,
                         singError: _singError,
+                        stems: widget.analysis?.stems ?? const <SongStem>[],
+                        without: _without,
+                        onWithout: _setWithout,
+                        mixNote: _mixNote,
                       ),
                     ),
                   ),
@@ -1281,6 +1391,10 @@ class _LiveControls extends StatelessWidget {
     this.onSing,
     this.heard,
     this.singError,
+    this.stems = const <SongStem>[],
+    this.without,
+    this.onWithout,
+    this.mixNote,
   });
 
   final LiveScrollMode mode;
@@ -1299,6 +1413,14 @@ class _LiveControls extends StatelessWidget {
   final VoidCallback? onSing;
   final PitchReading? heard;
   final String? singError;
+
+  /// The band without you: the separated parts, which one is left out of
+  /// the mix (null for the whole recording), and what the mixer is doing
+  /// or why it could not.
+  final List<SongStem> stems;
+  final StemKind? without;
+  final ValueChanged<StemKind>? onWithout;
+  final String? mixNote;
 
   /// The song's own parts, one chip each, and which one is on repeat.
   final List<StructureSection> sections;
@@ -1452,6 +1574,17 @@ class _LiveControls extends StatelessWidget {
                   error: singError,
                 ),
               ],
+              if (mixNote != null) ...<Widget>[
+                const SizedBox(height: 4),
+                Text(
+                  mixNote!,
+                  key: const Key('live_mix_note'),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: AppColors.muted, fontSize: 11, height: 1.3),
+                ),
+              ],
               const SizedBox(height: 2),
               // Speed first, then the parts. One scrolling row rather than
               // two stacked ones: on a phone in landscape this bar is already
@@ -1481,6 +1614,24 @@ class _LiveControls extends StatelessWidget {
                         selected: singing,
                         onTap: onSing!,
                       ),
+                    ],
+                    // The band without you: one chip per separated part,
+                    // and the chosen one is the part you are playing. Tap it
+                    // again for the whole recording. A recording that was
+                    // never separated simply has no chips.
+                    if (stems.isNotEmpty && onWithout != null) ...<Widget>[
+                      const SizedBox(width: 6),
+                      const Padding(
+                        padding: EdgeInsets.only(right: 6),
+                        child: Icon(Icons.person_off_outlined, size: 15, color: AppColors.muted),
+                      ),
+                      for (final stem in stems)
+                        _ModeChip(
+                          key: Key('live_without_${stem.kind.name}'),
+                          label: 'No ${stem.kind.label.toLowerCase()}',
+                          selected: without == stem.kind,
+                          onTap: () => onWithout!(stem.kind),
+                        ),
                     ],
                     if (sections.isNotEmpty) ...<Widget>[
                       const SizedBox(width: 6),
