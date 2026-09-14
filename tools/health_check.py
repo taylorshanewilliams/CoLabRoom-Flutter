@@ -170,11 +170,15 @@ def cut_release(runpod_key: str, endpoint_id: str) -> bool:
 
 
 def make_clip(path: str) -> None:
-    """A chord, a beat, and a change partway through.
+    """A chord, a beat, and noise.
 
-    Not musical, but it gives every detector something real to do: three tones
-    for the chord model, a click for the beat tracker, and a shift at the
-    halfway point so the structure model has a boundary to find.
+    Not musical, but it gives the detectors something real to do: three tones
+    for the chord model, and a tick every half second for the beat tracker.
+    The tick is new: the docstring above used to promise one and the command
+    did not deliver it, so the beat count on this clip was whatever the
+    tracker made of white noise -- usually enough, and on 14 Sep 2026 three,
+    which failed a check that had nothing to do with beats. A pulse at 120
+    bpm is not something a beat tracker gets to have an opinion about.
     """
     subprocess.run(
         [
@@ -183,7 +187,9 @@ def make_clip(path: str) -> None:
             "-f", "lavfi", "-i", f"sine=frequency=330:duration={CLIP_SECONDS}",
             "-f", "lavfi", "-i", f"sine=frequency=440:duration={CLIP_SECONDS}",
             "-f", "lavfi", "-i", f"anoisesrc=duration={CLIP_SECONDS}:color=white:amplitude=0.25",
-            "-filter_complex", "amix=inputs=4:duration=longest,volume=2",
+            "-f", "lavfi", "-i",
+            f"aevalsrc='1.5*sin(2*PI*1000*t)*exp(-60*mod(t,0.5))':d={CLIP_SECONDS}",
+            "-filter_complex", "amix=inputs=5:duration=longest,volume=2",
             "-ar", "44100", "-ac", "2",
             path,
         ],

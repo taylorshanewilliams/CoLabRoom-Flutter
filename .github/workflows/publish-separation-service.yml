@@ -22,6 +22,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # To ask the health check for the proof, below.
+      actions: write
     steps:
       - uses: actions/checkout@v4
 
@@ -116,8 +118,22 @@ jobs:
           version_after=$(curl -sf -H "Authorization: Bearer $RUNPOD_API_KEY" \
             "https://rest.runpod.io/v1/endpoints/$RUNPOD_ENDPOINT_ID" | jq -r '.version')
 
+          # The version number is a hint, not the proof. On 14 Sep 2026 it
+          # stayed at 28 through the nudge and the workers were on the new
+          # image anyway; the proof is a job answering with this commit,
+          # which the health check asks for in the next step.
           if [ "$version_after" = "$version_before" ]; then
-            echo "::error::The endpoint stayed on release version $version_before — the workers are still on the old image. Cut a release by hand (health-check.yml with release=true) and look at why this did not."
-            exit 1
+            echo "::warning::The endpoint's release version did not move ($version_before). That has happened with the workers on the new image regardless — the health check dispatched next says which build actually answers."
+          else
+            echo "Endpoint release cut: version $version_before -> $version_after. New workers pull the image above; old ones drain."
           fi
-          echo "Endpoint release cut: version $version_before -> $version_after. New workers pull the image above; old ones drain."
+
+      - name: Ask a worker which build it is
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The only proof of a rollout is a worker saying it was built from
+          # this commit. The health check submits a real job and fails when
+          # the answer names a different build than the template does.
+          gh workflow run health-check.yml -f depth=quick
+          echo "Dispatched health-check.yml (quick). Its log prints 'worker build: ${GITHUB_SHA:0:12}' when the rollout has reached the workers."
