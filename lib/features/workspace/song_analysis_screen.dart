@@ -903,6 +903,12 @@ class _AnalysisSummary extends StatelessWidget {
             label: 'Bars',
             value: ref.barCount != null ? '${ref.barCount}' : '—',
           ),
+          // The first thing on this grid that is about the singer rather
+          // than the song. Absent, not "—", when nothing was sung: a dash
+          // says the app tried and failed, and on an instrumental it did not
+          // try.
+          if (ref.melody?.rangeLabel != null)
+            _Metric(label: 'Sung range', value: ref.melody!.rangeLabel!),
           _Metric(label: 'Timed lines', value: '${bundle.lyricCues.length}'),
           _Metric(label: 'Chord changes', value: '${bundle.chordCues.length}'),
           _Metric(label: 'Lyric match', value: _percent(ref.lyricConfidence)),

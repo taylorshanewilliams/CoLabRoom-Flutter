@@ -579,6 +579,50 @@ def _get_whisper():
     return _whisper_model
 
 
+MELODY_SR = 16000
+MELODY_HOP = 320  # 20 ms at 16 kHz
+MELODY_FMIN = 65.0  # C2, below any sung note worth naming
+MELODY_FMAX = 1100.0  # just over C6
+
+
+def _extract_melody(path: str) -> dict | None:
+    """The sung melody of the vocal stem, as notes, or None.
+
+    pyin (Mauch & Dixon, 2014), librosa's own, rather than a neural pitch
+    model: it needs nothing this image does not already have, and on an
+    *isolated* vocal it is the right tool -- a single voice is the
+    monophonic case pyin was built for. The grouping into notes is in
+    melody.py, pure Python, so it can be tested on a laptop.
+
+    Best-effort like every other detector here. A melody that fails must
+    not take chords, structure or lyrics down with it.
+    """
+    try:
+        from melody import segment_melody, summarise
+
+        y, sr = librosa.load(path, sr=MELODY_SR, mono=True)
+        if y.size < sr:
+            return None
+        f0, voiced_flag, _voiced_prob = librosa.pyin(
+            y,
+            fmin=MELODY_FMIN,
+            fmax=MELODY_FMAX,
+            sr=sr,
+            frame_length=2048,
+            hop_length=MELODY_HOP,
+        )
+        midi = librosa.hz_to_midi(f0)
+        hop_ms = MELODY_HOP * 1000.0 / sr
+        notes = segment_melody(
+            [float(m) for m in midi],
+            [bool(v) for v in voiced_flag],
+            hop_ms,
+        )
+        return summarise(notes, float(np.mean(voiced_flag)) if len(voiced_flag) else 0.0)
+    except Exception as error:  # noqa: BLE001 - see docstring
+        return {"error": f"{type(error).__name__}: {error}"}
+
+
 def _transcribe(path: str, prompt: str | None = None) -> dict | None:
     """Words and their timings, or None if transcription failed outright.
 
@@ -793,9 +837,19 @@ def handler(job):
             if vocal_path and os.path.exists(vocal_path):
                 transcript = _transcribe(vocal_path, prompt=lyrics_hint)
 
+        # The tune, from the same stem the words come from. Only when the
+        # stem has a voice in it: pyin over a silent stem finds nothing
+        # slowly, and over a guitar bleed finds the guitar.
+        melody = None
+        vocal_path = stem_paths.get("vocals")
+        vocals_present = bool((instruments.get("vocals") or {}).get("present"))
+        if vocals_present and vocal_path and os.path.exists(vocal_path):
+            melody = _extract_melody(vocal_path)
+
         result = {
             "harmonic_mix_uploaded": mix_uploaded,
             "transcript": transcript,
+            "melody": melody,
             "bpm": bpm,
             "key": musical_key,
             "beats_ms": beat_info["beats_ms"],

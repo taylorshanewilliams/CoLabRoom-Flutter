@@ -110,6 +110,11 @@ def main() -> int:
         failures.append(f"instruments missing entries for {missing}")
     else:
         print(f"  instruments: {sorted(instruments)}")
+        melody = result.get("melody")
+        if isinstance(melody, dict) and "error" in melody:
+            print(f"FAIL: melody raised: {melody['error']}")
+            sys.exit(1)
+        print(f"  melody: {'none' if melody is None else str(len(melody.get('notes', []))) + ' notes'}")
 
     # Detectors are best-effort by design and legitimately return None on odd
     # input, so absence isn't a failure — but a wrong *shape* is, and that is

@@ -106,6 +106,7 @@ RUN pip install --no-cache-dir -c /tmp/torch-constraints.txt faster-whisper     
 # own compute type per device.
 RUN python -c "from faster_whisper import WhisperModel; WhisperModel('large-v3-turbo', device='cpu', compute_type='int8'); print('large-v3-turbo cached')"
 
+COPY melody.py /app/melody.py
 COPY handler.py /app/handler.py
 # Shipped in the image so CI can run the real handler inside the real
 # container before the image is published — the environment differences

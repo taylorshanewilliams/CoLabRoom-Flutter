@@ -48,6 +48,7 @@ class ReferenceTrack {
     this.bpm,
     this.structureSections = const <StructureSection>[],
     this.instruments,
+    this.melody,
   });
 
   final String projectId;
@@ -87,7 +88,111 @@ class ReferenceTrack {
   final List<StructureSection> structureSections;
   final InstrumentSummary? instruments;
 
+  /// What was sung, as notes. Null for an instrumental or an analysis from
+  /// before the pipeline could hear a tune.
+  final Melody? melody;
+
   bool get hasTranscript => (transcriptText?.trim().isNotEmpty ?? false);
+}
+
+/// Note names with sharps, C first, so `midiNoteNames[midi % 12]`.
+const List<String> midiNoteNames = <String>[
+  'C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B',
+];
+
+/// "A4", "F♯3": a MIDI number the way a singer says it (C4 is middle C).
+String midiNoteLabel(int midi) => '${midiNoteNames[midi % 12]}${midi ~/ 12 - 1}';
+
+/// One sung note: where it runs, the nearest pitch, and how far from it.
+class MelodyNote {
+  const MelodyNote({
+    required this.startMs,
+    required this.endMs,
+    required this.midi,
+    this.cents = 0,
+  });
+
+  factory MelodyNote.fromJson(Map<String, dynamic> json) => MelodyNote(
+        startMs: (json['start_ms'] as num).round(),
+        endMs: (json['end_ms'] as num).round(),
+        midi: (json['midi'] as num).round(),
+        cents: (json['cents'] as num?)?.round() ?? 0,
+      );
+
+  final int startMs;
+  final int endMs;
+  final int midi;
+  final int cents;
+
+  String get label => midiNoteLabel(midi);
+  int get durationMs => endMs - startMs;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'start_ms': startMs,
+        'end_ms': endMs,
+        'midi': midi,
+        'cents': cents,
+      };
+}
+
+/// The tune the pipeline heard on the vocal stem.
+///
+/// The pipeline has separated the vocal, timed every word and named every
+/// chord since the first sheet, and never once heard a note. This is the
+/// missing sense: what the singer sang, so the app can say what range a song
+/// sits in, which note is being sung right now, and -- eventually -- what a
+/// harmony *of the tune* would be, rather than of the chord.
+class Melody {
+  const Melody({
+    required this.notes,
+    this.lowMidi,
+    this.highMidi,
+    this.voicedRatio,
+  });
+
+  factory Melody.fromJson(Map<String, dynamic> json) => Melody(
+        notes: (json['notes'] as List<dynamic>? ?? const <dynamic>[])
+            .map((value) => MelodyNote.fromJson(Map<String, dynamic>.from(value as Map)))
+            .toList(growable: false),
+        lowMidi: (json['low_midi'] as num?)?.round(),
+        highMidi: (json['high_midi'] as num?)?.round(),
+        voicedRatio: (json['voiced_ratio'] as num?)?.toDouble(),
+      );
+
+  final List<MelodyNote> notes;
+
+  /// The lowest and highest notes that lasted, or null when nothing did.
+  final int? lowMidi;
+  final int? highMidi;
+
+  /// How much of the stem was sung at all, 0..1.
+  final double? voicedRatio;
+
+  bool get isEmpty => notes.isEmpty;
+
+  /// "E3 – A4", or null when there is no range to speak of.
+  String? get rangeLabel {
+    final low = lowMidi;
+    final high = highMidi;
+    if (low == null || high == null) return null;
+    return low == high ? midiNoteLabel(low) : '${midiNoteLabel(low)} – ${midiNoteLabel(high)}';
+  }
+
+  /// The note sounding at [elapsedMs], or null between notes.
+  MelodyNote? noteAt(int elapsedMs) {
+    for (final note in notes) {
+      if (note.startMs > elapsedMs) return null;
+      if (elapsedMs < note.endMs) return note;
+    }
+    return null;
+  }
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'notes': notes.map((note) => note.toJson()).toList(growable: false),
+        'low_midi': lowMidi,
+        'high_midi': highMidi,
+        'voiced_ratio': voicedRatio,
+      };
 }
 
 /// One named part of the song — "Verse", "Chorus", "Bridge" — and where it
