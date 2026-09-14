@@ -674,6 +674,27 @@ class StandingWant {
   final int matched;
 }
 
+/// What the app said about a song, and the way to a person under it.
+///
+/// [askPart] is the part the question was about that the song does not
+/// have, or null when the useful next ask is the open one ("what does this
+/// need?"). [askLabel] is the seam's own words, already decided.
+class SongAnswer {
+  const SongAnswer({
+    required this.answer,
+    required this.askLabel,
+    required this.model,
+    this.askPart,
+  });
+
+  final String answer;
+  final String? askPart;
+  final String askLabel;
+
+  /// Which model answered, so a quality difference can be traced.
+  final String model;
+}
+
 /// Who is looking for what you play, as a count. Never names: a want is
 /// not a listing.
 class WantAround {

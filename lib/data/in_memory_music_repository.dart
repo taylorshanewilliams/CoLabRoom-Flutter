@@ -1722,6 +1722,35 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<List<WantAround>> wantsAround() async => const <WantAround>[];
 
+  /// The last thing asked of the app, so a test can read it back.
+  String? lastQuestion;
+
+  @override
+  Future<SongAnswer> askTheSong({
+    required String projectId,
+    required String question,
+  }) async {
+    lastQuestion = question;
+    final lower = question.toLowerCase();
+    final part = lower.contains('drum')
+        ? 'drums'
+        : lower.contains('harmon')
+            ? 'harmony'
+            : lower.contains('bass')
+                ? 'bass'
+                : null;
+    return SongAnswer(
+      answer: 'In D major the chords the song has not used are Bm and F♯m. '
+          'Either sits under the last line of the chorus without anything '
+          'else changing.',
+      askPart: part,
+      askLabel: part == null
+          ? 'Or ask somebody: the room, for what it needs'
+          : 'Or ask somebody: the room, for $part',
+      model: 'preview',
+    );
+  }
+
   @override
   Future<SongAsk> askFor({
     required String projectId,

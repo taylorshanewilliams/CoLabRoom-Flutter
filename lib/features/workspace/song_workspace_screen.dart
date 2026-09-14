@@ -30,6 +30,7 @@ import 'continuous_song_editor.dart';
 import 'ask_bar.dart';
 import 'audience_dial.dart';
 import 'song_history_screen.dart';
+import 'ask_the_song_sheet.dart';
 import 'cowork_panel.dart';
 import 'live_performance_screen.dart';
 import 'lyric_import_flow.dart';
@@ -1507,6 +1508,13 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     onRecord: () => _openAnalysis(project, autoRecord: true),
                     hasRecording: _analysisBundle?.reference != null,
                     onOpenCowork: () => _scaffoldKey.currentState?.openEndDrawer(),
+                    onAskTheSong: () => unawaited(showAskTheSong(
+                      context,
+                      repository:
+                          BetaScope.of(context, listen: false).repository,
+                      projectId: widget.projectId,
+                      songTitle: project.title,
+                    )),
                     othersHere: _othersHere,
                   ),
                   // The first thing under the toolbar, because it is the
@@ -2035,8 +2043,13 @@ class _WorkspaceToolbar extends StatelessWidget {
     required this.onAnalyze,
     required this.onRecord,
     required this.onOpenCowork,
+    required this.onAskTheSong,
     required this.othersHere,
   });
+
+  /// The app, asked in words. After Talk on purpose: a person first, the
+  /// app second, and the app's every answer points back at a person.
+  final VoidCallback onAskTheSong;
 
   final VoidCallback onOpenLayers;
   final VoidCallback onOpenLive;
@@ -2122,6 +2135,13 @@ class _WorkspaceToolbar extends StatelessWidget {
         active: othersHere,
         activeColor: AppColors.green,
         onTap: onOpenCowork,
+      ),
+      _ToolPill(
+        key: const Key('workspace_ask_button'),
+        icon: Icons.auto_awesome_outlined,
+        label: 'Ask',
+        active: false,
+        onTap: onAskTheSong,
       ),
     ];
     return SizedBox(
