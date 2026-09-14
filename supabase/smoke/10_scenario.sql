@@ -3083,6 +3083,13 @@ end $$;
 -- bandmate's nod is already on the song.
 -- ---------------------------------------------------------------------
 
+-- The writer silenced project updates near the top of this file, to prove
+-- the switch. A nod arrives as one, so the switch goes back on first --
+-- which is also the assertion that a nod respects it.
+update public.notification_preferences
+set project_updates = true
+where user_id = '11111111-1111-1111-1111-111111111111';
+
 insert into public.project_nods (project_id, profile_id, note)
 values ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
         'eeeeeeee-0000-0000-0000-00000000000e',
