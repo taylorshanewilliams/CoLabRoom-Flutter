@@ -2948,5 +2948,83 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Something to say back (0110).
+--
+-- The bandmate answers the open ask on 'A Song That Asks' with a sentence
+-- rather than a take. The trigger's whole job is to tell the people already
+-- in the conversation and nobody else: first the asker, and once the asker
+-- has answered back, the bandmate as a previous replier. Neither is ever
+-- told about their own words, and the room is not told again.
+-- ---------------------------------------------------------------------
+
+insert into public.ask_replies (ask_id, author_id, body)
+select a.id, '22222222-2222-2222-2222-222222222222',
+       'I hear pedal steel on the chorus.'
+from public.project_asks a
+where a.project_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+  and a.part is null
+  and a.status = 'open';
+
+do $$
+declare
+  told integer;
+begin
+  select count(*) into told from public.notifications
+  where type = 'song_ask'
+    and user_id = '11111111-1111-1111-1111-111111111111'
+    and title like '%replied about%';
+  if told <> 1 then
+    raise exception 'the asker was not told about the reply (got %)', told;
+  end if;
+
+  if exists (
+    select 1 from public.notifications
+    where type = 'song_ask'
+      and user_id = '22222222-2222-2222-2222-222222222222'
+      and title like '%replied about%'
+  ) then
+    raise exception 'the person replying was told about their own reply';
+  end if;
+end $$;
+
+insert into public.ask_replies (ask_id, author_id, body)
+select a.id, '11111111-1111-1111-1111-111111111111',
+       'Yes. Could you do Thursday?'
+from public.project_asks a
+where a.project_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+  and a.part is null
+  and a.status = 'open';
+
+do $$
+declare
+  bandmate_told integer;
+  writer_told integer;
+begin
+  select count(*) into bandmate_told from public.notifications
+  where type = 'song_ask'
+    and user_id = '22222222-2222-2222-2222-222222222222'
+    and title like '%replied about%';
+  if bandmate_told <> 1 then
+    raise exception 'a previous replier was not told about the answer (got %)',
+      bandmate_told;
+  end if;
+
+  select count(*) into writer_told from public.notifications
+  where type = 'song_ask'
+    and user_id = '11111111-1111-1111-1111-111111111111'
+    and title like '%replied about%';
+  if writer_told <> 1 then
+    raise exception 'the asker was told about their own answer (got %)',
+      writer_told;
+  end if;
+
+  -- What was said is readable back in order, with the reply body intact.
+  if (select count(*) from public.ask_replies r
+      join public.project_asks a on a.id = r.ask_id
+      where a.project_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb') <> 2 then
+    raise exception 'the thread does not hold both replies';
+  end if;
+end $$;
 
 commit;
