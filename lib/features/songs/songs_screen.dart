@@ -21,6 +21,8 @@ import '../../widgets/app_top_bar.dart';
 import 'new_song_flow.dart';
 import 'pick_it_back_up.dart';
 import 'waiting_on_you.dart';
+import '../../app/beta_config.dart';
+import '../../services/app_release.dart';
 import '../openmic/musician_profile_screen.dart';
 import '../rooms/room_detail_screen.dart';
 import '../rooms/setlist_detail_screen.dart';
@@ -148,12 +150,42 @@ class _SongsScreenState extends State<SongsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_loadRequests());
     });
+    // The server's answer about this build arrives after the first frame;
+    // the strip redraws when it does.
+    AppRelease.minimum.addListener(_releaseChanged);
   }
 
   @override
   void dispose() {
+    AppRelease.minimum.removeListener(_releaseChanged);
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _releaseChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// What to actually do about it, on this phone.
+  Future<void> _howToUpdate() async {
+    final oldest = AppRelease.minimum.value ?? '';
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Get the newer build'),
+        content: Text(
+          '${AppRelease.howToUpdate}\n\n'
+          'This phone has ${BetaConfig.appVersion}. Afterwards, the Account '
+          'screen should say $oldest or later.',
+        ),
+        actions: <Widget>[
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _open(SongProject project) {
@@ -298,6 +330,21 @@ class _SongsScreenState extends State<SongsScreen> {
         line: person.displayName,
         actionLabel: 'See who',
         onAction: () => unawaited(_openPerson(person.personId)),
+      ));
+    }
+
+    // This phone, if it has fallen behind. Above the chores because the
+    // person who just asked to connect may be waiting on a screen this build
+    // does not have. The x hides it for the session -- there is no permanent
+    // no to "you are out of date", only an update.
+    if (AppRelease.isStale) {
+      items.add(WaitingItem(
+        id: 'update-${AppRelease.minimum.value}',
+        kind: WaitingKind.update,
+        line: 'A newer CoLabRoom is waiting',
+        detail: 'This phone has ${BetaConfig.appVersion}',
+        actionLabel: 'How',
+        onAction: () => unawaited(_howToUpdate()),
       ));
     }
 

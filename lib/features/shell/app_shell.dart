@@ -16,6 +16,7 @@ import '../songs/songs_screen.dart';
 import '../workspace/song_analysis_screen.dart';
 import '../../services/current_route.dart';
 import '../../services/people_presence.dart';
+import '../../services/app_release.dart';
 import '../../services/now_playing.dart';
 import '../../widgets/app_top_bar.dart';
 import '../welcome/welcome_flow.dart';
@@ -110,6 +111,10 @@ class _AppShellState extends State<AppShell> {
     final me = widget.supabase?.auth.currentUser?.id;
     if (me != null) {
       unawaited(PeoplePresence.instance.announce(userId: me));
+      // Whether this build has fallen behind the band. Asked once, here,
+      // for the same reason presence is: after sign-in and before anybody
+      // has anything else to do.
+      unawaited(AppRelease.check());
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {

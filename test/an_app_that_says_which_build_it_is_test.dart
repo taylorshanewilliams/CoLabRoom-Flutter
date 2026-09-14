@@ -19,7 +19,7 @@ void main() {
     // This drifted three releases once, and every crash report, help request
     // and usage row was labelled 0.3.0 while 0.4.0 shipped. A version that
     // lies is worse than none: it points triage at the wrong build.
-    expect(BetaConfig.appVersion, '0.4.1');
+    expect(BetaConfig.appVersion, '0.4.2');
   });
 
   test('a build made outside CI says so rather than claiming a commit', () {
@@ -30,6 +30,6 @@ void main() {
   });
 
   test('the two are shown together, because either alone is ambiguous', () {
-    expect(BetaConfig.fullVersion, '0.4.1 (local)');
+    expect(BetaConfig.fullVersion, '0.4.2 (local)');
   });
 }
