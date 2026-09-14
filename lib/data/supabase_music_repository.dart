@@ -2209,6 +2209,32 @@ class SupabaseMusicRepository implements MusicRepository {
     ];
   }
 
+  @override
+  Future<SongAnswer> askTheSong({
+    required String projectId,
+    required String question,
+  }) async {
+    final response = await client.functions.invoke(
+      'ask-the-song',
+      body: <String, dynamic>{'projectId': projectId, 'question': question},
+    );
+    final data = response.data;
+    if (data is! Map) {
+      throw StateError('The app could not think about that just now.');
+    }
+    final map = Map<String, dynamic>.from(data);
+    if (map['error'] != null) throw StateError(map['error'].toString());
+    final ask = map['ask'];
+    return SongAnswer(
+      answer: map['answer'] as String? ?? '',
+      askPart: ask is Map ? ask['part'] as String? : null,
+      askLabel: ask is Map
+          ? (ask['label'] as String? ?? 'Or ask somebody in the room')
+          : 'Or ask somebody in the room',
+      model: map['model'] as String? ?? 'unknown',
+    );
+  }
+
   StandingWant _want(Map<String, dynamic> row) => StandingWant(
         id: row['id'] as String,
         part: row['part'] as String? ?? '',

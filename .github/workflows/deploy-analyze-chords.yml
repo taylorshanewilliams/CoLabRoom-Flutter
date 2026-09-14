@@ -62,5 +62,10 @@ jobs:
       # how transcribe-audio spent months out of date.
       - name: Deploy check-picture
         run: supabase functions deploy check-picture --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+
+      # Ask the app about a song. Reads the project's own secrets for a
+      # model key (ANTHROPIC_API_KEY first, OPENAI_API_KEY otherwise).
+      - name: Deploy ask-the-song
+        run: supabase functions deploy ask-the-song --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

@@ -575,6 +575,14 @@ abstract interface class MusicRepository {
   /// Who is looking for what you play, as counts per part.
   Future<List<WantAround>> wantsAround();
 
+  /// Ask the app about a song. It answers from what it worked out -- key,
+  /// chords, sections, words, who played what -- and every answer carries
+  /// the way to a person.
+  Future<SongAnswer> askTheSong({
+    required String projectId,
+    required String question,
+  });
+
   Future<InviteResult> createInvite({
     required MusicRoom room,
     required String email,
