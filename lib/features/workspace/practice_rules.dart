@@ -104,3 +104,39 @@ double? tapTempo(List<DateTime> taps) {
   final middle = intervals[intervals.length ~/ 2];
   return clampBpm(60000 / middle);
 }
+
+/// The note under each word of a line: what each word is sung on, as a
+/// singer says it, or null for a word the tracker heard nothing in.
+///
+/// A word runs from its own start to the next word's start (the last one
+/// runs to the end of the line), and its note is the one that fills most
+/// of that stretch -- see Melody.noteWithin for why not the note at the
+/// word's first instant. Empty when there is no melody or no word timing:
+/// a line that cannot be lit word by word cannot carry notes word by word
+/// either, and a note under the wrong word would be worse than none.
+List<String?> notesForWords(
+  Melody? melody,
+  List<int>? wordStartsMs,
+  int lineEndMs,
+  int wordCount,
+) {
+  if (melody == null || melody.isEmpty || wordStartsMs == null) {
+    return const <String?>[];
+  }
+  if (wordCount <= 0 || wordStartsMs.length != wordCount) {
+    return const <String?>[];
+  }
+  final notes = List<String?>.filled(wordCount, null);
+  var anyNote = false;
+  for (var index = 0; index < wordCount; index += 1) {
+    final start = wordStartsMs[index];
+    final end = index + 1 < wordCount ? wordStartsMs[index + 1] : lineEndMs;
+    if (end <= start) continue;
+    final note = melody.noteWithin(start, end);
+    if (note != null) {
+      notes[index] = note.label;
+      anyNote = true;
+    }
+  }
+  return anyNote ? notes : const <String?>[];
+}

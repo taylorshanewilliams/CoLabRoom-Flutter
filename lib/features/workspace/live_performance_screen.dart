@@ -686,6 +686,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                                     _lineKey(i) == _activeLineKey
                                 ? _elapsed.inMilliseconds
                                 : null,
+                            // The tune, for the line being sung and no
+                            // other: notes under every word is a score.
+                            melody: _mode == LiveScrollMode.synced &&
+                                    _lineKey(i) == _activeLineKey
+                                ? widget.analysis?.reference?.melody
+                                : null,
                           ),
                         SizedBox(height: media.size.height * 0.52),
                       ],
@@ -795,6 +801,7 @@ class _PerformanceLine extends StatelessWidget {
     required this.showChords,
     this.active = false,
     this.elapsedMs,
+    this.melody,
     super.key,
   });
 
@@ -808,6 +815,10 @@ class _PerformanceLine extends StatelessWidget {
   /// Where the song is, when this is the line being sung. See
   /// MusicianChordLyricLine.elapsedMs.
   final int? elapsedMs;
+
+  /// What the line is sung to, when this is the line being sung. See
+  /// MusicianChordLyricLine.melody.
+  final Melody? melody;
 
   @override
   Widget build(BuildContext context) {
@@ -885,6 +896,7 @@ class _PerformanceLine extends StatelessWidget {
               liveMode: true,
               active: active,
               elapsedMs: elapsedMs,
+              melody: melody,
             ),
           ),
         ],
