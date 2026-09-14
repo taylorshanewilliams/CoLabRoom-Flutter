@@ -10,6 +10,7 @@ import '../../services/song_layer_service.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/play_button.dart';
 import 'ask_musician_sheet.dart';
+import 'heard_it_sheet.dart';
 import 'report_sheet.dart';
 import '../../widgets/problem_report.dart';
 
@@ -50,6 +51,12 @@ class _OpenMicSongScreenState extends State<OpenMicSongScreen> {
   String? _error;
   bool _missing = false;
 
+  /// Whether you have said you heard it, and how many have. Held here so
+  /// the button answers a tap at once rather than after a reload.
+  bool _heardByMe = false;
+  int _heard = 0;
+  bool _nodding = false;
+
   @override
   void initState() {
     super.initState();
@@ -67,7 +74,11 @@ class _OpenMicSongScreenState extends State<OpenMicSongScreen> {
         return;
       }
       setState(() {
-        if (song != null) _song = song;
+        if (song != null) {
+          _song = song;
+          _heardByMe = song.heardByMe;
+          _heard = song.heard;
+        }
         _error = null;
       });
 
@@ -126,6 +137,77 @@ class _OpenMicSongScreenState extends State<OpenMicSongScreen> {
     );
     if (sent == true && mounted) {
       _say('Sent. ${song.ownerName} will hear about it.');
+    }
+  }
+
+  /// The cheap answer. A song could be offered a part or nothing; now it
+  /// can be told it was heard, with a line if something stayed with you,
+  /// and whoever put it up hears about that in their inbox.
+  Future<void> _heardIt() async {
+    final song = _song;
+    if (song == null || _nodding) return;
+    if (_heardByMe) {
+      final takeBack = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: AppColors.raised,
+          title: const Text('Take it back?'),
+          content: const Text(
+              'Your name comes off the list of people who heard it.'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Keep it'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Take it back'),
+            ),
+          ],
+        ),
+      );
+      if (takeBack != true || !mounted) return;
+      setState(() => _nodding = true);
+      try {
+        await widget.repository.setNod(projectId: song.id, heard: false);
+        if (!mounted) return;
+        setState(() {
+          _heardByMe = false;
+          _heard = _heard > 0 ? _heard - 1 : 0;
+        });
+      } catch (error) {
+        if (mounted) {
+          _say(reportAndDescribe(error, service: 'app', stage: 'nod'));
+        }
+      } finally {
+        if (mounted) setState(() => _nodding = false);
+      }
+      return;
+    }
+
+    final choice = await showHeardItSheet(context, ownerName: song.ownerName);
+    if (choice == null || !mounted) return;
+    setState(() => _nodding = true);
+    try {
+      await widget.repository.setNod(
+        projectId: song.id,
+        heard: true,
+        note: choice.note.isEmpty ? null : choice.note,
+      );
+      if (!mounted) return;
+      setState(() {
+        _heardByMe = true;
+        _heard += 1;
+      });
+      _say(choice.note.isEmpty
+          ? '${song.ownerName} will see you heard it.'
+          : 'Sent to ${song.ownerName}.');
+    } catch (error) {
+      if (mounted) {
+        _say(reportAndDescribe(error, service: 'app', stage: 'nod'));
+      }
+    } finally {
+      if (mounted) setState(() => _nodding = false);
     }
   }
 
@@ -293,6 +375,38 @@ class _OpenMicSongScreenState extends State<OpenMicSongScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
+                    // The cheap answer first, because it is the one most
+                    // people have. A count, never a score: it says people
+                    // listened, and stops being interesting long before it
+                    // becomes a number to chase.
+                    OutlinedButton.icon(
+                      key: const Key('open_mic_heard'),
+                      onPressed: _nodding ? null : () => unawaited(_heardIt()),
+                      icon: Icon(
+                        _heardByMe
+                            ? Icons.hearing_rounded
+                            : Icons.hearing_outlined,
+                        size: 18,
+                      ),
+                      label: Text(
+                        _heardByMe
+                            ? (_heard > 1 ? 'You heard it · $_heard' : 'You heard it')
+                            : (_heard > 0 ? 'Heard it · $_heard' : 'Heard it'),
+                        style: const TextStyle(
+                            fontSize: 13.5, fontWeight: FontWeight.w700),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(44),
+                        foregroundColor:
+                            _heardByMe ? AppColors.cyan : AppColors.text,
+                        side: BorderSide(
+                          color: _heardByMe
+                              ? AppColors.cyan.withValues(alpha: 0.55)
+                              : AppColors.line,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     FilledButton.icon(
                       onPressed: () => unawaited(_offer()),
                       icon: const Icon(Icons.pan_tool_alt_outlined, size: 18),

@@ -3073,4 +3073,59 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Heard it, from the Open Mic (0113).
+--
+-- The bass player is not in Smoke Room. Saying they heard 'A Song That
+-- Asks', with a line, reaches the person who put it up as a project update
+-- under the listener's name; the writer's own nod on their own song tells
+-- nobody. The bandmate's nod earlier in this file said nothing, because a
+-- bandmate's nod is already on the song.
+-- ---------------------------------------------------------------------
+
+insert into public.project_nods (project_id, profile_id, note)
+values ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        'eeeeeeee-0000-0000-0000-00000000000e',
+        'That chorus stayed with me.');
+
+insert into public.project_nods (project_id, profile_id)
+values ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        '11111111-1111-1111-1111-111111111111');
+
+do $$
+declare
+  told integer;
+begin
+  select count(*) into told from public.notifications
+  where type = 'project_update'
+    and user_id = '11111111-1111-1111-1111-111111111111'
+    and title like '% heard %';
+  if told <> 1 then
+    raise exception 'the owner was not told somebody heard it (got %)', told;
+  end if;
+
+  if (select body from public.notifications
+      where type = 'project_update'
+        and user_id = '11111111-1111-1111-1111-111111111111'
+        and title like '% heard %') <> 'That chorus stayed with me.' then
+    raise exception 'the line did not reach the owner';
+  end if;
+end $$;
+
+-- Saving the same nod again with the same line is not news.
+update public.project_nods
+set note = 'That chorus stayed with me.'
+where project_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+  and profile_id = 'eeeeeeee-0000-0000-0000-00000000000e';
+
+do $$
+begin
+  if (select count(*) from public.notifications
+      where type = 'project_update'
+        and user_id = '11111111-1111-1111-1111-111111111111'
+        and title like '% heard %') <> 1 then
+    raise exception 're-saving a nod told the owner again';
+  end if;
+end $$;
+
 commit;

@@ -172,6 +172,13 @@ class _Card extends StatelessWidget {
   /// than no number at all — and is usually wrong about what happened, since
   /// a song can have been up for an hour.
   static String _heard(OpenMicStatus song) {
+    // Somebody choosing to say so outranks a play count: it is a person
+    // rather than a number, and it is the cheap answer this app asks for.
+    if (song.heard > 0) {
+      return song.heard == 1
+          ? '1 person said they heard it'
+          : '${song.heard} said they heard it';
+    }
     if (song.listeners == 0) return 'Nobody yet';
     if (song.listenersThisWeek > 0) {
       return '${song.listeners} heard it · ${song.listenersThisWeek} this week';

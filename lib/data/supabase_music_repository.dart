@@ -1369,6 +1369,8 @@ class SupabaseMusicRepository implements MusicRepository {
       storagePath: row['storage_path'] as String? ?? '',
       durationMs: (row['duration_ms'] as num?)?.toInt(),
       ownerAvatarPath: row['owner_avatar'] as String?,
+      heard: (row['heard'] as num?)?.toInt() ?? 0,
+      heardByMe: row['heard_by_me'] as bool? ?? false,
     );
   }
 
@@ -1713,6 +1715,7 @@ class SupabaseMusicRepository implements MusicRepository {
               '$a',
           ],
           storagePath: row['storage_path'] as String? ?? '',
+          heard: (row['heard'] as num?)?.toInt() ?? 0,
         ),
     ];
   }
@@ -1986,13 +1989,18 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<void> setNod({required String projectId, required bool heard}) async {
+  Future<void> setNod({
+    required String projectId,
+    required bool heard,
+    String? note,
+  }) async {
     if (heard) {
       // Upsert rather than insert: tapping it twice quickly should be the same
       // as tapping it once, not a primary key violation shown to a musician.
       await client.from('project_nods').upsert(<String, dynamic>{
         'project_id': projectId,
         'profile_id': _userId,
+        'note': note == null || note.trim().isEmpty ? null : note.trim(),
       });
       return;
     }
@@ -2001,6 +2009,17 @@ class SupabaseMusicRepository implements MusicRepository {
         .delete()
         .eq('project_id', projectId)
         .eq('profile_id', _userId);
+  }
+
+  @override
+  Future<String?> nodNote(String projectId) async {
+    final row = await client
+        .from('project_nods')
+        .select('note')
+        .eq('project_id', projectId)
+        .eq('profile_id', _userId)
+        .maybeSingle();
+    return row?['note'] as String?;
   }
 
   SongAsk _ask(Map<String, dynamic> row) {

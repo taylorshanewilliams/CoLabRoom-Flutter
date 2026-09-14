@@ -518,8 +518,16 @@ abstract interface class MusicRepository {
   /// a thing a person chooses to say, and the room is meant to see it.
   Future<List<String>> loadNods(String projectId);
 
-  /// Say you heard it, or take it back.
-  Future<void> setNod({required String projectId, required bool heard});
+  /// Say you heard it, or take it back. A [note] is one line to whoever put
+  /// the song up; null is the nod on its own.
+  Future<void> setNod({
+    required String projectId,
+    required bool heard,
+    String? note,
+  });
+
+  /// The line you attached to your own nod on this song, or null.
+  Future<String?> nodNote(String projectId);
 
   /// What has been said back on an ask, oldest first.
   ///
