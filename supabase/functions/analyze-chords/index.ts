@@ -193,6 +193,20 @@ interface SeparationResult {
   /// an instrumental, a failure inside the pitch tracker, or a worker image
   /// that predates it. All three mean "no tune this time".
   melody: { notes: unknown[]; low_midi?: number | null; high_midi?: number | null } | null;
+  /// Why `melody` is null when it should not be: the pitch tracker's own
+  /// error text, or a sentence saying the worker never offered the field at
+  /// all — which is what an image older than pipeline .4 looks like. Null
+  /// when there is a melody, and when there is honestly none to report.
+  /// Kept apart from `melody` so the silence has a name instead of being
+  /// indistinguishable from an instrumental.
+  melodyProblem: string | null;
+}
+
+/// Whether the worker heard a voice on the recording. The one fact that
+/// turns "no melody" from an answer into a problem.
+function vocalsPresent(instruments: unknown): boolean {
+  const vocals = (instruments as { vocals?: { present?: unknown } } | null)?.vocals;
+  return vocals?.present === true;
 }
 
 function numberArray(value: unknown): number[] {
@@ -298,7 +312,32 @@ async function readSeparation(jobId: string): Promise<SeparationResult | null> {
       statusBody.output?.melody && Array.isArray(statusBody.output.melody.notes)
         ? statusBody.output.melody
         : null,
+    melodyProblem: describeMissingMelody(statusBody.output),
   };
+}
+
+/// The reason a completed job carries no usable melody, or null when it
+/// carries one. Three shapes of silence, told apart on purpose:
+///
+///   * the field is absent — the worker that ran this job was built before
+///     the pitch tracker existed. A rollout that has not reached the warm
+///     workers looks exactly like this, and it is the one nobody notices,
+///     because every other field is fine;
+///   * the field says {error} — pyin or the grouping raised, and the worker
+///     reported it rather than failing the job;
+///   * the field is null — the worker looked and found no voice, which is
+///     not a problem and returns null here too.
+function describeMissingMelody(output: unknown): string | null {
+  if (!output || typeof output !== 'object') return null;
+  if (!('melody' in output)) {
+    return 'The worker returned no melody field at all: the image that ran this job predates the pitch tracker (pipeline .4). The rollout has not reached this worker.';
+  }
+  const melody = (output as { melody?: unknown }).melody;
+  if (melody && typeof melody === 'object' && Array.isArray((melody as { notes?: unknown }).notes)) {
+    return null;
+  }
+  const error = (melody as { error?: unknown } | null)?.error;
+  return typeof error === 'string' && error.length > 0 ? `The pitch tracker raised: ${error}` : null;
 }
 
 async function detectChords(
@@ -524,6 +563,28 @@ Deno.serve(async (req) => {
   /// analysis down with it would make the product wrong. Cache hits are
   /// recorded too — the money the cache saves is invisible if the runs it
   /// saved leave no trace.
+  /// A best-effort stage that came back empty when it should not have.
+  ///
+  /// The worker never fails a job over the tune or the words — by design,
+  /// chords must survive a broken detector — which means a broken detector
+  /// is invisible unless something writes it down. This is that something:
+  /// one warning row per silent run, in the table the app already reports
+  /// to, grouped by the trigger there like every other message.
+  async function noteWorkerSilence(stage: 'melody' | 'lyrics', message: string) {
+    try {
+      await adminClient.from('analysis_errors').insert({
+        user_id: userData.user!.id,
+        severity: 'warning',
+        service: 'separation',
+        stage,
+        message,
+        project_id: projectId,
+      });
+    } catch (_) {
+      // Telemetry about a failure must not become one.
+    }
+  }
+
   async function recordUsage(entry: {
     service: 'separation' | 'chords' | 'transcription' | 'storage';
     cached?: boolean;
@@ -693,6 +754,17 @@ Deno.serve(async (req) => {
         preferred.indexOf(left.pipeline_version as string) -
         preferred.indexOf(right.pipeline_version as string),
     )[0];
+
+    // A row this version promises a melody for, that has none, is not a
+    // hit — it is the record of a run where the tune did not arrive (a
+    // worker older than the pipeline, a pitch tracker that raised). Serving
+    // it would make every later request for the same recording free and
+    // equally silent, forever, with "Make it again" changing nothing. Run it
+    // for real instead; the real run overwrites the row. An instrumental
+    // (no voice heard) is a complete answer and stays a hit, and so is a
+    // voice pyin heard nothing in: that comes back as a melody with no
+    // notes, not as null.
+    if (cached.melody == null && vocalsPresent(cached.instruments)) return null;
 
     let stems: { stem: string; storagePath: string }[] = [];
     if (projectId || draftId) {
@@ -902,6 +974,20 @@ Deno.serve(async (req) => {
     if (transcript) {
       transcriptRejected = hallucinationSuspicion(typeof transcript.text === 'string' ? transcript.text : '');
       if (transcriptRejected) transcript = null;
+    }
+
+    // A voice with no tune is a failure somewhere, and until now it was a
+    // failure nobody could see: the sheet showed no range, the row stored
+    // null, the cache served the null, and the only way to learn that the
+    // live worker was older than the code was to read the database by hand.
+    // Filed as a warning under the same telemetry the app uses, so it shows
+    // up where the other silent failures already do.
+    if (!separation.melody && vocalsPresent(separation.instruments)) {
+      await noteWorkerSilence(
+        'melody',
+        separation.melodyProblem ??
+          'The worker heard a voice and returned no melody, without saying why.',
+      );
     }
 
     let stems: { stem: string; storagePath: string }[] = [];

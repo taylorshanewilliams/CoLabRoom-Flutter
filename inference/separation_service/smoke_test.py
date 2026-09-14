@@ -50,6 +50,55 @@ def make_clip(path: str) -> None:
     )
 
 
+def make_voice(path: str) -> None:
+    """Something the pitch tracker cannot mistake for silence: four seconds
+    of A3, alone, at the rate the tracker listens at.
+
+    The mixed clip above may or may not leave anything in the vocal stem
+    once demucs has been at it, so the handler's melody stage can pass the
+    smoke test by never running. This clip goes to the stage directly. A
+    pure tone rather than anything voice-like on purpose: the question here
+    is whether pyin and the grouping run at all in this image, and the
+    answer to a pure tone is known exactly.
+    """
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=220:duration=4",
+            "-ar", "16000", "-ac", "1",
+            path,
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+def check_melody_stage(tmp: str) -> list[str]:
+    """Runs `_extract_melody` on a clip with a voice in it and checks the
+    answer, so an image whose pyin or note grouping is broken fails here on
+    CPU, before it is published, rather than on the first real song.
+
+    What a correct answer looks like is narrow enough to assert: one note or
+    a few, all of them A3 (MIDI 57), and a range that says so.
+    """
+    voice = os.path.join(tmp, "voice.wav")
+    make_voice(voice)
+    melody = separation._extract_melody(voice)  # noqa: SLF001 - the stage under test
+    if melody is None:
+        return ["the pitch tracker heard nothing in a clip that is one sustained note"]
+    if "error" in melody:
+        return [f"the pitch tracker raised: {melody['error']}"]
+    notes = melody.get("notes") or []
+    low, high = melody.get("low_midi"), melody.get("high_midi")
+    print(f"  pitch tracker: {len(notes)} notes, range {low}–{high}")
+    failures: list[str] = []
+    if not notes:
+        failures.append("the pitch tracker grouped a sustained note into no notes")
+    if low is None or high is None or not (55 <= low <= 59 and 55 <= high <= 59):
+        failures.append(f"a sustained A3 came back as MIDI {low}–{high}, not 57")
+    return failures
+
+
 def serve(directory: str) -> http.server.ThreadingHTTPServer:
     """The handler takes a URL, not a path — serve the clip so the test
     exercises the real download path rather than a special-cased local one.
@@ -92,6 +141,10 @@ def main() -> int:
         return 1
 
     failures: list[str] = []
+
+    print("Running the pitch tracker on a voice by itself…")
+    with tempfile.TemporaryDirectory() as tmp:
+        failures.extend(check_melody_stage(tmp))
 
     # No mix_upload was supplied, so the handler must fall back to inlining
     # the mix. This is the step the ffmpeg filter change broke.
