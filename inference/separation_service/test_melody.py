@@ -73,10 +73,31 @@ def test_range_is_where_the_voice_lives() -> None:
 
 
 def test_a_note_that_is_held_counts_however_low() -> None:
-    # A fifth of the song on a low note is not an error, it is the song.
+    # A fifth of the song on a note an octave below the middle of the voice
+    # is not an error, it is the song. (Further than an octave from the
+    # middle is past where a voice lives -- see HOME_SEMITONES -- and is
+    # read as the tracker's octave error, which on real songs it is.)
     notes = [note(48, 2400), note(60, 5000), note(64, 4000)]
     summary = summarise(notes, 0.6)
     assert (summary["low_midi"], summary["high_midi"]) == (48, 64), summary
+    # Two octaves below is not the song.
+    notes = [note(36, 2400), note(60, 5000), note(64, 4000)]
+    summary = summarise(notes, 0.6)
+    assert (summary["low_midi"], summary["high_midi"]) == (60, 64), summary
+
+
+def test_a_harmonic_that_lasted_does_not_widen_the_range() -> None:
+    # The real shape of the first song through: the voice on G3 – F#4 with
+    # its weight on A3 and D4, a harmonic the tracker called A5 for ten
+    # seconds (7 % of the sung time -- no trim removes that), and a few
+    # seconds an octave low. Min/max said C2 – C6; a 5 % trim said G2 – A5.
+    notes = (
+        [note(57, 21000), note(62, 22000), note(61, 10000), note(55, 7600), note(66, 4700)]
+        + [note(59, 6200), note(60, 5500), note(65, 6300), note(63, 4300), note(64, 4300)]
+        + [note(81, 9600), note(36, 1500), note(38, 3700), note(84, 300)]
+    )
+    summary = summarise(notes, 0.6)
+    assert (summary["low_midi"], summary["high_midi"]) == (55, 66), summary
 
 
 def test_one_note_is_its_own_range() -> None:

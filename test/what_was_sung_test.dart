@@ -53,11 +53,25 @@ void main() {
       MelodyNote at(int midi, int ms) => MelodyNote(startMs: 0, endMs: ms, midi: midi);
       final melody = Melody(notes: <MelodyNote>[at(36, 300), at(60, 5000), at(64, 4000), at(84, 300)]);
       expect(Melody.sungRange(melody.notes), (60, 64));
-      // A fifth of the song on a low note is not an error, it is the song.
+      // A fifth of the song on a note an octave below the middle is not an
+      // error, it is the song; two octaves below is not the song.
       expect(Melody.sungRange(<MelodyNote>[at(48, 2400), at(60, 5000), at(64, 4000)]), (48, 64));
+      expect(Melody.sungRange(<MelodyNote>[at(36, 2400), at(60, 5000), at(64, 4000)]), (60, 64));
       // One note is its own range; nothing is no range.
       expect(Melody.sungRange(<MelodyNote>[at(57, 4000)]), (57, 57));
       expect(Melody.sungRange(<MelodyNote>[]), isNull);
+      // The real shape of the first song through: the voice on G3 – F♯4, a
+      // harmonic the tracker called A5 for ten seconds (7 % of the sung
+      // time, which no trim removes), and a few seconds an octave low.
+      // Min/max said C2 – C6; a 5 % trim alone said G2 – A5.
+      expect(
+        Melody.sungRange(<MelodyNote>[
+          at(57, 21000), at(62, 22000), at(61, 10000), at(55, 7600), at(66, 4700),
+          at(59, 6200), at(60, 5500), at(65, 6300), at(63, 4300), at(64, 4300),
+          at(81, 9600), at(36, 1500), at(38, 3700), at(84, 300),
+        ]),
+        (55, 66),
+      );
     });
 
     test('a worker that said min and max is overruled by its own notes', () {
