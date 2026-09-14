@@ -29,6 +29,9 @@ abstract final class SetAside {
   /// The card that offers to make a song sheet.
   static const String songSheet = 'song_sheet';
 
+  /// The "play something when you have a minute" card, closed for good.
+  static const String playLater = 'play_later';
+
   /// Hints somebody has read and does not need again.
   ///
   /// A hint is a suggestion like any other, and the rule is the same: it has

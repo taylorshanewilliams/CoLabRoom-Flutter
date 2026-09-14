@@ -58,6 +58,9 @@ enum WaitingKind {
 
   /// The build on this phone is older than the app now is.
   update,
+
+  /// Somebody said "not now" to playing something on their first launch.
+  firstTake,
 }
 
 class WaitingItem {
@@ -156,6 +159,7 @@ class WaitingItem {
         // on a screen this build does not have.
         WaitingKind.update => 3,
         WaitingKind.unfinished => 4,
+        WaitingKind.firstTake => 4,
         WaitingKind.sheet => 5,
       };
 
@@ -165,6 +169,7 @@ class WaitingItem {
         WaitingKind.unfinished => Icons.history_rounded,
         WaitingKind.sheet => Icons.article_outlined,
         WaitingKind.update => Icons.system_update_alt_rounded,
+        WaitingKind.firstTake => Icons.mic_rounded,
       };
 
   Color get tint => switch (kind) {
@@ -173,6 +178,7 @@ class WaitingItem {
         WaitingKind.unfinished => AppColors.muted,
         WaitingKind.sheet => AppColors.gold,
         WaitingKind.update => AppColors.orange,
+        WaitingKind.firstTake => AppColors.cyan,
       };
 
   String get defaultEyebrow => switch (kind) {
@@ -181,6 +187,7 @@ class WaitingItem {
         WaitingKind.unfinished => 'Pick it back up',
         WaitingKind.sheet => 'No song sheet',
         WaitingKind.update => 'Newer build',
+        WaitingKind.firstTake => 'When you have a minute',
       };
 }
 

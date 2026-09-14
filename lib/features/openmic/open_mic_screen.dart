@@ -15,6 +15,7 @@ import 'ask_somebody_not_here.dart';
 import 'listen_screen.dart';
 import 'people_screen.dart';
 import 'musician_profile_screen.dart';
+import '../welcome/welcome_flow.dart';
 import 'open_mic_song_screen.dart';
 import '../../widgets/offer_to_be_found.dart';
 import 'out_there.dart';
@@ -88,6 +89,17 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   void initState() {
     super.initState();
     unawaited(_search());
+    // The four questions, the first time somebody stands in the room they
+    // are for. Not on the first launch any more: a person who has not seen
+    // the app has nothing to answer them against.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(WelcomeFlow.offerBeforeTheRoom(
+        context,
+        repository: widget.repository,
+        displayName: widget.displayName,
+      ));
+    });
     unawaited(_loadMine());
     unawaited(_loadMe());
   }

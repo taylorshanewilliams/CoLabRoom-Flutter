@@ -23,6 +23,7 @@ import 'pick_it_back_up.dart';
 import 'waiting_on_you.dart';
 import '../../app/beta_config.dart';
 import '../../services/app_release.dart';
+import '../welcome/play_later.dart';
 import '../openmic/musician_profile_screen.dart';
 import '../rooms/room_detail_screen.dart';
 import '../rooms/setlist_detail_screen.dart';
@@ -153,6 +154,11 @@ class _SongsScreenState extends State<SongsScreen> {
     // The server's answer about this build arrives after the first frame;
     // the strip redraws when it does.
     AppRelease.minimum.addListener(_releaseChanged);
+    // Whether somebody said "not now" to playing something, read from the
+    // device before the strip decides what is waiting.
+    unawaited(PlayLater.load().then((_) {
+      if (mounted) setState(() {});
+    }));
   }
 
   @override
@@ -345,6 +351,24 @@ class _SongsScreenState extends State<SongsScreen> {
         detail: 'This phone has ${BetaConfig.appVersion}',
         actionLabel: 'How',
         onAction: () => unawaited(_howToUpdate()),
+      ));
+    }
+
+    // The offer somebody was too busy for on their first launch, kept for a
+    // later one. Gone by itself the moment there is any recording; gone for
+    // good when closed. The verb is the gold button's, from here.
+    final onRecord = widget.onRecord;
+    final hasAnyRecording = controller.rooms
+        .any((room) => room.projects.any((song) => song.hasAudioReference));
+    if (onRecord != null && PlayLater.shouldRemind(hasAnyRecording: hasAnyRecording)) {
+      items.add(WaitingItem(
+        id: 'first-take',
+        kind: WaitingKind.firstTake,
+        line: 'Play something',
+        detail: 'Twenty seconds is enough',
+        actionLabel: 'Record',
+        onAction: onRecord,
+        onDismiss: () => unawaited(_setAside(SetAside.playLater, 'first')),
       ));
     }
 
