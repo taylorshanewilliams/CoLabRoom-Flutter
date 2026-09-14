@@ -238,6 +238,28 @@ class Melody {
     return null;
   }
 
+  /// The note a stretch of the song is sung on: the one that overlaps
+  /// [startMs, endMs) for longest, or null when nothing was sung in it.
+  ///
+  /// Asked per word. A word's first instant is its consonant, which the
+  /// tracker rightly calls unvoiced, so "the note at the word's start" is
+  /// null more often than not; the note that fills most of the word is the
+  /// one the singer would name.
+  MelodyNote? noteWithin(int startMs, int endMs) {
+    MelodyNote? best;
+    var bestOverlap = 0;
+    for (final note in notes) {
+      if (note.startMs >= endMs) break;
+      final overlap =
+          (note.endMs < endMs ? note.endMs : endMs) - (note.startMs > startMs ? note.startMs : startMs);
+      if (overlap > bestOverlap) {
+        best = note;
+        bestOverlap = overlap;
+      }
+    }
+    return best;
+  }
+
   Map<String, dynamic> toJson() => <String, dynamic>{
         'notes': notes.map((note) => note.toJson()).toList(growable: false),
         'low_midi': lowMidi,

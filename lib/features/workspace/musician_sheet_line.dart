@@ -60,6 +60,7 @@ class MusicianChordLyricLine extends StatelessWidget {
     this.liveMode = false,
     this.active = false,
     this.elapsedMs,
+    this.melody,
     this.selectedChordStartMs,
     this.onEditChord,
     this.onAddChord,
@@ -73,6 +74,14 @@ class MusicianChordLyricLine extends StatelessWidget {
   final bool editable;
   final bool liveMode;
   final bool active;
+
+  /// The tune the recording was sung to, for the line being sung.
+  ///
+  /// With it, and with word timing on the line, each word carries the note
+  /// it is sung on underneath -- G4, A4, A4, B4 -- the way the chords sit
+  /// above. Only ever set on the active line in Perform: a page of notes
+  /// under every word is a score, and this is a sheet.
+  final Melody? melody;
 
   /// Where the song is, for the line being sung.
   ///
@@ -107,6 +116,9 @@ class MusicianChordLyricLine extends StatelessWidget {
     final sung = liveMode && active
         ? wordAt(line.wordStartsMs, elapsedMs, words.length)
         : null;
+    final notes = liveMode && active
+        ? notesForWords(melody, line.wordStartsMs, line.endMs, words.length)
+        : const <String?>[];
     return Padding(
       padding: EdgeInsets.symmetric(vertical: liveMode ? 3 : 4),
       child: Wrap(
@@ -145,6 +157,8 @@ class MusicianChordLyricLine extends StatelessWidget {
                       : index == sung
                           ? WordMoment.now
                           : WordMoment.later,
+              note: index < notes.length ? notes[index] : null,
+              showNotes: notes.isNotEmpty,
               selected: selectedChordStartMs != null &&
                   placements[index]?.startMs == selectedChordStartMs,
               onEditChord: onEditChord,
@@ -213,6 +227,8 @@ class _ChordWord extends StatelessWidget {
     required this.selected,
     required this.onEditChord,
     required this.onAddChord,
+    this.note,
+    this.showNotes = false,
     super.key,
   });
 
@@ -227,6 +243,12 @@ class _ChordWord extends StatelessWidget {
   final bool liveMode;
   final bool active;
   final WordMoment moment;
+
+  /// The note this word is sung on, as a singer says it ("G4"), and
+  /// whether the line is showing notes at all -- a word without one keeps
+  /// the space, so the words along a line stay level.
+  final String? note;
+  final bool showNotes;
 
   /// Whether the keyboard is holding this chord.
   ///
@@ -375,6 +397,31 @@ class _ChordWord extends StatelessWidget {
             )
           else
             lyric,
+          // The note under the word, where a singer's eye goes after the
+          // word itself. Gold on the word being sung, quiet on the rest, and
+          // never a guess: a word the tracker heard nothing in gets a blank
+          // of the same height, not a dash.
+          if (showNotes)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: SizedBox(
+                height: 12 * fontScale,
+                child: AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 90),
+                  style: TextStyle(
+                    color: moment == WordMoment.now
+                        ? AppColors.gold
+                        : Colors.white.withValues(alpha: 0.42),
+                    fontFamily: 'monospace',
+                    fontSize: 9.4 * fontScale,
+                    height: 1,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
+                  ),
+                  child: Text(note ?? ''),
+                ),
+              ),
+            ),
         ],
       ),
     );
