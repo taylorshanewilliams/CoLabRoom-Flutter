@@ -84,6 +84,13 @@ void main() {
     // fold — which looks exactly like the section having been deleted.
     expect(await _reveal(tester, find.text('PLAYED HERE')), findsOneWidget);
     expect(find.text('counted, not claimed'), findsOneWidget);
+    // The count is shown per part rather than as a single score, because
+    // "vocal · 9" is a fact somebody can check and a rating is not. Checked
+    // here, while the section is on screen: the range line under it
+    // made the section tall enough that scrolling on to "Also plays" carries
+    // the chips off the top, and an offstage chip is invisible to `find`.
+    expect(find.text('vocal · 9'), findsOneWidget);
+    expect(find.text('7 songs · with 5 people'), findsOneWidget);
     expect(await _reveal(tester, find.text('ALSO PLAYS')), findsOneWidget);
     // Two of them now, and that is the point rather than a regression.
     // "Sounds like" has existed on this page since it was written and never
@@ -94,10 +101,6 @@ void main() {
     expect(find.text('their own words'), findsWidgets);
     expect(find.text('SOUNDS LIKE'), findsOneWidget);
 
-    // The count is shown per part rather than as a single score, because
-    // "vocal · 9" is a fact somebody can check and a rating is not.
-    expect(find.text('vocal · 9'), findsOneWidget);
-    expect(find.text('7 songs · with 5 people'), findsOneWidget);
   });
 
   testWidgets('a link is shown with where it goes, and is never counted',

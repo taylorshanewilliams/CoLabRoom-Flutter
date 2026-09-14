@@ -991,6 +991,52 @@ class _Body extends StatelessWidget {
             style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
           ),
         ],
+        // Heard, not typed — and it says where the count came from.
+        //
+        // A range is the one fact about a singer that no directory of
+        // musicians has ever carried, because no directory ever heard them.
+        // This one did: the lowest and highest note across every recording
+        // of theirs the analyser has been through. It sits under the heading
+        // whose note is "counted, not claimed" because that is exactly what
+        // it is, and it names its own sample so "E3 – A4" reads as three
+        // songs' worth rather than as a certificate. Somebody who has not
+        // said they sing never gets one, however many demos they upload.
+        if (musician.vocalRangeLabel case final String range) ...<Widget>[
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Padding(
+                padding: EdgeInsets.only(top: 1),
+                child: Icon(Icons.mic_none_rounded,
+                    size: 15, color: AppColors.muted),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    style: const TextStyle(
+                        color: AppColors.muted, fontSize: 12.5, height: 1.4),
+                    children: <InlineSpan>[
+                      const TextSpan(text: 'Sings '),
+                      TextSpan(
+                        text: range,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      TextSpan(
+                        text: ' · heard on ${musician.vocalRangeSongs} '
+                            '${musician.vocalRangeSongs == 1 ? 'song' : 'songs'}',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
         // Between the record and the wish list, and deliberately there.
         //
         // The page reads: what they have done, what it sounds like, what they

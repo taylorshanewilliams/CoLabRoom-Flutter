@@ -772,6 +772,10 @@ class InMemoryMusicRepository implements MusicRepository {
     peopleWorkedWith: 2,
     discoverable: false,
     locationVisibility: 'collaborators',
+    // D3 – G4 across two demos: what the analyser would have heard.
+    vocalLowMidi: 50,
+    vocalHighMidi: 67,
+    vocalRangeSongs: 2,
   );
 
   final List<AskForMe> _asksForMe = <AskForMe>[
@@ -1201,6 +1205,9 @@ class InMemoryMusicRepository implements MusicRepository {
       peopleWorkedWith: _me.peopleWorkedWith,
       discoverable: _me.discoverable,
       locationVisibility: _me.locationVisibility,
+      vocalLowMidi: _me.vocalLowMidi,
+      vocalHighMidi: _me.vocalHighMidi,
+      vocalRangeSongs: _me.vocalRangeSongs,
     );
   }
 
@@ -1233,6 +1240,9 @@ class InMemoryMusicRepository implements MusicRepository {
       peopleWorkedWith: _me.peopleWorkedWith,
       discoverable: _me.discoverable,
       locationVisibility: _me.locationVisibility,
+      vocalLowMidi: _me.vocalLowMidi,
+      vocalHighMidi: _me.vocalHighMidi,
+      vocalRangeSongs: _me.vocalRangeSongs,
     );
   }
 
@@ -1264,6 +1274,9 @@ class InMemoryMusicRepository implements MusicRepository {
       peopleWorkedWith: _me.peopleWorkedWith,
       discoverable: discoverable,
       locationVisibility: locationVisibility ?? _me.locationVisibility,
+      vocalLowMidi: _me.vocalLowMidi,
+      vocalHighMidi: _me.vocalHighMidi,
+      vocalRangeSongs: _me.vocalRangeSongs,
     );
   }
 
@@ -1283,6 +1296,11 @@ class InMemoryMusicRepository implements MusicRepository {
       partsRecorded: <String, int>{'vocal': 9, 'harmony': 4},
       songsPlayedOn: 7,
       peopleWorkedWith: 5,
+      // E3 – C5 over five of her own demos. She sings; the page can say
+      // how far, because it heard her.
+      vocalLowMidi: 52,
+      vocalHighMidi: 72,
+      vocalRangeSongs: 5,
     ),
     Musician(
       id: 'preview-dev',

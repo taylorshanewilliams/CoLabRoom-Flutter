@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'song_analysis_models.dart' show SongAnalysisState;
+import 'song_analysis_models.dart' show SongAnalysisState, midiNoteLabel;
 
 enum RoomRole { owner, editor, commenter, viewer }
 
@@ -771,6 +771,9 @@ class Musician {
     this.heardTitle,
     this.heardPath = '',
     this.heardDurationMs,
+    this.vocalLowMidi,
+    this.vocalHighMidi,
+    this.vocalRangeSongs = 0,
   });
 
   final String id;
@@ -848,6 +851,29 @@ class Musician {
   /// list of people who chose not to be listed.
   final bool? discoverable;
   final String? locationVisibility;
+
+  /// The lowest and highest notes the analyser has heard this person sing,
+  /// as MIDI numbers, across the recordings they uploaded — and how many
+  /// recordings that is.
+  ///
+  /// Counted on the server, and only for somebody who says they sing: a
+  /// producer who uploads the band's demos does not inherit the singer's
+  /// range. Null (and zero) otherwise, and always null on a row from
+  /// find_musicians, which does not carry it — a range is a thing to read on
+  /// somebody's page, not a column to rank a list by.
+  final int? vocalLowMidi;
+  final int? vocalHighMidi;
+  final int vocalRangeSongs;
+
+  /// "E3 – A4", or null when nothing was counted.
+  String? get vocalRangeLabel {
+    final low = vocalLowMidi;
+    final high = vocalHighMidi;
+    if (low == null || high == null) return null;
+    return low == high
+        ? midiNoteLabel(low)
+        : '${midiNoteLabel(low)} – ${midiNoteLabel(high)}';
+  }
 
   /// Whether there is a record behind the claim.
   bool get hasRecord => songsPlayedOn > 0;
