@@ -8,6 +8,7 @@ import 'package:record/record.dart';
 
 import '../../widgets/microphone_disclosure.dart';
 import '../../widgets/problem_report.dart';
+import 'tuner_sheet.dart';
 
 class ReferenceRecorderSheet extends StatefulWidget {
   const ReferenceRecorderSheet({required this.songTitle, super.key});
@@ -189,7 +190,20 @@ class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
                     fontSize: 11,
                     textAlign: TextAlign.center),
               ],
-              const SizedBox(height: 24),
+              // Tune first, then press the other button. Only before the
+              // recording starts: the tuner wants the microphone too, and
+              // the take is what it is for.
+              if (!_recording && !_saving) ...<Widget>[
+                const SizedBox(height: 10),
+                TextButton.icon(
+                  key: const Key('open_tuner'),
+                  onPressed: () => TunerSheet.show(context),
+                  icon: const Icon(Icons.tune_rounded, size: 18),
+                  label: const Text('Tuner'),
+                  style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+                ),
+              ],
+              const SizedBox(height: 14),
               Row(
                 children: <Widget>[
                   Expanded(
