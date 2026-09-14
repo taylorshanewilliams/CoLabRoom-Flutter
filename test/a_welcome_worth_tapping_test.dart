@@ -56,7 +56,9 @@ Future<void> _open(
   WidgetTester tester,
   _Spy spy, {
   bool motion = true,
-  WelcomeMode mode = WelcomeMode.firstRun,
+  // The questions live in the before-the-room mode now; the first run is
+  // one screen (see play_something_first_test.dart).
+  WelcomeMode mode = WelcomeMode.beforeTheRoom,
 }) async {
   // Pushed over something, the way the app does it. Making the flow the
   // `home` route instead means popping it leaves an empty navigator with no

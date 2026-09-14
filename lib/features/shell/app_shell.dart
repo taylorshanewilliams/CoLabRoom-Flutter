@@ -119,11 +119,7 @@ class _AppShellState extends State<AppShell> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      unawaited(WelcomeFlow.offerOnce(
-        context,
-        repository: BetaScope.of(context, listen: false).repository,
-        displayName: widget.displayName,
-      ));
+      unawaited(_welcome());
     });
     // Where a listen gets recorded.
     //
@@ -237,6 +233,21 @@ class _AppShellState extends State<AppShell> {
   /// Read once, on launch. Re-deciding it later would move the ground under
   /// somebody the moment they made their first song, which is exactly the
   /// wrong moment to move anything.
+  /// The first run, and what it asked for.
+  ///
+  /// "Record now" opens the recorder the moment the welcome has gone -- the
+  /// whole point of the new first screen is that the sheet arrives in the
+  /// first minute, and a person who pressed the button should not then have
+  /// to find it again on a screen they have never seen.
+  Future<void> _welcome() async {
+    final outcome = await WelcomeFlow.offerOnce(
+      context,
+      repository: BetaScope.of(context, listen: false).repository,
+      displayName: widget.displayName,
+    );
+    if (outcome == WelcomeOutcome.record && mounted) await _record();
+  }
+
   /// Recording, from anywhere.
   ///
   /// The Studio's one capability nothing else had was *record something that

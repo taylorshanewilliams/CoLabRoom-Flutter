@@ -50,6 +50,7 @@ void main() {
         home: WelcomeFlow(
           repository: InMemoryMusicRepository.seeded(),
           displayName: 'Taylor',
+          mode: WelcomeMode.beforeTheRoom,
         ),
       ),
     ));
@@ -104,6 +105,30 @@ void main() {
           title: 'Welcome — 390x844',
           columns: shots.length,
         ));
+  });
+
+  // The first minute: one invitation, one way out.
+  testWidgets('the first run', (tester) async {
+    tester.view.physicalSize = _phone.size;
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(RepaintBoundary(
+      key: rootKey,
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: CoLabRoomTheme.dark(),
+        home: WelcomeFlow(
+          repository: InMemoryMusicRepository.seeded(),
+          displayName: 'Taylor',
+        ),
+      ),
+    ));
+    await _frames(tester);
+    await tester.runAsync(() async {
+      final ui.Image image = await take(tester);
+      await writePng(image, 'welcome', '0-play-first');
+    });
   });
 
   // The same flow asked for a second time: the tour.
