@@ -667,6 +667,7 @@ class InMemoryMusicRepository implements MusicRepository {
   final Map<String, List<DirectMessage>> _messages =
       <String, List<DirectMessage>>{};
   final Map<String, Set<String>> _nods = <String, Set<String>>{};
+  final Map<String, String> _nodNotes = <String, String>{};
 
   @override
   String get currentUserId => 'preview-user';
@@ -969,7 +970,26 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<OpenMicSong?> openMicSong(String projectId) async {
     for (final song in _previewOpenMic) {
-      if (song.id == projectId) return song;
+      if (song.id != projectId) continue;
+      final who = _nods[projectId] ?? const <String>{};
+      return OpenMicSong(
+        id: song.id,
+        title: song.title,
+        ownerName: song.ownerName,
+        putUpAt: song.putUpAt,
+        ownerId: song.ownerId,
+        takeCount: song.takeCount,
+        askingFor: song.askingFor,
+        musicalKey: song.musicalKey,
+        bpm: song.bpm,
+        askNote: song.askNote,
+        theirParts: song.theirParts,
+        storagePath: song.storagePath,
+        durationMs: song.durationMs,
+        ownerAvatarPath: song.ownerAvatarPath,
+        heard: who.length,
+        heardByMe: who.contains(currentUserId),
+      );
     }
     return null;
   }
@@ -1703,14 +1723,28 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<void> setNod({required String projectId, required bool heard}) async {
+  Future<void> setNod({
+    required String projectId,
+    required bool heard,
+    String? note,
+  }) async {
     final who = _nods.putIfAbsent(projectId, () => <String>{});
     if (heard) {
-      who.add('preview-user');
+      who.add(currentUserId);
+      final cleaned = note?.trim() ?? '';
+      if (cleaned.isEmpty) {
+        _nodNotes.remove(projectId);
+      } else {
+        _nodNotes[projectId] = cleaned;
+      }
     } else {
-      who.remove('preview-user');
+      who.remove(currentUserId);
+      _nodNotes.remove(projectId);
     }
   }
+
+  @override
+  Future<String?> nodNote(String projectId) async => _nodNotes[projectId];
 
   @override
   Future<InviteResult> createInvite({

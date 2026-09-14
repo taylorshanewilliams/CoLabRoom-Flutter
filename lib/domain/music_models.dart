@@ -347,6 +347,8 @@ class OpenMicSong {
     this.storagePath = '',
     this.durationMs,
     this.ownerAvatarPath,
+    this.heard = 0,
+    this.heardByMe = false,
   });
 
   final String id;
@@ -355,6 +357,11 @@ class OpenMicSong {
   final String ownerName;
   final String? ownerAvatarPath;
   final DateTime putUpAt;
+
+  /// People who chose to say they heard it -- a nod, not a play -- and
+  /// whether you are one of them.
+  final int heard;
+  final bool heardByMe;
 
   /// Where the audio is, or empty when this song has none.
   ///
@@ -1397,6 +1404,7 @@ class OpenMicStatus {
     this.offers = 0,
     this.askingFor = const <String>[],
     this.storagePath = '',
+    this.heard = 0,
   });
 
   final String id;
@@ -1407,6 +1415,9 @@ class OpenMicStatus {
   /// one person who heard it.
   final int listeners;
   final int listenersThisWeek;
+
+  /// People who chose to say so, which is a different thing from a play.
+  final int heard;
 
   /// Somebody putting their hand up, which is the thing that actually
   /// matters — a listen is interest and an offer is a person.
