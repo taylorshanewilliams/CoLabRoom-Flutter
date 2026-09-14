@@ -676,6 +676,12 @@ class _NotificationCard extends StatelessWidget {
         // "your analysis finished" and "this song has a recording" read as one
         // idea in two places rather than two unrelated ones.
         return Icons.graphic_eq_rounded;
+      case NotificationType.songAsk:
+        // The same megaphone as "Ask the room", so an ask arriving and an
+        // ask being sent read as the two ends of one thing.
+        return Icons.campaign_outlined;
+      case NotificationType.unfamiliar:
+        return Icons.notifications_none_rounded;
     }
   }
 
