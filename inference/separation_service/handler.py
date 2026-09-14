@@ -861,6 +861,9 @@ def handler(job):
             # declining to find a form. Those two used to look identical.
             "structure_error": _structure_failure[0] if _structure_failure else None,
             "uploaded_stems": uploaded_stems,
+            # Which commit built this image (set by the Dockerfile at build
+            # time), so the answer itself says whether the rollout happened.
+            "worker_build": os.environ.get("WORKER_BUILD") or None,
         }
         if not mix_uploaded:
             with open(mix_path, "rb") as f:

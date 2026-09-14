@@ -106,6 +106,14 @@ RUN pip install --no-cache-dir -c /tmp/torch-constraints.txt faster-whisper     
 # own compute type per device.
 RUN python -c "from faster_whisper import WhisperModel; WhisperModel('large-v3-turbo', device='cpu', compute_type='int8'); print('large-v3-turbo cached')"
 
+# Which commit this image was built from, so a worker can say so in every
+# answer. The rollout has failed silently twice: the template named a new
+# image while the workers kept answering from the old one, and nothing in the
+# output said which. The health check now compares this against the template,
+# and every cached analysis records the build that produced it.
+ARG BUILD_SHA=unknown
+ENV WORKER_BUILD=$BUILD_SHA
+
 COPY melody.py /app/melody.py
 COPY handler.py /app/handler.py
 # Shipped in the image so CI can run the real handler inside the real

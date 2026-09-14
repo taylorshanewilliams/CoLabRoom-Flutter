@@ -169,6 +169,17 @@ def main() -> int:
             sys.exit(1)
         print(f"  melody: {'none' if melody is None else str(len(melody.get('notes', []))) + ' notes'}")
 
+    # The build the image says it is. The Dockerfile sets it from the commit
+    # that built the image, and in CI this test runs inside that image, so a
+    # missing or different value means the label the health check relies on
+    # never reached the container.
+    build = result.get("worker_build")
+    expected_build = os.environ.get("WORKER_BUILD") or None
+    if build != expected_build:
+        failures.append(f"the worker says it is build {build!r}; the image was built as {expected_build!r}")
+    else:
+        print(f"  worker build: {build or 'unset (not built by the publish workflow)'}")
+
     # Detectors are best-effort by design and legitimately return None on odd
     # input, so absence isn't a failure — but a wrong *shape* is, and that is
     # what would break the app's parsing.

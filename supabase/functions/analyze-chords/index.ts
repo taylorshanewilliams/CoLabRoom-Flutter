@@ -200,6 +200,11 @@ interface SeparationResult {
   /// Kept apart from `melody` so the silence has a name instead of being
   /// indistinguishable from an instrumental.
   melodyProblem: string | null;
+  /// The git commit the worker image was built from, as the worker reports
+  /// it, or null from an image that predates the label. Kept with the cache
+  /// row so "which build produced this" has an answer after the fact — the
+  /// question a rollout that never reached the workers leaves open.
+  workerBuild: string | null;
 }
 
 /// Whether the worker heard a voice on the recording. The one fact that
@@ -313,6 +318,8 @@ async function readSeparation(jobId: string): Promise<SeparationResult | null> {
         ? statusBody.output.melody
         : null,
     melodyProblem: describeMissingMelody(statusBody.output),
+    workerBuild:
+      typeof statusBody.output?.worker_build === 'string' ? statusBody.output.worker_build : null,
   };
 }
 
@@ -1093,6 +1100,7 @@ Deno.serve(async (req) => {
           // model and get the same nothing.
           transcript,
           melody: separation.melody,
+          worker_build: separation.workerBuild,
           stem_bucket: stems.length > 0 ? bucket : null,
           stem_dir: stems.length > 0 ? stemDir : null,
           stems: stems.map((entry) => entry.stem),
@@ -1105,6 +1113,9 @@ Deno.serve(async (req) => {
     // What this run consumed, recorded whether or not it was worth caching —
     // the GPU time was spent either way. After the hash so these rows can be
     // tied to the cache entry that may serve the next request for free.
+    console.log(
+      `separation served by worker build ${separation.workerBuild ?? 'unknown (the image predates the label)'}`,
+    );
     await recordUsage({
       service: 'separation',
       audioMs,

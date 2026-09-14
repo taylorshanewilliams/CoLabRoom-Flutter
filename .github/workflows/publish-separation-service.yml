@@ -44,6 +44,8 @@ jobs:
           context: inference/separation_service
           load: true
           tags: ${{ env.IMAGE }}:${{ github.sha }}
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
 
       - name: Smoke test the image
         run: |
