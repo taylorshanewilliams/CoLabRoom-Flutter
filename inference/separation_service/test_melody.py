@@ -58,6 +58,32 @@ def test_range_ignores_a_flicker() -> None:
     assert summary["voiced_ratio"] == 0.9
 
 
+def note(midi: int, ms: int, at: int = 0) -> dict:
+    return {"start_ms": at, "end_ms": at + ms, "midi": midi, "cents": 0}
+
+
+def test_range_is_where_the_voice_lives() -> None:
+    # A verse on C4 and E4, plus what a tracker does to a real song: a
+    # breathy onset read an octave low and a consonant read an octave high,
+    # each lasting long enough to be a "note" but a sliver of the sung time.
+    # Min and max said C2 – C6 for exactly this shape.
+    notes = [note(36, 300), note(60, 5000), note(64, 4000), note(84, 300)]
+    summary = summarise(notes, 0.6)
+    assert (summary["low_midi"], summary["high_midi"]) == (60, 64), summary
+
+
+def test_a_note_that_is_held_counts_however_low() -> None:
+    # A fifth of the song on a low note is not an error, it is the song.
+    notes = [note(48, 2400), note(60, 5000), note(64, 4000)]
+    summary = summarise(notes, 0.6)
+    assert (summary["low_midi"], summary["high_midi"]) == (48, 64), summary
+
+
+def test_one_note_is_its_own_range() -> None:
+    summary = summarise([note(57, 4000)], 1.0)
+    assert (summary["low_midi"], summary["high_midi"]) == (57, 57), summary
+
+
 def test_silence_is_no_melody() -> None:
     midi, voiced = frames((None, 50))
     assert segment_melody(midi, voiced, HOP) == []
