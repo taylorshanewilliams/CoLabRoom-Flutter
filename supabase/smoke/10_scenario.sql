@@ -3028,4 +3028,49 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Between the two of you (0112).
+--
+-- The writer says something to the bass player. The trigger's whole job is
+-- to tell the one other person, under the sender's name, and never the
+-- sender.
+-- ---------------------------------------------------------------------
+
+insert into public.direct_messages (pair_low, pair_high, author_id, body)
+values ('11111111-1111-1111-1111-111111111111',
+        'eeeeeeee-0000-0000-0000-00000000000e',
+        '11111111-1111-1111-1111-111111111111',
+        'Are you around this week?');
+
+do $$
+declare
+  told integer;
+  titled text;
+begin
+  select count(*) into told from public.notifications
+  where type = 'direct_message'
+    and user_id = 'eeeeeeee-0000-0000-0000-00000000000e';
+  if told <> 1 then
+    raise exception 'the other person was not told about the message (got %)', told;
+  end if;
+
+  if exists (
+    select 1 from public.notifications
+    where type = 'direct_message'
+      and user_id = '11111111-1111-1111-1111-111111111111'
+  ) then
+    raise exception 'the sender was told about their own message';
+  end if;
+
+  select title into titled from public.notifications
+  where type = 'direct_message'
+    and user_id = 'eeeeeeee-0000-0000-0000-00000000000e';
+  if titled is distinct from (
+    select display_name from public.profiles
+    where id = '11111111-1111-1111-1111-111111111111'
+  ) then
+    raise exception 'the message is not under the sender''s name (got %)', titled;
+  end if;
+end $$;
+
 commit;
