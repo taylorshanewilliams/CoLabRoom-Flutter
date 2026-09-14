@@ -65,6 +65,53 @@ def request(url: str, *, method: str = "GET", headers: dict | None = None, data:
         return response.read()
 
 
+# The endpoint's and the template's own settings. Their environment is
+# deliberately not on either list: that is where the keys live.
+SAFE_ENDPOINT_FIELDS = (
+    "id", "name", "templateId", "workersMin", "workersMax", "idleTimeout",
+    "scalerType", "scalerValue", "computeType", "gpuIds", "gpuCount",
+    "flashboot", "version", "createdAt", "updatedAt",
+)
+SAFE_TEMPLATE_FIELDS = (
+    "id", "name", "imageName", "isServerless", "containerDiskInGb", "createdAt", "updatedAt",
+)
+
+
+def describe_endpoint(runpod_key: str, endpoint_id: str) -> None:
+    """What the endpoint is running, in the log, on every run.
+
+    The failure this exists for: a new image is published, the template is
+    told about it, and the workers keep answering from the old one. From the
+    app that looks like nothing at all; from here it looks like a template
+    naming one image while the job's output has fields only the other one
+    could produce. Printing the template's image next to the job's answer is
+    what makes that a one-line diagnosis instead of a morning.
+    """
+    headers = {"Authorization": f"Bearer {runpod_key}"}
+    try:
+        endpoint = json.loads(request(f"https://rest.runpod.io/v1/endpoints/{endpoint_id}", headers=headers))
+    except Exception as error:
+        print(f"  (could not read the endpoint: {error})")
+        return
+    shown = {k: endpoint.get(k) for k in SAFE_ENDPOINT_FIELDS if k in endpoint}
+    print(f"  endpoint: {json.dumps(shown)}")
+    print(f"  endpoint fields: {sorted(k for k in endpoint if 'env' not in k.lower())}")
+    template_id = endpoint.get("templateId")
+    if template_id:
+        try:
+            template = json.loads(request(f"https://rest.runpod.io/v1/templates/{template_id}", headers=headers))
+            shown = {k: template.get(k) for k in SAFE_TEMPLATE_FIELDS if k in template}
+            print(f"  template: {json.dumps(shown)}")
+            print(f"  template fields: {sorted(k for k in template if 'env' not in k.lower())}")
+        except Exception as error:
+            print(f"  (could not read the template: {error})")
+    try:
+        health = json.loads(request(f"https://api.runpod.ai/v2/{endpoint_id}/health", headers=headers))
+        print(f"  endpoint health: {json.dumps(health)}")
+    except Exception as error:
+        print(f"  (could not read endpoint health: {error})")
+
+
 def make_clip(path: str) -> None:
     """A chord, a beat, and a change partway through.
 
@@ -110,6 +157,12 @@ def main() -> int:
     }
     failures: list[str] = []
     timings: dict[str, float] = {}
+
+    print("What the endpoint is running:")
+    describe_endpoint(runpod_key, endpoint_id)
+    if os.environ.get("HEALTH_CHECK_INSPECT_ONLY", "").strip().lower() == "true":
+        print("Inspect only; no job submitted.")
+        return 0
 
     with tempfile.TemporaryDirectory() as tmp:
         clip = os.path.join(tmp, "health-check.wav")
