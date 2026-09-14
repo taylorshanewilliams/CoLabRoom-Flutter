@@ -93,10 +93,23 @@ jobs:
             -d "{\"imageName\": \"${{ env.IMAGE }}:${{ github.sha }}\"}" > /dev/null
           echo "Template $template_id now names ${{ env.IMAGE }}:${{ github.sha }}."
 
-          curl -sf -X PATCH "https://rest.runpod.io/v1/endpoints/$RUNPOD_ENDPOINT_ID" \
-            -H "Authorization: Bearer $RUNPOD_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "{\"templateId\": \"$template_id\"}" > /dev/null
+          # RunPod ignores a PATCH that changes nothing (re-asserting the same
+          # templateId left version 23 at 23), and the template's image is not
+          # a field of the endpoint. So the one field that costs nothing to
+          # move is moved and put back: the idle timeout, by a second. Each
+          # PATCH cuts a release on the template's current image; the second
+          # is the one that stays, with the settings exactly as found.
+          idle=$(echo "$endpoint" | jq -r '.idleTimeout')
+          case "$idle" in ''|null|*[!0-9]*)
+            echo "::error::The endpoint has no integer idleTimeout to nudge (got '$idle')."
+            exit 1;;
+          esac
+          for value in $((idle + 1)) "$idle"; do
+            curl -sf -X PATCH "https://rest.runpod.io/v1/endpoints/$RUNPOD_ENDPOINT_ID" \
+              -H "Authorization: Bearer $RUNPOD_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "{\"idleTimeout\": $value}" > /dev/null
+          done
 
           version_after=$(curl -sf -H "Authorization: Bearer $RUNPOD_API_KEY" \
             "https://rest.runpod.io/v1/endpoints/$RUNPOD_ENDPOINT_ID" | jq -r '.version')
