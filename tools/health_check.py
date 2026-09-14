@@ -235,6 +235,25 @@ def main() -> int:
         instruments = output.get("instruments") or {}
         if not instruments:
             failures.append("no instrument presence")
+        # The pitch tracker (pipeline .4) is best-effort like the rest, and
+        # its two ways of going missing are both silent in production: a
+        # worker older than the code has no `melody` field at all, and a
+        # tracker that raised reports {error} in the slot. Either one leaves
+        # every song sheet without a range and every profile without a
+        # voice, and nothing else in the pipeline notices. A None melody is
+        # fine — this clip is sine waves and may well have no "voice" in it.
+        if "melody" not in output:
+            failures.append(
+                "the worker returned no melody field: the live image predates the "
+                "pitch tracker (pipeline .4) — the rollout has not reached it"
+            )
+        else:
+            melody = output.get("melody")
+            if isinstance(melody, dict) and melody.get("error"):
+                failures.append(f"the pitch tracker raised: {melody['error']}")
+            vocals = (instruments.get("vocals") or {}).get("present")
+            notes = len(melody.get("notes") or []) if isinstance(melody, dict) else None
+            print(f"  melody: {'none' if notes is None else f'{notes} notes'}   vocals present: {vocals}")
         # The structure model is the one component whose dependencies fight
         # the pinned torch, and a crash inside it used to be indistinguishable
         # from a song that simply has no form. This is that distinction.
