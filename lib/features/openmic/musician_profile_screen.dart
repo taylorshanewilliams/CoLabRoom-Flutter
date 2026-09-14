@@ -17,6 +17,7 @@ import '../../widgets/play_button.dart';
 import 'ask_musician_sheet.dart';
 import 'invite_to_room_sheet.dart';
 import 'open_mic_song_screen.dart';
+import 'person_thread_sheet.dart';
 import 'report_sheet.dart';
 import '../workspace/song_workspace_screen.dart';
 import 'the_app_noticed.dart';
@@ -80,6 +81,10 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
   bool _starting = false;
   String? _claiming;
 
+  /// Whether the server would let you write to them: connected, or in a
+  /// room together, and no block either way. False until asked.
+  bool _canMessage = false;
+
   bool get _isMe => widget.repository.currentUserId == widget.profileId;
 
   @override
@@ -110,6 +115,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
           ? await widget.repository.thingsWeNoticed()
           : const <Noticed>[];
       String? shared;
+      var canMessage = false;
       if (!_isMe) {
         // Only ever a nice surprise, never a filter. Null is the normal answer
         // and is not worth putting an error on the page for.
@@ -117,6 +123,13 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
           shared = await widget.repository.sharedCityWith(widget.profileId);
         } catch (_) {
           shared = null;
+        }
+        // Same shape: a page that cannot find out simply has no Message
+        // button, which is what a stranger's page looks like anyway.
+        try {
+          canMessage = await widget.repository.canMessage(widget.profileId);
+        } catch (_) {
+          canMessage = false;
         }
       }
       if (!mounted) return;
@@ -127,6 +140,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
         _songs = songs;
         _noticed = noticed;
         _sharedCity = shared;
+        _canMessage = canMessage;
         _error = null;
       });
     } catch (error) {
@@ -638,6 +652,14 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
                 onOpen: (link) => unawaited(_open(link)),
                 onEditPresence: () => unawaited(_editPresence()),
                 onAsk: _isMe ? null : () => unawaited(_ask()),
+                onMessage: _canMessage
+                    ? () => unawaited(showPersonThread(
+                          context,
+                          repository: widget.repository,
+                          personId: musician.id,
+                          personName: musician.displayName,
+                        ))
+                    : null,
                 onStartSomething:
                     _isMe ? null : () => unawaited(_startSomething()),
                 onInvite:
@@ -667,6 +689,7 @@ class _Body extends StatelessWidget {
     required this.onOpen,
     required this.onEditPresence,
     required this.onAsk,
+    required this.onMessage,
     required this.onInvite,
     required this.onStartSomething,
   });
@@ -697,6 +720,9 @@ class _Body extends StatelessWidget {
 
   /// Null on your own page, where asking yourself is not a thing.
   final VoidCallback? onAsk;
+
+  /// Null unless the server says you may write to them.
+  final VoidCallback? onMessage;
   final VoidCallback? onInvite;
 
   /// A room, a first song and an invitation, in one press.
@@ -884,6 +910,25 @@ class _Body extends StatelessWidget {
             textAlign: TextAlign.center,
             style: const TextStyle(
                 color: AppColors.muted, fontSize: 11.5, height: 1.35),
+          ),
+        ],
+        if (onMessage != null) ...<Widget>[
+          const SizedBox(height: 10),
+          // Words, for the people you can already reach. A connection could
+          // be found, told and asked, and not answered with a sentence.
+          OutlinedButton.icon(
+            key: const Key('message_them'),
+            onPressed: onMessage,
+            icon: const Icon(Icons.chat_bubble_outline_rounded, size: 17),
+            label: Text(
+              'Message ${musician.displayName}',
+              style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+            ),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(44),
+              foregroundColor: AppColors.cyan,
+              side: BorderSide(color: AppColors.cyan.withValues(alpha: 0.45)),
+            ),
           ),
         ],
         if (onAsk != null) ...<Widget>[

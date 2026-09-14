@@ -2078,6 +2078,80 @@ class SupabaseMusicRepository implements MusicRepository {
     );
   }
 
+  static const String _messageColumns =
+      'id, pair_low, pair_high, author_id, body, created_at, '
+      'author:profiles!direct_messages_author_id_fkey(display_name)';
+
+  /// The thread's key: the two ids in order, whichever of you is asking.
+  /// Lower-cased hex sorts the same way Postgres sorts a uuid.
+  ({String low, String high}) _pairWith(String personId) {
+    final me = _userId.toLowerCase();
+    final them = personId.toLowerCase();
+    return me.compareTo(them) < 0 ? (low: me, high: them) : (low: them, high: me);
+  }
+
+  @override
+  Future<bool> canMessage(String personId) async {
+    final result = await client.rpc<dynamic>(
+      'may_tell',
+      params: <String, dynamic>{'other_id': personId},
+    );
+    return result == true;
+  }
+
+  @override
+  Future<List<DirectMessage>> loadMessagesWith(String personId) async {
+    final pair = _pairWith(personId);
+    final rows = await client
+        .from('direct_messages')
+        .select(_messageColumns)
+        .eq('pair_low', pair.low)
+        .eq('pair_high', pair.high)
+        .order('created_at', ascending: true);
+    return <DirectMessage>[
+      for (final row in rows as List<dynamic>)
+        _message(row as Map<String, dynamic>, personId),
+    ];
+  }
+
+  @override
+  Future<DirectMessage> sendMessageTo(
+      {required String personId, required String body}) async {
+    final pair = _pairWith(personId);
+    final row = await client
+        .from('direct_messages')
+        .insert(<String, dynamic>{
+          'pair_low': pair.low,
+          'pair_high': pair.high,
+          'author_id': _userId,
+          'body': body.trim(),
+        })
+        .select(_messageColumns)
+        .single();
+    return _message(row, personId);
+  }
+
+  @override
+  Future<void> deleteMessage(DirectMessage message) async {
+    await client.from('direct_messages').delete().eq('id', message.id);
+  }
+
+  DirectMessage _message(Map<String, dynamic> row, String personId) {
+    final author = row['author'];
+    return DirectMessage(
+      id: row['id'] as String,
+      personId: personId,
+      authorId: row['author_id'] as String? ?? '',
+      authorName: author is Map
+          ? (author['display_name'] as String? ?? 'Somebody')
+          : 'Somebody',
+      body: row['body'] as String? ?? '',
+      createdAt:
+          DateTime.tryParse(row['created_at'] as String? ?? '')?.toLocal() ??
+              DateTime.now(),
+    );
+  }
+
   @override
   Future<InviteResult> createInvite({
     required MusicRoom room,

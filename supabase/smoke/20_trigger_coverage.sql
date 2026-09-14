@@ -45,6 +45,9 @@ insert into smoke_covered (name) values
   -- 0110. The scenario replies to the open ask from both sides and asserts
   -- who was told each time, and who was not.
   ('ask_replies_announce'),
+  -- 0112. The scenario sends one message and asserts the other person was
+  -- told under the sender's name, and the sender was not.
+  ('direct_messages_announce'),
   -- Fires on every notification the scenario causes, with push_config
   -- set at the top of it so the delivery path actually runs.
   ('notifications_deliver'),

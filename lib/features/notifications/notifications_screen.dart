@@ -12,6 +12,7 @@ import '../../widgets/app_surface.dart';
 import '../../domain/musical_roles.dart';
 import '../../widgets/play_button.dart';
 import '../openmic/report_sheet.dart';
+import '../openmic/person_thread_sheet.dart';
 import '../workspace/ask_thread_sheet.dart';
 
 /// The single inbox: pending invitations you can act on, then everything
@@ -284,8 +285,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             unawaited(controller.deleteNotification(notification)),
                         child: _NotificationCard(
                           notification: notification,
-                          onTap: () =>
-                              controller.markNotificationRead(notification),
+                          onTap: () {
+                            unawaited(
+                                controller.markNotificationRead(notification));
+                            // A message opens the thread it came from: the
+                            // sender rides on the notification as its actor
+                            // and the title is their name.
+                            if (notification.type ==
+                                    NotificationType.directMessage &&
+                                notification.actorId != null) {
+                              unawaited(showPersonThread(
+                                context,
+                                repository: controller.repository,
+                                personId: notification.actorId!,
+                                personName: notification.title,
+                              ));
+                            }
+                          },
                           // A swipe on its own is not discoverable, and the
                           // inbox is where somebody arrives already annoyed.
                           onClear: () => unawaited(
@@ -700,6 +716,8 @@ class _NotificationCard extends StatelessWidget {
         // The same megaphone as "Ask the room", so an ask arriving and an
         // ask being sent read as the two ends of one thing.
         return Icons.campaign_outlined;
+      case NotificationType.directMessage:
+        return Icons.chat_bubble_outline_rounded;
       case NotificationType.unfamiliar:
         return Icons.notifications_none_rounded;
     }

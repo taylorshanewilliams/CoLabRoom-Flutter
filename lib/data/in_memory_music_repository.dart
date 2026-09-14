@@ -664,6 +664,8 @@ class InMemoryMusicRepository implements MusicRepository {
   /// real one rather than throwing at the first tap.
   final Map<String, List<SongAsk>> _asks = <String, List<SongAsk>>{};
   final Map<String, List<AskReply>> _replies = <String, List<AskReply>>{};
+  final Map<String, List<DirectMessage>> _messages =
+      <String, List<DirectMessage>>{};
   final Map<String, Set<String>> _nods = <String, Set<String>>{};
 
   @override
@@ -1634,6 +1636,37 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<void> deleteAskReply(AskReply reply) async {
     _replies[reply.askId]?.removeWhere((existing) => existing.id == reply.id);
+  }
+
+  @override
+  Future<bool> canMessage(String personId) async =>
+      personId != currentUserId &&
+      _connections.any((c) => c.personId == personId && c.accepted);
+
+  @override
+  Future<List<DirectMessage>> loadMessagesWith(String personId) async =>
+      List<DirectMessage>.unmodifiable(
+          _messages[personId] ?? const <DirectMessage>[]);
+
+  @override
+  Future<DirectMessage> sendMessageTo(
+      {required String personId, required String body}) async {
+    final message = DirectMessage(
+      id: 'message-${DateTime.now().microsecondsSinceEpoch}',
+      personId: personId,
+      authorId: currentUserId,
+      authorName: 'You',
+      body: body.trim(),
+      createdAt: DateTime.now(),
+    );
+    _messages.putIfAbsent(personId, () => <DirectMessage>[]).add(message);
+    return message;
+  }
+
+  @override
+  Future<void> deleteMessage(DirectMessage message) async {
+    _messages[message.personId]
+        ?.removeWhere((existing) => existing.id == message.id);
   }
 
   @override

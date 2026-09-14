@@ -534,6 +534,22 @@ abstract interface class MusicRepository {
   /// Take back something you said.
   Future<void> deleteAskReply(AskReply reply);
 
+  /// Whether you can write to this person: connected, or in a room together,
+  /// and no block either way. The same rule as telling them about a song.
+  Future<bool> canMessage(String personId);
+
+  /// What the two of you have said, oldest first.
+  Future<List<DirectMessage>> loadMessagesWith(String personId);
+
+  /// Say something to one person. They are told; nobody else is.
+  Future<DirectMessage> sendMessageTo({
+    required String personId,
+    required String body,
+  });
+
+  /// Take back something you said to them.
+  Future<void> deleteMessage(DirectMessage message);
+
   Future<InviteResult> createInvite({
     required MusicRoom room,
     required String email,

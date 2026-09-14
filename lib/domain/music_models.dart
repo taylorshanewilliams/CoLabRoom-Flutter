@@ -619,6 +619,28 @@ class AskReply {
   final DateTime createdAt;
 }
 
+/// One line between you and one other person.
+///
+/// [personId] is the other one, whichever of you wrote it: a thread is a
+/// pair, and the app only ever opens it from one side.
+class DirectMessage {
+  const DirectMessage({
+    required this.id,
+    required this.personId,
+    required this.authorId,
+    required this.authorName,
+    required this.body,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String personId;
+  final String authorId;
+  final String authorName;
+  final String body;
+  final DateTime createdAt;
+}
+
 /// One dated thing that happened to a song.
 ///
 /// The unit of the provenance record. Deliberately flat and deliberately
@@ -1108,6 +1130,10 @@ enum NotificationType {
   /// weeks before the app learned the word, and the first one anybody
   /// received took their whole workspace down at load (14 Sep 2026).
   songAsk,
+  /// Somebody you are connected to, or in a room with, said something to
+  /// you and only you -- migration 0112. The sender is the actor, so the
+  /// inbox can open the thread.
+  directMessage,
   /// A type this build has not met. Shown with the title and body the
   /// server wrote, opens nothing, and — the point — never refuses to load
   /// the app. Every type is unknown to some build in the field.
@@ -1126,6 +1152,7 @@ NotificationType notificationTypeFromSql(String value) => switch (value) {
       'project_update' => NotificationType.projectUpdate,
       'analysis_ready' => NotificationType.analysisReady,
       'song_ask' => NotificationType.songAsk,
+      'direct_message' => NotificationType.directMessage,
       _ => NotificationType.unfamiliar,
     };
 

@@ -10,6 +10,7 @@ import '../../services/people_presence.dart';
 import '../../widgets/player_face.dart';
 import '../../widgets/problem_report.dart';
 import 'musician_profile_screen.dart';
+import 'person_thread_sheet.dart';
 
 /// The people you know, as opposed to the people you might meet.
 ///
@@ -356,6 +357,20 @@ class _PeopleScreenState extends State<PeopleScreen> {
               lineIsStatus: person.availability == Availability.open,
               here: _online.contains(person.personId),
               onTap: () => unawaited(_openProfile(person.personId)),
+              // The thread between the two of you. Your people could be
+              // found, told and asked, and not written to.
+              trailing: IconButton(
+                key: Key('message_${person.personId}'),
+                tooltip: 'Message ${person.displayName}',
+                onPressed: () => unawaited(showPersonThread(
+                  context,
+                  repository: _repo,
+                  personId: person.personId,
+                  personName: person.displayName,
+                )),
+                icon: const Icon(Icons.chat_bubble_outline_rounded,
+                    size: 18, color: AppColors.cyan),
+              ),
             ),
         ],
         if (asked.isNotEmpty) ...<Widget>[
