@@ -42,6 +42,9 @@ insert into smoke_covered (name) values
   -- The scenario posts an open ask and a specific one, and asserts both
   -- reached the song activity stream and the rest of the room.
   ('project_asks_announce'),
+  -- 0110. The scenario replies to the open ask from both sides and asserts
+  -- who was told each time, and who was not.
+  ('ask_replies_announce'),
   -- Fires on every notification the scenario causes, with push_config
   -- set at the top of it so the delivery path actually runs.
   ('notifications_deliver'),

@@ -1928,7 +1928,10 @@ class SupabaseMusicRepository implements MusicRepository {
   Future<List<SongAsk>> loadAsks(String projectId) async {
     final rows = await client
         .from('project_asks')
-        .select('id, project_id, asked_by, part, note, created_at, status')
+        // The count of what has been said back rides along, so the chip can
+        // say "· 2" without a second round trip per ask.
+        .select(
+            'id, project_id, asked_by, part, note, created_at, status, ask_replies(count)')
         .eq('project_id', projectId)
         .eq('status', 'open')
         .order('created_at', ascending: false);
@@ -2002,6 +2005,12 @@ class SupabaseMusicRepository implements MusicRepository {
 
   SongAsk _ask(Map<String, dynamic> row) {
     final part = row['part'] as String?;
+    // PostgREST hands an embedded count back as [{count: n}]; absent when the
+    // select did not ask for it, which reads as nothing said.
+    final counts = row['ask_replies'];
+    final replyCount = counts is List && counts.isNotEmpty && counts.first is Map
+        ? ((counts.first as Map)['count'] as num?)?.toInt() ?? 0
+        : 0;
     return SongAsk(
       id: row['id'] as String,
       projectId: row['project_id'] as String,
@@ -2012,6 +2021,60 @@ class SupabaseMusicRepository implements MusicRepository {
       part: part,
       note: row['note'] as String? ?? '',
       closed: (row['status'] as String? ?? 'open') != 'open',
+      replyCount: replyCount,
+    );
+  }
+
+  static const String _replyColumns =
+      'id, ask_id, author_id, body, created_at, '
+      'author:profiles!ask_replies_author_id_fkey(display_name)';
+
+  @override
+  Future<List<AskReply>> loadAskReplies(String askId) async {
+    final rows = await client
+        .from('ask_replies')
+        .select(_replyColumns)
+        .eq('ask_id', askId)
+        .order('created_at', ascending: true);
+    return <AskReply>[
+      for (final row in rows as List<dynamic>)
+        _reply(row as Map<String, dynamic>),
+    ];
+  }
+
+  @override
+  Future<AskReply> replyToAsk(
+      {required String askId, required String body}) async {
+    final row = await client
+        .from('ask_replies')
+        .insert(<String, dynamic>{
+          'ask_id': askId,
+          'author_id': _userId,
+          'body': body.trim(),
+        })
+        .select(_replyColumns)
+        .single();
+    return _reply(row);
+  }
+
+  @override
+  Future<void> deleteAskReply(AskReply reply) async {
+    await client.from('ask_replies').delete().eq('id', reply.id);
+  }
+
+  AskReply _reply(Map<String, dynamic> row) {
+    final author = row['author'];
+    return AskReply(
+      id: row['id'] as String,
+      askId: row['ask_id'] as String,
+      authorId: row['author_id'] as String? ?? '',
+      authorName: author is Map
+          ? (author['display_name'] as String? ?? 'Somebody')
+          : 'Somebody',
+      body: row['body'] as String? ?? '',
+      createdAt:
+          DateTime.tryParse(row['created_at'] as String? ?? '')?.toLocal() ??
+              DateTime.now(),
     );
   }
 
