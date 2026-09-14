@@ -30,6 +30,11 @@ on:
         type: boolean
         required: false
         default: false
+      release:
+        description: 'Cut a release first, so the workers pick up the template image'
+        type: boolean
+        required: false
+        default: false
 
 env:
   CHORD_SERVICE_URL: https://colabroom-chord-service-7nvccxceca-uc.a.run.app
@@ -71,6 +76,10 @@ jobs:
           HEALTH_CHECK_DEPTH: ${{ inputs.depth }}
           # Costs nothing: reads the endpoint and its template, then stops.
           HEALTH_CHECK_INSPECT_ONLY: ${{ inputs.inspect_only }}
+          # For the day the check finds the workers on an older image than
+          # the template names: re-asserts the endpoint's template so RunPod
+          # cuts a release. Never on the schedule.
+          HEALTH_CHECK_RELEASE: ${{ inputs.release }}
         run: |
           set -o pipefail
           python tools/health_check.py 2>&1 | tee /tmp/health.log

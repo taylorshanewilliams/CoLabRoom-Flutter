@@ -117,6 +117,51 @@ def describe_endpoint(runpod_key: str, endpoint_id: str) -> None:
         print(f"  (could not read endpoint health: {error})")
 
 
+def cut_release(runpod_key: str, endpoint_id: str) -> bool:
+    """Make the endpoint start workers from its template's current image.
+
+    What 14 September taught: updating the template's image (what the
+    publish workflow does) only changes what the *next* release will use,
+    and the endpoint keeps handing out workers from its current release
+    until something updates the endpoint itself. Re-asserting the
+    endpoint's own templateId is that something -- RunPod cuts a new
+    version, new workers pull the template's image, the old ones drain.
+    The version number before and after is the proof, printed; its not
+    moving is a failure, because that is exactly the silence this exists
+    to end.
+    """
+    headers = {"Authorization": f"Bearer {runpod_key}", "Content-Type": "application/json"}
+    url = f"https://rest.runpod.io/v1/endpoints/{endpoint_id}"
+
+    def patch(body: dict) -> int | None:
+        request(url, method="PATCH", headers=headers, data=json.dumps(body).encode())
+        return json.loads(request(url, headers=headers)).get("version")
+
+    try:
+        endpoint = json.loads(request(url, headers=headers))
+        before = endpoint.get("version")
+        idle = endpoint.get("idleTimeout")
+        if not isinstance(idle, int):
+            print(f"FAIL: the endpoint has no integer idleTimeout to nudge ({idle!r}).")
+            return False
+        # RunPod ignores a PATCH that changes nothing (re-asserting the same
+        # templateId left version 23 at 23), and a template's image is not a
+        # field of the endpoint. So the one field that costs nothing to move
+        # is moved and put back: the idle timeout, by a second. Each PATCH is
+        # a release cut on the template's current image; the second is the
+        # one that stays, with the settings exactly as they were found.
+        nudged = patch({"idleTimeout": idle + 1})
+        after = patch({"idleTimeout": idle})
+    except urllib.error.HTTPError as error:
+        print(f"FAIL: RunPod refused the release: HTTP {error.code} {error.read()[:400]}")
+        return False
+    print(f"  release: endpoint version {before} -> {nudged} -> {after} (idle timeout {idle}s, unchanged)")
+    if after is None or before is None or after <= before:
+        print("FAIL: the endpoint did not cut a new release; its workers are still on the old image.")
+        return False
+    return True
+
+
 def make_clip(path: str) -> None:
     """A chord, a beat, and a change partway through.
 
@@ -165,6 +210,11 @@ def main() -> int:
 
     print("What the endpoint is running:")
     describe_endpoint(runpod_key, endpoint_id)
+    if os.environ.get("HEALTH_CHECK_RELEASE", "").strip().lower() == "true":
+        print("Cutting a release so the workers pick up the template's image…")
+        if not cut_release(runpod_key, endpoint_id):
+            return 1
+        describe_endpoint(runpod_key, endpoint_id)
     if os.environ.get("HEALTH_CHECK_INSPECT_ONLY", "").strip().lower() == "true":
         print("Inspect only; no job submitted.")
         return 0
