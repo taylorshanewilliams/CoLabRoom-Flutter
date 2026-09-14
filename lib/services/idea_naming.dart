@@ -31,6 +31,20 @@ bool looksAutoNamed(String name) {
   ).hasMatch(withoutExtension);
 }
 
+/// The name a placeholder should take once the recording has been heard.
+///
+/// Null when the current name is a real title (never replaced), when the
+/// transcript says nothing usable, or when the transcript would only repeat
+/// the name it already has. This is the rule the sheet screen applies the
+/// moment an analysis lands; it lives here so it can be tested without one.
+String? betterNameFor({required String current, String? transcript}) {
+  if (!looksAutoNamed(current)) return null;
+  final name = nameFromTranscript(transcript);
+  if (name == null) return null;
+  if (name.trim().toLowerCase() == current.trim().toLowerCase()) return null;
+  return name;
+}
+
 /// A name for an idea, taken from the first words actually sung in it.
 ///
 /// Returns null when there's nothing usable, so the caller keeps whatever
