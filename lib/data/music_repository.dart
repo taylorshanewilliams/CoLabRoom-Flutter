@@ -521,6 +521,19 @@ abstract interface class MusicRepository {
   /// Say you heard it, or take it back.
   Future<void> setNod({required String projectId, required bool heard});
 
+  /// What has been said back on an ask, oldest first.
+  ///
+  /// Readable by exactly the people who can see the ask: the room for a
+  /// room ask, the one person for a direct one, and whoever asked.
+  Future<List<AskReply>> loadAskReplies(String askId);
+
+  /// Say something on an ask. The people already in the conversation are
+  /// told; the room is not told again.
+  Future<AskReply> replyToAsk({required String askId, required String body});
+
+  /// Take back something you said.
+  Future<void> deleteAskReply(AskReply reply);
+
   Future<InviteResult> createInvite({
     required MusicRoom room,
     required String email,

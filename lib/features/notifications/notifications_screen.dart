@@ -12,6 +12,7 @@ import '../../widgets/app_surface.dart';
 import '../../domain/musical_roles.dart';
 import '../../widgets/play_button.dart';
 import '../openmic/report_sheet.dart';
+import '../workspace/ask_thread_sheet.dart';
 
 /// The single inbox: pending invitations you can act on, then everything
 /// that has happened since you were last here.
@@ -204,6 +205,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         ),
                         onReport: () => unawaited(_reportAsk(ask)),
                         onBlock: () => unawaited(_blockAsker(ask)),
+                        // Before yes or no: a question back. "What key?"
+                        // and "would next week do?" are most of what an
+                        // answer actually is, and until now the card could
+                        // only say one of two words.
+                        onReply: () => unawaited(showAskThread(
+                          context,
+                          repository: controller.repository,
+                          askId: ask.id,
+                          headline: ask.headline,
+                          note: ask.note,
+                        )),
                       ),
                       const SizedBox(height: 10),
                     ],
@@ -305,12 +317,14 @@ class _AskCard extends StatelessWidget {
     required this.onDecline,
     required this.onReport,
     required this.onBlock,
+    required this.onReply,
   });
 
   final AskForMe ask;
   final bool busy;
   final VoidCallback onAccept;
   final VoidCallback onDecline;
+  final VoidCallback onReply;
 
   /// Somewhere to say this is wrong, and somewhere to make it stop.
   ///
@@ -439,6 +453,12 @@ class _AskCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
+              TextButton(
+                key: const Key('ask_card_reply'),
+                onPressed: busy ? null : onReply,
+                style: TextButton.styleFrom(foregroundColor: AppColors.cyan),
+                child: const Text('Reply'),
+              ),
               // A real answer, not a dismissal. Somebody who asked deserves
               // to hear no rather than nothing, and an ask that can only be
               // answered with silence is one nobody sends twice.

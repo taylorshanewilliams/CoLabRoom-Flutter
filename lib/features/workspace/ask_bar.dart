@@ -8,6 +8,7 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../services/push_registration.dart';
 import '../../services/user_facing_error.dart';
+import 'ask_thread_sheet.dart';
 
 /// What this song is asking for, and whether anybody has heard it.
 ///
@@ -195,6 +196,18 @@ class _AskBarState extends State<AskBar> {
     await PushRegistration.enable();
   }
 
+  /// The thread on an ask, then the bar again with its counts current.
+  Future<void> _openThread(SongAsk ask) async {
+    await showAskThread(
+      context,
+      repository: widget.repository,
+      askId: ask.id,
+      headline: ask.headline,
+      note: ask.note,
+    );
+    if (mounted) await _load();
+  }
+
   Future<void> _close(SongAsk ask) async {
     if (_busy) return;
     final confirmed = await showDialog<bool>(
@@ -254,8 +267,12 @@ class _AskBarState extends State<AskBar> {
         children: <Widget>[
           for (final ask in asks)
             _AskChip(
-              label: ask.label,
+              key: Key('ask_chip_${ask.id}'),
+              label: ask.replyCount > 0
+                  ? '${ask.label} · ${ask.replyCount}'
+                  : ask.label,
               specific: ask.isSpecific,
+              onOpen: () => unawaited(_openThread(ask)),
               onClose: _busy ? null : () => unawaited(_close(ask)),
             ),
           // Labelled, always. The failure this app keeps repeating is a good
@@ -308,11 +325,17 @@ class _AskChip extends StatelessWidget {
   const _AskChip({
     required this.label,
     required this.specific,
+    required this.onOpen,
     required this.onClose,
+    super.key,
   });
 
   final String label;
   final bool specific;
+
+  /// The thread. The chip used to be a label with an X on it; now the label
+  /// is the way in to what people have said about the ask.
+  final VoidCallback onOpen;
   final VoidCallback? onClose;
 
   @override
@@ -322,7 +345,7 @@ class _AskChip extends StatelessWidget {
     // different invitations.
     final tint = specific ? AppColors.gold : AppColors.green;
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 5, 4, 5),
+      padding: const EdgeInsets.fromLTRB(0, 0, 4, 0),
       decoration: BoxDecoration(
         color: tint.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(20),
@@ -331,12 +354,19 @@ class _AskChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Text(
-            label,
-            style: TextStyle(
-              color: tint,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
+          InkWell(
+            onTap: onOpen,
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 5, 4, 5),
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: tint,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ),
           ),
           IconButton(

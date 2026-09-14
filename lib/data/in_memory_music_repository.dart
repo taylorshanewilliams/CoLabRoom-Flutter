@@ -663,6 +663,7 @@ class InMemoryMusicRepository implements MusicRepository {
   /// Asks and nods, kept in memory so the preview repository behaves like the
   /// real one rather than throwing at the first tap.
   final Map<String, List<SongAsk>> _asks = <String, List<SongAsk>>{};
+  final Map<String, List<AskReply>> _replies = <String, List<AskReply>>{};
   final Map<String, Set<String>> _nods = <String, Set<String>>{};
 
   @override
@@ -1605,8 +1606,34 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<List<SongAsk>> loadAsks(String projectId) async {
     return <SongAsk>[
-      ...?_asks[projectId]?.where((ask) => !ask.closed),
+      for (final ask in _asks[projectId] ?? const <SongAsk>[])
+        if (!ask.closed)
+          ask.copyWith(replyCount: _replies[ask.id]?.length ?? 0),
     ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  @override
+  Future<List<AskReply>> loadAskReplies(String askId) async =>
+      List<AskReply>.unmodifiable(_replies[askId] ?? const <AskReply>[]);
+
+  @override
+  Future<AskReply> replyToAsk(
+      {required String askId, required String body}) async {
+    final reply = AskReply(
+      id: 'reply-${DateTime.now().microsecondsSinceEpoch}',
+      askId: askId,
+      authorId: currentUserId,
+      authorName: 'You',
+      body: body.trim(),
+      createdAt: DateTime.now(),
+    );
+    _replies.putIfAbsent(askId, () => <AskReply>[]).add(reply);
+    return reply;
+  }
+
+  @override
+  Future<void> deleteAskReply(AskReply reply) async {
+    _replies[reply.askId]?.removeWhere((existing) => existing.id == reply.id);
   }
 
   @override
@@ -1634,16 +1661,7 @@ class InMemoryMusicRepository implements MusicRepository {
     if (list == null) return;
     final index = list.indexWhere((candidate) => candidate.id == ask.id);
     if (index < 0) return;
-    final existing = list[index];
-    list[index] = SongAsk(
-      id: existing.id,
-      projectId: existing.projectId,
-      askedBy: existing.askedBy,
-      createdAt: existing.createdAt,
-      part: existing.part,
-      note: existing.note,
-      closed: true,
-    );
+    list[index] = list[index].copyWith(closed: true);
   }
 
   @override

@@ -553,6 +553,7 @@ class SongAsk {
     this.part,
     this.note = '',
     this.closed = false,
+    this.replyCount = 0,
   });
 
   final String id;
@@ -569,11 +570,53 @@ class SongAsk {
   final DateTime createdAt;
   final bool closed;
 
+  /// How many things have been said back on it. Zero is the normal case and
+  /// draws nothing; the chip only grows a number once somebody has spoken.
+  final int replyCount;
+
   /// Whether this ask names what it wants.
   bool get isSpecific => part != null && part!.trim().isNotEmpty;
 
   /// What to put on a chip, in the words somebody would actually use.
   String get label => isSpecific ? 'needs ${part!.trim()}' : 'open to ideas';
+
+  /// The ask in one line, for the top of its thread.
+  String get headline =>
+      isSpecific ? 'Asking for ${part!.trim()}' : 'Asking what this needs';
+
+  SongAsk copyWith({bool? closed, int? replyCount}) => SongAsk(
+        id: id,
+        projectId: projectId,
+        askedBy: askedBy,
+        createdAt: createdAt,
+        part: part,
+        note: note,
+        closed: closed ?? this.closed,
+        replyCount: replyCount ?? this.replyCount,
+      );
+}
+
+/// One thing somebody said back on an ask.
+///
+/// Words only. No reactions, no edits, no replies to replies: the point is
+/// that a request can be talked about at all, and the cheapest shape of
+/// that is a line with a name on it.
+class AskReply {
+  const AskReply({
+    required this.id,
+    required this.askId,
+    required this.authorId,
+    required this.authorName,
+    required this.body,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String askId;
+  final String authorId;
+  final String authorName;
+  final String body;
+  final DateTime createdAt;
 }
 
 /// One dated thing that happened to a song.
