@@ -87,19 +87,53 @@ def segment_melody(midi_by_frame: list, voiced: list, hop_ms: float) -> list[dic
     return notes[:MAX_NOTES]
 
 
+STEADY_NOTE_MS = 120
+RANGE_TRIM = 0.05
+
+
+def sung_range(notes: list[dict]) -> tuple[int | None, int | None]:
+    """The lowest and highest notes that were actually sung, as the singer
+    would give them.
+
+    Not the minimum and maximum. The first real song through this came back
+    as C2 – C6 -- four octaves, which nobody sings -- because a pitch
+    tracker over a separated vocal is wrong somewhere in every song: an
+    octave low on a breathy onset, an octave high on a consonant, a guitar
+    bleed that lasted long enough to count. Each of those is a sliver of the
+    sung time, and a range is a claim about where the voice *lives*, so the
+    range is where the sung time lives: the notes are sorted by pitch and
+    the lowest 5 % and highest 5 % of sung milliseconds are left out. A note
+    held for a fifth of the song stays in, however low; a flicker never
+    widens anything. Notes shorter than 120 ms are dropped first, for the
+    same reason as before -- a single frame is where the tracker is
+    likeliest to be an octave out.
+    """
+    steady = [n for n in notes if n["end_ms"] - n["start_ms"] >= STEADY_NOTE_MS] or notes
+    if not steady:
+        return None, None
+    ordered = sorted(steady, key=lambda n: n["midi"])
+    total = sum(n["end_ms"] - n["start_ms"] for n in ordered)
+    if total <= 0:
+        return ordered[0]["midi"], ordered[-1]["midi"]
+    low = high = None
+    seen = 0
+    for note in ordered:
+        seen += note["end_ms"] - note["start_ms"]
+        if low is None and seen >= total * RANGE_TRIM:
+            low = note["midi"]
+        if seen >= total * (1 - RANGE_TRIM):
+            high = note["midi"]
+            break
+    return low, high if high is not None else ordered[-1]["midi"]
+
+
 def summarise(notes: list[dict], voiced_ratio: float) -> dict:
     """The melody as the caller wants it: the notes, the range, how much of
-    the stem was sung at all.
-
-    The range comes from notes that lasted at least 120 ms. A single frame's
-    worth of a sung note is where a pitch tracker is likeliest to be an
-    octave out, and an octave error on the lowest note of a song is the
-    whole vocal range wrong.
-    """
-    steady = [note for note in notes if note["end_ms"] - note["start_ms"] >= 120] or notes
+    the stem was sung at all. See sung_range for what "range" means here."""
+    low, high = sung_range(notes)
     return {
         "notes": notes,
-        "low_midi": min(note["midi"] for note in steady) if steady else None,
-        "high_midi": max(note["midi"] for note in steady) if steady else None,
+        "low_midi": low,
+        "high_midi": high,
         "voiced_ratio": round(float(voiced_ratio), 3),
     }

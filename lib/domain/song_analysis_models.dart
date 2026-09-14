@@ -150,18 +150,69 @@ class Melody {
     this.voicedRatio,
   });
 
-  factory Melody.fromJson(Map<String, dynamic> json) => Melody(
-        notes: (json['notes'] as List<dynamic>? ?? const <dynamic>[])
-            .map((value) => MelodyNote.fromJson(Map<String, dynamic>.from(value as Map)))
-            .toList(growable: false),
-        lowMidi: (json['low_midi'] as num?)?.round(),
-        highMidi: (json['high_midi'] as num?)?.round(),
-        voicedRatio: (json['voiced_ratio'] as num?)?.toDouble(),
-      );
+  /// Reads the notes and works the range out from them, trusting the
+  /// worker's own low/high only when there are no notes to work from.
+  ///
+  /// The app decides, not the worker, because the app is what writes the
+  /// range to the profile -- and a recording analysed by an older worker
+  /// (min and max, C2 – C6) should read the same as one analysed today
+  /// without being paid for again.
+  factory Melody.fromJson(Map<String, dynamic> json) {
+    final notes = (json['notes'] as List<dynamic>? ?? const <dynamic>[])
+        .map((value) => MelodyNote.fromJson(Map<String, dynamic>.from(value as Map)))
+        .toList(growable: false);
+    final range = notes.isEmpty ? null : sungRange(notes);
+    return Melody(
+      notes: notes,
+      lowMidi: range?.$1 ?? (json['low_midi'] as num?)?.round(),
+      highMidi: range?.$2 ?? (json['high_midi'] as num?)?.round(),
+      voicedRatio: (json['voiced_ratio'] as num?)?.toDouble(),
+    );
+  }
+
+  /// A note shorter than this is where a pitch tracker is likeliest to be an
+  /// octave out, and it is left out of the range.
+  static const int steadyNoteMs = 120;
+
+  /// The share of sung time trimmed from each end of the range.
+  static const double rangeTrim = 0.05;
+
+  /// The lowest and highest notes that were actually sung, as the singer
+  /// would give them -- the same rule as `sung_range` in melody.py.
+  ///
+  /// Not the minimum and maximum. The first real song through the pipeline
+  /// came back as C2 – C6, four octaves, because a tracker over a separated
+  /// vocal is wrong somewhere in every song: an octave low on a breathy
+  /// onset, an octave high on a consonant, a guitar bleed that lasted. Each
+  /// is a sliver of the sung time, and a range is a claim about where the
+  /// voice *lives*, so the notes are sorted by pitch and the lowest and
+  /// highest 5 % of sung milliseconds are left out. A note held for a fifth
+  /// of the song stays in, however low; a flicker never widens anything.
+  static (int, int)? sungRange(List<MelodyNote> notes) {
+    var steady = notes.where((n) => n.durationMs >= steadyNoteMs).toList();
+    if (steady.isEmpty) steady = notes.toList();
+    if (steady.isEmpty) return null;
+    steady.sort((a, b) => a.midi.compareTo(b.midi));
+    final total = steady.fold<int>(0, (sum, n) => sum + n.durationMs);
+    if (total <= 0) return (steady.first.midi, steady.last.midi);
+    int? low;
+    var high = steady.last.midi;
+    var seen = 0;
+    for (final note in steady) {
+      seen += note.durationMs;
+      if (low == null && seen >= total * rangeTrim) low = note.midi;
+      if (seen >= total * (1 - rangeTrim)) {
+        high = note.midi;
+        break;
+      }
+    }
+    return (low ?? steady.first.midi, high);
+  }
 
   final List<MelodyNote> notes;
 
-  /// The lowest and highest notes that lasted, or null when nothing did.
+  /// Where the voice lives: the lowest and highest notes that were really
+  /// sung (see [sungRange]), or null when nothing was.
   final int? lowMidi;
   final int? highMidi;
 

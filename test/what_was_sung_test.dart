@@ -45,6 +45,37 @@ void main() {
       expect(const Melody(notes: <MelodyNote>[]).rangeLabel, isNull);
     });
 
+    test('the range is where the voice lives, not the worst two frames', () {
+      // A verse on C4 and E4, plus what a tracker does to a real song: a
+      // breathy onset read an octave low and a consonant read an octave
+      // high, each a "note" and each a sliver of the sung time. Min and max
+      // said C2 – C6 for exactly this shape, on the first real song.
+      MelodyNote at(int midi, int ms) => MelodyNote(startMs: 0, endMs: ms, midi: midi);
+      final melody = Melody(notes: <MelodyNote>[at(36, 300), at(60, 5000), at(64, 4000), at(84, 300)]);
+      expect(Melody.sungRange(melody.notes), (60, 64));
+      // A fifth of the song on a low note is not an error, it is the song.
+      expect(Melody.sungRange(<MelodyNote>[at(48, 2400), at(60, 5000), at(64, 4000)]), (48, 64));
+      // One note is its own range; nothing is no range.
+      expect(Melody.sungRange(<MelodyNote>[at(57, 4000)]), (57, 57));
+      expect(Melody.sungRange(<MelodyNote>[]), isNull);
+    });
+
+    test('a worker that said min and max is overruled by its own notes', () {
+      final wide = <String, dynamic>{
+        'notes': <Map<String, dynamic>>[
+          <String, dynamic>{'start_ms': 0, 'end_ms': 300, 'midi': 36},
+          <String, dynamic>{'start_ms': 300, 'end_ms': 5300, 'midi': 60},
+          <String, dynamic>{'start_ms': 5300, 'end_ms': 9300, 'midi': 64},
+          <String, dynamic>{'start_ms': 9300, 'end_ms': 9600, 'midi': 84},
+        ],
+        'low_midi': 36,
+        'high_midi': 84,
+      };
+      expect(Melody.fromJson(wide).rangeLabel, 'C4 – E4');
+      // And with no notes to go on, the worker's word stands.
+      expect(Melody.fromJson(<String, dynamic>{'low_midi': 50, 'high_midi': 62}).rangeLabel, 'D3 – D4');
+    });
+
     test('knows which note is sounding, and when none is', () {
       final melody = Melody.fromJson(json);
       expect(melody.noteAt(900), isNull);

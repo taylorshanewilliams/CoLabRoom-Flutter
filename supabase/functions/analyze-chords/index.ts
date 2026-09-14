@@ -570,12 +570,16 @@ Deno.serve(async (req) => {
   /// is invisible unless something writes it down. This is that something:
   /// one warning row per silent run, in the table the app already reports
   /// to, grouped by the trigger there like every other message.
-  async function noteWorkerSilence(stage: 'melody' | 'lyrics', message: string) {
+  async function noteWorkerSilence(
+    stage: 'melody' | 'lyrics' | 'depth',
+    message: string,
+    service: 'separation' | 'analysis' = 'separation',
+  ) {
     try {
       await adminClient.from('analysis_errors').insert({
         user_id: userData.user!.id,
         severity: 'warning',
-        service: 'separation',
+        service,
         stage,
         message,
         project_id: projectId,
@@ -653,20 +657,39 @@ Deno.serve(async (req) => {
     asked: 'full' | 'quick',
   ): Promise<'full' | 'quick'> {
     if (asked === 'quick') return 'quick';
+    // Fails open to `quick`, not to `full`. The two failure directions are
+    // not symmetric: one gives somebody a slightly less accurate sheet, the
+    // other spends money the account is not entitled to spend, and a
+    // lookup that hiccups should not be able to do the expensive thing.
+    //
+    // But a downgrade for any reason other than the plan being `free` is a
+    // fault, not a paywall, and it used to be indistinguishable from one:
+    // the owner's first full analysis as a member still came back quick,
+    // and nothing anywhere said why. Now it does.
+    let plan: string | null = null;
+    let fault: string | null = null;
     try {
-      const { data } = await adminClient
+      const { data, error } = await adminClient
         .from('profiles')
         .select('plan')
         .eq('id', userData.user!.id)
         .maybeSingle();
-      // Fails open to `quick`, not to `full`. The two failure directions are
-      // not symmetric: one gives somebody a slightly less accurate sheet, the
-      // other spends money the account is not entitled to spend, and a
-      // lookup that hiccups should not be able to do the expensive thing.
-      return (data?.plan as string | null) === 'member' ? 'full' : 'quick';
-    } catch (_error) {
-      return 'quick';
+      plan = (data?.plan as string | null) ?? null;
+      if (error) fault = error.message;
+      else if (data == null) fault = 'no profile row for this user';
+    } catch (error) {
+      fault = error instanceof Error ? error.message : String(error);
     }
+    if (plan === 'member') return 'full';
+    if (plan !== 'free') {
+      await noteWorkerSilence(
+        'depth',
+        `Asked for a full analysis and given the quick one: plan read as ${plan ?? 'nothing'}` +
+          `${fault ? ` (${fault})` : ''}.`,
+        'analysis',
+      );
+    }
+    return 'quick';
   }
 
   async function monthlyLimitRefusal(): Promise<string | null> {
