@@ -24,6 +24,7 @@ import 'reference_recorder_sheet.dart';
 import 'song_sheet_panel.dart';
 import 'stem_player_panel.dart';
 import '../../services/user_facing_error.dart';
+import '../../services/idea_naming.dart';
 
 enum _ReferenceSource { record, file }
 
@@ -265,6 +266,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         _progress = null;
       });
       _syncRoomsWithReference();
+      unawaited(_nameFromWhatWasSung(bundle));
     } catch (error) {
       // Reset _working here, immediately, rather than only in `finally` —
       // the refresh below is a network call, and while it's in flight
@@ -358,6 +360,35 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         fullscreenDialog: true,
       ),
     );
+  }
+
+  /// An idea named after the minute it was recorded takes the name it sang.
+  ///
+  /// "Idea 09/14 02:07" is the shape of every voice memo nobody revisits: you
+  /// cannot skim audio, so a dated recording is one you have to play to
+  /// identify. The transcript is the first moment the app knows what the
+  /// song is about. Only placeholders are touched -- a title somebody typed
+  /// is theirs -- and a rename that fails (a real song already has that
+  /// name, a network blip) leaves the dated name and says nothing on screen.
+  ///
+  /// This is the rename studio_drafts used to do and the retirement of that
+  /// service lost: `idea_naming.dart` kept the rule, and nothing called it.
+  Future<void> _nameFromWhatWasSung(SongAnalysisBundle bundle) async {
+    final name = betterNameFor(
+      current: widget.project.title,
+      transcript: bundle.reference?.transcriptText,
+    );
+    if (name == null || !mounted) return;
+    try {
+      await BetaScope.of(context, listen: false).renameSong(widget.project, name);
+    } catch (error) {
+      reportWarningAndDescribe(
+        error,
+        service: 'app',
+        stage: 'idea.rename',
+        projectId: widget.project.id,
+      );
+    }
   }
 
   Future<void> _renameSection(String label, String? name) async {

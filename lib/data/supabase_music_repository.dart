@@ -1439,10 +1439,20 @@ class SupabaseMusicRepository implements MusicRepository {
   Future<SongProject> startIdea({String? title}) async {
     final room = await ideasRoom();
     final wanted = (title ?? '').trim();
-    return createSong(
-      room: room,
-      title: wanted.isEmpty ? _ideaName() : wanted,
-    );
+    if (wanted.isNotEmpty) return createSong(room: room, title: wanted);
+    // Two taps inside one second, or a clock that repeats itself, must not
+    // put "already exists" on the Record button -- which it did, once, on
+    // 7 September 2026. The second try keeps the auto-named shape that
+    // idea_naming recognises, so it is still renamed from what was sung.
+    final name = _ideaName();
+    try {
+      return await createSong(room: room, title: name);
+    } on NameConflict {
+      return createSong(
+        room: room,
+        title: '$name ${DateTime.now().millisecond}',
+      );
+    }
   }
 
   /// A name that is not "Untitled".
@@ -1450,12 +1460,17 @@ class SupabaseMusicRepository implements MusicRepository {
   /// Recordings arrive before anybody has decided what the song is, and a
   /// library of things called Untitled is a library nobody can search. The
   /// date and time is at least a fact somebody can recognise, and the app
-  /// renames it from what was sung as soon as it knows.
+  /// renames it from what was sung as soon as it knows -- see
+  /// `betterNameFor` in idea_naming.dart, applied when the sheet lands.
+  ///
+  /// Seconds, because the minute alone collided: the title index is per
+  /// account, and one person recording twice in a minute is the normal
+  /// case, not the edge.
   String _ideaName() {
     final now = DateTime.now();
     String two(int value) => value.toString().padLeft(2, '0');
     return 'Idea ${two(now.month)}/${two(now.day)} '
-        '${two(now.hour)}:${two(now.minute)}';
+        '${two(now.hour)}:${two(now.minute)}:${two(now.second)}';
   }
 
   @override
