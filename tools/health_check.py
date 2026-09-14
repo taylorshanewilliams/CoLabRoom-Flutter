@@ -132,20 +132,31 @@ def cut_release(runpod_key: str, endpoint_id: str) -> bool:
     """
     headers = {"Authorization": f"Bearer {runpod_key}", "Content-Type": "application/json"}
     url = f"https://rest.runpod.io/v1/endpoints/{endpoint_id}"
+
+    def patch(body: dict) -> int | None:
+        request(url, method="PATCH", headers=headers, data=json.dumps(body).encode())
+        return json.loads(request(url, headers=headers)).get("version")
+
     try:
         endpoint = json.loads(request(url, headers=headers))
         before = endpoint.get("version")
-        template_id = endpoint.get("templateId")
-        if not template_id:
-            print("FAIL: the endpoint has no templateId to re-assert.")
+        idle = endpoint.get("idleTimeout")
+        if not isinstance(idle, int):
+            print(f"FAIL: the endpoint has no integer idleTimeout to nudge ({idle!r}).")
             return False
-        request(url, method="PATCH", headers=headers, data=json.dumps({"templateId": template_id}).encode())
-        after = json.loads(request(url, headers=headers)).get("version")
+        # RunPod ignores a PATCH that changes nothing (re-asserting the same
+        # templateId left version 23 at 23), and a template's image is not a
+        # field of the endpoint. So the one field that costs nothing to move
+        # is moved and put back: the idle timeout, by a second. Each PATCH is
+        # a release cut on the template's current image; the second is the
+        # one that stays, with the settings exactly as they were found.
+        nudged = patch({"idleTimeout": idle + 1})
+        after = patch({"idleTimeout": idle})
     except urllib.error.HTTPError as error:
         print(f"FAIL: RunPod refused the release: HTTP {error.code} {error.read()[:400]}")
         return False
-    print(f"  release: endpoint version {before} -> {after}")
-    if after == before:
+    print(f"  release: endpoint version {before} -> {nudged} -> {after} (idle timeout {idle}s, unchanged)")
+    if after is None or before is None or after <= before:
         print("FAIL: the endpoint did not cut a new release; its workers are still on the old image.")
         return False
     return True
