@@ -391,7 +391,7 @@ class _AccountScreenState extends State<AccountScreen> {
               ),
               _AccountRow(
                 icon: Icons.chat_bubble_outline_rounded,
-                label: 'Help & Feedback',
+                label: 'Send feedback',
                 onTap: () => _feedback(context),
               ),
               _AccountRow(
