@@ -66,6 +66,23 @@ abstract final class DeepLink {
     return routes;
   }
 
+  /// The screen an address names, for an address that arrives while the app
+  /// is already open — the browser's forward button, a link pasted into the
+  /// bar. Null when it names nothing that opens cold, which includes the two
+  /// tabs: those are a place to *return* to, and the caller pops for them.
+  static Route<dynamic>? routeFor(
+    String path, {
+    required MusicRepository repository,
+    SupabaseClient? supabase,
+  }) =>
+      _routeFor(AppRoutes.match(path), repository: repository, supabase: supabase);
+
+  /// Whether an address is one of the two tabs rather than a screen on top.
+  static bool isATab(String path) {
+    final place = AppRoutes.match(path)?.place;
+    return place == RoutePlace.home || place == RoutePlace.openMic;
+  }
+
   /// One screen, from one address, or null when the address names no screen
   /// that can be rebuilt from an id alone.
   ///

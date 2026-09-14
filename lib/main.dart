@@ -13,6 +13,7 @@ import 'services/crash_reporter.dart';
 import 'services/notification_shade.dart';
 import 'services/push_registration.dart';
 import 'services/set_aside.dart';
+import 'services/web_addresses.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +22,9 @@ Future<void> main() async {
   // while this is what makes it countable.
   CrashReporter.install();
   ErrorWidget.builder = (details) => _CrashScreen(details: details);
+  // Before runApp, so it is asked about a pushed address before the
+  // framework is. Web only; a no-op everywhere else.
+  WebAddresses.install();
 
   if (BetaConfig.hasSupabase) {
     await Supabase.initialize(
