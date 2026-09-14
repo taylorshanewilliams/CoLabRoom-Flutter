@@ -59,6 +59,11 @@ def env(name: str) -> str:
 
 def request(url: str, *, method: str = "GET", headers: dict | None = None, data: bytes | None = None):
     req = urllib.request.Request(url, data=data, method=method)
+    # rest.runpod.io sits behind Cloudflare, which answers Python's default
+    # "Python-urllib/3.x" agent with a 403 that reads like a bad key. The
+    # publish workflow's curl to the same URL has always worked; the only
+    # difference was the agent.
+    req.add_header("User-Agent", "colabroom-health-check/1")
     for key, value in (headers or {}).items():
         req.add_header(key, value)
     with urllib.request.urlopen(req, timeout=180) as response:
