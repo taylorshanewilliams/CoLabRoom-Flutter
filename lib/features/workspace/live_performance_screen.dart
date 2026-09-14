@@ -14,6 +14,7 @@ import '../../services/song_analysis_service.dart';
 import 'live_countdown_store.dart';
 import 'musician_sheet_line.dart';
 import 'musician_sheet_logic.dart';
+import 'practice_rules.dart';
 
 enum LiveScrollMode { off, synced, slow, medium, fast, timed }
 
@@ -69,6 +70,20 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   StreamSubscription<Duration>? _audioPositionSub;
   StreamSubscription<void>? _audioCompleteSub;
   bool _audioReady = false;
+
+  /// Practising: one part on repeat, and the recording slowed.
+  ///
+  /// Both belong to synced mode, the one where the song is the clock. A loop
+  /// is a section of the song's own structure -- Intro, Verse, Chorus -- so
+  /// "again" means the part a musician would name, not a time range. The
+  /// rate is applied to the player when there is one and to the wall clock
+  /// when there is not, so a sheet with no recording still slows down.
+  double _rate = 1;
+  StructureSection? _loop;
+
+  List<StructureSection> get _sections =>
+      widget.analysis?.reference?.structureSections ??
+      const <StructureSection>[];
 
   static const _emptyBundle =
       SongAnalysisBundle(reference: null, lyricCues: <LyricSyncCue>[], chordCues: <ChordCue>[]);
@@ -140,6 +155,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       if (!mounted) return;
       final player = AudioPlayer();
       await player.setSource(audioSourceFor(path));
+      if (_rate != 1) await player.setPlaybackRate(_rate);
       if (!mounted) {
         await player.dispose();
         return;
@@ -177,6 +193,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     setState(() {
       _source = source;
       _playing = false;
+      _loop = null;
       _mode = _hasSync ? LiveScrollMode.synced : LiveScrollMode.off;
       _elapsed = Duration.zero;
       _activeLineKey = null;
@@ -239,7 +256,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _lastTick = now;
       delta = now.difference(previous);
       if (delta <= Duration.zero) return;
-      _elapsed += delta;
+      _elapsed += _mode == LiveScrollMode.synced ? atRate(delta, _rate) : delta;
     }
 
     if (_offsetsDirty && _mode == LiveScrollMode.synced) _captureLineOffsets();
@@ -290,6 +307,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   String _lineKey(int index) => _lines[index].contributionId ?? 'line_$index';
 
   void _tickSynced(ScrollPosition position, double maxExtent) {
+    // Past the end of the part on repeat: back to its start, recording and
+    // all. Checked here rather than in the player's position stream so a
+    // sheet with no recording loops too.
+    final loop = _loop;
+    if (loop != null && _elapsed.inMilliseconds >= loop.endMs) {
+      _seekTo(keepInside(_elapsed, loop));
+    }
     final elapsedMs = _elapsed.inMilliseconds;
     final lines = _lines;
     if (lines.isEmpty) {
@@ -456,6 +480,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     setState(() {
       _elapsed = Duration.zero;
       _playing = false;
+      _loop = null;
       _controlsVisible = true;
       _activeLineKey = null;
     });
@@ -499,12 +524,75 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     setState(() {
       _mode = mode;
       if (mode == LiveScrollMode.off) _playing = false;
+      _loop = null;
       _elapsed = Duration.zero;
       _activeLineKey = null;
     });
     _lastTick = null;
     if (mode == LiveScrollMode.synced) _markOffsetsDirty();
     if (_scroll.hasClients) _scroll.jumpTo(0);
+  }
+
+  /// Moves the song, and the recording with it.
+  ///
+  /// Synced mode only: in the manual modes the scroll is the clock and there
+  /// is nothing to seek. The active line is cleared so the next tick finds
+  /// the right one rather than fading between two.
+  void _seekTo(Duration where) {
+    _elapsed = where;
+    _activeLineKey = null;
+    final audio = _audioPlayer;
+    if (audio != null) unawaited(audio.seek(where));
+  }
+
+  void _onSeek(Duration where) {
+    setState(() {
+      _seekTo(where);
+      _controlsVisible = true;
+    });
+    _lastTick = null;
+    _armControlHide();
+  }
+
+  void _setRate(double rate) {
+    setState(() {
+      _rate = rate;
+      _controlsVisible = true;
+    });
+    final audio = _audioPlayer;
+    if (audio != null) unawaited(audio.setPlaybackRate(rate));
+    _armControlHide();
+  }
+
+  /// Loop one part, or stop looping.
+  ///
+  /// Tapping the part already on repeat is the way out; any other part jumps
+  /// there and stays there, playing or paused. Paused, the sheet still moves
+  /// to the part so the next press of Start begins where the eye is.
+  void _setLoop(StructureSection section) {
+    _cancelCountdown();
+    final same = identical(section, _loop);
+    setState(() {
+      _loop = same ? null : section;
+      _controlsVisible = true;
+      if (_mode == LiveScrollMode.off && _hasSync) _mode = LiveScrollMode.synced;
+    });
+    if (!same) {
+      _seekTo(Duration(milliseconds: section.startMs));
+      if (_mode == LiveScrollMode.synced) {
+        _markOffsetsDirty();
+        if (!_playing) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || !_scroll.hasClients) return;
+            final position = _scroll.position;
+            final maxExtent = position.maxScrollExtent;
+            if (maxExtent > 0) _tickSynced(position, maxExtent);
+          });
+        }
+      }
+    }
+    _lastTick = null;
+    _armControlHide();
   }
 
   @override
@@ -633,6 +721,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         hasAudio: _audioReady,
                         onPlay: _onPlayPressed,
                         onMode: _selectMode,
+                        sections: _sections,
+                        sectionLabels: sectionChipLabels(_sections),
+                        loop: _loop,
+                        onLoop: _setLoop,
+                        rate: _rate,
+                        onRate: _setRate,
+                        onSeek: _onSeek,
                       ),
                     ),
                   ),
@@ -1054,6 +1149,13 @@ class _LiveControls extends StatelessWidget {
     required this.hasAudio,
     required this.onPlay,
     required this.onMode,
+    required this.sections,
+    required this.sectionLabels,
+    required this.loop,
+    required this.onLoop,
+    required this.rate,
+    required this.onRate,
+    required this.onSeek,
   });
 
   final LiveScrollMode mode;
@@ -1065,10 +1167,31 @@ class _LiveControls extends StatelessWidget {
   final VoidCallback onPlay;
   final ValueChanged<LiveScrollMode> onMode;
 
-  bool get _showProgress => mode == LiveScrollMode.timed || mode == LiveScrollMode.synced;
+  /// The song's own parts, one chip each, and which one is on repeat.
+  final List<StructureSection> sections;
+  final List<String> sectionLabels;
+  final StructureSection? loop;
+  final ValueChanged<StructureSection> onLoop;
+
+  /// How fast the song goes, and where in it we are.
+  final double rate;
+  final ValueChanged<double> onRate;
+  final ValueChanged<Duration> onSeek;
+
+  bool get _synced => mode == LiveScrollMode.synced;
+  bool get _showProgress => mode == LiveScrollMode.timed || _synced;
+
+  /// Looping and slowing only mean something when the song is the clock.
+  /// In the manual modes the scroll is a speed, and a "chorus" is wherever
+  /// the eye happens to be.
+  bool get _showPractice => _synced && hasSync;
 
   @override
   Widget build(BuildContext context) {
+    final total = duration.inMilliseconds;
+    final fraction = total <= 0
+        ? 0.0
+        : (elapsed.inMilliseconds / total).clamp(0.0, 1.0).toDouble();
     return Material(
       color: const Color(0xE6091424),
       borderRadius: BorderRadius.circular(22),
@@ -1143,25 +1266,85 @@ class _LiveControls extends StatelessWidget {
               ],
             ),
             if (_showProgress) ...<Widget>[
-              const SizedBox(height: 6),
+              const SizedBox(height: 4),
               Row(
                 children: <Widget>[
                   Text(_clock(elapsed), style: const TextStyle(color: AppColors.muted, fontSize: 10)),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: LinearProgressIndicator(
-                      value: duration.inMilliseconds <= 0
-                          ? 0
-                          : (elapsed.inMilliseconds / duration.inMilliseconds)
-                              .clamp(0, 1)
-                              .toDouble(),
-                      minHeight: 2,
-                      color: AppColors.gold,
-                    ),
+                    // Synced, the bar is the song and you can put your finger
+                    // on it. Timed, it is a guess at where you are, and
+                    // dragging a guess does not move the words.
+                    child: _synced
+                        ? SizedBox(
+                            height: 22,
+                            child: SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                trackHeight: 2,
+                                activeTrackColor: AppColors.gold,
+                                inactiveTrackColor: AppColors.line,
+                                thumbColor: AppColors.gold,
+                                overlayColor: AppColors.gold.withValues(alpha: 0.2),
+                                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                                overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                              ),
+                              child: Slider(
+                                key: const Key('live_seek'),
+                                value: fraction,
+                                onChanged: total <= 0
+                                    ? null
+                                    : (value) => onSeek(
+                                          Duration(milliseconds: (value * total).round()),
+                                        ),
+                              ),
+                            ),
+                          )
+                        : LinearProgressIndicator(
+                            value: fraction,
+                            minHeight: 2,
+                            color: AppColors.gold,
+                          ),
                   ),
                   const SizedBox(width: 8),
                   Text(_clock(duration), style: const TextStyle(color: AppColors.muted, fontSize: 10)),
                 ],
+              ),
+            ],
+            if (_showPractice) ...<Widget>[
+              const SizedBox(height: 2),
+              // Speed first, then the parts. One scrolling row rather than
+              // two stacked ones: on a phone in landscape this bar is already
+              // a third of the lyrics' height.
+              SizedBox(
+                height: 34,
+                child: ListView(
+                  key: const Key('live_practice_row'),
+                  scrollDirection: Axis.horizontal,
+                  children: <Widget>[
+                    for (final each in practiceRates)
+                      _ModeChip(
+                        key: Key('live_rate_$each'),
+                        label: rateLabel(each),
+                        selected: rate == each,
+                        onTap: () => onRate(each),
+                      ),
+                    if (sections.isNotEmpty) ...<Widget>[
+                      const SizedBox(width: 6),
+                      const Padding(
+                        padding: EdgeInsets.only(right: 6),
+                        child: Icon(Icons.repeat_rounded, size: 15, color: AppColors.muted),
+                      ),
+                      for (var i = 0; i < sections.length; i++)
+                        _ModeChip(
+                          key: Key('live_loop_$i'),
+                          label: sectionLabels[i],
+                          icon: identical(loop, sections[i]) ? Icons.repeat_rounded : null,
+                          selected: identical(loop, sections[i]),
+                          onTap: () => onLoop(sections[i]),
+                        ),
+                    ],
+                  ],
+                ),
               ),
             ],
           ],
