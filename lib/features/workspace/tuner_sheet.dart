@@ -2,10 +2,9 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:record/record.dart';
 
 import '../../app/colabroom_theme.dart';
-import '../../services/pitch.dart';
+import '../../services/pitch_listener.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
 
@@ -42,78 +41,54 @@ class TunerSheet extends StatefulWidget {
 }
 
 class _TunerSheetState extends State<TunerSheet> {
-  final AudioRecorder _recorder = AudioRecorder();
-  StreamSubscription<Uint8List>? _samples;
-  final List<double> _buffer = <double>[];
-
-  /// The last few readings, so one bad frame does not swing the needle.
-  final List<PitchReading> _recent = <PitchReading>[];
-  PitchReading? _shown;
-  DateTime? _heardAt;
-  Timer? _fade;
+  /// The phone's ear: the microphone, the detector and the smoothing, shared
+  /// with Perform. See PitchListener.
+  late final PitchListener _ear = PitchListener(
+    openStream: widget.openStream,
+    sampleRate: TunerSheet.sampleRate,
+    frame: TunerSheet.frame,
+    hop: TunerSheet.hop,
+  );
   String? _error;
-  bool _listening = false;
 
   @override
   void initState() {
     super.initState();
+    _ear.reading.addListener(_changed);
+    _ear.listening.addListener(_changed);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_listen());
     });
-    // A note that stopped a moment ago should not sit on screen as if it
-    // were still sounding.
-    _fade = Timer.periodic(const Duration(milliseconds: 250), (_) {
-      final heard = _heardAt;
-      if (heard == null || !mounted) return;
-      if (DateTime.now().difference(heard) > const Duration(milliseconds: 900) &&
-          _shown != null) {
-        setState(() {
-          _shown = null;
-          _recent.clear();
-        });
-      }
-    });
+  }
+
+  void _changed() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _fade?.cancel();
-    unawaited(_samples?.cancel());
-    unawaited(_recorder.stop().catchError((_) => null));
-    unawaited(_recorder.dispose());
+    _ear.reading.removeListener(_changed);
+    _ear.listening.removeListener(_changed);
+    _ear.dispose();
     super.dispose();
   }
 
   Future<void> _listen() async {
     try {
-      final Stream<Uint8List> stream;
-      if (widget.openStream != null) {
-        stream = await widget.openStream!();
-      } else {
-        if (!mounted) return;
-        final allowed = await MicrophoneAccess.ensureGranted(
+      await _ear.start(
+        allowed: () => MicrophoneAccess.ensureGranted(
           context,
           purpose: 'to hear the note you are playing',
-          request: _recorder.hasPermission,
+          request: _ear.hasPermission,
           use: MicrophoneUse.listen,
-        );
-        if (!allowed) {
-          throw StateError('The tuner needs the microphone to hear you.');
-        }
-        stream = await _recorder.startStream(const RecordConfig(
-          encoder: AudioEncoder.pcm16bits,
-          sampleRate: TunerSheet.sampleRate,
-          numChannels: 1,
-        ));
-      }
-      if (!mounted) return;
-      setState(() => _listening = true);
-      _samples = stream.listen(_onSamples, onError: (Object error) {
-        if (mounted) {
-          setState(() => _error = reportAndDescribe(error,
-              service: 'app', stage: 'tuner.stream', route: 'Tuner'));
-        }
-      });
+        ),
+        onError: (Object error) {
+          if (mounted) {
+            setState(() => _error = reportAndDescribe(error,
+                service: 'app', stage: 'tuner.stream', route: 'Tuner'));
+          }
+        },
+      );
     } catch (error) {
       if (mounted) {
         setState(() => _error = reportAndDescribe(error,
@@ -122,32 +97,10 @@ class _TunerSheetState extends State<TunerSheet> {
     }
   }
 
-  void _onSamples(Uint8List bytes) {
-    _buffer.addAll(pcm16ToFloats(bytes));
-    while (_buffer.length >= TunerSheet.frame) {
-      final frame = Float64List.fromList(_buffer.sublist(0, TunerSheet.frame));
-      _buffer.removeRange(0, TunerSheet.hop);
-      final reading = readPitch(detectPitch(frame, TunerSheet.sampleRate));
-      if (reading == null) continue;
-      _recent.add(reading);
-      if (_recent.length > 3) _recent.removeAt(0);
-      // The median of the last three: a string's attack is noisy for a
-      // frame, and the needle should not flinch at it.
-      final sorted = List<PitchReading>.of(_recent)
-        ..sort((a, b) => a.hz.compareTo(b.hz));
-      final middle = sorted[sorted.length ~/ 2];
-      _heardAt = DateTime.now();
-      if (mounted) setState(() => _shown = middle);
-    }
-    // Do not let a stalled detector hoard memory.
-    if (_buffer.length > TunerSheet.frame * 4) {
-      _buffer.removeRange(0, _buffer.length - TunerSheet.frame);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final reading = _shown;
+    final reading = _ear.reading.value;
+    final listening = _ear.listening.value;
     final inTune = reading?.inTune ?? false;
     final accent = inTune ? AppColors.green : AppColors.gold;
     return SafeArea(
@@ -176,7 +129,7 @@ class _TunerSheetState extends State<TunerSheet> {
             Text(
               _error ??
                   (reading == null
-                      ? (_listening ? 'Play one string, or sing one note.' : 'Opening the microphone…')
+                      ? (listening ? 'Play one string, or sing one note.' : 'Opening the microphone…')
                       : inTune
                           ? 'In tune.'
                           : reading.cents < 0

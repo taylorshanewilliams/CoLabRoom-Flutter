@@ -10,7 +10,11 @@ import 'package:flutter/services.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
+import '../../services/pitch.dart';
+import '../../services/pitch_listener.dart';
 import '../../services/song_analysis_service.dart';
+import '../../services/user_facing_error.dart';
+import '../../widgets/microphone_disclosure.dart';
 import 'live_countdown_store.dart';
 import 'musician_sheet_line.dart';
 import 'musician_sheet_logic.dart';
@@ -25,7 +29,12 @@ enum LiveScrollMode { off, synced, slow, medium, fast, timed }
 enum LiveLyricSource { workspace, songSheet }
 
 class LivePerformanceScreen extends StatefulWidget {
-  const LivePerformanceScreen({required this.project, this.analysis, super.key});
+  const LivePerformanceScreen({
+    required this.project,
+    this.analysis,
+    this.openMicrophone,
+    super.key,
+  });
 
   final SongProject project;
 
@@ -34,6 +43,10 @@ class LivePerformanceScreen extends StatefulWidget {
   /// scroll position off the actual lyric timestamps instead of a constant
   /// speed, and highlights the line that should be sung right now.
   final SongAnalysisBundle? analysis;
+
+  /// Where the singer's voice comes from when they sing along. Production
+  /// leaves this null and uses the microphone; a test hands in a tone.
+  final Future<Stream<Uint8List>> Function()? openMicrophone;
 
   @override
   State<LivePerformanceScreen> createState() => _LivePerformanceScreenState();
@@ -81,18 +94,26 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   double _rate = 1;
   StructureSection? _loop;
 
+  /// Singing along: the phone's ear open, the singer's note beside the
+  /// song's. Only offered when the recording has a tune to sing against.
+  PitchListener? _ear;
+  bool _singing = false;
+  String? _singError;
+
   List<StructureSection> get _sections =>
       widget.analysis?.reference?.structureSections ??
       const <StructureSection>[];
 
+  Melody? get _melody => widget.analysis?.reference?.melody;
+
   /// Whether somebody is practising rather than performing.
   ///
-  /// A part on repeat or a slower speed is the difference. On stage the
-  /// controls get out of the way after a few seconds, which is right: the
-  /// words are the point. Practising, the controls *are* the point -- the
-  /// first device test of this screen spent half its taps revealing the
-  /// bar before the chip underneath could be pressed.
-  bool get _practising => _loop != null || _rate != 1;
+  /// A part on repeat, a slower speed, or singing along is the difference.
+  /// On stage the controls get out of the way after a few seconds, which is
+  /// right: the words are the point. Practising, the controls *are* the
+  /// point -- the first device test of this screen spent half its taps
+  /// revealing the bar before the chip underneath could be pressed.
+  bool get _practising => _loop != null || _rate != 1 || _singing;
 
   /// Whether the practice row is on screen, so the words can leave room
   /// for it rather than run underneath.
@@ -221,6 +242,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _ticker?.cancel();
     _hideControls?.cancel();
     _countdownTimer?.cancel();
+    _ear?.reading.removeListener(_earChanged);
+    _ear?.dispose();
     _scroll.dispose();
     unawaited(_audioPositionSub?.cancel());
     unawaited(_audioCompleteSub?.cancel());
@@ -577,6 +600,61 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _armControlHide();
   }
 
+  void _earChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// Sing along, or stop.
+  ///
+  /// Opens the same ear the tuner uses, with the same disclosure -- nothing
+  /// is recorded and nothing leaves the phone -- and from then on the bar
+  /// shows the note being sung beside the note the song is on. The
+  /// microphone is only ever opened from this tap, never on entering the
+  /// screen: a page that listens to you the moment it opens is a different
+  /// kind of page.
+  Future<void> _toggleSinging() async {
+    if (_singing) {
+      await _ear?.stop();
+      if (!mounted) return;
+      setState(() {
+        _singing = false;
+        _controlsVisible = true;
+      });
+      _armControlHide();
+      return;
+    }
+    final ear = _ear ??= PitchListener(openStream: widget.openMicrophone)
+      ..reading.addListener(_earChanged);
+    try {
+      await ear.start(
+        allowed: () => MicrophoneAccess.ensureGranted(
+          context,
+          purpose: 'to hear the note you are singing',
+          request: ear.hasPermission,
+          use: MicrophoneUse.listen,
+        ),
+        onError: (Object error) {
+          if (mounted) {
+            setState(() => _singError = reportAndDescribe(error,
+                service: 'app', stage: 'sing.stream', route: 'Perform'));
+          }
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _singing = true;
+        _singError = null;
+        _controlsVisible = true;
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(() => _singError = reportAndDescribe(error,
+            service: 'app', stage: 'sing.open', route: 'Perform'));
+      }
+    }
+    _armControlHide();
+  }
+
   /// Loop one part, or stop looping.
   ///
   /// Tapping the part already on repeat is the way out; any other part jumps
@@ -753,6 +831,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         rate: _rate,
                         onRate: _setRate,
                         onSeek: _onSeek,
+                        melody: _melody,
+                        singing: _singing,
+                        onSing: _toggleSinging,
+                        heard: _singing ? _ear?.reading.value : null,
+                        singError: _singError,
                       ),
                     ),
                   ),
@@ -1193,6 +1276,11 @@ class _LiveControls extends StatelessWidget {
     required this.rate,
     required this.onRate,
     required this.onSeek,
+    this.melody,
+    this.singing = false,
+    this.onSing,
+    this.heard,
+    this.singError,
   });
 
   final LiveScrollMode mode;
@@ -1203,6 +1291,14 @@ class _LiveControls extends StatelessWidget {
   final bool hasAudio;
   final VoidCallback onPlay;
   final ValueChanged<LiveScrollMode> onMode;
+
+  /// The tune, when the recording has one; whether the singer is singing
+  /// along; what the ear hears; and why it could not open, if it could not.
+  final Melody? melody;
+  final bool singing;
+  final VoidCallback? onSing;
+  final PitchReading? heard;
+  final String? singError;
 
   /// The song's own parts, one chip each, and which one is on repeat.
   final List<StructureSection> sections;
@@ -1348,6 +1444,14 @@ class _LiveControls extends StatelessWidget {
               ),
             ],
             if (_showPractice) ...<Widget>[
+              if (singing || singError != null) ...<Widget>[
+                const SizedBox(height: 4),
+                _YouAndTheSong(
+                  heard: heard,
+                  target: melody?.noteAt(elapsed.inMilliseconds),
+                  error: singError,
+                ),
+              ],
               const SizedBox(height: 2),
               // Speed first, then the parts. One scrolling row rather than
               // two stacked ones: on a phone in landscape this bar is already
@@ -1365,6 +1469,19 @@ class _LiveControls extends StatelessWidget {
                         selected: rate == each,
                         onTap: () => onRate(each),
                       ),
+                    // Sing along, when there is a tune to sing against. A
+                    // recording analysed before the pipeline could hear one
+                    // simply has no chip -- not a chip that says no.
+                    if (melody != null && !melody!.isEmpty && onSing != null) ...<Widget>[
+                      const SizedBox(width: 6),
+                      _ModeChip(
+                        key: const Key('live_sing'),
+                        label: 'Sing',
+                        icon: singing ? Icons.mic_rounded : Icons.mic_none_rounded,
+                        selected: singing,
+                        onTap: onSing!,
+                      ),
+                    ],
                     if (sections.isNotEmpty) ...<Widget>[
                       const SizedBox(width: 6),
                       const Padding(
@@ -1386,6 +1503,79 @@ class _LiveControls extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The singer's note beside the song's, and one word about the distance.
+///
+/// Two notes, the same size, because neither is the answer key: the song's
+/// is where the recording went, the singer's is where they are, and a
+/// voice an octave from the recording's is on the note (see singingVerdict).
+/// Green when they agree, gold with a direction when they do not, and the
+/// hint spells out the one thing that makes this honest without headphones:
+/// the microphone hears the song too.
+class _YouAndTheSong extends StatelessWidget {
+  const _YouAndTheSong({required this.heard, required this.target, this.error});
+
+  final PitchReading? heard;
+  final MelodyNote? target;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    final verdict = singingVerdict(heard?.midi, target?.midi);
+    final accent = switch (verdict) {
+      Singing.onIt => AppColors.green,
+      Singing.low || Singing.high => AppColors.gold,
+      Singing.nothing || Singing.noTarget => AppColors.muted,
+    };
+    const noteStyle = TextStyle(fontSize: 22, fontWeight: FontWeight.w900, height: 1);
+    return Padding(
+      key: const Key('live_you_and_the_song'),
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 2),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: <Widget>[
+              const Text('You', style: TextStyle(color: AppColors.muted, fontSize: 10.5, fontWeight: FontWeight.w700)),
+              const SizedBox(width: 6),
+              Text(
+                heard?.label ?? '—',
+                key: const Key('live_you_note'),
+                style: noteStyle.copyWith(color: heard == null ? AppColors.muted : accent),
+              ),
+              const SizedBox(width: 16),
+              Text('·', style: TextStyle(color: AppColors.muted.withValues(alpha: 0.6), fontSize: 18, height: 1)),
+              const SizedBox(width: 16),
+              const Text('Song', style: TextStyle(color: AppColors.muted, fontSize: 10.5, fontWeight: FontWeight.w700)),
+              const SizedBox(width: 6),
+              Text(
+                target?.label ?? '—',
+                key: const Key('live_song_note'),
+                style: noteStyle.copyWith(color: target == null ? AppColors.muted : AppColors.gold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(
+            error ?? singingHint(verdict),
+            key: const Key('live_sing_hint'),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: error != null ? const Color(0xFFFF9CAA) : accent,
+              fontSize: 11,
+              height: 1.3,
+              fontWeight: verdict == Singing.onIt ? FontWeight.w800 : FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }

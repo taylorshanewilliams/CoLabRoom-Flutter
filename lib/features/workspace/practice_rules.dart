@@ -140,3 +140,31 @@ List<String?> notesForWords(
   }
   return anyNote ? notes : const <String?>[];
 }
+
+/// How the singer stands against the note the song is on.
+///
+/// [nothing] when nothing is being heard; [noTarget] when the song has no
+/// note at this moment (a breath, an instrumental bar); otherwise whether
+/// the sung note is the song's, below it, or above it. An octave away
+/// counts as on it: a singer whose voice sits an octave from the
+/// recording's is singing the same note where their voice lives, and
+/// telling them to go up an octave would be wrong twice.
+enum Singing { nothing, noTarget, onIt, low, high }
+
+Singing singingVerdict(int? heardMidi, int? targetMidi) {
+  if (heardMidi == null) return Singing.nothing;
+  if (targetMidi == null) return Singing.noTarget;
+  final diff = heardMidi - targetMidi;
+  if (diff % 12 == 0) return Singing.onIt;
+  return diff < 0 ? Singing.low : Singing.high;
+}
+
+/// What to say under the two notes: the direction to move, or nothing to
+/// move, in the words a singer would use.
+String singingHint(Singing verdict) => switch (verdict) {
+      Singing.nothing => 'Sing along. Headphones help — without them the microphone hears the song too.',
+      Singing.noTarget => 'Nothing sung here.',
+      Singing.onIt => 'On it.',
+      Singing.low => 'Higher.',
+      Singing.high => 'Lower.',
+    };
