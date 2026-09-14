@@ -75,3 +75,32 @@ int? wordAt(List<int>? starts, int? elapsedMs, int wordCount) {
   }
   return found;
 }
+
+/// A tempo range a musician would recognise. Slower than 40 is not a beat
+/// and faster than 240 is a buzz.
+const double minBpm = 40;
+const double maxBpm = 240;
+
+double clampBpm(double bpm) => bpm.clamp(minBpm, maxBpm).toDouble();
+
+/// The tempo a hand is tapping, from the last few taps.
+///
+/// The median interval rather than the mean, so one late tap does not drag
+/// the number; the last four taps, so a tempo that changes is followed.
+/// Null with fewer than two taps, or after a pause long enough to mean the
+/// count has started again.
+double? tapTempo(List<DateTime> taps) {
+  if (taps.length < 2) return null;
+  final recent = taps.length > 4 ? taps.sublist(taps.length - 4) : taps;
+  final intervals = <int>[];
+  for (var i = 1; i < recent.length; i++) {
+    final gap = recent[i].difference(recent[i - 1]).inMilliseconds;
+    if (gap <= 0) continue;
+    if (gap > 2000) return null;
+    intervals.add(gap);
+  }
+  if (intervals.isEmpty) return null;
+  intervals.sort();
+  final middle = intervals[intervals.length ~/ 2];
+  return clampBpm(60000 / middle);
+}

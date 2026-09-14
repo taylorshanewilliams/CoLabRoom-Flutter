@@ -8,6 +8,7 @@ import 'package:record/record.dart';
 
 import '../../widgets/microphone_disclosure.dart';
 import '../../widgets/problem_report.dart';
+import 'metronome_sheet.dart';
 import 'tuner_sheet.dart';
 
 class ReferenceRecorderSheet extends StatefulWidget {
@@ -16,8 +17,7 @@ class ReferenceRecorderSheet extends StatefulWidget {
   final String songTitle;
 
   @override
-  State<ReferenceRecorderSheet> createState() =>
-      _ReferenceRecorderSheetState();
+  State<ReferenceRecorderSheet> createState() => _ReferenceRecorderSheetState();
 }
 
 class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
@@ -121,127 +121,166 @@ class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Container(
-                width: 42,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(99),
-                ),
-              ),
-              const SizedBox(height: 22),
-              Text(
-                'Record the song',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: AppColors.text,
-                      fontWeight: FontWeight.w900,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _recording
-                    ? 'Play the full arrangement naturally. Stop when the song is finished.'
-                    : 'Capture a rehearsal, acoustic take, or performance directly from this phone.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: AppColors.muted,
-                  fontSize: 12,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 26),
-              Container(
-                width: 112,
-                height: 112,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: (_recording ? const Color(0xFFFF6178) : AppColors.cyan)
-                      .withValues(alpha: 0.1),
-                  border: Border.all(
-                    color: _recording
-                        ? const Color(0xFFFF6178)
-                        : AppColors.cyan,
-                    width: 2,
+          // Scrolls rather than overflows: on a small phone with large text
+          // the sheet is a few pixels taller than the screen, and a sheet
+          // that clips its own Start button is worse than one that scrolls.
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(99),
                   ),
                 ),
-                child: Icon(
-                  _recording ? Icons.graphic_eq_rounded : Icons.mic_rounded,
-                  color: _recording ? const Color(0xFFFF6178) : AppColors.cyan,
-                  size: 46,
+                const SizedBox(height: 22),
+                Text(
+                  'Record the song',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: AppColors.text,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                _clock(_elapsed),
-                key: const Key('reference_recording_clock'),
-                style: const TextStyle(
-                  color: AppColors.text,
-                  fontSize: 34,
-                  fontWeight: FontWeight.w300,
+                const SizedBox(height: 8),
+                Text(
+                  _recording
+                      ? 'Play the full arrangement naturally. Stop when the song is finished.'
+                      : 'Capture a rehearsal, acoustic take, or performance directly from this phone.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.muted,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
                 ),
-              ),
-              if (_error != null) ...<Widget>[
-                const SizedBox(height: 14),
-                ProblemNote(_error!,
+                const SizedBox(height: 26),
+                Container(
+                  width: 112,
+                  height: 112,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: (_recording
+                            ? const Color(0xFFFF6178)
+                            : AppColors.cyan)
+                        .withValues(alpha: 0.1),
+                    border: Border.all(
+                      color:
+                          _recording ? const Color(0xFFFF6178) : AppColors.cyan,
+                      width: 2,
+                    ),
+                  ),
+                  child: Icon(
+                    _recording ? Icons.graphic_eq_rounded : Icons.mic_rounded,
+                    color:
+                        _recording ? const Color(0xFFFF6178) : AppColors.cyan,
+                    size: 46,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  _clock(_elapsed),
+                  key: const Key('reference_recording_clock'),
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontSize: 34,
+                    fontWeight: FontWeight.w300,
+                  ),
+                ),
+                if (_error != null) ...<Widget>[
+                  const SizedBox(height: 14),
+                  ProblemNote(
+                    _error!,
                     color: const Color(0xFFFF9CAA),
                     fontSize: 11,
-                    textAlign: TextAlign.center),
-              ],
-              // Tune first, then press the other button. Only before the
-              // recording starts: the tuner wants the microphone too, and
-              // the take is what it is for.
-              if (!_recording && !_saving) ...<Widget>[
-                const SizedBox(height: 10),
-                TextButton.icon(
-                  key: const Key('open_tuner'),
-                  onPressed: () => TunerSheet.show(context),
-                  icon: const Icon(Icons.tune_rounded, size: 18),
-                  label: const Text('Tuner'),
-                  style: TextButton.styleFrom(foregroundColor: AppColors.muted),
-                ),
-              ],
-              const SizedBox(height: 14),
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: TextButton(
-                      onPressed: _saving ? null : _cancel,
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 2,
-                    child: FilledButton.icon(
-                      key: Key(_recording
-                          ? 'stop_reference_recording'
-                          : 'start_reference_recording'),
-                      onPressed: _saving
-                          ? null
-                          : _recording
-                              ? _finish
-                              : _start,
-                      icon: _saving
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Icon(_recording
-                              ? Icons.stop_rounded
-                              : Icons.fiber_manual_record_rounded),
-                      label: Text(_saving
-                          ? 'Saving…'
-                          : _recording
-                              ? 'Stop & use take'
-                              : 'Start recording'),
-                    ),
+                    textAlign: TextAlign.center,
                   ),
                 ],
-              ),
-            ],
+                // Tune first, then press the other button. Only before the
+                // recording starts: the tuner wants the microphone too, and
+                // the take is what it is for.
+                if (!_recording && !_saving) ...<Widget>[
+                  const SizedBox(height: 10),
+                  // A Wrap, not a Row: on a small phone with large text the
+                  // two links do not fit side by side, and the render harness
+                  // said so before anybody's phone did.
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 6,
+                    children: <Widget>[
+                      TextButton.icon(
+                        key: const Key('open_tuner'),
+                        onPressed: () => TunerSheet.show(context),
+                        icon: const Icon(Icons.tune_rounded, size: 18),
+                        label: const Text('Tuner'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.muted,
+                        ),
+                      ),
+                      TextButton.icon(
+                        key: const Key('open_metronome'),
+                        onPressed: () => MetronomeSheet.show(context),
+                        icon: const Icon(Icons.timer_outlined, size: 18),
+                        label: const Text('Metronome'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 14),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: TextButton(
+                        onPressed: _saving ? null : _cancel,
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: FilledButton.icon(
+                        key: Key(
+                          _recording
+                              ? 'stop_reference_recording'
+                              : 'start_reference_recording',
+                        ),
+                        onPressed:
+                            _saving
+                                ? null
+                                : _recording
+                                ? _finish
+                                : _start,
+                        icon:
+                            _saving
+                                ? const SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                                : Icon(
+                                  _recording
+                                      ? Icons.stop_rounded
+                                      : Icons.fiber_manual_record_rounded,
+                                ),
+                        label: Text(
+                          _saving
+                              ? 'Saving…'
+                              : _recording
+                              ? 'Stop & use take'
+                              : 'Start recording',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -255,9 +294,10 @@ String _clock(Duration value) {
   return '$minutes:${seconds.toString().padLeft(2, '0')}';
 }
 
-String _plainError(Object error) => error
-    .toString()
-    .replaceFirst('Bad state: ', '')
-    .replaceFirst('Exception: ', '')
-    .replaceAll(RegExp(r'\s+'), ' ')
-    .trim();
+String _plainError(Object error) =>
+    error
+        .toString()
+        .replaceFirst('Bad state: ', '')
+        .replaceFirst('Exception: ', '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
