@@ -2,6 +2,7 @@ import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
+import 'package:colabroom/features/workspace/practice_rules.dart';
 import 'package:colabroom/services/chord_names.dart';
 import 'package:flutter/material.dart';
 
@@ -58,6 +59,7 @@ class MusicianChordLyricLine extends StatelessWidget {
     this.editable = false,
     this.liveMode = false,
     this.active = false,
+    this.elapsedMs,
     this.selectedChordStartMs,
     this.onEditChord,
     this.onAddChord,
@@ -71,6 +73,14 @@ class MusicianChordLyricLine extends StatelessWidget {
   final bool editable;
   final bool liveMode;
   final bool active;
+
+  /// Where the song is, for the line being sung.
+  ///
+  /// Set only on the active line in Perform. With it, and with real word
+  /// timing on the line, each word is coloured by whether it has been sung,
+  /// is being sung, or is still to come -- the words light up one by one.
+  /// Without it the line is lit as a whole, which is what it always did.
+  final int? elapsedMs;
 
   /// Where the cue the keyboard is holding starts.
   ///
@@ -94,6 +104,9 @@ class MusicianChordLyricLine extends StatelessWidget {
       chords: line.chords,
       wordStartsMs: line.wordStartsMs,
     );
+    final sung = liveMode && active
+        ? wordAt(line.wordStartsMs, elapsedMs, words.length)
+        : null;
     return Padding(
       padding: EdgeInsets.symmetric(vertical: liveMode ? 3 : 4),
       child: Wrap(
@@ -125,6 +138,13 @@ class MusicianChordLyricLine extends StatelessWidget {
               editable: editable,
               liveMode: liveMode,
               active: active,
+              moment: sung == null
+                  ? WordMoment.whole
+                  : index < sung
+                      ? WordMoment.sung
+                      : index == sung
+                          ? WordMoment.now
+                          : WordMoment.later,
               selected: selectedChordStartMs != null &&
                   placements[index]?.startMs == selectedChordStartMs,
               onEditChord: onEditChord,
@@ -169,6 +189,14 @@ class _BarMarker extends StatelessWidget {
   }
 }
 
+/// Where one word stands in the singing of its line.
+///
+/// [whole] is a line without word timing, or one that is not being sung:
+/// every word the same. The other three only ever appear together on the
+/// active line, and they are what makes a line read as being sung rather
+/// than merely current.
+enum WordMoment { whole, sung, now, later }
+
 class _ChordWord extends StatelessWidget {
   const _ChordWord({
     required this.word,
@@ -181,6 +209,7 @@ class _ChordWord extends StatelessWidget {
     required this.editable,
     required this.liveMode,
     required this.active,
+    required this.moment,
     required this.selected,
     required this.onEditChord,
     required this.onAddChord,
@@ -197,6 +226,7 @@ class _ChordWord extends StatelessWidget {
   final bool editable;
   final bool liveMode;
   final bool active;
+  final WordMoment moment;
 
   /// Whether the keyboard is holding this chord.
   ///
@@ -294,14 +324,24 @@ class _ChordWord extends StatelessWidget {
             )
           : null,
     );
+    // The word being sung is gold; the ones already sung stay white; the
+    // ones still to come wait in the wings. A word takes a few hundred
+    // milliseconds, so the colour change is quick -- a slow fade would still
+    // be arriving on a word as the next one started.
+    final lyricColor = switch (moment) {
+      WordMoment.now => AppColors.gold,
+      WordMoment.later => Colors.white.withValues(alpha: 0.5),
+      WordMoment.sung => Colors.white,
+      WordMoment.whole => liveMode
+          ? active
+              ? Colors.white
+              : const Color(0xFFF3F7FC)
+          : const Color(0xFF2A231B),
+    };
     final lyric = AnimatedDefaultTextStyle(
-      duration: const Duration(milliseconds: 220),
+      duration: Duration(milliseconds: moment == WordMoment.whole ? 220 : 90),
       style: TextStyle(
-        color: liveMode
-            ? active
-                ? Colors.white
-                : const Color(0xFFF3F7FC)
-            : const Color(0xFF2A231B),
+        color: lyricColor,
         fontFamily: 'monospace',
         fontSize: (liveMode ? 13.0 : 13.2) * fontScale,
         height: liveMode ? 1.16 : 1.12,

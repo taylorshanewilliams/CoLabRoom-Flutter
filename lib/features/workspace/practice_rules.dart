@@ -56,3 +56,22 @@ String rateLabel(double rate) {
   if (rate == 0.75) return '¾';
   return '1×';
 }
+
+/// Which word of a line is being sung at [elapsedMs]: the last one that has
+/// started. Null when the line has no word timing, when nothing in it has
+/// started yet, or when the timing does not fit the words -- the same
+/// refusal chordPlacementsForLine makes, for the same reason: a highlight
+/// on the wrong word is worse than none.
+int? wordAt(List<int>? starts, int? elapsedMs, int wordCount) {
+  if (starts == null || elapsedMs == null) return null;
+  if (starts.isEmpty || starts.length != wordCount) return null;
+  int? found;
+  for (var i = 0; i < starts.length; i++) {
+    if (starts[i] <= elapsedMs) {
+      found = i;
+    } else {
+      break;
+    }
+  }
+  return found;
+}

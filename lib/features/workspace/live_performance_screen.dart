@@ -682,6 +682,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                             showChords: _showChords,
                             active: _mode == LiveScrollMode.synced &&
                                 _lineKey(i) == _activeLineKey,
+                            elapsedMs: _mode == LiveScrollMode.synced &&
+                                    _lineKey(i) == _activeLineKey
+                                ? _elapsed.inMilliseconds
+                                : null,
                           ),
                         SizedBox(height: media.size.height * 0.52),
                       ],
@@ -790,6 +794,7 @@ class _PerformanceLine extends StatelessWidget {
     required this.compact,
     required this.showChords,
     this.active = false,
+    this.elapsedMs,
     super.key,
   });
 
@@ -799,6 +804,10 @@ class _PerformanceLine extends StatelessWidget {
   final bool compact;
   final bool showChords;
   final bool active;
+
+  /// Where the song is, when this is the line being sung. See
+  /// MusicianChordLyricLine.elapsedMs.
+  final int? elapsedMs;
 
   @override
   Widget build(BuildContext context) {
@@ -875,6 +884,7 @@ class _PerformanceLine extends StatelessWidget {
               showChords: showChords,
               liveMode: true,
               active: active,
+              elapsedMs: elapsedMs,
             ),
           ),
         ],
