@@ -64,18 +64,23 @@ jobs:
         run: |
           # Deploying a fresh image to GHCR doesn't do anything on its own —
           # RunPod's existing workers keep running whatever image they last
-          # pulled until something tells the endpoint's template to change.
-          # PATCHing the template's imageName is what RunPod documents as
-          # the trigger for a "Release": it starts new workers on the new
-          # image and drains the old ones automatically, no manual
-          # dashboard flush/restart needed.
+          # pulled until the endpoint cuts a new release. Two steps, and both
+          # are needed: PATCHing the template's imageName says what the next
+          # release should run, and PATCHing the endpoint (re-asserting its
+          # own templateId) is what actually cuts that release — new workers
+          # pull the image, old ones drain. For three weeks this step did only
+          # the first, and the workers stayed on the image from August while
+          # every log said they had rolled. The endpoint's version number
+          # moving is the proof, and this step fails if it does not.
           if [ -z "$RUNPOD_API_KEY" ] || [ -z "$RUNPOD_ENDPOINT_ID" ]; then
             echo "::warning::RUNPOD_API_KEY or RUNPOD_ENDPOINT_ID repo secret is not set — the image was pushed to GHCR but RunPod was NOT told to redeploy. Add both secrets under Settings > Secrets and variables > Actions to enable auto-rollout."
             exit 0
           fi
 
-          template_id=$(curl -sf -H "Authorization: Bearer $RUNPOD_API_KEY" \
-            "https://rest.runpod.io/v1/endpoints/$RUNPOD_ENDPOINT_ID" | jq -r '.templateId')
+          endpoint=$(curl -sf -H "Authorization: Bearer $RUNPOD_API_KEY" \
+            "https://rest.runpod.io/v1/endpoints/$RUNPOD_ENDPOINT_ID")
+          template_id=$(echo "$endpoint" | jq -r '.templateId')
+          version_before=$(echo "$endpoint" | jq -r '.version')
 
           if [ -z "$template_id" ] || [ "$template_id" = "null" ]; then
             echo "::error::Could not resolve a templateId for RunPod endpoint $RUNPOD_ENDPOINT_ID — check RUNPOD_ENDPOINT_ID is correct."
@@ -86,5 +91,18 @@ jobs:
             -H "Authorization: Bearer $RUNPOD_API_KEY" \
             -H "Content-Type: application/json" \
             -d "{\"imageName\": \"${{ env.IMAGE }}:${{ github.sha }}\"}" > /dev/null
+          echo "Template $template_id now names ${{ env.IMAGE }}:${{ github.sha }}."
 
-          echo "Told RunPod template $template_id to roll onto ${{ env.IMAGE }}:${{ github.sha }} — new workers will pull it, old ones drain automatically."
+          curl -sf -X PATCH "https://rest.runpod.io/v1/endpoints/$RUNPOD_ENDPOINT_ID" \
+            -H "Authorization: Bearer $RUNPOD_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"templateId\": \"$template_id\"}" > /dev/null
+
+          version_after=$(curl -sf -H "Authorization: Bearer $RUNPOD_API_KEY" \
+            "https://rest.runpod.io/v1/endpoints/$RUNPOD_ENDPOINT_ID" | jq -r '.version')
+
+          if [ "$version_after" = "$version_before" ]; then
+            echo "::error::The endpoint stayed on release version $version_before — the workers are still on the old image. Cut a release by hand (health-check.yml with release=true) and look at why this did not."
+            exit 1
+          fi
+          echo "Endpoint release cut: version $version_before -> $version_after. New workers pull the image above; old ones drain."

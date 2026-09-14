@@ -117,6 +117,40 @@ def describe_endpoint(runpod_key: str, endpoint_id: str) -> None:
         print(f"  (could not read endpoint health: {error})")
 
 
+def cut_release(runpod_key: str, endpoint_id: str) -> bool:
+    """Make the endpoint start workers from its template's current image.
+
+    What 14 September taught: updating the template's image (what the
+    publish workflow does) only changes what the *next* release will use,
+    and the endpoint keeps handing out workers from its current release
+    until something updates the endpoint itself. Re-asserting the
+    endpoint's own templateId is that something -- RunPod cuts a new
+    version, new workers pull the template's image, the old ones drain.
+    The version number before and after is the proof, printed; its not
+    moving is a failure, because that is exactly the silence this exists
+    to end.
+    """
+    headers = {"Authorization": f"Bearer {runpod_key}", "Content-Type": "application/json"}
+    url = f"https://rest.runpod.io/v1/endpoints/{endpoint_id}"
+    try:
+        endpoint = json.loads(request(url, headers=headers))
+        before = endpoint.get("version")
+        template_id = endpoint.get("templateId")
+        if not template_id:
+            print("FAIL: the endpoint has no templateId to re-assert.")
+            return False
+        request(url, method="PATCH", headers=headers, data=json.dumps({"templateId": template_id}).encode())
+        after = json.loads(request(url, headers=headers)).get("version")
+    except urllib.error.HTTPError as error:
+        print(f"FAIL: RunPod refused the release: HTTP {error.code} {error.read()[:400]}")
+        return False
+    print(f"  release: endpoint version {before} -> {after}")
+    if after == before:
+        print("FAIL: the endpoint did not cut a new release; its workers are still on the old image.")
+        return False
+    return True
+
+
 def make_clip(path: str) -> None:
     """A chord, a beat, and a change partway through.
 
@@ -165,6 +199,11 @@ def main() -> int:
 
     print("What the endpoint is running:")
     describe_endpoint(runpod_key, endpoint_id)
+    if os.environ.get("HEALTH_CHECK_RELEASE", "").strip().lower() == "true":
+        print("Cutting a release so the workers pick up the template's image…")
+        if not cut_release(runpod_key, endpoint_id):
+            return 1
+        describe_endpoint(runpod_key, endpoint_id)
     if os.environ.get("HEALTH_CHECK_INSPECT_ONLY", "").strip().lower() == "true":
         print("Inspect only; no job submitted.")
         return 0
