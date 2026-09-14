@@ -40,9 +40,33 @@ String describeForUser(Object error) {
         return error.message;
       case '54000':
         return 'That Room is full.';
+      case 'PGRST301':
+        return 'Your sign-in has expired. Sign out and back in.';
+      case 'PGRST303':
+        // "JWT issued at future": the phone's clock is ahead of the server's,
+        // so every token it is handed looks forged. Seen five times in the
+        // week of 9 September 2026 from one Android phone that could not load
+        // anything and was told only that something went wrong. The person
+        // can fix this in thirty seconds, but only if the sentence says what
+        // it is.
+        if (error.message.toLowerCase().contains('future')) {
+          return "This phone's clock is ahead of the real time, so the server "
+              'refused it. Turn on automatic date and time in your phone '
+              'settings, then open the app again.';
+        }
+        return 'Your sign-in needs refreshing. Sign out and back in.';
     }
     // A database message is not written for a musician, so don't show one.
     return 'That did not go through. It has been reported — try again in a moment.';
+  }
+
+  // The auth client's own "the gateway did not answer" carries a JSON blob as
+  // its message — {"message":"Gateway Timeout"} — which is not a sentence.
+  // Checked before the general AuthException case, which shows messages
+  // as they are because the rest of them are written for a reader.
+  if (error is AuthRetryableFetchException) {
+    return 'The server did not answer in time. Check your connection and '
+        'try again.';
   }
 
   if (error is AuthException) return error.message;

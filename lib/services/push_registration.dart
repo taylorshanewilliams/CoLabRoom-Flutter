@@ -5,6 +5,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'retry.dart';
 import 'user_facing_error.dart';
 
 /// Getting this phone onto the list of places a notification can reach.
@@ -103,14 +104,14 @@ abstract final class PushRegistration {
           settings.authorizationStatus == AuthorizationStatus.authorized ||
               settings.authorizationStatus == AuthorizationStatus.provisional;
       if (!allowed) return false;
-      final registered = await _registerToken();
-      if (!registered) return false;
       // A token is rotated by the OS — a restore onto a new phone, a reinstall,
       // Firebase deciding it is stale. Without this the row goes quietly out of
-      // date and delivery stops with nothing to show why.
+      // date and delivery stops with nothing to show why. Subscribed *before*
+      // the first registration: on iOS the token can arrive through this
+      // stream a moment after `getToken` has already given up.
       _refresh ??= FirebaseMessaging.instance.onTokenRefresh
           .listen((token) => unawaited(_send(token)));
-      return true;
+      return await _registerToken();
     } catch (error) {
       reportAndDescribe(error, service: 'app', stage: 'push.enable');
       return false;
@@ -122,12 +123,23 @@ abstract final class PushRegistration {
   /// Cheap, and it covers the cases a one-time registration misses: the token
   /// changed while the app was closed, or the row was pruned as dead after a
   /// spell without the app.
+  ///
+  /// Wrapped, because it runs on every launch and it is where an iPhone
+  /// threw on 2026-09-13. `getToken` on iOS raises `apns-token-not-set` until
+  /// Apple has handed the app its APNs token, and this path had no catch —
+  /// so the exception reached the global handler and a bandmate was shown an
+  /// error every single time they opened the app. Nothing in here may be the
+  /// reason a screen breaks; see the note at the top of this file.
   static Future<void> refreshIfAllowed() async {
     if (!_available) return;
-    if (!await isAllowed()) return;
-    await _registerToken();
-    _refresh ??= FirebaseMessaging.instance.onTokenRefresh
-        .listen((token) => unawaited(_send(token)));
+    try {
+      if (!await isAllowed()) return;
+      _refresh ??= FirebaseMessaging.instance.onTokenRefresh
+          .listen((token) => unawaited(_send(token)));
+      await _registerToken();
+    } catch (error) {
+      reportAndDescribe(error, service: 'app', stage: 'push.refresh');
+    }
   }
 
   /// True when this phone is now on the list a notification can reach.
@@ -137,6 +149,10 @@ abstract final class PushRegistration {
   /// this app has been in since push shipped. Reported, because it is
   /// indistinguishable from success everywhere else in the app.
   static Future<bool> _registerToken() async {
+    if (!await _waitForApns()) {
+      _registered = false;
+      return false;
+    }
     final token = await FirebaseMessaging.instance.getToken();
     if (token == null || token.isEmpty) {
       reportWarningAndDescribe(
@@ -153,18 +169,52 @@ abstract final class PushRegistration {
     return sent;
   }
 
+  /// On iOS, the FCM token cannot exist until the APNs token does.
+  ///
+  /// Apple hands the app its APNs token asynchronously, usually within a
+  /// second of permission being granted, and `getToken` throws
+  /// `apns-token-not-set` if asked before then. Every iOS attempt in this
+  /// app's history was asked before then. So: ask for the APNs token first
+  /// and give it ten seconds, which is a long time for something that
+  /// normally takes one. On Android there is no such token and this is a
+  /// no-op.
+  ///
+  /// False means "not this time", reported as a warning rather than an
+  /// error: the refresh listener is already subscribed, so if the token
+  /// turns up late it still registers.
+  static Future<bool> _waitForApns() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return true;
+    for (var tick = 0; tick < 20; tick++) {
+      final apns = await FirebaseMessaging.instance.getAPNSToken();
+      if (apns != null && apns.isNotEmpty) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    reportWarningAndDescribe(
+      StateError('No APNs token after ten seconds; the FCM token cannot be '
+          'requested yet. Will register on the next refresh instead.'),
+      service: 'app',
+      stage: 'push.no_apns',
+    );
+    return false;
+  }
+
   /// True when the token reached the database.
+  ///
+  /// Tries three times, because the one recorded failure of this call was a
+  /// gateway timeout — over by the time anybody read it — and a phone that
+  /// has said yes should not stay unreachable until its next launch over a
+  /// second of bad luck.
   static Future<bool> _send(String token) async {
     try {
-      await Supabase.instance.client.rpc<void>(
-        'register_device_token',
-        params: <String, dynamic>{
-          'device_token': token,
-          'device_platform': defaultTargetPlatform == TargetPlatform.iOS
-              ? 'ios'
-              : 'android',
-        },
-      );
+      await retrying(() => Supabase.instance.client.rpc<void>(
+            'register_device_token',
+            params: <String, dynamic>{
+              'device_token': token,
+              'device_platform': defaultTargetPlatform == TargetPlatform.iOS
+                  ? 'ios'
+                  : 'android',
+            },
+          ));
     } catch (error) {
       // The single most important failure in this file. If this throws, the
       // person has said yes, the OS has agreed, and the app still cannot be
