@@ -1896,6 +1896,12 @@ class SupabaseMusicRepository implements MusicRepository {
       // Absent from find_musicians rows, and present only on your own.
       discoverable: row['discoverable'] as bool?,
       locationVisibility: row['location_visibility'] as String?,
+      // From musician_profile only (0107): the span of what the analyser
+      // heard them sing, and how many recordings that is. Null and zero for
+      // anybody who has not said they sing, and on every find_musicians row.
+      vocalLowMidi: (row['vocal_low_midi'] as num?)?.toInt(),
+      vocalHighMidi: (row['vocal_high_midi'] as num?)?.toInt(),
+      vocalRangeSongs: (row['vocal_range_songs'] as num?)?.toInt() ?? 0,
     );
   }
 
