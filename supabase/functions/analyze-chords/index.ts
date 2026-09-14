@@ -681,14 +681,18 @@ Deno.serve(async (req) => {
       fault = error instanceof Error ? error.message : String(error);
     }
     if (plan === 'member') return 'full';
-    if (plan !== 'free') {
-      await noteWorkerSilence(
-        'depth',
-        `Asked for a full analysis and given the quick one: plan read as ${plan ?? 'nothing'}` +
-          `${fault ? ` (${fault})` : ''}.`,
-        'analysis',
-      );
-    }
+    // Every downgrade, not only the puzzling ones. The first version of
+    // this logged only when the plan read as something other than `free`,
+    // and the second full analysis the owner ran as a member still came
+    // back quick with no row to say why -- a silence that ruled nothing
+    // out. A row per downgrade also says how often the paywall is met,
+    // which is a number worth having.
+    await noteWorkerSilence(
+      'depth',
+      `Asked for a full analysis and given the quick one: plan read as ${plan ?? 'nothing'}` +
+        ` for ${userData.user!.id}${fault ? ` (${fault})` : ''}.`,
+      'analysis',
+    );
     return 'quick';
   }
 
