@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/name_policy.dart';
+import 'clock_skew.dart';
 import 'error_reporter.dart';
 import 'recent_trouble.dart';
 
@@ -49,10 +50,18 @@ String describeForUser(Object error) {
         // anything and was told only that something went wrong. The person
         // can fix this in thirty seconds, but only if the sentence says what
         // it is.
+        //
+        // And then, on 14 September, it happened on an emulator whose clock
+        // was eight seconds *behind* the host. The skew can be on the other
+        // side, between the server that mints a token and the one that
+        // checks it, and from the phone the two look identical. So the
+        // sentence no longer swears it is the phone, the load tries again
+        // first (worthRetrying), and ClockSkew files which clock it was.
         if (error.message.toLowerCase().contains('future')) {
-          return "This phone's clock is ahead of the real time, so the server "
-              'refused it. Turn on automatic date and time in your phone '
-              'settings, then open the app again.';
+          return 'The server refused this sign-in as if it came from the '
+              "future. If this phone's clock is wrong, turn on automatic "
+              'date and time; if it is right, this is on our side and trying '
+              'again in a few seconds usually works.';
         }
         return 'Your sign-in needs refreshing. Sign out and back in.';
     }
@@ -130,6 +139,12 @@ String reportAndDescribe(
     projectId: projectId,
     route: route,
   ));
+  // A token "from the future" is a question about clocks, and the phone can
+  // answer it: one request, one header, filed beside the error. Without
+  // this the table said "clock" five times and never which one.
+  if (error is PostgrestException && error.code == 'PGRST303') {
+    unawaited(ClockSkew.report(reporter: reporter, route: route));
+  }
   // Held on to for a few minutes, so that if the person decides to say what
   // they were doing, the exception rides along without them being asked to
   // retype an error message they were shown and dismissed.

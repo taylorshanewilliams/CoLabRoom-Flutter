@@ -78,21 +78,39 @@ void main() {
       expect(calls, 3);
     });
 
-    test('does not retry a token the server refused', () async {
+    test('does not retry a token that has expired', () async {
       var calls = 0;
       await expectLater(
         retrying<void>(
           () async {
             calls++;
-            throw PostgrestException(
-                message: 'JWT issued at future', code: 'PGRST303');
+            throw PostgrestException(message: 'JWT expired', code: 'PGRST301');
           },
           wait: (_) async {},
         ),
         throwsA(isA<PostgrestException>()),
       );
-      // Waiting does not move a clock. One call, one row in the table.
+      // Waiting does not un-expire a token. One call, one row in the table.
       expect(calls, 1);
+    });
+
+    test('does retry a token "from the future", which a few seconds cures', () async {
+      // Seen on an emulator whose clock was eight seconds behind the host:
+      // the skew was between the server that minted the token and the one
+      // that checked it, and it was gone by the second try.
+      var calls = 0;
+      final result = await retrying<String>(
+        () async {
+          calls++;
+          if (calls < 2) {
+            throw PostgrestException(message: 'JWT issued at future', code: 'PGRST303');
+          }
+          return 'loaded';
+        },
+        wait: (_) async {},
+      );
+      expect(result, 'loaded');
+      expect(calls, 2);
     });
 
     test('knows which failures are worth a second try', () {
@@ -113,6 +131,10 @@ void main() {
       expect(
         worthRetrying(PostgrestException(
             message: 'JWT issued at future', code: 'PGRST303')),
+        isTrue,
+      );
+      expect(
+        worthRetrying(PostgrestException(message: 'JWT expired', code: 'PGRST301')),
         isFalse,
       );
       expect(worthRetrying(StateError('a bug')), isFalse);
