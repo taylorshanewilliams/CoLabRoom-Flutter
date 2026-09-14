@@ -102,4 +102,42 @@ void main() {
     expect(find.textContaining('sent to our processing'), findsOneWidget);
     expect(find.textContaining('delete a recording at any time'), findsOneWidget);
   });
+
+  testWidgets('the tuner makes the listening promise, not the recording one',
+      (tester) async {
+    // Having agreed that a take is uploaded is not having been told that
+    // the tuner keeps nothing -- and the other way round. Each use gets its
+    // own disclosure, once.
+    SharedPreferences.setMockInitialValues(<String, Object>{'microphone_granted': true});
+    var asked = false;
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: ElevatedButton(
+            onPressed: () => MicrophoneAccess.ensureGranted(
+              context,
+              purpose: 'to hear the note you are playing',
+              use: MicrophoneUse.listen,
+              request: () async {
+                asked = true;
+                return true;
+              },
+            ),
+            child: const Text('start'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('start'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Before the microphone turns on'), findsOneWidget);
+    expect(find.textContaining('Nothing is recorded'), findsOneWidget);
+    expect(find.textContaining('uploaded to this song'), findsNothing);
+    expect(asked, isFalse);
+
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+    expect(asked, isTrue);
+  });
 }

@@ -95,6 +95,7 @@ class _TunerSheetState extends State<TunerSheet> {
           context,
           purpose: 'to hear the note you are playing',
           request: _recorder.hasPermission,
+          use: MicrophoneUse.listen,
         );
         if (!allowed) {
           throw StateError('The tuner needs the microphone to hear you.');
