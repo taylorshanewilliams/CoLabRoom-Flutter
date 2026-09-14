@@ -280,6 +280,9 @@ class SongAnalysisService {
         instruments: row['instruments'] is Map
             ? InstrumentSummary.fromJson(Map<String, dynamic>.from(row['instruments'] as Map))
             : null,
+        melody: row['melody'] is Map
+            ? Melody.fromJson(Map<String, dynamic>.from(row['melody'] as Map))
+            : null,
       );
     }
 
@@ -1104,6 +1107,11 @@ class SongAnalysisService {
       final instruments = usedFallback || chordResult['instruments'] is! Map
           ? null
           : InstrumentSummary.fromJson(Map<String, dynamic>.from(chordResult['instruments'] as Map));
+      // The tune, when the worker heard one. Null is the honest answer for
+      // an instrumental and for the on-device fallback, which has no stem.
+      final melody = usedFallback || chordResult['melody'] is! Map
+          ? null
+          : Melody.fromJson(Map<String, dynamic>.from(chordResult['melody'] as Map));
       await client
           .from('project_audio_references')
           .update(<String, dynamic>{
@@ -1131,6 +1139,9 @@ class SongAnalysisService {
             'transcript_words': transcriptWords.map((word) => word.toJson()).toList(growable: false),
             'structure_sections': structureSections.map((s) => s.toJson()).toList(growable: false),
             'instruments': instruments?.toJson() ?? <String, dynamic>{},
+            'melody': melody?.toJson(),
+            'melody_low_midi': melody?.lowMidi,
+            'melody_high_midi': melody?.highMidi,
             'analysis_warning': lyricsWarning,
             'last_error': null,
           })

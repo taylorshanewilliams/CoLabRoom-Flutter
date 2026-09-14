@@ -75,7 +75,11 @@ type Stem = (typeof STEMS)[number];
 // scored a flat 0.0% on one of the five, the silent total failure that
 // hallucinationSuspicion exists to catch. Same recording, different answer,
 // so every cached analysis from .2 has to stop matching.
-const PIPELINE_VERSION = 'htdemucs_6s+chordmini+beat_this+allin1+fw-turbo.3';
+// .4 adds the sung melody: pyin over the isolated vocal stem, grouped into
+// notes. A recording analysed under .3 has chords, words and sections and no
+// tune, and the sheet cannot tell "no tune" from "not asked"; bumping is what
+// makes the next analysis of it a real one.
+const PIPELINE_VERSION = 'htdemucs_6s+chordmini+beat_this+allin1+fw-turbo.4';
 
 // The chords-and-lyrics pass. Skips section naming — the only stage that runs
 // a second source separation — and keeps just the vocal stem, which the
@@ -185,6 +189,10 @@ interface SeparationResult {
   /// predates transcription. All three mean "no lyrics this time", which is
   /// a result the pipeline has always had to handle.
   transcript: { text?: string; words?: unknown[] } | null;
+  /// {notes, low_midi, high_midi, voiced_ratio} from the worker, or null for
+  /// an instrumental, a failure inside the pitch tracker, or a worker image
+  /// that predates it. All three mean "no tune this time".
+  melody: { notes: unknown[]; low_midi?: number | null; high_midi?: number | null } | null;
 }
 
 function numberArray(value: unknown): number[] {
@@ -283,6 +291,12 @@ async function readSeparation(jobId: string): Promise<SeparationResult | null> {
     transcript:
       statusBody.output?.transcript && Array.isArray(statusBody.output.transcript.words)
         ? statusBody.output.transcript
+        : null,
+    // Same shape of refusal as the transcript: a melody without notes, or
+    // one that reports its own error, is not a melody.
+    melody:
+      statusBody.output?.melody && Array.isArray(statusBody.output.melody.notes)
+        ? statusBody.output.melody
         : null,
   };
 }
@@ -737,6 +751,7 @@ Deno.serve(async (req) => {
       // written before migration 0037, which the app handles the same way it
       // handles an instrumental: it falls back to the transcribe-audio path.
       transcript: cached.transcript ?? null,
+      melody: cached.melody ?? null,
       vocalStemPath: stems.find((entry) => entry.stem === 'vocals')?.storagePath ?? null,
     };
   }
@@ -955,6 +970,7 @@ Deno.serve(async (req) => {
           // is the answer — re-analysing the same bytes would reach the same
           // model and get the same nothing.
           transcript,
+          melody: separation.melody,
           stem_bucket: stems.length > 0 ? bucket : null,
           stem_dir: stems.length > 0 ? stemDir : null,
           stems: stems.map((entry) => entry.stem),
@@ -994,6 +1010,7 @@ Deno.serve(async (req) => {
       structure: separation.structure,
       stems,
       transcript,
+      melody: separation.melody,
       // Named so the app can say something true rather than showing an empty
       // sheet as though the take simply had no singing in it.
       transcriptRejected,
