@@ -25,6 +25,11 @@ on:
           - ''
           - full
           - quick
+      inspect_only:
+        description: 'Only say what the endpoint is running; submit no job'
+        type: boolean
+        required: false
+        default: false
 
 env:
   CHORD_SERVICE_URL: https://colabroom-chord-service-7nvccxceca-uc.a.run.app
@@ -64,6 +69,8 @@ jobs:
           # neither can rot unnoticed. Set explicitly when you need to prove
           # one of them right now.
           HEALTH_CHECK_DEPTH: ${{ inputs.depth }}
+          # Costs nothing: reads the endpoint and its template, then stops.
+          HEALTH_CHECK_INSPECT_ONLY: ${{ inputs.inspect_only }}
         run: |
           set -o pipefail
           python tools/health_check.py 2>&1 | tee /tmp/health.log
