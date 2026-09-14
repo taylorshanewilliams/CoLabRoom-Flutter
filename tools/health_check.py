@@ -82,7 +82,7 @@ SAFE_TEMPLATE_FIELDS = (
 )
 
 
-def describe_endpoint(runpod_key: str, endpoint_id: str) -> None:
+def describe_endpoint(runpod_key: str, endpoint_id: str) -> str | None:
     """What the endpoint is running, in the log, on every run.
 
     The failure this exists for: a new image is published, the template is
@@ -91,13 +91,17 @@ def describe_endpoint(runpod_key: str, endpoint_id: str) -> None:
     naming one image while the job's output has fields only the other one
     could produce. Printing the template's image next to the job's answer is
     what makes that a one-line diagnosis instead of a morning.
+
+    Returns the image the template names, so the job's own answer can be
+    checked against it once the worker has said which build it is.
     """
     headers = {"Authorization": f"Bearer {runpod_key}"}
+    image: str | None = None
     try:
         endpoint = json.loads(request(f"https://rest.runpod.io/v1/endpoints/{endpoint_id}", headers=headers))
     except Exception as error:
         print(f"  (could not read the endpoint: {error})")
-        return
+        return image
     shown = {k: endpoint.get(k) for k in SAFE_ENDPOINT_FIELDS if k in endpoint}
     print(f"  endpoint: {json.dumps(shown)}")
     print(f"  endpoint fields: {sorted(k for k in endpoint if 'env' not in k.lower())}")
@@ -108,6 +112,8 @@ def describe_endpoint(runpod_key: str, endpoint_id: str) -> None:
             shown = {k: template.get(k) for k in SAFE_TEMPLATE_FIELDS if k in template}
             print(f"  template: {json.dumps(shown)}")
             print(f"  template fields: {sorted(k for k in template if 'env' not in k.lower())}")
+            if isinstance(template.get("imageName"), str):
+                image = template["imageName"]
         except Exception as error:
             print(f"  (could not read the template: {error})")
     try:
@@ -115,6 +121,7 @@ def describe_endpoint(runpod_key: str, endpoint_id: str) -> None:
         print(f"  endpoint health: {json.dumps(health)}")
     except Exception as error:
         print(f"  (could not read endpoint health: {error})")
+    return image
 
 
 def cut_release(runpod_key: str, endpoint_id: str) -> bool:
@@ -209,12 +216,12 @@ def main() -> int:
     timings: dict[str, float] = {}
 
     print("What the endpoint is running:")
-    describe_endpoint(runpod_key, endpoint_id)
+    template_image = describe_endpoint(runpod_key, endpoint_id)
     if os.environ.get("HEALTH_CHECK_RELEASE", "").strip().lower() == "true":
         print("Cutting a release so the workers pick up the template's image…")
         if not cut_release(runpod_key, endpoint_id):
             return 1
-        describe_endpoint(runpod_key, endpoint_id)
+        template_image = describe_endpoint(runpod_key, endpoint_id)
     if os.environ.get("HEALTH_CHECK_INSPECT_ONLY", "").strip().lower() == "true":
         print("Inspect only; no job submitted.")
         return 0
@@ -368,6 +375,25 @@ def main() -> int:
         if output.get("structure_error"):
             failures.append(f"the structure model raised: {output['structure_error']}")
         print(f"  structure: {len(output.get('structure') or [])} sections")
+        # The build that answered, against the build the template names. This
+        # is the check the rollout has needed all along: a template can name
+        # a new image for weeks while every job is served by the old one, and
+        # until the worker said which commit built it, nothing here could
+        # tell. The template's tag is the commit the publish workflow built.
+        build = output.get("worker_build")
+        expected = template_image.rsplit(":", 1)[1] if template_image and ":" in template_image else None
+        if not isinstance(build, str) or not build:
+            failures.append(
+                "the worker did not say which build it is: the live image predates the "
+                "build label — the rollout has not reached it"
+            )
+        elif expected and build != expected:
+            failures.append(
+                f"the template names build {expected[:12]} but the worker that answered "
+                f"was built from {build[:12]} — the release did not reach the workers"
+            )
+        else:
+            print(f"  worker build: {build[:12]}{' (matches the template)' if expected else ''}")
 
         if mix_b64:
             print("Sending the mix to the chord service…")
