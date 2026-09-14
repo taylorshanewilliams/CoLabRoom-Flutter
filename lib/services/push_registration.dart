@@ -134,6 +134,16 @@ abstract final class PushRegistration {
     if (!_available) return;
     try {
       if (!await isAllowed()) return;
+      // On iOS the APNs token is handed over only after the app registers
+      // for remote notifications, and firebase_messaging does that inside
+      // requestPermission. Once permission has been decided this shows
+      // nothing and returns the answer at once -- but it is the call that
+      // asks Apple for the token in this process, and a launch that never
+      // made it sat for ten seconds waiting on a token nobody had requested
+      // (an iPhone on 0.4.2, 14 Sep 2026, permission already granted).
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        await FirebaseMessaging.instance.requestPermission();
+      }
       _refresh ??= FirebaseMessaging.instance.onTokenRefresh
           .listen((token) => unawaited(_send(token)));
       await _registerToken();
@@ -189,9 +199,20 @@ abstract final class PushRegistration {
       if (apns != null && apns.isNotEmpty) return true;
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
+    // The report says what permission the phone believes it has, because
+    // "no token" means two different things: not asked yet, or asked and
+    // never answered by Apple. Only the second is a fault worth chasing.
+    String permission;
+    try {
+      final settings = await FirebaseMessaging.instance.getNotificationSettings();
+      permission = settings.authorizationStatus.name;
+    } catch (_) {
+      permission = 'unknown';
+    }
     reportWarningAndDescribe(
-      StateError('No APNs token after ten seconds; the FCM token cannot be '
-          'requested yet. Will register on the next refresh instead.'),
+      StateError('No APNs token after ten seconds (permission $permission); '
+          'the FCM token cannot be requested yet. Will register on the next '
+          'refresh instead.'),
       service: 'app',
       stage: 'push.no_apns',
     );
