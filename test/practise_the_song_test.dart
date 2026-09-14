@@ -137,10 +137,34 @@ void main() {
     expect(selected('live_loop_2'), isTrue);
     expect(tester.widget<Slider>(find.byKey(const Key('live_seek'))).value, closeTo(0.6, 0.01));
 
-    // Tapping it again is the way out.
+    // While a part is on repeat the controls stay. On the device, every
+    // practice tap had to reveal the bar first because it hid itself four
+    // seconds into playing.
+    double controlsOpacity() => tester
+        .widget<AnimatedOpacity>(find.ancestor(
+          of: find.byKey(const Key('live_practice_row')),
+          matching: find.byType(AnimatedOpacity),
+        ))
+        .opacity;
+    await tester.tap(find.byKey(const Key('live_play_pause')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 6));
+    expect(controlsOpacity(), 1.0);
+
+    // Tapping it again is the way out -- and, at full speed with nothing on
+    // repeat, the stage behaviour comes back: the bar hides.
+    await tester.tap(find.byKey(const Key('live_rate_1.0')));
+    await tester.pump();
     await tester.tap(find.byKey(const Key('live_loop_2')));
     await tester.pump();
     expect(selected('live_loop_2'), isFalse);
+    await tester.pump(const Duration(seconds: 6));
+    expect(controlsOpacity(), 0.0);
+    // Back on screen for the rest of the test.
+    await tester.tap(find.byKey(const Key('live_lyrics_scroll')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('live_play_pause')));
+    await tester.pump();
 
     // In a manual mode the scroll is the clock and none of this applies.
     await tester.tap(find.text('Slow'));

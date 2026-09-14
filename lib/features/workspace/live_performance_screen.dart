@@ -85,6 +85,19 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       widget.analysis?.reference?.structureSections ??
       const <StructureSection>[];
 
+  /// Whether somebody is practising rather than performing.
+  ///
+  /// A part on repeat or a slower speed is the difference. On stage the
+  /// controls get out of the way after a few seconds, which is right: the
+  /// words are the point. Practising, the controls *are* the point -- the
+  /// first device test of this screen spent half its taps revealing the
+  /// bar before the chip underneath could be pressed.
+  bool get _practising => _loop != null || _rate != 1;
+
+  /// Whether the practice row is on screen, so the words can leave room
+  /// for it rather than run underneath.
+  bool get _practiceRowShown => _mode == LiveScrollMode.synced && _hasSync;
+
   static const _emptyBundle =
       SongAnalysisBundle(reference: null, lyricCues: <LyricSyncCue>[], chordCues: <ChordCue>[]);
 
@@ -401,7 +414,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
 
   void _armControlHide() {
     _hideControls?.cancel();
-    if (!_playing) return;
+    if (!_playing || _practising) return;
     _hideControls = Timer(const Duration(seconds: 4), () {
       if (mounted && _playing) setState(() => _controlsVisible = false);
     });
@@ -635,7 +648,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                       sidePadding,
                       landscape ? 42 : 74,
                       sidePadding,
-                      landscape ? 90 : 128,
+                      // The bar is a row taller while practising; the last
+                      // line of the song was underneath it on the device.
+                      (landscape ? 90 : 128) + (_practiceRowShown ? 48 : 0),
                     ),
                     child: Column(
                       key: _contentKey,
