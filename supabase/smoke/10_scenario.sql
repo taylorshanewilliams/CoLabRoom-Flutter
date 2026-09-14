@@ -3135,4 +3135,64 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- A note that finds you later (0115).
+--
+-- The writer leaves a note that they would like to meet a bass player. The
+-- bass player above is already findable, so the note meets them the next
+-- time their listing changes -- and only once, however many times it
+-- changes after that.
+-- ---------------------------------------------------------------------
+
+select public.leave_want('bass', 'a bass player', 'for the Thursday thing');
+
+do $$
+begin
+  if (select count(*) from public.my_wants()) <> 1 then
+    raise exception 'the note was not kept (got %)', (select count(*) from public.my_wants());
+  end if;
+end $$;
+
+update public.profiles set discoverable = false
+where id = 'eeeeeeee-0000-0000-0000-00000000000e';
+update public.profiles set discoverable = true
+where id = 'eeeeeeee-0000-0000-0000-00000000000e';
+
+do $$
+declare
+  told integer;
+begin
+  select count(*) into told from public.notifications
+  where type = 'want_matched'
+    and user_id = '11111111-1111-1111-1111-111111111111';
+  if told <> 1 then
+    raise exception 'the person who left the note was not told (got %)', told;
+  end if;
+
+  if (select body from public.notifications
+      where type = 'want_matched'
+        and user_id = '11111111-1111-1111-1111-111111111111')
+     not like '%a bass player%' then
+    raise exception 'the note did not say what it was about';
+  end if;
+
+  if (select matched from public.my_wants() limit 1) <> 1 then
+    raise exception 'the note does not know it found somebody';
+  end if;
+end $$;
+
+update public.profiles set discoverable = false
+where id = 'eeeeeeee-0000-0000-0000-00000000000e';
+update public.profiles set discoverable = true
+where id = 'eeeeeeee-0000-0000-0000-00000000000e';
+
+do $$
+begin
+  if (select count(*) from public.notifications
+      where type = 'want_matched'
+        and user_id = '11111111-1111-1111-1111-111111111111') <> 1 then
+    raise exception 'the same person was introduced twice';
+  end if;
+end $$;
+
 commit;

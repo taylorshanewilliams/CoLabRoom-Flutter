@@ -85,6 +85,9 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
   /// room together, and no block either way. False until asked.
   bool _canMessage = false;
 
+  /// The notes you have left. Only ever read on your own page.
+  List<StandingWant> _wants = const <StandingWant>[];
+
   bool get _isMe => widget.repository.currentUserId == widget.profileId;
 
   @override
@@ -93,6 +96,24 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
     _musician = widget.initial;
     CurrentRoute.enter('Profile');
     unawaited(_load());
+  }
+
+  /// Not looking any more. Gone at once from the page, and from the server
+  /// behind it.
+  Future<void> _dropWant(StandingWant want) async {
+    setState(() {
+      _wants = <StandingWant>[
+        for (final existing in _wants)
+          if (existing.id != want.id) existing,
+      ];
+    });
+    try {
+      await widget.repository.dropWant(want.id);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error =
+          reportAndDescribe(error, service: 'app', stage: 'drop_want'));
+    }
   }
 
   /// Their picture, once it has been fetched.
@@ -114,6 +135,14 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
       final noticed = _isMe
           ? await widget.repository.thingsWeNoticed()
           : const <Noticed>[];
+      var wants = const <StandingWant>[];
+      if (_isMe) {
+        try {
+          wants = await widget.repository.myWants();
+        } catch (_) {
+          wants = const <StandingWant>[];
+        }
+      }
       String? shared;
       var canMessage = false;
       if (!_isMe) {
@@ -141,6 +170,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
         _noticed = noticed;
         _sharedCity = shared;
         _canMessage = canMessage;
+        _wants = wants;
         _error = null;
       });
     } catch (error) {
@@ -644,6 +674,8 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
                 face: _face,
                 onEditBio: () => unawaited(_editBio()),
                 isMe: _isMe,
+                wants: _wants,
+                onDropWant: (want) => unawaited(_dropWant(want)),
                 noticed: _noticed,
                 claiming: _claiming,
                 onClaim: (part) => unawaited(_claim(part)),
@@ -681,6 +713,8 @@ class _Body extends StatelessWidget {
     required this.face,
     required this.onEditBio,
     required this.isMe,
+    required this.wants,
+    required this.onDropWant,
     required this.noticed,
     required this.claiming,
     required this.onClaim,
@@ -704,6 +738,19 @@ class _Body extends StatelessWidget {
 
   /// Only ever non-empty on your own page.
   final List<Noticed> noticed;
+
+  /// The notes you left about who you would like to meet. Only ever
+  /// non-empty on your own page; nobody else's wants are anybody's business.
+  final List<StandingWant> wants;
+  final ValueChanged<StandingWant> onDropWant;
+
+  static const List<String> _months = <String>[
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  static String _until(DateTime when) =>
+      '${when.day} ${_months[when.month - 1]}';
   final String? claiming;
   final ValueChanged<String> onClaim;
 
@@ -874,6 +921,43 @@ class _Body extends StatelessWidget {
             icon: const Icon(Icons.add_rounded, size: 18),
             label: const Text('Say something about yourself'),
           ),
+        ],
+        if (isMe && wants.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 18),
+          const Text(
+            'LOOKING FOR',
+            style: TextStyle(
+              color: AppColors.text,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (final want in wants)
+            Row(
+              key: Key('want_${want.id}'),
+              children: <Widget>[
+                const Icon(Icons.person_search_outlined,
+                    size: 16, color: AppColors.muted),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${want.label} · until ${_until(want.expiresAt)}'
+                    '${want.matched > 0 ? ' · ${want.matched} turned up' : ''}',
+                    style: const TextStyle(color: AppColors.text, fontSize: 13),
+                  ),
+                ),
+                IconButton(
+                  key: Key('drop_want_${want.id}'),
+                  tooltip: 'Not any more',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => onDropWant(want),
+                  icon: const Icon(Icons.close_rounded,
+                      size: 16, color: AppColors.muted),
+                ),
+              ],
+            ),
         ],
         if (error != null) ...<Widget>[
           const SizedBox(height: 14),
