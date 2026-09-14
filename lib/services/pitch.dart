@@ -136,6 +136,10 @@ class PitchReading {
   bool get inTune => cents.abs() <= 5;
 
   String get label => '$name$octave';
+
+  /// The nearest note as a MIDI number (A4 is 69), the same scale the
+  /// melody's notes are on, so the two can be compared.
+  int get midi => noteNames.indexOf(name) + (octave + 1) * 12;
 }
 
 /// Names [hz] against equal temperament with A4 at [a4].
