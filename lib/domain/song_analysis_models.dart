@@ -177,28 +177,47 @@ class Melody {
   /// The share of sung time trimmed from each end of the range.
   static const double rangeTrim = 0.05;
 
+  /// How far from the middle of the voice a note may sit and still be the
+  /// voice. A singer's range in one song does not reach further than this
+  /// on either side of its middle; a "note" further away is the tracker
+  /// hearing something else.
+  static const int homeSemitones = 12;
+
   /// The lowest and highest notes that were actually sung, as the singer
   /// would give them -- the same rule as `sung_range` in melody.py.
   ///
   /// Not the minimum and maximum. The first real song through the pipeline
   /// came back as C2 – C6, four octaves, because a tracker over a separated
-  /// vocal is wrong somewhere in every song: an octave low on a breathy
-  /// onset, an octave high on a consonant, a guitar bleed that lasted. Each
-  /// is a sliver of the sung time, and a range is a claim about where the
-  /// voice *lives*, so the notes are sorted by pitch and the lowest and
-  /// highest 5 % of sung milliseconds are left out. A note held for a fifth
-  /// of the song stays in, however low; a flicker never widens anything.
+  /// vocal is wrong somewhere in every song. Trimming 5 % of sung time from
+  /// each end gave G2 – A5 on the same song: a harmonic had sat at A5 for
+  /// ten seconds, seven per cent of everything sung, and no trim small
+  /// enough to keep a real low note removes a blob that size. So the range
+  /// is where the voice lives: the duration-weighted median is its middle,
+  /// only notes within [homeSemitones] of it count, and of those the lowest
+  /// and highest 5 % of sung milliseconds are left out. On that song this
+  /// gives G3 – G♯4, which is the singer.
   static (int, int)? sungRange(List<MelodyNote> notes) {
     var steady = notes.where((n) => n.durationMs >= steadyNoteMs).toList();
     if (steady.isEmpty) steady = notes.toList();
     if (steady.isEmpty) return null;
     steady.sort((a, b) => a.midi.compareTo(b.midi));
-    final total = steady.fold<int>(0, (sum, n) => sum + n.durationMs);
+    var total = steady.fold<int>(0, (sum, n) => sum + n.durationMs);
     if (total <= 0) return (steady.first.midi, steady.last.midi);
-    int? low;
-    var high = steady.last.midi;
+    var home = steady.last.midi;
     var seen = 0;
     for (final note in steady) {
+      seen += note.durationMs;
+      if (seen * 2 >= total) {
+        home = note.midi;
+        break;
+      }
+    }
+    final near = steady.where((n) => (n.midi - home).abs() <= homeSemitones).toList();
+    total = near.fold<int>(0, (sum, n) => sum + n.durationMs);
+    int? low;
+    var high = near.last.midi;
+    seen = 0;
+    for (final note in near) {
       seen += note.durationMs;
       if (low == null && seen >= total * rangeTrim) low = note.midi;
       if (seen >= total * (1 - rangeTrim)) {
@@ -206,7 +225,7 @@ class Melody {
         break;
       }
     }
-    return (low ?? steady.first.midi, high);
+    return (low ?? near.first.midi, high);
   }
 
   final List<MelodyNote> notes;

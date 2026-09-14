@@ -89,6 +89,16 @@ def segment_melody(midi_by_frame: list, voiced: list, hop_ms: float) -> list[dic
 
 STEADY_NOTE_MS = 120
 RANGE_TRIM = 0.05
+HOME_SEMITONES = 12
+
+
+def _weighted_median(ordered: list[dict], total: int) -> int:
+    seen = 0
+    for note in ordered:
+        seen += note["end_ms"] - note["start_ms"]
+        if seen * 2 >= total:
+            return note["midi"]
+    return ordered[-1]["midi"]
 
 
 def sung_range(notes: list[dict]) -> tuple[int | None, int | None]:
@@ -99,13 +109,20 @@ def sung_range(notes: list[dict]) -> tuple[int | None, int | None]:
     as C2 – C6 -- four octaves, which nobody sings -- because a pitch
     tracker over a separated vocal is wrong somewhere in every song: an
     octave low on a breathy onset, an octave high on a consonant, a guitar
-    bleed that lasted long enough to count. Each of those is a sliver of the
-    sung time, and a range is a claim about where the voice *lives*, so the
-    range is where the sung time lives: the notes are sorted by pitch and
-    the lowest 5 % and highest 5 % of sung milliseconds are left out. A note
-    held for a fifth of the song stays in, however low; a flicker never
-    widens anything. Notes shorter than 120 ms are dropped first, for the
-    same reason as before -- a single frame is where the tracker is
+    bleed that lasted long enough to count. Trimming the quietest 5 % of
+    sung time from each end was the first answer, and on the same song it
+    gave G2 – A5: the errors were not slivers. A harmonic sat at A5 for ten
+    seconds, seven per cent of everything sung, and no trim small enough to
+    keep a real low note removes a blob that size.
+
+    So the range is where the voice *lives*. The duration-weighted median
+    pitch is the middle of the voice; only notes within an octave of it
+    count -- a voice does not reach more than an octave either side of its
+    own middle in one song, and a "note" further away than that is the
+    tracker hearing something else -- and of those, the lowest 5 % and
+    highest 5 % of sung milliseconds are left out. On the song that read
+    C2 – C6 this gives G3 – G♯4, which is the singer. Notes shorter than
+    120 ms are dropped first: a single frame is where the tracker is
     likeliest to be an octave out.
     """
     steady = [n for n in notes if n["end_ms"] - n["start_ms"] >= STEADY_NOTE_MS] or notes
@@ -115,16 +132,19 @@ def sung_range(notes: list[dict]) -> tuple[int | None, int | None]:
     total = sum(n["end_ms"] - n["start_ms"] for n in ordered)
     if total <= 0:
         return ordered[0]["midi"], ordered[-1]["midi"]
+    home = _weighted_median(ordered, total)
+    near = [n for n in ordered if abs(n["midi"] - home) <= HOME_SEMITONES]
+    total = sum(n["end_ms"] - n["start_ms"] for n in near)
     low = high = None
     seen = 0
-    for note in ordered:
+    for note in near:
         seen += note["end_ms"] - note["start_ms"]
         if low is None and seen >= total * RANGE_TRIM:
             low = note["midi"]
         if seen >= total * (1 - RANGE_TRIM):
             high = note["midi"]
             break
-    return low, high if high is not None else ordered[-1]["midi"]
+    return low, high if high is not None else near[-1]["midi"]
 
 
 def summarise(notes: list[dict], voiced_ratio: float) -> dict:
