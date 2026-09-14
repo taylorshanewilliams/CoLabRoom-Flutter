@@ -10,15 +10,25 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// launch. A gateway timeout is the textbook case of a failure that is over
 /// by the time you have finished reading it.
 ///
-/// The opposite case matters as much: a bad token (`PGRST303`, a clock that
-/// is ahead) does not get better by waiting, and retrying it three times is
-/// three times the noise in the error table for the same fact.
+/// The opposite case matters as much: an expired token (`PGRST301`) does not
+/// get better by waiting, and retrying it three times is three times the
+/// noise in the error table for the same fact.
+///
+/// `PGRST303`, "JWT issued at future", is the exception among the token
+/// errors and used to be treated like the rest. It was read as the phone's
+/// clock being ahead; then it happened on an emulator whose clock was eight
+/// seconds *behind*. A token is minted by one server and checked by another,
+/// and a few seconds between their clocks makes every fresh token look like
+/// it came from the future -- for a few seconds. That is exactly the failure
+/// that is over by the time you have finished reading it.
 bool worthRetrying(Object error) {
   if (error is TimeoutException) return true;
   if (error is AuthRetryableFetchException) return true;
   if (error is PostgrestException) {
     final code = error.code ?? '';
-    // PGRST3xx is the token itself being refused. Waiting changes nothing.
+    if (code == 'PGRST303') return true;
+    // The rest of PGRST3xx is the token itself being refused. Waiting
+    // changes nothing.
     if (code.startsWith('PGRST3')) return false;
     final text = error.message.toLowerCase();
     return text.contains('timeout') ||

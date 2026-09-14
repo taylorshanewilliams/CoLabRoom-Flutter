@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import '../domain/activity.dart';
 import '../data/music_repository.dart';
 import '../domain/music_models.dart';
+import '../services/retry.dart';
 import '../services/user_facing_error.dart';
 import '../services/error_reporter.dart';
 
@@ -204,7 +205,16 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     _error = null;
     notifyListeners();
     try {
-      _rooms = await repository.loadRooms();
+      // The first call carries the token past the server for the first time
+      // this session; if the token is refused as "from the future", a few
+      // seconds is what fixes it (see worthRetrying). Only the first call is
+      // retried: the ones after it use the same token, so if it passed once
+      // it passes again, and if it never passes there is one report, not
+      // four.
+      _rooms = await retrying(
+        repository.loadRooms,
+        first: const Duration(seconds: 2),
+      );
       _invites = await repository.loadInvites();
       _setlists = await repository.loadSetlists();
       _notifications = await repository.loadNotifications();
