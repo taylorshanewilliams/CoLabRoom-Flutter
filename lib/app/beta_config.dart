@@ -4,7 +4,7 @@ abstract final class BetaConfig {
   /// releases behind — so every crash report, every help request and every
   /// usage row has been labelled 0.3.0 since 0.4.0 shipped. A version that
   /// lies is worse than no version: it points triage at the wrong build.
-  static const appVersion = '0.4.1';
+  static const appVersion = '0.4.2';
 
   /// Which build this is, as a short commit ref.
   ///

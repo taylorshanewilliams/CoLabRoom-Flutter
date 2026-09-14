@@ -55,6 +55,9 @@ enum WaitingKind {
 
   /// A recording with no song sheet yet.
   sheet,
+
+  /// The build on this phone is older than the app now is.
+  update,
 }
 
 class WaitingItem {
@@ -148,8 +151,12 @@ class WaitingItem {
   int get rank => switch (kind) {
         WaitingKind.news => isPlayable ? 0 : 1,
         WaitingKind.request => 2,
-        WaitingKind.unfinished => 3,
-        WaitingKind.sheet => 4,
+        // Ahead of the chores: everything below it may be missing from this
+        // phone, and the person on the other end of a request may be waiting
+        // on a screen this build does not have.
+        WaitingKind.update => 3,
+        WaitingKind.unfinished => 4,
+        WaitingKind.sheet => 5,
       };
 
   IconData get icon => switch (kind) {
@@ -157,6 +164,7 @@ class WaitingItem {
         WaitingKind.news => Icons.graphic_eq_rounded,
         WaitingKind.unfinished => Icons.history_rounded,
         WaitingKind.sheet => Icons.article_outlined,
+        WaitingKind.update => Icons.system_update_alt_rounded,
       };
 
   Color get tint => switch (kind) {
@@ -164,6 +172,7 @@ class WaitingItem {
         WaitingKind.news => AppColors.cyan,
         WaitingKind.unfinished => AppColors.muted,
         WaitingKind.sheet => AppColors.gold,
+        WaitingKind.update => AppColors.orange,
       };
 
   String get defaultEyebrow => switch (kind) {
@@ -171,6 +180,7 @@ class WaitingItem {
         WaitingKind.news => 'Just happened',
         WaitingKind.unfinished => 'Pick it back up',
         WaitingKind.sheet => 'No song sheet',
+        WaitingKind.update => 'Newer build',
       };
 }
 
