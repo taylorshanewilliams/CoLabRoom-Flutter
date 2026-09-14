@@ -105,3 +105,47 @@ export function degreeOf(key: KeyFacts, chord: string): string | null {
   if (at < 0) return null;
   return (key.minor ? MINOR_DEGREES : MAJOR_DEGREES)[at];
 }
+
+// Harte shorthand as a musician writes it, mirroring lib/services/chord_names.dart.
+const QUALITY_NAMES: Record<string, string> = {
+  maj: '', min: 'm', dim: '°', aug: '+', '7': '7', maj7: 'maj7', min7: 'm7',
+  dim7: '°7', hdim7: 'm7♭5', minmaj7: 'mMaj7', maj6: '6', min6: 'm6', '6': '6',
+  '9': '9', maj9: 'maj9', min9: 'm9', '11': '11', '13': '13', sus2: 'sus2', sus4: 'sus4',
+};
+const DEGREE_SEMITONES: Record<string, number> = {
+  '1': 0, b2: 1, '2': 2, '#2': 3, b3: 3, '3': 4, '4': 5, '#4': 6, b5: 6, '5': 7,
+  '#5': 8, b6: 8, '6': 9, b7: 10, '7': 11, b9: 1, '9': 2, '11': 5, '#11': 6, '13': 9,
+};
+
+/// A chord label as a musician writes it: `A:min7` -> `Am7`, `D:maj/5` -> `D/A`.
+///
+/// ChordMini stores Harte notation, which is exact and not what anybody puts
+/// on a music stand -- and not what a model should be shown either, since
+/// it will echo "A:min7" back into an answer somebody reads aloud. Anything
+/// without a colon is passed through: chords a person typed are already
+/// spelled the way they want them. `N` (no chord) becomes an empty string.
+export function displayChord(label: string): string {
+  const raw = label.trim();
+  if (raw === '' || raw === 'N' || raw === 'X') return '';
+  const colon = raw.indexOf(':');
+  if (colon <= 0) return raw;
+  const root = raw.slice(0, colon);
+  let quality = raw.slice(colon + 1);
+  let bass = '';
+  const slash = quality.indexOf('/');
+  if (slash >= 0) {
+    bass = quality.slice(slash + 1);
+    quality = quality.slice(0, slash);
+  }
+  const written = QUALITY_NAMES[quality] ?? quality;
+  return `${root}${written}${bassSuffix(root, bass)}`;
+}
+
+function bassSuffix(root: string, bass: string): string {
+  if (bass === '') return '';
+  if (PITCH[bass] !== undefined) return `/${bass}`;
+  const degree = DEGREE_SEMITONES[bass];
+  const rootValue = PITCH[root];
+  if (degree === undefined || rootValue === undefined) return `/${bass}`;
+  return `/${noteName(rootValue + degree, prefersFlats(root))}`;
+}

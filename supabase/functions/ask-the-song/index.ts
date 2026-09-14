@@ -28,7 +28,7 @@
 
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
-import { degreeOf, describeKey, untouchedChords } from '../_shared/theory.ts';
+import { degreeOf, describeKey, displayChord, untouchedChords } from '../_shared/theory.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -125,7 +125,12 @@ async function gatherFacts(
     .eq('project_id', projectId)
     .order('start_ms', { ascending: true })
     .limit(400);
-  const chordList = (cues ?? []).map((c: { chord: string }) => c.chord);
+  // As a musician writes them, not as ChordMini stores them: the model
+  // echoes whatever it is shown, and "A:min7" in an answer somebody reads
+  // aloud is the app's plumbing showing. Silences (N) are left out.
+  const chordList = (cues ?? [])
+    .map((c: { chord: string }) => displayChord(c.chord))
+    .filter((chord: string) => chord.length > 0);
   const firstSeen: string[] = [];
   for (const chord of chordList) {
     if (!firstSeen.includes(chord)) firstSeen.push(chord);
