@@ -460,6 +460,14 @@ Deno.serve(async (req) => {
   const { data: userData, error: userError } = await callerClient.auth.getUser();
   if (userError || !userData?.user) return json({ error: 'Unauthorized' }, 401);
 
+  // Made here, before anything that needs it. It used to be made twenty
+  // lines further down -- after allowedDepth() had already tried to read
+  // the plan through it. Inside an async function that is a temporal-dead-
+  // zone ReferenceError, and the gate's catch turned it into 'quick' by
+  // design. Every full request since the paywall shipped got the quick
+  // pass, member or not, and the warning meant to say so died the same way.
+  const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
   // Before anything reads `depth`, because the cache lookup is keyed on it.
   // Downgrading after that would search the full-analysis cache, miss, and
   // then run the quick pipeline — paying for a lookup that could never hit
@@ -485,7 +493,6 @@ Deno.serve(async (req) => {
     }
   }
 
-  const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   // Stems live beside the reference recording:
   // <room>/<project>/analysis/stems/<recording>/<stem>.mp3. Keeping the first
@@ -820,7 +827,9 @@ Deno.serve(async (req) => {
         last_used_at: new Date().toISOString(),
         hit_count: ((cached.hit_count as number | null) ?? 0) + 1,
       })
-      .eq('audio_sha256', sha);
+      .eq('audio_sha256', sha)
+      // The row that was served, not every version of this recording.
+      .eq('pipeline_version', cached.pipeline_version as string);
 
     // A hit is the cheapest outcome there is, and worth logging precisely
     // because of that: it's the evidence that the cache is earning its keep.
