@@ -103,8 +103,8 @@ abstract final class MicrophoneAccess {
               MicrophoneUse.listen => const <Widget>[
                   _Point(
                     icon: Icons.hearing_rounded,
-                    text: 'It listens only while the tuner is open on this '
-                        'screen. Never in the background.',
+                    text: 'It listens only while the tuner or Sing is open. '
+                        'Never in the background.',
                   ),
                   _Point(
                     icon: Icons.phone_android_rounded,

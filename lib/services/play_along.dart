@@ -44,7 +44,10 @@ class PlayAlong {
   }) async {
     final kept = stems.where((stem) => stem.kind != without).toList(growable: false);
     if (kept.isEmpty) {
-      throw StateError('There is nothing left once ${without.label.toLowerCase()} is taken out.');
+      throw StateError(
+        'The ${without.label.toLowerCase()} track is the only one kept, '
+        'so there is nothing to play without it.',
+      );
     }
     final projectId = kept.first.projectId;
     final path = '$directory/colabroom_playalong_${projectId}_without_${without.name}.wav';
