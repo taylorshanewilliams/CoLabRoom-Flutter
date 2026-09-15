@@ -292,6 +292,46 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
       'seeded', 'nobody',
     ],
   ),
+  HelpAnswer(
+    id: 'messages',
+    question: 'Who can see my messages?',
+    answer: 'A message to one person is seen by the two of you. A line in '
+        'a room\'s thread is seen by everybody in the room, including '
+        'people who join later. Nothing you say is public.\n\n'
+        'You can write to somebody you are connected with or share a room '
+        'with. Blocking somebody closes the thread between you in both '
+        'directions.',
+    keywords: <String>[
+      'message', 'messages', 'chat', 'thread', 'dm', 'talk', 'said',
+    ],
+  ),
+  HelpAnswer(
+    id: 'take-back',
+    question: 'Can I take back something I said?',
+    answer: 'Yes. Every line you wrote — a message, a reply on an ask, a '
+        'note — has Take back beside it. It goes for everybody, not only '
+        'for you. There is no editing, on purpose: a changed line under '
+        'somebody\'s answer would make the answer wrong.',
+    keywords: <String>[
+      'take', 'back', 'delete', 'unsend', 'remove', 'edit', 'message',
+      'undo', 'sent',
+    ],
+  ),
+  HelpAnswer(
+    id: 'your-people',
+    question: 'Who counts as my people?',
+    answer: 'Everybody you share a room with, and everybody who accepted a '
+        'connection. A band-mate is one of your people whether or not '
+        'they ever answered a request. Your people can see whether you '
+        'have the app open right now, and you can see the same of them; '
+        'nobody else can.\n\n'
+        'Find them on the Messages tab — the row at the top — or under '
+        'All, which is the People screen.',
+    keywords: <String>[
+      'people', 'friends', 'connections', 'bandmate', 'online',
+      'here', 'presence', 'green', 'dot',
+    ],
+  ),
 ];
 
 /// The best answer for what somebody typed, or null when nothing is close.

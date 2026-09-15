@@ -135,6 +135,18 @@ class _AccountScreenState extends State<AccountScreen> {
             'Rooms are private to their members. Contributions retain their author and '
             'timestamp. Deleting an account removes its profile and contributions; rooms '
             'owned by that account are also permanently deleted.\n\n'
+            'Messages\n\n'
+            'A message to one person is seen by the two of you; a room\'s thread by '
+            'everybody in the room, including people who join later. Every line you '
+            'wrote can be taken back. Your people — connections and everybody you '
+            'share a room with — can see whether you have the app open; nobody else '
+            'can, and it is not recorded. Deleting your account deletes every message '
+            'you sent.\n\n'
+            'Asking the app about a song\n\n'
+            'Your question and what the app worked out about the song — key, chords, '
+            'sections, the words, who played what — go to a language model to write '
+            'the answer. The recording never does. See colabroom.com/privacy.html for '
+            'which one.\n\n'
             '$audioJourneyTitle\n\n'
             '$audioJourneyBody',
           ),
