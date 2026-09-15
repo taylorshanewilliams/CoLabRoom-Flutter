@@ -21,6 +21,14 @@ name: Delete the retired drafts bucket
 #   * it leaves `retired_studio_drafts` alone. Those rows are names,
 #     durations and transcripts — a few kilobytes that say what existed, and
 #     the whole point of archiving rather than dropping.
+#
+# The listing has to recurse. The first version of this walked one folder
+# deep, found nothing, and the bucket refused to drop as ResourceNotEmpty —
+# which is the good failure, but it was still a wrong answer reported as an
+# empty bucket. Real paths here are account/draft/file and
+# account/draft/stems/kind/file: two to four slashes, not one. So the walk
+# goes all the way down, and the run fails loudly if it ends up with nothing
+# rather than claiming the bucket was already empty.
 
 on:
   workflow_dispatch:
@@ -54,6 +62,7 @@ jobs:
           ref = os.environ["PROJECT_REF"]
           key = os.environ["SERVICE_KEY"]
           base = f"https://{ref}.supabase.co"
+          bucket = "studio-drafts"
           headers = {
               "apikey": key,
               "Authorization": f"Bearer {key}",
@@ -71,50 +80,79 @@ jobs:
                   body = response.read().decode("utf-8", errors="replace")
                   return json.loads(body) if body.strip() else []
 
-          # What is there, named, before anything goes.
-          objects = call(
-              "POST",
-              f"{base}/storage/v1/object/list/studio-drafts",
-              {"prefix": "", "limit": 1000, "sortBy": {"column": "name", "order": "asc"}},
-          )
-          # The listing is one level deep; each account id is a folder.
-          names = []
-          for entry in objects:
-              if entry.get("id") is None:
-                  inner = call(
-                      "POST",
-                      f"{base}/storage/v1/object/list/studio-drafts",
-                      {"prefix": entry["name"], "limit": 1000,
-                       "sortBy": {"column": "name", "order": "asc"}},
-                  )
-                  names.extend(f"{entry['name']}/{i['name']}" for i in inner if i.get("id"))
-              else:
-                  names.append(entry["name"])
+          PAGE = 100
 
-          if names:
-              print(f"{len(names)} object(s) to remove:")
-              print()
-              for name in names:
-                  print(f"  {name}")
-              print()
-              removed = call(
-                  "DELETE",
-                  f"{base}/storage/v1/object/studio-drafts",
-                  {"prefixes": names},
+          def walk(prefix):
+              # A folder comes back with a null id and no metadata; a file has
+              # both. Names are relative to the prefix asked for, so the full
+              # path is rebuilt on the way down.
+              found = []
+              offset = 0
+              while True:
+                  page = call(
+                      "POST",
+                      f"{base}/storage/v1/object/list/{bucket}",
+                      {
+                          "prefix": prefix,
+                          "limit": PAGE,
+                          "offset": offset,
+                          "sortBy": {"column": "name", "order": "asc"},
+                      },
+                  )
+                  for entry in page:
+                      name = entry.get("name")
+                      if not name:
+                          continue
+                      full = f"{prefix}/{name}" if prefix else name
+                      if entry.get("id") is None:
+                          found.extend(walk(full))
+                      else:
+                          found.append(full)
+                  if len(page) < PAGE:
+                      break
+                  offset += len(page)
+              return found
+
+          names = walk("")
+
+          if not names:
+              print("Found no objects. That is not believable for this bucket,")
+              print("so nothing was removed. Check the listing before retrying.")
+              sys.exit(1)
+
+          print(f"{len(names)} object(s) to remove:")
+          print()
+          for name in names:
+              print(f"  {name}")
+          print()
+
+          # One request per batch, so a partial failure is visible per batch
+          # rather than as one opaque error over 33 paths.
+          removed = 0
+          for start in range(0, len(names), 50):
+              batch = names[start : start + 50]
+              result = call(
+                  "DELETE", f"{base}/storage/v1/object/{bucket}", {"prefixes": batch}
               )
-              count = len(removed) if isinstance(removed, list) else len(names)
-              print(f"Removed {count} object(s).")
-          else:
-              print("The bucket already held no objects.")
+              removed += len(result) if isinstance(result, list) else len(batch)
+          print(f"Removed {removed} object(s).")
 
           # An empty bucket is still a bucket. Remove the bucket itself, so the
           # Studio leaves nothing behind that a future reader has to explain.
+          leftover = walk("")
+          if leftover:
+              print(f"{len(leftover)} object(s) still listed; leaving the bucket:")
+              for name in leftover:
+                  print(f"  {name}")
+              sys.exit(1)
+
           try:
-              call("DELETE", f"{base}/storage/v1/bucket/studio-drafts")
-              print("Removed the studio-drafts bucket.")
+              call("DELETE", f"{base}/storage/v1/bucket/{bucket}")
+              print(f"Removed the {bucket} bucket.")
           except urllib.error.HTTPError as error:
               detail = error.read().decode("utf-8", errors="replace")
               print(f"Objects are gone; the bucket row remains: HTTP {error.code} {detail}")
+              sys.exit(1)
 
           print()
           print(
