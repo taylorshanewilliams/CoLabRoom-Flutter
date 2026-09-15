@@ -5,6 +5,15 @@ name: Expire old separated stems
 # it to a cron. Once it's been watched succeed a few times, add a `schedule:`
 # trigger here (weekly is plenty, given the economics — see expire_stems.py).
 on:
+  # Sundays, twenty minutes after the layers sweep. It was left on
+  # workflow_dispatch "until it has been watched succeed a few times", and
+  # nobody watched -- so nobody noticed it had been dying on a table that
+  # migration 0066 dropped, and the stems it exists to expire were never
+  # swept at all. It has now run clean, with nothing old enough to remove,
+  # which is the safest moment there will ever be to turn it on: the first
+  # scheduled run is a no-op too.
+  schedule:
+    - cron: '40 4 * * 0'
   workflow_dispatch:
     inputs:
       retention_days:
@@ -31,6 +40,8 @@ jobs:
         env:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          RETENTION_DAYS: ${{ inputs.retention_days }}
-          DRY_RUN: ${{ inputs.dry_run }}
+          # A scheduled run has no inputs, so both need a default or the
+          # sweep would run with an empty retention and never delete.
+          RETENTION_DAYS: ${{ inputs.retention_days || '90' }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
         run: python tools/expire_stems.py
