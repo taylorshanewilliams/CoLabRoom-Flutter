@@ -194,11 +194,48 @@ abstract final class PushRegistration {
   /// False means "not this time", reported as a warning rather than an
   /// error: the refresh listener is already subscribed, so if the token
   /// turns up late it still registers.
+  ///
+  /// Thirty seconds rather than ten, and the reason is what ten seconds
+  /// could not tell anybody. On 15 September a tester's iPhone reported "No
+  /// APNs token after ten seconds (permission authorized)" three times in
+  /// one day, and everything else was then ruled out: the App ID carries
+  /// PUSH_NOTIFICATIONS, the active provisioning profile carries
+  /// `aps-environment: production`, the Firebase config matches the bundle,
+  /// and firebase_messaging asks Apple for the token itself at plugin
+  /// startup. So the token is being asked for and not arriving inside ten
+  /// seconds, and "refused" and "slower than the deadline" produced exactly
+  /// the same sentence.
+  ///
+  /// They do not any more. A token that turns up late is reported as having
+  /// turned up late, with the number of seconds, which is the difference
+  /// between a bug in Apple's answer and a bug in our patience. Nothing
+  /// blocks on this: `refreshIfAllowed` is launched unawaited.
   static Future<bool> _waitForApns() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return true;
-    for (var tick = 0; tick < 20; tick++) {
-      final apns = await FirebaseMessaging.instance.getAPNSToken();
-      if (apns != null && apns.isNotEmpty) return true;
+    final started = DateTime.now();
+    // What getAPNSToken itself said, if it did more than return null. An
+    // exception here used to escape the whole loop and be reported as a
+    // refresh failure, which named the wrong thing.
+    String? complaint;
+    for (var tick = 0; tick < 60; tick++) {
+      try {
+        final apns = await FirebaseMessaging.instance.getAPNSToken();
+        if (apns != null && apns.isNotEmpty) {
+          final waited = DateTime.now().difference(started);
+          if (waited.inSeconds >= 8) {
+            reportWarningAndDescribe(
+              StateError('APNs token arrived after ${waited.inSeconds}s. '
+                  'Under the old ten-second limit this phone would have been '
+                  'reported as never getting one.'),
+              service: 'app',
+              stage: 'push.apns_slow',
+            );
+          }
+          return true;
+        }
+      } catch (error) {
+        complaint = error.toString();
+      }
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
     // The report says what permission the phone believes it has, because
@@ -211,10 +248,13 @@ abstract final class PushRegistration {
     } catch (_) {
       permission = 'unknown';
     }
+    final waited = DateTime.now().difference(started).inSeconds;
     reportWarningAndDescribe(
-      StateError('No APNs token after ten seconds (permission $permission); '
-          'the FCM token cannot be requested yet. Will register on the next '
-          'refresh instead.'),
+      StateError('No APNs token after ${waited}s (permission $permission)'
+          '${complaint == null ? '' : '; getAPNSToken said: $complaint'}. '
+          'Signing is not the cause: the App ID carries PUSH_NOTIFICATIONS '
+          'and the active profile carries aps-environment. Will register on '
+          'the next refresh instead.'),
       service: 'app',
       stage: 'push.no_apns',
     );
