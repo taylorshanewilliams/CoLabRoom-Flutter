@@ -1,13 +1,20 @@
 """Reads the crash-free rate, and fails loudly when it drops.
 
 A number nobody looks at is not a metric, it is a column. This runs daily,
-prints the rate per app version **and the errors driving it**, and exits
-non-zero when it falls below the floor — which turns a silent regression into
+prints two rates per app version **and the errors driving them**, and exits
+non-zero when the crash-free one falls below the floor — which turns a silent regression into
 a failed workflow, an email, and a red mark next to the day it started.
 
 The causes are in the email on purpose. The first version printed the
 percentage alone, failed every morning for six days, and told nobody what to
 fix; an alert that cannot be acted on is training to ignore alerts.
+
+Two rates, for the same reason. `crash-free` is whether people could use the
+app at all — the library never loaded, or something escaped every catch.
+`error-free` is whether anything went wrong anywhere, which is stricter and
+never going to be 100% while a push token can fail. The floor is on the
+first, so the alarm can actually stop ringing; the second is printed beside
+it so nothing is hidden by the choice.
 
 That is deliberately the crudest possible alerting. It uses machinery this
 project already has rather than adding a service, and the failure it produces
@@ -64,7 +71,7 @@ def main() -> int:
     floor = float(os.environ.get("CRASH_FREE_FLOOR") or 99.0)
     keep_days = int(os.environ.get("SESSION_KEEP_DAYS") or 90)
 
-    ok, rows = run_sql(project_ref, token, "select * from public.crash_free_rate(7);")
+    ok, rows = run_sql(project_ref, token, "select * from public.app_health(7);")
     if not ok:
         print(f"Could not read the rate: {rows}")
         return 1
@@ -77,16 +84,24 @@ def main() -> int:
         print("No sessions in the last 7 days. Nothing to report yet.")
         return 0
 
-    print(f"Crash-free rate, last 7 days (floor {floor}%):\n")
+    # Two numbers, because they answer two questions (0124). The floor is
+    # about whether people could use the app; the strict one is about how
+    # clean it is, and is for reading rather than for alarming.
+    print(f"App health, last 7 days (crash-free floor {floor}%):\n")
     worst = 100.0
     total_sessions = 0
     for row in rows:
         version = row.get("app_version") or "unknown"
         sessions = int(row.get("sessions") or 0)
         bad = int(row.get("sessions_with_an_error") or 0)
+        broke = int(row.get("sessions_that_could_not_work") or 0)
         rate = float(row.get("crash_free_percent") or 0)
+        clean = float(row.get("error_free_percent") or 0)
         total_sessions += sessions
-        print(f"  {version:<12} {rate:>6.2f}%   {sessions} sessions, {bad} with an error")
+        print(
+            f"  {version:<14} crash-free {rate:>6.2f}%   error-free {clean:>6.2f}%"
+            f"   {sessions} sessions, {broke} could not work, {bad} with any error"
+        )
         # Versions with almost no traffic swing wildly — one crash in three
         # launches is 66%, and gating on that would page somebody about a
         # developer's own phone. Only versions with real usage set the floor.
