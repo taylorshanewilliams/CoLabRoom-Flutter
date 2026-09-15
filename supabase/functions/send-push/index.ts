@@ -203,7 +203,17 @@ Deno.serve(async (request: Request) => {
           notification_id: row.id ?? '',
         },
         apns: {
-          payload: { aps: { sound: 'default', badge: 1 } },
+          // `content-available` is what wakes the app, and without it the
+          // iOS half of the receipt is unreachable: the system draws the
+          // alert and the app never learns a thing, so `onBackgroundMessage`
+          // never runs and no 'closed' arrival can be filed. Android does not
+          // need it -- the plugin registers a broadcast receiver that starts
+          // its background service whether or not there is a notification
+          // payload -- which is why this was only ever missing on one side.
+          //
+          // Paired with `UIBackgroundModes: remote-notification`, added to
+          // the iOS build in #286. Both are required and neither is enough.
+          payload: { aps: { sound: 'default', badge: 1, 'content-available': 1 } },
         },
         android: {
           priority: 'HIGH',
