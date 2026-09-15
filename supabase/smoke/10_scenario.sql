@@ -3237,4 +3237,93 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- One place to talk (0118).
+--
+-- The bass player joins the Smoke Room; the writer says something in it.
+-- The room tells the bass player and not the writer, under the writer's
+-- name with the room on the notification. The bass player's inbox lists
+-- the room with one unread line and the person thread from 0112;
+-- looking at the room clears its count.
+-- ---------------------------------------------------------------------
+
+insert into public.room_members (room_id, user_id, display_name, role, color_value)
+values ('33333333-3333-3333-3333-333333333333',
+        'eeeeeeee-0000-0000-0000-00000000000e',
+        'Never Recorded Anything', 'editor', 4278255360);
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+insert into public.room_messages (room_id, author_id, body)
+values ('33333333-3333-3333-3333-333333333333',
+        '11111111-1111-1111-1111-111111111111',
+        'Rehearsal is Thursday at eight.');
+
+do $$
+declare
+  told integer;
+begin
+  select count(*) into told from public.notifications
+  where type = 'direct_message'
+    and room_id = '33333333-3333-3333-3333-333333333333'
+    and user_id = 'eeeeeeee-0000-0000-0000-00000000000e';
+  if told <> 1 then
+    raise exception 'the room did not tell the other member (got %)', told;
+  end if;
+
+  if exists (
+    select 1 from public.notifications
+    where type = 'direct_message'
+      and room_id = '33333333-3333-3333-3333-333333333333'
+      and user_id = '11111111-1111-1111-1111-111111111111'
+  ) then
+    raise exception 'the room told the person who spoke';
+  end if;
+
+  if (select title from public.notifications
+      where type = 'direct_message'
+        and room_id = '33333333-3333-3333-3333-333333333333'
+        and user_id = 'eeeeeeee-0000-0000-0000-00000000000e')
+     not like 'The Writer · Smoke Room' then
+    raise exception 'the room message is not under the speaker''s name and the room''s';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "eeeeeeee-0000-0000-0000-00000000000e"}';
+
+do $$
+declare
+  room_unread integer;
+  people integer;
+begin
+  select unread into room_unread from public.my_threads()
+  where kind = 'room' and target = '33333333-3333-3333-3333-333333333333';
+  if room_unread is distinct from 1 then
+    raise exception 'the room thread does not show the unread line (got %)', room_unread;
+  end if;
+
+  if (select last_body from public.my_threads()
+      where kind = 'room' and target = '33333333-3333-3333-3333-333333333333')
+     <> 'Rehearsal is Thursday at eight.' then
+    raise exception 'the room thread does not show what was last said';
+  end if;
+
+  select count(*) into people from public.my_threads()
+  where kind = 'person' and target = '11111111-1111-1111-1111-111111111111';
+  if people <> 1 then
+    raise exception 'the person thread from 0112 is not listed (got %)', people;
+  end if;
+
+  perform public.mark_thread_read('room', '33333333-3333-3333-3333-333333333333');
+
+  select unread into room_unread from public.my_threads()
+  where kind = 'room' and target = '33333333-3333-3333-3333-333333333333';
+  if room_unread is distinct from 0 then
+    raise exception 'looking at the room did not clear its count (got %)', room_unread;
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+
 commit;

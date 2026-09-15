@@ -648,6 +648,84 @@ class DirectMessage {
   final DateTime createdAt;
 }
 
+/// What kind of thread: a room the band talks in, or one other person.
+enum ThreadKind { room, person }
+
+/// One line on the Messages screen: a thread you are in, what was last
+/// said in it, and how much of it you have not seen.
+///
+/// A room is a thread the moment you are a member of it, said or not;
+/// a person is a thread once either of you has written. [lastAt] is
+/// null for a room nobody has spoken in yet.
+class ThreadSummary {
+  const ThreadSummary({
+    required this.kind,
+    required this.targetId,
+    required this.name,
+    this.icon,
+    this.avatarPath,
+    this.memberCount = 2,
+    this.lastBody,
+    this.lastAuthorId,
+    this.lastAuthorName,
+    this.lastAt,
+    this.unread = 0,
+  });
+
+  final ThreadKind kind;
+
+  /// The room, or the other person.
+  final String targetId;
+  final String name;
+
+  /// The room's icon; null for a person.
+  final String? icon;
+
+  /// The person's picture; null for a room.
+  final String? avatarPath;
+  final int memberCount;
+  final String? lastBody;
+  final String? lastAuthorId;
+  final String? lastAuthorName;
+  final DateTime? lastAt;
+
+  /// Lines from other people since you last opened it.
+  final int unread;
+
+  ThreadSummary copyWith({int? unread}) => ThreadSummary(
+        kind: kind,
+        targetId: targetId,
+        name: name,
+        icon: icon,
+        avatarPath: avatarPath,
+        memberCount: memberCount,
+        lastBody: lastBody,
+        lastAuthorId: lastAuthorId,
+        lastAuthorName: lastAuthorName,
+        lastAt: lastAt,
+        unread: unread ?? this.unread,
+      );
+}
+
+/// A line said in a room, to everybody in it.
+class RoomMessage {
+  const RoomMessage({
+    required this.id,
+    required this.roomId,
+    required this.authorId,
+    required this.authorName,
+    required this.body,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String roomId;
+  final String authorId;
+  final String authorName;
+  final String body;
+  final DateTime createdAt;
+}
+
 /// A note you left: you would like to meet somebody who plays [part].
 ///
 /// The shallowest ask there is, with nothing attached. Lasts a month, then

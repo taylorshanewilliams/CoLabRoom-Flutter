@@ -558,6 +558,23 @@ abstract interface class MusicRepository {
   /// Take back something you said to them.
   Future<void> deleteMessage(DirectMessage message);
 
+  /// Every thread you are in -- each room, and each person you have
+  /// written to or heard from -- newest first, with what was last said
+  /// and how much you have not seen.
+  Future<List<ThreadSummary>> myThreads();
+
+  /// You have looked at this thread, now.
+  Future<void> markThreadRead({required ThreadKind kind, required String targetId});
+
+  /// What the room has said, oldest first.
+  Future<List<RoomMessage>> loadRoomMessages(String roomId);
+
+  /// Say something to the whole room. Every other member is told.
+  Future<RoomMessage> sendRoomMessage({required String roomId, required String body});
+
+  /// Take back something you said to the room.
+  Future<void> deleteRoomMessage(RoomMessage message);
+
   /// The notes you have left, unexpired, newest first.
   Future<List<StandingWant>> myWants();
 

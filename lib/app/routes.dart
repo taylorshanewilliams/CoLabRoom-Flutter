@@ -50,6 +50,8 @@ abstract final class AppRoutes {
   // ---------------------------------------------------------------- yours
   static const String account = '/account';
   static const String notifications = '/notifications';
+  static const String messages = '/messages';
+  static const String people = '/people';
   static const String help = '/help';
   static const String whatYouGet = '/what-you-get';
   static const String notificationSettings = '/settings/notifications';
