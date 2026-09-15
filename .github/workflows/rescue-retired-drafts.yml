@@ -1,0 +1,104 @@
+name: Rescue the retired drafts
+
+# Get the recordings out before the bucket goes.
+#
+# `studio-drafts` holds 98 MB from the Studio, retired in migration 0066.
+# Migration 0066 deliberately kept both the rows (`retired_studio_drafts`)
+# and the audio, on the grounds that "Took time to understand I'm not" is an
+# eighteen-second phone recording named from the words somebody sang into
+# it, and that is not test material.
+#
+# Three of the seven never became songs and exist nowhere else. Before
+# anybody deletes the bucket, this downloads the original recording for
+# every retired draft and hands them back as a zip, named by what the draft
+# was called rather than by a uuid.
+#
+# Originals only. The small files beside them are separated stems, which the
+# analyser can make again from the audio and which are the bulk of the 98 MB.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rescue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch every retired draft's audio
+        env:
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, urllib.error, urllib.request
+
+          ref = os.environ["PROJECT_REF"]
+          key = os.environ["SERVICE_KEY"]
+          base = f"https://{ref}.supabase.co"
+          headers = {
+              "apikey": key,
+              "Authorization": f"Bearer {key}",
+              "Accept": "application/json",
+          }
+
+          def get(url):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=120) as response:
+                  return response.read()
+
+          rows = json.loads(
+              get(
+                  f"{base}/rest/v1/retired_studio_drafts"
+                  "?select=display_name,storage_path,duration_ms,became_project,created_at"
+                  "&order=created_at"
+              )
+          )
+          print(f"{len(rows)} retired draft(s)\n")
+
+          out = pathlib.Path("rescued")
+          out.mkdir(exist_ok=True)
+          notes = []
+          for index, row in enumerate(rows, start=1):
+              path = row.get("storage_path")
+              name = (row.get("display_name") or f"draft-{index}").strip()
+              seconds = round((row.get("duration_ms") or 0) / 1000)
+              became = "became a song" if row.get("became_project") else "never became a song"
+              if not path:
+                  print(f"  {name}: no storage path recorded, skipped")
+                  continue
+              # A filename a person can read, and the original extension.
+              suffix = pathlib.Path(path).suffix or ".m4a"
+              safe = re.sub(r"[^A-Za-z0-9 _.-]", "", name).strip() or f"draft-{index}"
+              if safe.lower().endswith(suffix.lower()):
+                  safe = safe[: -len(suffix)]
+              target = out / f"{index:02d} - {safe}{suffix}"
+              try:
+                  audio = get(f"{base}/storage/v1/object/studio-drafts/{path}")
+              except urllib.error.HTTPError as error:
+                  print(f"  {name}: HTTP {error.code}, skipped")
+                  continue
+              target.write_bytes(audio)
+              size = len(audio) / 1048576
+              print(f"  {target.name}  {seconds}s  {size:.1f} MB  ({became})")
+              notes.append(f"{target.name} — {seconds}s — {became}")
+
+          (out / "what these are.txt").write_text(
+              "Recordings from the Studio, retired in migration 0066 when a\n"
+              "recording became a song straight away instead of living in a\n"
+              "second library first.\n\n"
+              + "\n".join(notes)
+              + "\n\nThe separated stems that sat beside these are not here:\n"
+              "the analyser can make them again from the audio.\n",
+              encoding="utf-8",
+          )
+          print(f"\n{len(notes)} file(s) in rescued/")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: retired-studio-drafts
+          path: rescued
+          retention-days: 30
