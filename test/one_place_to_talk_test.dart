@@ -74,6 +74,23 @@ void main() {
       expect(find.text('♬'), findsNothing);
     });
 
+    testWidgets('everybody you know is a row above the threads',
+        (tester) async {
+      final controller = await _controller();
+      await _pump(tester, controller);
+      expect(find.byKey(const Key('people_strip')), findsOneWidget);
+      // Jess is a connection; nobody is here now in a test.
+      expect(find.byKey(const Key('strip_person_preview-jess')), findsOneWidget);
+      expect(find.byKey(const Key('strip_here_preview-jess')), findsNothing);
+      expect(find.text('YOUR PEOPLE · 1'), findsOneWidget);
+
+      // A face opens the thread between the two of you.
+      await tester.tap(find.byKey(const Key('strip_person_preview-jess')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('person_thread_headline')), findsOneWidget);
+      expect(find.text('Jess'), findsWidgets);
+    });
+
     testWidgets('the unread count is on the row and on the icon',
         (tester) async {
       final controller = await _controller();

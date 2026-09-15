@@ -949,6 +949,7 @@ class SuggestedPerson {
     required this.displayName,
     required this.because,
     this.avatarPath,
+    this.canMessage = false,
   });
 
   final String personId;
@@ -959,6 +960,10 @@ class SuggestedPerson {
   /// not have enough people to guess with, and would not be forgiven for
   /// guessing wrong about who somebody plays with.
   final String because;
+
+  /// Whether a message to them would go: in a room together (0102's
+  /// may_tell). Somebody who only played on a song with you is not, yet.
+  final bool canMessage;
 }
 
 class Musician {

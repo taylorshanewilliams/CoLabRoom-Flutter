@@ -13,6 +13,7 @@ import '../../widgets/player_face.dart';
 import '../../widgets/room_mark.dart';
 import '../openmic/people_screen.dart';
 import '../openmic/person_thread_sheet.dart';
+import 'people_strip.dart';
 import '../songs/new_song_flow.dart';
 import 'room_thread_sheet.dart';
 
@@ -219,6 +220,9 @@ class _MessagesScreenState extends State<MessagesScreen> {
                     ],
                   ),
                 ),
+              // Everybody you know, with who is here now, above the
+              // threads. See PeopleStrip.
+              PeopleStrip(repository: controller.repository),
               if (threads.isEmpty)
                 const Padding(
                   padding: EdgeInsets.fromLTRB(28, 60, 28, 24),
