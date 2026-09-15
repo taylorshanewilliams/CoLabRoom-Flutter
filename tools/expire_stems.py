@@ -45,9 +45,20 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 # (table, id column, bucket the stems for that table land in)
+#
+# `studio_draft_stems` was here until 15 September 2026 and had been dropped
+# by migration 0066 long before that, when the Studio was folded into one
+# library. PostgREST answers 404 for a table that does not exist, the loop
+# below turns that into a RuntimeError, and the error came *after*
+# project_stems in the list -- so every run of this job died on the dead
+# half and the live half was never swept. The stems it exists to expire had
+# been accumulating since June.
+#
+# The lesson, for the next feature that gets retired: deleting a table is
+# not finished until the jobs that read it are found. A list like this is
+# exactly where a dead name hides, because nothing compiles it.
 STEM_TABLES = (
     ("project_stems", "project_id", "room-files"),
-    ("studio_draft_stems", "draft_id", "studio-drafts"),
 )
 
 
