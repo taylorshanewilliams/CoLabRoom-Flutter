@@ -1,27 +1,34 @@
 name: Ask Apple whether push is enabled
 
-# Does the App ID actually have Push Notifications, and is the stored
-# provisioning profile older than the answer?
+# Does the signed provisioning profile carry push, and does the App ID even
+# allow it?
 #
 # 15 September 2026: a tester's iPhone reported "No APNs token after ten
 # seconds (permission authorized)" three times in one day. The app is asking
 # for the token -- firebase_messaging calls registerForRemoteNotifications
 # itself at plugin startup -- and the plugin's failure callback only NSLogs,
-# so Apple's reason has never been readable. The build-time check added
-# alongside this reads the signed profile off the uploaded binary, which says
-# whether push is in the profile.
+# so Apple's reason has never been readable by anybody without the phone
+# plugged into a Mac.
 #
-# This says *why* it is or is not, which is the difference between two
-# different fixes:
+# Apple will answer both halves directly, which is faster and more certain
+# than inferring it from a fifteen-minute Xcode build:
 #
-#   * Push Notifications not enabled on the App ID -> somebody has to turn it
-#     on in the developer portal. No amount of rebuilding helps.
-#   * enabled, but the stored profile predates it -> match keeps reusing the
-#     profile on the ios-signing-certs branch, and one forced regeneration
-#     fixes it.
+#   * the App ID's capability list says whether push is allowed at all;
+#   * the profile's own content says whether the thing being signed with
+#     carries aps-environment. `profileContent` is the real .mobileprovision,
+#     base64'd, and the entitlements plist sits in it as plain text.
 #
-# Read-only. It asks Apple questions and changes nothing, which is why it is
-# safe to run whenever the answer is in doubt.
+# Those are two different fixes. Capability off means somebody has to turn it
+# on in the developer portal and no rebuild helps. Capability on with a
+# push-less profile means match is reusing a profile that predates it, and one
+# forced regeneration fixes it.
+#
+# Read-only. It asks Apple questions and changes nothing.
+#
+# The first version of this got HTTP 400 from the capability endpoint, because
+# `limit` is not allowed on that relationship, and then reported "push is NOT
+# enabled" on the strength of an empty list it had never actually read. A
+# failed request is not an answer, and this one says so rather than guessing.
 
 on:
   workflow_dispatch:
@@ -51,8 +58,6 @@ jobs:
           issuer = os.environ["ISSUER_ID"].strip()
           bundle = os.environ["BUNDLE"].strip()
           p8 = os.environ["P8"]
-
-          # The secret has been stored both ways in this project's history.
           if "BEGIN PRIVATE KEY" not in p8:
               p8 = base64.b64decode(p8).decode("utf-8")
 
@@ -75,19 +80,29 @@ jobs:
                       return json.loads(response.read().decode("utf-8"))
               except urllib.error.HTTPError as error:
                   body = error.read().decode("utf-8", errors="replace")
-                  print(f"HTTP {error.code} on {path}")
-                  print(body[:600])
-                  if error.code in (401, 403):
-                      print()
-                      print("::warning::This API key cannot read signing "
-                            "information. That is a key-role limit, not an "
-                            "answer about push; the build-time profile check "
-                            "is the fallback.")
+                  print(f"  request failed: HTTP {error.code} on {path}")
+                  print("  " + body[:400].replace("\n", " "))
                   return None
+
+          # The entitlements plist sits inside the CMS-signed profile as plain
+          # text, so it can be read without a Mac and without openssl.
+          def aps_in(profile_bytes):
+              marker = b"<key>aps-environment</key>"
+              at = profile_bytes.find(marker)
+              if at < 0:
+                  return None
+              tail = profile_bytes[at + len(marker):at + len(marker) + 300]
+              start = tail.find(b"<string>")
+              end = tail.find(b"</string>")
+              if start < 0 or end < 0:
+                  return "present, unreadable value"
+              return tail[start + len(b"<string>"):end].decode("utf-8", "replace")
 
           ids = get("/v1/bundleIds?filter[identifier]="
                     + urllib.parse.quote(bundle) + "&limit=10")
           if ids is None:
+              print("::error::Could not read App IDs at all. If this is a 401 "
+                    "or 403 it is a key-role limit, not an answer about push.")
               sys.exit(1)
 
           rows = ids.get("data") or []
@@ -95,47 +110,78 @@ jobs:
               print(f"::error::Apple has no App ID called {bundle}.")
               sys.exit(1)
 
-          push_on = False
+          # None means "could not read", which is not the same as "absent".
+          push_capability = None
           for row in rows:
-              bid = row["id"]
               attrs = row.get("attributes", {})
               print(f"App ID {attrs.get('identifier')}  "
-                    f"name={attrs.get('name')}  platform={attrs.get('platform')}")
-              caps = get(f"/v1/bundleIds/{bid}/bundleIdCapabilities?limit=50")
+                    f"name={attrs.get('name')}  id={row['id']}")
+              # No `limit` here: this relationship rejects it with a 400.
+              caps = get(f"/v1/bundleIds/{row['id']}/bundleIdCapabilities")
+              if caps is None:
+                  print("  capabilities: could not read")
+                  continue
               names = sorted(
                   (c.get("attributes", {}).get("capabilityType") or "?")
-                  for c in ((caps or {}).get("data") or [])
+                  for c in (caps.get("data") or [])
               )
-              print("  capabilities: " + (", ".join(names) if names else "(none)"))
-              if "PUSH_NOTIFICATIONS" in names:
-                  push_on = True
+              print("  capabilities: " + (", ".join(names) if names else "(none listed)"))
+              got = "PUSH_NOTIFICATIONS" in names
+              push_capability = got if push_capability is None else (push_capability or got)
 
           print()
+          active_with_push = None
           profiles = get("/v1/profiles?limit=200")
           for row in ((profiles or {}).get("data") or []):
               attrs = row.get("attributes", {})
               name = attrs.get("name") or ""
               if bundle not in name:
                   continue
+              state = attrs.get("profileState")
               print(f"profile {name}")
-              print(f"  type={attrs.get('profileType')} "
-                    f"state={attrs.get('profileState')}")
-              print(f"  created={attrs.get('createdDate')} "
-                    f"expires={attrs.get('expirationDate')}")
+              print(f"  type={attrs.get('profileType')} state={state}")
+              print(f"  created={attrs.get('createdDate')}")
+              full = get(f"/v1/profiles/{row['id']}"
+                         "?fields[profiles]=profileContent,name,profileState")
+              content = ((full or {}).get("data") or {}).get(
+                  "attributes", {}).get("profileContent")
+              if not content:
+                  print("  aps-environment: profile content not returned")
+                  continue
+              aps = aps_in(base64.b64decode(content))
+              print(f"  aps-environment: {aps if aps else 'ABSENT'}")
+              if state == "ACTIVE":
+                  active_with_push = bool(aps)
 
           print()
-          if push_on:
-              print("Push Notifications IS enabled on the App ID.")
-              print("So if the signed profile carries no aps-environment, the "
-                    "profile predates the capability and match must regenerate "
-                    "it: the one on the ios-signing-certs branch was last "
-                    "written 2026-09-06 and is reused on every build.")
-          else:
-              print("::error::Push Notifications is NOT enabled on the App ID "
-                    f"{bundle}. This is why the phone gets no APNs token: iOS "
-                    "refuses the registration for a build whose profile cannot "
-                    "carry push, and the entitlements file saying 'production' "
-                    "changes nothing. Enable it in the developer portal under "
-                    "Identifiers, then regenerate the provisioning profile.")
+          print("=" * 60)
+          if active_with_push is False:
+              print("::error::The active provisioning profile carries NO "
+                    "aps-environment. That is why the phone gets no APNs "
+                    "token: iOS refuses registerForRemoteNotifications for a "
+                    "build whose profile does not allow push, however the "
+                    "entitlements file reads.")
+              if push_capability is True:
+                  print("Push IS enabled on the App ID, so the profile simply "
+                        "predates it. Fix: make match regenerate the profile "
+                        "(force: true once, or delete "
+                        "profiles/appstore/AppStore_com.colabroom.beta.mobileprovision "
+                        "from the ios-signing-certs branch).")
+              elif push_capability is False:
+                  print("Push is also not enabled on the App ID. Fix: enable "
+                        "Push Notifications on the identifier in the developer "
+                        "portal FIRST, then regenerate the profile.")
+              else:
+                  print("The capability list could not be read, so check the "
+                        "identifier in the developer portal before assuming "
+                        "the profile is the only problem.")
               sys.exit(1)
+          if active_with_push:
+              print("The active profile carries aps-environment. Push is "
+                    "signed in correctly, so the refusal is something else "
+                    "and the next thing to read is Apple's own error from the "
+                    "device.")
+          else:
+              print("::warning::No ACTIVE profile for this bundle was read, so "
+                    "this says nothing either way.")
           PY
