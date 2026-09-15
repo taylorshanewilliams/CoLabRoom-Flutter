@@ -190,8 +190,19 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile>
             ListTile(
               dense: true,
               title: const Text('Send this phone a test notification'),
+              // "so if it arrives, they all will" is what this used to say,
+              // and it is the sentence that cost the most. Pressed with the
+              // screen in front of you, this proves the path a push takes
+              // while the app is open, which on Android is the app drawing it
+              // itself. A notification from a real event usually lands while
+              // the app is closed, and that is a different path through a
+              // different handler. Taylor believed push worked for a week on
+              // the strength of this button, while nothing from a real event
+              // ever appeared. The closed-app test below is the other half.
               subtitle: const Text(
-                'Goes down the real path, so if it arrives, they all will.',
+                'Goes down the real path with the app in front. Arriving '
+                'while the app is closed is a different path: that is the '
+                'test below.',
               ),
               trailing: _testing
                   ? const SizedBox(
