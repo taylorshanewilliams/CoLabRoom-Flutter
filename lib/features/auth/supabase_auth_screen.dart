@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../services/arrival_code.dart';
+import '../../services/invite_link.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -126,6 +127,10 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
   /// bar, and its installs cannot be traced to a board.
   String? get _arrivedVia => kIsWeb ? arrivalCodeFrom(Uri.base) : null;
 
+  /// Whether the address carries an invitation (see invite_link.dart).
+  /// The shell accepts it once the person is signed in.
+  bool get _invited => kIsWeb && inviteCodeFrom(Uri.base) != null;
+
   /// Tells the server which door this account came in by. Once: the
   /// first claim wins on the server, so signing in again from the same
   /// link is not a second arrival. Best effort, and never the reason a
@@ -192,9 +197,16 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    _createAccount
-                        ? 'Start a private room and invite your collaborators.'
-                        : 'Your rooms and songs stay in sync across every device.',
+                    // Somebody who arrived on an invitation link is here to
+                    // join a room, and the page should say so before it
+                    // asks for anything.
+                    _invited
+                        ? 'You have been invited into a room. Sign in, or '
+                            'create an account, and it opens.'
+                        : _createAccount
+                            ? 'Start a private room and invite your collaborators.'
+                            : 'Your rooms and songs stay in sync across every device.',
+                    key: const Key('auth_subtitle'),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 24),

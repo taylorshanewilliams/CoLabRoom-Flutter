@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app/colabroom_theme.dart';
+import '../services/invite_link.dart';
 import '../domain/music_models.dart';
 
 class InviteDraft {
@@ -125,19 +126,38 @@ Future<void> showInviteReadyDialog(
               'and inviting that address instead will reach them straight away.',
             ),
             const SizedBox(height: 10),
+            // The link is the invitation. It opens the room in a browser,
+            // on a phone too, and signing up there takes a minute -- which
+            // is the difference between an invite and an instruction to
+            // install something.
             const Text(
-              'Otherwise the invite is waiting for them: sign up with this exact '
-              'address and it arrives automatically. This code works too, from '
-              'Invites → Use Code. Either way it expires in seven days.',
+              'Otherwise, send them this link. It opens the room in a browser — '
+              'on a phone too — and signing up there takes a minute. It expires '
+              'in seven days.',
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            SelectableText(
+              inviteLink(code),
+              key: const Key('invite_link'),
+              style: const TextStyle(
+                color: AppColors.cyan,
+                fontWeight: FontWeight.w700,
+                fontSize: 13.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Or the code on its own, from Invites → Use Code:',
+              style: TextStyle(color: AppColors.muted, fontSize: 12.5),
+            ),
+            const SizedBox(height: 6),
             SelectableText(
               code,
               style: const TextStyle(
-                color: AppColors.cyan,
-                fontWeight: FontWeight.w800,
-                fontSize: 18,
-                letterSpacing: 1.1,
+                color: AppColors.text,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+                letterSpacing: 0.8,
               ),
             ),
           ],
@@ -153,9 +173,21 @@ Future<void> showInviteReadyDialog(
               );
             }
           },
-          child: const Text('Copy Code'),
+          child: const Text('Copy code'),
         ),
         FilledButton(
+          key: const Key('invite_copy_link'),
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: inviteLink(code)));
+            if (dialogContext.mounted) {
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                const SnackBar(content: Text('Link copied. Send it however you talk to them.')),
+              );
+            }
+          },
+          child: const Text('Copy link'),
+        ),
+        TextButton(
           onPressed: () => Navigator.pop(dialogContext),
           child: const Text('Done'),
         ),

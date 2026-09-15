@@ -18,6 +18,7 @@ import '../workspace/song_analysis_screen.dart';
 import '../../services/current_route.dart';
 import '../../services/people_presence.dart';
 import '../../services/push_receipts.dart';
+import '../../services/invite_link.dart';
 import '../../services/app_release.dart';
 import '../../services/now_playing.dart';
 import '../../widgets/app_top_bar.dart';
@@ -119,7 +120,11 @@ class _AppShellState extends State<AppShell> {
       unawaited(AppRelease.check());
     }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      // An invitation on the address is why this person is here; the
+      // room opens before the tour does.
+      await _acceptInviteFromAddress();
       if (!mounted) return;
       unawaited(_welcome());
     });
@@ -141,6 +146,39 @@ class _AppShellState extends State<AppShell> {
       _openNotifications();
     });
 
+  }
+
+  /// The link an invitation travels as (see invite_link.dart), read off
+  /// the address on the web once somebody is signed in. The room joins
+  /// the library on the first tab, and the snackbar says which one.
+  Future<void> _acceptInviteFromAddress() async {
+    if (!kIsWeb) return;
+    final code = inviteCodeFrom(Uri.base);
+    if (code == null) return;
+    final controller = BetaScope.of(context, listen: false);
+    final before = controller.rooms.map((room) => room.id).toSet();
+    try {
+      await controller.acceptInvite(code: code);
+      if (!mounted) return;
+      final joined = controller.rooms
+          .where((room) => !before.contains(room.id))
+          .map((room) => room.name)
+          .toList();
+      setState(() => _index = 0);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(joined.isEmpty
+            ? 'You are in. The room is under Your music.'
+            : 'You are in ${joined.first}. It is under Your music.'),
+      ));
+    } catch (error) {
+      if (!mounted) return;
+      // Used, expired, or already yours: said plainly, and the app goes
+      // on as it would have without the link.
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(reportAndDescribe(error,
+            service: 'app', stage: 'invite.link', route: 'Home')),
+      ));
+    }
   }
 
   /// The tabs, rebuilt each time rather than made once.
