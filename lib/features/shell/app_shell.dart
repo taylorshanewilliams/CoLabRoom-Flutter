@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../account/account_screen.dart';
+import '../messages/messages_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../openmic/open_mic_screen.dart';
 import '../openmic/open_mic_song_screen.dart';
@@ -176,6 +177,13 @@ class _AppShellState extends State<AppShell> {
             onOpenNotifications: _openNotifications,
           ),
         ),
+        MessagesScreen(
+          embedded: true,
+          showTopBar: !_wide,
+          displayName: widget.displayName,
+          onOpenAccount: _openAccount,
+          onOpenNotifications: _openNotifications,
+        ),
       ];
 
   // Account is no longer one of the four tabs — it's reached the same way it
@@ -230,9 +238,18 @@ class _AppShellState extends State<AppShell> {
   /// is where you play, the control room is where you listen back and decide.
   /// It also puts the free thing and the paid thing in different rooms, which
   /// is a better way to explain a price than a badge.
+  // Messages is a tab, not an icon in the corner.
+  //
+  // Taylor: "some way of seeing all messages with users on the home page,
+  // in an intuitive way, so you don't need to go to each user
+  // individually." It went beside the bell first, and a fourth thing up
+  // there took the wordmark from 190 pixels to 149 on a phone -- the
+  // shrink he reported once already. A chat inbox is a place people go
+  // to, and this bar is where the places are.
   static const _destinations = <_Destination>[
     _Destination('Your music', Icons.library_music_rounded),
     _Destination('Open Mic', Icons.mic_external_on_rounded),
+    _Destination('Messages', Icons.forum_outlined),
   ];
 
   /// Your work, or everybody else's, depending on whether you have any yet.
@@ -460,9 +477,11 @@ class _AppShellState extends State<AppShell> {
               children: <Widget>[
                 NowPlayingBar(onOpen: _openPlayingSong),
                 _BottomNavigation(
-              index: _index,
+                  index: _index,
                   destinations: _destinations,
-                  onSelect: (value) => setState(() => _index = value),
+                  // What you have not read, on the tab it lives under.
+                  badges: <int>[0, 0, BetaScope.of(context).unreadThreadCount],
+                  onSelect: _go,
                 ),
               ],
             ),
@@ -539,11 +558,16 @@ class _BottomNavigation extends StatelessWidget {
     required this.index,
     required this.destinations,
     required this.onSelect,
+    this.badges = const <int>[],
   });
 
   final int index;
   final List<_Destination> destinations;
   final ValueChanged<int> onSelect;
+
+  /// A count per destination, drawn on its icon when above zero. Shorter
+  /// than the destinations means the rest have none.
+  final List<int> badges;
 
   @override
   Widget build(BuildContext context) {
@@ -564,6 +588,7 @@ class _BottomNavigation extends StatelessWidget {
             child: _NavButton(
               destination: item,
               selected: selected,
+              badge: itemIndex < badges.length ? badges[itemIndex] : 0,
               onTap: () => onSelect(itemIndex),
             ),
           );
@@ -574,11 +599,17 @@ class _BottomNavigation extends StatelessWidget {
 }
 
 class _NavButton extends StatelessWidget {
-  const _NavButton({required this.destination, required this.selected, required this.onTap});
+  const _NavButton({
+    required this.destination,
+    required this.selected,
+    required this.onTap,
+    this.badge = 0,
+  });
 
   final _Destination destination;
   final bool selected;
   final VoidCallback onTap;
+  final int badge;
 
   @override
   Widget build(BuildContext context) {
@@ -607,7 +638,37 @@ class _NavButton extends StatelessWidget {
                         ]
                       : const <BoxShadow>[],
                 ),
-                child: Icon(destination.icon, size: 24, color: color),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: <Widget>[
+                    Icon(destination.icon, size: 24, color: color),
+                    if (badge > 0)
+                      Positioned(
+                        right: -9,
+                        top: -5,
+                        child: Container(
+                          key: Key('tab_badge_${destination.label}'),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 1),
+                          constraints: const BoxConstraints(
+                              minWidth: 16, minHeight: 16),
+                          decoration: BoxDecoration(
+                            color: AppColors.cyan,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            badge > 9 ? '9+' : '$badge',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: AppColors.ink,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
               const SizedBox(height: 3),
               // One line, shrunk if it has to be.

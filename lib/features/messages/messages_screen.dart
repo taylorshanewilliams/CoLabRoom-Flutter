@@ -6,6 +6,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../app/routes.dart';
 import '../../domain/music_models.dart';
+import '../../widgets/app_top_bar.dart';
 import '../../widgets/player_face.dart';
 import '../openmic/people_screen.dart';
 import '../openmic/person_thread_sheet.dart';
@@ -30,7 +31,22 @@ import 'room_thread_sheet.dart';
 /// of who you can write to is the list of your people, and this screen does
 /// not keep a second copy of it.
 class MessagesScreen extends StatefulWidget {
-  const MessagesScreen({super.key});
+  const MessagesScreen({
+    this.embedded = false,
+    this.showTopBar = false,
+    this.displayName = '',
+    this.onOpenAccount,
+    this.onOpenNotifications,
+    super.key,
+  });
+
+  /// As a tab in the shell, which draws no app bar of its own: the top
+  /// bar every tab wears goes at the top instead, when the shell asks.
+  final bool embedded;
+  final bool showTopBar;
+  final String displayName;
+  final VoidCallback? onOpenAccount;
+  final VoidCallback? onOpenNotifications;
 
   @override
   State<MessagesScreen> createState() => _MessagesScreenState();
@@ -91,31 +107,70 @@ class _MessagesScreenState extends State<MessagesScreen> {
     final said = threads.where((t) => t.lastAt != null).toList(growable: false);
     final quiet = threads.where((t) => t.lastAt == null).toList(growable: false);
 
+    final compose = IconButton(
+      key: const Key('messages_new'),
+      tooltip: 'Message somebody',
+      onPressed: _newMessage,
+      icon: const Icon(Icons.edit_outlined, color: AppColors.cyan),
+    );
+
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        title: const Text('Messages'),
-        actions: <Widget>[
-          IconButton(
-            key: const Key('messages_new'),
-            tooltip: 'Message somebody',
-            onPressed: _newMessage,
-            icon: const Icon(Icons.edit_outlined),
-          ),
-        ],
-      ),
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              backgroundColor: Colors.transparent,
+              title: const Text('Messages'),
+              actions: <Widget>[compose],
+            ),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: controller.refreshThreads,
-          child: threads.isEmpty
-              ? ListView(
-                  padding: const EdgeInsets.fromLTRB(28, 60, 28, 24),
-                  children: const <Widget>[_NobodyYet()],
+          child: ListView(
+            key: const Key('messages_list'),
+            padding: EdgeInsets.fromLTRB(
+                widget.embedded ? 0 : 18, 0, widget.embedded ? 0 : 18, 24),
+            children: <Widget>[
+              if (widget.embedded &&
+                  widget.showTopBar &&
+                  widget.onOpenAccount != null &&
+                  widget.onOpenNotifications != null)
+                AppTopBar(
+                  displayName: widget.displayName,
+                  onOpenAccount: widget.onOpenAccount!,
+                  onOpenNotifications: widget.onOpenNotifications!,
+                ),
+              if (widget.embedded)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 10, 10, 2),
+                  child: Row(
+                    children: <Widget>[
+                      const Expanded(
+                        child: Text(
+                          'Messages',
+                          key: Key('messages_headline'),
+                          style: TextStyle(
+                            color: AppColors.text,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      compose,
+                    ],
+                  ),
+                ),
+              if (threads.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(28, 60, 28, 24),
+                  child: _NobodyYet(),
                 )
-              : ListView(
-                  key: const Key('messages_list'),
-                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
-                  children: <Widget>[
+              else
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                      horizontal: widget.embedded ? 18 : 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
                     for (final thread in said)
                       _ThreadRow(
                         thread: thread,
@@ -130,8 +185,11 @@ class _MessagesScreenState extends State<MessagesScreen> {
                           onTap: () => unawaited(_open(thread)),
                         ),
                     ],
-                  ],
+                    ],
+                  ),
                 ),
+            ],
+          ),
         ),
       ),
     );

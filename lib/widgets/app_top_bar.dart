@@ -4,7 +4,6 @@ import '../app/routes.dart';
 import '../app/beta_scope.dart';
 import '../app/colabroom_theme.dart';
 import '../features/help/help_screen.dart';
-import '../features/messages/messages_screen.dart';
 import 'brand_mark.dart';
 
 /// The mark, the news, and you.
@@ -81,7 +80,6 @@ class AppTopBar extends StatelessWidget {
     // Pending invitations need an answer, so they count alongside unread
     // activity — both live in the same inbox.
     final inbox = controller.unreadNotificationCount + controller.invites.length;
-    final unsaid = controller.unreadThreadCount;
     final words = displayName
         .trim()
         .split(RegExp(r'\s+'))
@@ -185,59 +183,6 @@ class AppTopBar extends StatelessWidget {
                 padding: EdgeInsets.all(8),
                 child: Icon(Icons.help_outline_rounded,
                     color: AppColors.muted, size: 24),
-              ),
-            ),
-          ),
-          // Messages, beside the bell. Every thread you are in -- the band
-          // in its room, one person -- in one place, from every screen.
-          // Taylor: "so you don't need to go to each user individually
-          // just to see your chat between them."
-          Semantics(
-            button: true,
-            label: 'Messages',
-            child: InkResponse(
-              key: const Key('top_bar_messages'),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  settings: const RouteSettings(name: AppRoutes.messages),
-                  builder: (_) => const MessagesScreen(),
-                ),
-              ),
-              radius: 24,
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: <Widget>[
-                    const Icon(Icons.forum_outlined,
-                        color: AppColors.text, size: 25),
-                    if (unsaid > 0)
-                      Positioned(
-                        right: -4,
-                        top: -3,
-                        child: Container(
-                          key: const Key('top_bar_messages_badge'),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 4, vertical: 1),
-                          constraints:
-                              const BoxConstraints(minWidth: 16, minHeight: 16),
-                          decoration: BoxDecoration(
-                            color: AppColors.cyan,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            unsaid > 9 ? '9+' : '$unsaid',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: AppColors.ink,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
               ),
             ),
           ),

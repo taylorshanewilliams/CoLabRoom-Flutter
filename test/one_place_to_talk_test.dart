@@ -72,25 +72,24 @@ void main() {
       expect(find.byKey(const Key('thread_unread_room-1')), findsOneWidget);
     });
 
-    testWidgets('the top bar wears the count', (tester) async {
+    testWidgets('as a tab it wears the top bar and its own headline',
+        (tester) async {
       final controller = await _controller();
       await _pump(
         tester,
         controller,
-        home: Scaffold(
-          body: AppTopBar(
-            displayName: 'Taylor',
-            onOpenAccount: () {},
-            onOpenNotifications: () {},
-          ),
+        home: MessagesScreen(
+          embedded: true,
+          showTopBar: true,
+          displayName: 'Taylor',
+          onOpenAccount: () {},
+          onOpenNotifications: () {},
         ),
       );
-      expect(find.byKey(const Key('top_bar_messages_badge')), findsOneWidget);
-      expect(find.text('1'), findsOneWidget);
-
-      await tester.tap(find.byKey(const Key('top_bar_messages')));
-      await tester.pumpAndSettle();
-      expect(find.byType(MessagesScreen), findsOneWidget);
+      expect(find.byType(AppTopBar), findsOneWidget);
+      expect(find.byKey(const Key('messages_headline')), findsOneWidget);
+      expect(find.byKey(const Key('messages_new')), findsOneWidget);
+      expect(find.byKey(const Key('thread_room_room-1')), findsOneWidget);
     });
   });
 
