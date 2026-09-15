@@ -3444,4 +3444,41 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- What to watch (0123).
+--
+-- The report runs and adds up. The writer signed up in this scenario and
+-- the bass player delivered a take to one of their songs, so there is a
+-- pairing to count and at least one room with a band in it.
+-- ---------------------------------------------------------------------
+
+do $$
+declare
+  signups bigint;
+  bands bigint;
+begin
+  select value into signups from public.growth_report(3650) where metric = 'signups';
+  if signups < 1 then
+    raise exception 'the report counted no signups at all (got %)', signups;
+  end if;
+
+  select value into bands from public.growth_report(3650)
+  where metric = 'rooms with a band in them';
+  if bands < 1 then
+    raise exception 'the report sees no room with two people in it (got %)', bands;
+  end if;
+
+  if (select count(*) from public.growth_report(7)) < 8 then
+    raise exception 'the report is missing rows';
+  end if;
+
+  -- Nothing ranked, ever.
+  if exists (
+    select 1 from public.growth_report(3650)
+    where metric ilike '%play%' or metric ilike '%like%' or metric ilike '%top%'
+  ) then
+    raise exception 'the report counts something it promised not to';
+  end if;
+end $$;
+
 commit;
