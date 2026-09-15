@@ -59,6 +59,11 @@ enum WaitingKind {
   /// The build on this phone is older than the app now is.
   update,
 
+  /// This phone has quietly stopped being able to show notifications:
+  /// the system switched them off, or it is holding the app asleep. See
+  /// services/push_trouble.dart.
+  unreachable,
+
   /// Somebody said "not now" to playing something on their first launch.
   firstTake,
 
@@ -165,6 +170,10 @@ class WaitingItem {
         // phone, and the person on the other end of a request may be waiting
         // on a screen this build does not have.
         WaitingKind.update => 3,
+        // Beside the update card and for the same reason: everything below
+        // this line is a suggestion, and this one is the app telling you it
+        // cannot reach you, which nothing else on the screen can say.
+        WaitingKind.unreachable => 3,
         WaitingKind.unfinished => 4,
         WaitingKind.firstTake => 4,
         WaitingKind.sheet => 5,
@@ -176,6 +185,7 @@ class WaitingItem {
         WaitingKind.unfinished => Icons.history_rounded,
         WaitingKind.sheet => Icons.article_outlined,
         WaitingKind.update => Icons.system_update_alt_rounded,
+        WaitingKind.unreachable => Icons.notifications_off_rounded,
         WaitingKind.firstTake => Icons.mic_rounded,
         WaitingKind.tonight => Icons.nightlight_round,
       };
@@ -186,6 +196,7 @@ class WaitingItem {
         WaitingKind.unfinished => AppColors.muted,
         WaitingKind.sheet => AppColors.gold,
         WaitingKind.update => AppColors.orange,
+        WaitingKind.unreachable => AppColors.orange,
         WaitingKind.firstTake => AppColors.cyan,
         WaitingKind.tonight => AppColors.gold,
       };
@@ -196,6 +207,7 @@ class WaitingItem {
         WaitingKind.unfinished => 'Pick it back up',
         WaitingKind.sheet => 'No song sheet',
         WaitingKind.update => 'Newer build',
+        WaitingKind.unreachable => 'Not reaching you',
         WaitingKind.firstTake => 'When you have a minute',
         WaitingKind.tonight => 'Tonight',
       };
