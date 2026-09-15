@@ -11,7 +11,7 @@ abstract final class BetaConfig {
   /// an inbox that now holds messages. `minimum_app_version` compares these
   /// numbers, so while the broken builds and the fixed ones share one, there
   /// is no way to tell anybody their app is the problem.
-  static const appVersion = '0.5.0';
+  static const appVersion = '0.5.1';
 
   /// Which build this is, as a short commit ref.
   ///
