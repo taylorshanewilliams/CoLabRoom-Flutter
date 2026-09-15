@@ -11,6 +11,7 @@ import 'data/in_memory_music_repository.dart';
 import 'services/app_session.dart';
 import 'services/crash_reporter.dart';
 import 'services/notification_shade.dart';
+import 'services/push_receipts.dart';
 import 'services/push_registration.dart';
 import 'services/set_aside.dart';
 import 'services/web_addresses.dart';
@@ -41,6 +42,9 @@ Future<void> main() async {
     // open -- which Android does not do for you, and which is why pressing
     // the test button and watching the screen produced nothing at all.
     unawaited(NotificationShade.start());
+    // The phone reporting back which pushes reached it, and where a
+    // tapped one takes you. See PushReceipts.
+    unawaited(PushReceipts.start(available: PushRegistration.isAvailable));
     // What somebody has already said no to, read once before the first
     // screen draws, so a dismissed card does not flash back up on launch.
     await SetAside.load();

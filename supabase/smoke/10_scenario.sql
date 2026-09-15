@@ -3195,4 +3195,46 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Did it reach the phone (0117).
+--
+-- The writer's phone says the newest notification arrived with the app
+-- closed; the week's report counts it. A second receipt for the same
+-- row changes nothing, and a tap always records itself.
+-- ---------------------------------------------------------------------
+
+select public.push_arrived(id, 'closed') from public.notifications
+where user_id = '11111111-1111-1111-1111-111111111111'
+order by created_at desc limit 1;
+
+do $$
+declare
+  confirmed integer;
+  latest uuid;
+begin
+  select count(*) into confirmed from public.notifications
+  where user_id = '11111111-1111-1111-1111-111111111111'
+    and arrived_how = 'closed' and arrived_at is not null;
+  if confirmed <> 1 then
+    raise exception 'the phone''s receipt was not kept (got %)', confirmed;
+  end if;
+
+  if (select sent from public.push_delivery_report()) < 1
+     or (select arrived_closed from public.push_delivery_report()) <> 1 then
+    raise exception 'the week''s report does not count the receipt';
+  end if;
+
+  select id into latest from public.notifications
+  where user_id = '11111111-1111-1111-1111-111111111111'
+  order by created_at desc limit 1;
+  perform public.push_arrived(latest, 'open');
+  if (select arrived_how from public.notifications where id = latest) <> 'closed' then
+    raise exception 'a later receipt overwrote the first';
+  end if;
+  perform public.push_arrived(latest, 'tapped');
+  if (select arrived_how from public.notifications where id = latest) <> 'tapped' then
+    raise exception 'a tap did not record itself';
+  end if;
+end $$;
+
 commit;

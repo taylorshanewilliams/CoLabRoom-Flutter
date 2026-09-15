@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../services/push_delivery_report.dart';
 import '../../services/push_registration.dart';
 import '../../services/test_when_closed.dart';
 import '../../widgets/problem_report.dart';
@@ -34,6 +35,10 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile> {
   /// and a registered token are two different facts, and only the second one
   /// decides whether a notification can arrive.
   bool? _reachable;
+
+  /// What the phone has confirmed this week. The answer to "is this
+  /// actually working", which the switch above cannot give.
+  PushDeliveryReport? _report;
   bool _busy = false;
   bool _testing = false;
   bool _armed = TestWhenClosed.instance.isArmed;
@@ -47,10 +52,12 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile> {
   Future<void> _check() async {
     final allowed = await PushRegistration.isAllowed();
     final reachable = allowed ? await PushRegistration.reachesThisAccount() : false;
+    final report = reachable ? await PushRegistration.deliveryReport() : null;
     if (mounted) {
       setState(() {
         _allowed = allowed;
         _reachable = reachable;
+        _report = report;
       });
     }
   }
@@ -85,6 +92,9 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile> {
             ? 'Sent. Close the app and it should arrive in a moment.'
             : 'This phone is not registered, so nothing was sent.'),
       ));
+      // Long enough for the receipt to land, so the line below changes
+      // while the person is still looking at it.
+      if (sent) unawaited(Future<void>.delayed(const Duration(seconds: 5), _check));
     } catch (error) {
       if (!mounted) return;
       showProblem(context, error,
@@ -187,6 +197,19 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile> {
                 }
               }),
             ),
+            // The answer, from the phone itself. Every push carries its
+            // notification's id and the app reports each one back as it
+            // arrives -- with the app closed, open, or by a tap -- so this
+            // is a count of what was drawn, not of what was sent.
+            if (_report != null)
+              ListTile(
+                key: const Key('push_delivery_report'),
+                dense: true,
+                title: const Text('What actually arrived'),
+                subtitle: Text(_report!.describe()),
+                trailing: const Icon(Icons.refresh_rounded, size: 18),
+                onTap: () => unawaited(_check()),
+              ),
           ],
         ],
       ),

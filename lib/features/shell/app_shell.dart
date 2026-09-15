@@ -16,6 +16,7 @@ import '../songs/songs_screen.dart';
 import '../workspace/song_analysis_screen.dart';
 import '../../services/current_route.dart';
 import '../../services/people_presence.dart';
+import '../../services/push_receipts.dart';
 import '../../services/app_release.dart';
 import '../../services/now_playing.dart';
 import '../../widgets/app_top_bar.dart';
@@ -132,6 +133,12 @@ class _AppShellState extends State<AppShell> {
         BetaScope.of(context, listen: false).repository.recordPlay(songId),
       );
     };
+    // A tapped push lands in the inbox, where every card already knows
+    // where it goes. It used to land on Home, and the person went looking.
+    PushReceipts.onTapped((_) {
+      if (!mounted) return;
+      _openNotifications();
+    });
 
   }
 
