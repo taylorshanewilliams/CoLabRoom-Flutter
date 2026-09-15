@@ -3280,12 +3280,23 @@ begin
     raise exception 'the room told the person who spoke';
   end if;
 
+  -- The room was renamed near the top of this file, so the title is read
+  -- from the tables rather than typed here.
   if (select title from public.notifications
       where type = 'direct_message'
         and room_id = '33333333-3333-3333-3333-333333333333'
         and user_id = 'eeeeeeee-0000-0000-0000-00000000000e')
-     not like 'The Writer · Smoke Room' then
-    raise exception 'the room message is not under the speaker''s name and the room''s';
+     is distinct from (
+       (select display_name from public.profiles
+        where id = '11111111-1111-1111-1111-111111111111')
+       || ' · ' ||
+       (select name from public.rooms
+        where id = '33333333-3333-3333-3333-333333333333')) then
+    raise exception 'the room message is not under the speaker''s name and the room''s (got %)',
+      (select title from public.notifications
+       where type = 'direct_message'
+         and room_id = '33333333-3333-3333-3333-333333333333'
+         and user_id = 'eeeeeeee-0000-0000-0000-00000000000e');
   end if;
 end $$;
 
