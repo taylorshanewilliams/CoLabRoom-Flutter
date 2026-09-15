@@ -1,0 +1,96 @@
+name: What to watch
+
+# The week, in the five numbers the plan actually named.
+#
+# Reading them meant writing five queries by hand, which means not reading
+# them. This prints growth_report (0123) every Monday morning and on demand,
+# and it never fails on the numbers themselves: a quiet week is information,
+# not a broken workflow, and an alert that cries about a slow Tuesday is one
+# nobody reads by March.
+#
+# It fails only when the query cannot be run at all, which is a real fault.
+
+on:
+  schedule:
+    - cron: '35 9 * * 1'
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'How many days to report on'
+        type: string
+        required: false
+        default: '7'
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read the week
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          DAYS: ${{ inputs.days || '7' }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, urllib.error, urllib.request
+
+          token = (os.environ.get("SUPABASE_ACCESS_TOKEN") or "").strip()
+          ref = (os.environ.get("SUPABASE_PROJECT_REF") or "").strip()
+          days = int(os.environ.get("DAYS") or 7)
+          if not token or not ref:
+              print("SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF must both be set.")
+              sys.exit(1)
+
+          def query(sql):
+              request = urllib.request.Request(
+                  f"https://api.supabase.com/v1/projects/{ref}/database/query",
+                  data=json.dumps({"query": sql}).encode(),
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Content-Type": "application/json",
+                      "Accept": "application/json",
+                      "User-Agent": "colabroom-growth/1.0",
+                  },
+                  method="POST",
+              )
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  return json.loads(response.read().decode("utf-8", errors="replace"))
+
+          try:
+              rows = query(f"select * from public.growth_report({days});")
+          except urllib.error.HTTPError as error:
+              print(f"Could not read the numbers: HTTP {error.code}")
+              print(error.read().decode("utf-8", errors="replace")[:400])
+              sys.exit(1)
+          except urllib.error.URLError as error:
+              print(f"Could not reach Supabase: {error.reason}")
+              sys.exit(1)
+
+          print(f"The last {days} days:\n")
+          for row in rows or []:
+              print(f"  {str(row.get('value')):>6}  {row.get('metric')}")
+              print(f"          {row.get('note')}")
+
+          # Which door people came through, when any of them did.
+          try:
+              arrivals = query("select * from public.arrival_report(30);")
+          except Exception:  # noqa: BLE001
+              arrivals = []
+          if arrivals:
+              print("\nWhere they came from, last 30 days:\n")
+              for row in arrivals:
+                  print(
+                      f"  {row.get('code')}: {row.get('opened')} opened, "
+                      f"{row.get('analyzed')} answered, {row.get('signed_up')} signed up, "
+                      f"{row.get('people')} accounts"
+                  )
+
+          print(
+              "\nNot counted here, on purpose: plays, likes, and anything ranked. "
+              "The moment those are counted they get optimised for."
+          )
+          PY
