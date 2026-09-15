@@ -135,7 +135,36 @@ abstract final class PushRegistration {
   static Future<void> refreshIfAllowed() async {
     if (!_available) return;
     try {
-      if (!await isAllowed()) return;
+      if (!await isAllowed()) {
+        // Not allowed is not the same as nothing to do.
+        //
+        // If a token is still on the server, every notification for this
+        // account is queued to a phone that cannot draw it. The sender counts
+        // it as sent, the report counts it as unconfirmed, and `push_reaches_me`
+        // keeps answering yes, so the screen offers a test button and a
+        // delivery line for a device that has been unreachable for days.
+        //
+        // 15 September 2026, Taylor's own phone: Samsung had the app deep
+        // sleeping with its notifications switched off, while `device_tokens`
+        // still held a token registered that morning. FCM accepted two pushes
+        // to it that evening and nothing was ever drawn. He had said yes in
+        // the app; the system had since said no, and nothing noticed.
+        //
+        // So the token goes. Turning notifications back on, here or in system
+        // settings, registers again on the next launch.
+        final wasReachable = await reachesThisAccount();
+        await forget();
+        if (wasReachable) {
+          reportWarningAndDescribe(
+            StateError('Notifications are switched off for this app, so the '
+                'registered token was removed. Nothing can be delivered to '
+                'this phone until they are turned back on.'),
+            service: 'app',
+            stage: 'push.not_allowed',
+          );
+        }
+        return;
+      }
       // On iOS the APNs token is handed over only after the app registers
       // for remote notifications, and firebase_messaging does that inside
       // requestPermission. Once permission has been decided this shows

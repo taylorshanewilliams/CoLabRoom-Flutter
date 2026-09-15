@@ -29,12 +29,21 @@ void main() {
       expect(report.describe(), isNot(contains('Nothing has been sent')));
     });
 
-    test('sent and none confirmed blames the build before the push', () {
+    test('sent and none confirmed names the phone settings first', () {
+      // 15 September 2026: this was Taylor's exact state, and the line as it
+      // read then sent him looking at the build. His phone had CoLabRoom's
+      // notifications switched off and the app deep sleeping, having said yes
+      // in the app weeks earlier. The two settings that actually fix it have
+      // to be named before the one that rarely does.
       const report = PushDeliveryReport(sent: 6, arrived: 0, arrivedClosed: 0);
       final line = report.describe();
       expect(line, startsWith('6 notifications sent this week'));
       expect(line, contains('has not confirmed receiving any'));
-      expect(line, contains('older one'));
+      expect(line, contains('notifications are allowed'));
+      expect(line, contains('battery use is unrestricted'));
+      // Still mentioned, but after the likely cause rather than instead of it.
+      expect(line, contains('older build'));
+      expect(line.indexOf('battery'), lessThan(line.indexOf('older build')));
     });
 
     test('all arrived, with the app closed, says so and when', () {

@@ -63,9 +63,17 @@ class PushDeliveryReport {
     }
     final plural = sent == 1 ? 'notification' : 'notifications';
     if (arrived == 0) {
+      // Ordered by what it actually turns out to be. On 15 September this
+      // line would have read "six sent, none confirmed" for a phone whose
+      // notifications the system had switched off and whose app it was
+      // holding asleep, while the person remembered saying yes in the app
+      // and had no reason to look anywhere else. Naming the phone's own
+      // settings first is the difference between a dead end and a fix.
       return '$sent $plural sent this week; this phone has not confirmed '
-          'receiving any. Only this build reports back, so if they are '
-          'showing up anyway, the phone is on an older one.';
+          'receiving any. Check that notifications are allowed for CoLabRoom '
+          'in your phone settings and that its battery use is unrestricted, '
+          'which is the usual cause. A phone on an older build also draws '
+          'them without reporting back.';
     }
     final reached = arrived == sent
         ? (sent == 1 ? 'it reached this phone' : 'all of them reached this phone')
