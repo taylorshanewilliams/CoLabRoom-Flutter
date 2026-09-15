@@ -22,6 +22,7 @@ import 'new_song_flow.dart';
 import 'pick_it_back_up.dart';
 import 'waiting_on_you.dart';
 import 'tonight.dart';
+import 'firsts.dart';
 import '../../app/beta_config.dart';
 import '../../services/app_release.dart';
 import '../welcome/play_later.dart';
@@ -72,6 +73,7 @@ class SongsScreen extends StatefulWidget {
     required this.onOpenNotifications,
     this.onRecord,
     this.onFindMusicians,
+    this.onOpenMessages,
     this.showTopBar = true,
     super.key,
   });
@@ -85,6 +87,9 @@ class SongsScreen extends StatefulWidget {
   /// lives in the shell, and finding people means changing tab.
   final VoidCallback? onRecord;
   final VoidCallback? onFindMusicians;
+
+  /// The Messages tab, for a first step that leads there.
+  final VoidCallback? onOpenMessages;
 
   /// False when the shell is drawing one across the top for every tab, which
   /// it does once there is width to put the destinations up there.
@@ -330,6 +335,11 @@ class _SongsScreenState extends State<SongsScreen> {
       releases: controller.releases,
       song: controller.tonight.song,
       prompt: controller.tonight.prompt,
+      firsts: firstsFor(
+        me: controller.repository.currentUserId,
+        rooms: controller.rooms,
+        threads: controller.threads,
+      ),
       seen: (id) => SetAside.has(SetAside.tonight, id),
     );
     if (tonight != null) {
@@ -338,6 +348,7 @@ class _SongsScreenState extends State<SongsScreen> {
         kind: WaitingKind.tonight,
         eyebrow: switch (tonight.kind) {
           TonightKind.whatChanged => 'New this week',
+          TonightKind.firstStep => 'Now you can',
           TonightKind.chordMove => 'Tonight · a chord',
           TonightKind.firstLine => 'Tonight · a first line',
           TonightKind.challenge => 'Tonight · a challenge',
@@ -498,6 +509,28 @@ class _SongsScreenState extends State<SongsScreen> {
     switch (card.kind) {
       case TonightKind.whatChanged:
         await _setAside(SetAside.tonight, card.id);
+      case TonightKind.firstStep:
+        // Shown once: going is the same as having seen it.
+        await _setAside(SetAside.tonight, card.id);
+        if (!mounted) return;
+        switch (card.go) {
+          case FirstGo.openSong:
+            final id = card.projectId;
+            if (id != null) _openProjectById(id);
+          case FirstGo.record:
+            final record = widget.onRecord;
+            if (record != null) {
+              record();
+            } else {
+              await showNewSongFlow(context, controller);
+            }
+          case FirstGo.messages:
+            widget.onOpenMessages?.call();
+          case FirstGo.openMic:
+            widget.onFindMusicians?.call();
+          case null:
+            break;
+        }
       case TonightKind.chordMove:
         final id = card.projectId;
         if (id != null) _openProjectById(id);
