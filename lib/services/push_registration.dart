@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'apns_watcher.dart';
 import 'push_delivery_report.dart';
 import 'push_trouble.dart';
 import 'registered_devices.dart';
@@ -281,9 +282,14 @@ abstract final class PushRegistration {
       permission = 'unknown';
     }
     final waited = DateTime.now().difference(started).inSeconds;
+    // What Apple said, which until this build reached nothing anybody could
+    // read. A refusal names a configuration fault; silence names a phone that
+    // cannot reach the push service. Empty on Android and on older builds.
+    final apple = (await ApnsWatcher.state())?.describe() ?? '';
     reportWarningAndDescribe(
       StateError('No APNs token after ${waited}s (permission $permission)'
-          '${complaint == null ? '' : '; getAPNSToken said: $complaint'}. '
+          '${complaint == null ? '' : '; getAPNSToken said: $complaint'}'
+          '$apple. '
           'Signing is not the cause: the App ID carries PUSH_NOTIFICATIONS '
           'and the active profile carries aps-environment. Will register on '
           'the next refresh instead.'),
