@@ -16,6 +16,19 @@ void main() {
       expect(report.describe(), contains('nothing to report yet'));
     });
 
+    test('nothing recorded does not claim nothing was sent', () {
+      // This line used to read "Nothing has been sent to this account in the
+      // last week". On the evening 0127 moved the receipts out of the inbox
+      // into a table that starts empty, that sentence would have been said to
+      // an account Firebase had accepted two pushes for the same afternoon.
+      // A count of zero receipts is a fact about what was recorded, never
+      // about what was sent, and the wording has to keep that straight.
+      const report = PushDeliveryReport(sent: 0, arrived: 0, arrivedClosed: 0);
+      expect(report.describe(), contains('recorded'));
+      expect(report.describe(), isNot(contains('week')));
+      expect(report.describe(), isNot(contains('Nothing has been sent')));
+    });
+
     test('sent and none confirmed blames the build before the push', () {
       const report = PushDeliveryReport(sent: 6, arrived: 0, arrivedClosed: 0);
       final line = report.describe();
