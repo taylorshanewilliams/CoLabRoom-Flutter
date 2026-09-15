@@ -51,8 +51,15 @@ class PushDeliveryReport {
   /// the push.
   String describe({DateTime? now}) {
     if (sent == 0) {
-      return 'Nothing has been sent to this account in the last week, so '
-          'there is nothing to report yet.';
+      // Not "nothing has been sent in the last week", which the screen said
+      // until now and which can be flatly untrue. 0127 moved the receipts
+      // out of the inbox, where clearing a notification destroyed them, into
+      // a table that starts empty -- so on the evening it shipped this line
+      // would have claimed nothing had been sent to an account that had been
+      // pushed to twice that afternoon. The honest claim is about what has
+      // been recorded, which is all this number has ever counted.
+      return 'No push has been recorded for this account, so there is '
+          'nothing to report yet.';
     }
     final plural = sent == 1 ? 'notification' : 'notifications';
     if (arrived == 0) {
