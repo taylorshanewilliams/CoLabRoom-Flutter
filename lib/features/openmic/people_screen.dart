@@ -6,6 +6,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
+import '../../domain/your_people.dart';
 import '../../services/people_presence.dart';
 import '../../widgets/player_face.dart';
 import '../../widgets/problem_report.dart';
@@ -99,9 +100,15 @@ class _PeopleScreenState extends State<PeopleScreen> {
       });
       // Everybody on the screen, not only connections: whether a
       // band-mate is here now is the same question.
+      final rooms = BetaScope.of(context, listen: false).rooms;
       unawaited(PeoplePresence.instance.watch(<String>[
-        ...connections.where((c) => c.accepted).map((c) => c.personId),
-        ...suggestions.map((s) => s.personId),
+        for (final p in yourPeople(
+          me: _repo.currentUserId,
+          rooms: rooms,
+          connections: connections,
+          suggested: suggestions,
+        ))
+          p.id,
       ]));
     } catch (error) {
       if (!mounted) return;
@@ -302,6 +309,20 @@ class _PeopleScreenState extends State<PeopleScreen> {
     List<Connection> asked,
     List<Connection> known,
   ) {
+    // Your people: accepted connections and everybody you share a room
+    // with -- a band-mate is one of your people whether or not they ever
+    // answered a request. See yourPeople for why.
+    final people = yourPeople(
+      me: _repo.currentUserId,
+      rooms: BetaScope.of(context, listen: false).rooms,
+      connections: known,
+    );
+    final ids = people.map((p) => p.id).toSet();
+    final stillAsked =
+        asked.where((c) => !ids.contains(c.personId)).toList();
+    final more =
+        _suggestions.where((s) => !ids.contains(s.personId)).toList();
+    final here = people.where((p) => _online.contains(p.id)).length;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
       children: <Widget>[
@@ -348,41 +369,48 @@ class _PeopleScreenState extends State<PeopleScreen> {
                     ),
             ),
         ],
-        if (known.isEmpty && waiting.isEmpty && asked.isEmpty)
+        if (people.isEmpty &&
+            waiting.isEmpty &&
+            stillAsked.isEmpty &&
+            more.isEmpty)
           const _NobodyYet()
-        else if (known.isNotEmpty) ...<Widget>[
-          _Label(_online.any((id) => known.any((k) => k.personId == id))
-              ? 'YOUR PEOPLE · ${known.length} · '
-                  '${known.where((k) => _online.contains(k.personId)).length} HERE NOW'
-              : 'YOUR PEOPLE · ${known.length}'),
-          for (final person in known)
+        else if (people.isNotEmpty) ...<Widget>[
+          _Label(here > 0
+              ? 'YOUR PEOPLE · ${people.length} · $here HERE NOW'
+              : 'YOUR PEOPLE · ${people.length}'),
+          for (final person in people)
             _PersonRow(
-              name: person.displayName,
+              name: person.name,
               avatarPath: person.avatarPath,
-              line: person.availabilityLine ?? person.plays.join(' · '),
-              lineIsStatus: person.availability == Availability.open,
-              here: _online.contains(person.personId),
-              onTap: () => unawaited(_openProfile(person.personId)),
+              line: person.line,
+              lineIsStatus: person.connected &&
+                  known.any((k) =>
+                      k.personId == person.id &&
+                      k.availability == Availability.open),
+              here: _online.contains(person.id),
+              onTap: () => unawaited(_openProfile(person.id)),
               // The thread between the two of you. Your people could be
               // found, told and asked, and not written to.
               trailing: IconButton(
-                key: Key('message_${person.personId}'),
-                tooltip: 'Message ${person.displayName}',
+                key: Key('message_${person.id}'),
+                tooltip: 'Message ${person.name}',
                 onPressed: () => unawaited(showPersonThread(
                   context,
                   repository: _repo,
                   changes: BetaScope.of(context, listen: false),
-                  personId: person.personId,
-                  personName: person.displayName,
+                  personId: person.id,
+                  personName: person.name,
                 )),
                 icon: const Icon(Icons.chat_bubble_outline_rounded,
                     size: 18, color: AppColors.cyan),
               ),
             ),
         ],
-        if (asked.isNotEmpty) ...<Widget>[
+        // A request to a band-mate is not worth a row of its own: they
+        // are already above, and the thread is already open to them.
+        if (stillAsked.isNotEmpty) ...<Widget>[
           const _Label('ASKED, NO ANSWER YET'),
-          for (final person in asked)
+          for (final person in stillAsked)
             _PersonRow(
               name: person.displayName,
               avatarPath: person.avatarPath,
@@ -401,9 +429,9 @@ class _PeopleScreenState extends State<PeopleScreen> {
                     ),
             ),
         ],
-        if (_suggestions.isNotEmpty) ...<Widget>[
+        if (more.isNotEmpty) ...<Widget>[
           const _Label('PEOPLE YOU ALREADY WORK WITH'),
-          for (final person in _suggestions)
+          for (final person in more)
             _PersonRow(
               name: person.displayName,
               avatarPath: person.avatarPath,
