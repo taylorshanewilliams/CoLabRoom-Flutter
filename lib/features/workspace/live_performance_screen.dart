@@ -31,6 +31,36 @@ enum LiveScrollMode { off, synced, slow, medium, fast, timed }
 /// is silently preferred over the other.
 enum LiveLyricSource { workspace, songSheet }
 
+/// Where the line you are singing sits on screen.
+///
+/// Taylor, 15 September 2026: "the highlighted words are always at the very
+/// top ... it would be nice if the highlighted words were maybe a little
+/// above the middle of the screen, so this way you can always know where you
+/// are in the song, what you just played and where you're going."
+///
+/// He is right, and it is not only a preference: a line pinned to the top
+/// edge gives a player no past. You cannot glance back at the line you have
+/// just sung to find your place again after looking at your hands, and the
+/// first thing a singer does when they lose their place is look *up*. A
+/// little above the middle leaves a third of the screen behind you and most
+/// of it ahead.
+const double kSingingLineFraction = 0.38;
+
+/// The scroll offset that puts the line at [lineOffset] on the anchor.
+///
+/// Clamped, because the first lines of a song cannot be pushed below the top
+/// of the content and the last cannot be pulled past the end — near both
+/// edges the line simply sits where it can.
+double scrollToPutLineAtAnchor({
+  required double lineOffset,
+  required double viewportHeight,
+  required double maxExtent,
+}) {
+  final target = lineOffset - viewportHeight * kSingingLineFraction;
+  final limit = maxExtent > 0 ? maxExtent : 0.0;
+  return target.clamp(0.0, limit).toDouble();
+}
+
 class LivePerformanceScreen extends StatefulWidget {
   const LivePerformanceScreen({
     required this.project,
@@ -290,6 +320,62 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _offsetsDirty = false;
   }
 
+  /// Bigger or smaller words, without losing the line you are on.
+  ///
+  /// The words are laid out again at the new size, which moves every line to
+  /// a different pixel, and the scroll offset did not move with them -- so
+  /// the song jumped somewhere else the moment the button was pressed. The
+  /// line under the anchor is remembered first and put back on the anchor
+  /// after the re-measure; a sheet with no measured lines falls back to
+  /// holding the same fraction of the way through.
+  void _setFontScale(double next) {
+    final scale = next.clamp(0.72, 1.35).toDouble();
+    if (scale == _fontScale) return;
+    final anchored = _lineOnAnchor();
+    final position = _scroll.hasClients ? _scroll.position : null;
+    final through = position != null && position.maxScrollExtent > 0
+        ? position.pixels / position.maxScrollExtent
+        : 0.0;
+
+    setState(() => _fontScale = scale);
+
+    // After the build that this triggers, and after the re-measure that
+    // build asks for.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      _captureLineOffsets();
+      final maxExtent = _scroll.position.maxScrollExtent;
+      final offset = anchored == null ? null : _lineOffsets[anchored];
+      final target = offset != null
+          ? scrollToPutLineAtAnchor(
+              lineOffset: offset,
+              viewportHeight: _viewportHeight,
+              maxExtent: maxExtent,
+            )
+          : (through * maxExtent).clamp(0.0, maxExtent).toDouble();
+      _scroll.jumpTo(target);
+    });
+  }
+
+  /// The line sitting on the anchor: the one being sung when the song is
+  /// following itself, and otherwise whichever line is nearest to it.
+  String? _lineOnAnchor() {
+    final active = _activeLineKey;
+    if (active != null && _lineOffsets.containsKey(active)) return active;
+    if (!_scroll.hasClients || _lineOffsets.isEmpty) return null;
+    final at = _scroll.position.pixels + _viewportHeight * kSingingLineFraction;
+    String? nearest;
+    var best = double.infinity;
+    for (final entry in _lineOffsets.entries) {
+      final distance = (entry.value - at).abs();
+      if (distance < best) {
+        best = distance;
+        nearest = entry.key;
+      }
+    }
+    return nearest;
+  }
+
   void _markOffsetsDirty() {
     _offsetsDirty = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -328,10 +414,17 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       return;
     }
 
+    // Scaled by the size of the words, because the speeds below are read in
+    // lines per minute and stored in pixels per second. Make the words a
+    // third bigger and every line is a third taller, so an unscaled speed
+    // reads a third slower and the song runs away from the player -- which
+    // is what "it no longer scrolls properly after the plus button" was.
+    // Timed mode is already told the distance and the time, so it needs no
+    // scaling: it re-derives its own speed from what is left of both.
     final pixelsPerSecond = switch (_mode) {
-      LiveScrollMode.slow => 9.5,
-      LiveScrollMode.medium => 17.0,
-      LiveScrollMode.fast => 27.0,
+      LiveScrollMode.slow => 9.5 * _fontScale,
+      LiveScrollMode.medium => 17.0 * _fontScale,
+      LiveScrollMode.fast => 27.0 * _fontScale,
       LiveScrollMode.timed => _timedPixelsPerSecond(maxExtent),
       LiveScrollMode.synced || LiveScrollMode.off => 0.0,
     };
@@ -424,9 +517,18 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
 
     double? offsetFor(int index) => _lineOffsets[_lineKey(index)];
 
+    // Every line-derived target is measured from the top of the content and
+    // then lifted onto the anchor, so the words being sung sit a little above
+    // the middle instead of against the top edge. See kSingingLineFraction.
+    double onAnchor(double offset) => scrollToPutLineAtAnchor(
+          lineOffset: offset,
+          viewportHeight: _viewportHeight,
+          maxExtent: maxExtent,
+        );
+
     // Before the first line: hold at the top of it.
     if (elapsedMs <= lines.first.startMs) {
-      return offsetFor(0) ?? 0;
+      return onAnchor(offsetFor(0) ?? 0);
     }
     // After the last line: settle at the very bottom.
     final last = lines.last;
@@ -440,15 +542,25 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       if (elapsedMs >= current.startMs && elapsedMs < next.startMs) {
         final currentOffset = offsetFor(i);
         final nextOffset = offsetFor(i + 1);
-        if (currentOffset == null || nextOffset == null) return currentOffset ?? nextOffset;
+        if (currentOffset == null || nextOffset == null) {
+          final known = currentOffset ?? nextOffset;
+          return known == null ? null : onAnchor(known);
+        }
         final span = next.startMs - current.startMs;
-        if (span <= 0) return currentOffset;
+        if (span <= 0) return onAnchor(currentOffset);
         final progress = (elapsedMs - current.startMs) / span;
-        return currentOffset + (nextOffset - currentOffset) * progress.clamp(0.0, 1.0);
+        return onAnchor(
+          currentOffset + (nextOffset - currentOffset) * progress.clamp(0.0, 1.0),
+        );
       }
     }
-    return offsetFor(lines.length - 1) ?? maxExtent;
+    final lastOffset = offsetFor(lines.length - 1);
+    return lastOffset == null ? maxExtent : onAnchor(lastOffset);
   }
+
+  /// How tall the words are on screen right now, for the anchor above.
+  double get _viewportHeight =>
+      _scroll.hasClients ? _scroll.position.viewportDimension : 0;
 
   double _timedPixelsPerSecond(double maxExtent) {
     final remainingTime = _songDuration - _elapsed;
@@ -895,12 +1007,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                       child: _TopLiveBar(
                         onClose: () => Navigator.maybePop(context),
                         onRestart: _restart,
-                        onSmaller: () => setState(
-                          () => _fontScale = (_fontScale - 0.08).clamp(0.72, 1.35).toDouble(),
-                        ),
-                        onLarger: () => setState(
-                          () => _fontScale = (_fontScale + 0.08).clamp(0.72, 1.35).toDouble(),
-                        ),
+                        onSmaller: () => _setFontScale(_fontScale - 0.08),
+                        onLarger: () => _setFontScale(_fontScale + 0.08),
                         source: _source,
                         onSource: _selectSource,
                         showChords: _showChords,
