@@ -88,6 +88,19 @@ jobs:
             # equivalent to mirror.
             plist_set :NSMicrophoneUsageDescription "'CoLabRoom needs the microphone to record song ideas and voice notes.'" string
             plist_set :NSSpeechRecognitionUsageDescription "'CoLabRoom uses speech recognition to turn your voice into lyrics.'" string
+            # Without this, a push can be *drawn* by iOS but the app is never
+            # woken to see it -- so `onBackgroundMessage` never runs, and the
+            # arrival receipt that 0127 exists to collect is never filed. The
+            # closed-app half of "did it reach the phone" is unanswerable on
+            # iOS until this is here. An array, so Set cannot touch it.
+            /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST" >/dev/null 2>&1 || {
+              /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
+            }
+            /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST" | grep -q "remote-notification" || {
+              /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes: string remote-notification" "$PLIST"
+            }
+            /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST" | grep -q "remote-notification" \
+              || { echo "::error::remote-notification background mode did not land"; exit 1; }
             # Registers the com.colabroom.beta:// URL scheme so Supabase's
             # auth redirect can hand control back to the app after sign-in.
             # These are structural (array/dict), not scalar values Set can
@@ -303,6 +316,70 @@ jobs:
 
       - name: Build and upload to TestFlight
         run: cd ios && gem install fastlane -N && fastlane beta
+
+      # Did the thing we signed actually carry push?
+      #
+      # 15 September 2026: a tester's iPhone reported "No APNs token after ten
+      # seconds (permission authorized)" three times in one day, on the build
+      # TestFlight was serving. Permission granted, and Apple still handed the
+      # app no token. firebase_messaging calls
+      # `registerForRemoteNotifications` itself at plugin startup, so "nobody
+      # asked" is ruled out -- which leaves the request being *refused*, and
+      # the plugin's `didFailToRegisterForRemoteNotificationsWithError` does
+      # nothing but NSLog, so Apple's reason has never been visible to anybody
+      # without the phone plugged into a Mac.
+      #
+      # The usual reason for a refusal is that the provisioning profile does
+      # not carry `aps-environment`, whatever the entitlements file says. That
+      # happens the moment Push Notifications is enabled on the App ID *after*
+      # a profile was created: `match` stores the profile on a git branch and
+      # reuses it forever, so the stale one keeps being signed in.
+      #
+      # This reads the two things that decide it, off the binary that was just
+      # uploaded: the profile's own entitlements, and what the app is actually
+      # signed with. Written down in the log either way, because the whole
+      # cost of this bug has been nobody being able to see it.
+      - name: Check the signed build really has push
+        if: always()
+        run: |
+          set -u
+          IPA=ios/build/Runner.ipa
+          if [ ! -f "$IPA" ]; then
+            echo "::warning::No IPA to inspect; the build did not get that far."
+            exit 0
+          fi
+          WORK=$(mktemp -d)
+          unzip -q "$IPA" -d "$WORK"
+          APP=$(find "$WORK/Payload" -maxdepth 1 -name "*.app" | head -1)
+          echo "app bundle: $(basename "$APP")"
+
+          echo "--- what the app is signed with ---"
+          codesign -d --entitlements :- "$APP" 2>/dev/null > "$WORK/signed.plist" || true
+          plutil -p "$WORK/signed.plist" 2>/dev/null || cat "$WORK/signed.plist" || true
+
+          echo "--- what the provisioning profile allows ---"
+          security cms -D -i "$APP/embedded.mobileprovision" > "$WORK/profile.plist" 2>/dev/null
+          /usr/libexec/PlistBuddy -c "Print :Name" "$WORK/profile.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Print :ExpirationDate" "$WORK/profile.plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Print :CreationDate" "$WORK/profile.plist" 2>/dev/null || true
+          PROFILE_APS=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$WORK/profile.plist" 2>/dev/null || true)
+          SIGNED_APS=$(grep -A1 "aps-environment" "$WORK/signed.plist" 2>/dev/null | tr -d ' \t\n' || true)
+
+          echo "--- background modes ---"
+          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist" 2>/dev/null \
+            || echo "(none -- a push cannot wake the app, so no receipt can be filed)"
+
+          echo
+          if [ -z "$PROFILE_APS" ]; then
+            echo "::error::The provisioning profile carries no aps-environment. This is why the phone gets no APNs token: iOS refuses registerForRemoteNotifications for a build whose profile does not allow push, however the entitlements file reads. Enable Push Notifications on the App ID com.colabroom.beta, then have match regenerate the profile (force: true once, or delete it from the ios-signing-certs branch). The build above is on TestFlight and will still not receive notifications."
+            exit 1
+          fi
+          echo "profile aps-environment: $PROFILE_APS"
+          case "$SIGNED_APS" in
+            *production*) echo "signed aps-environment: production" ;;
+            *development*) echo "::warning::Signed for the APNs sandbox while this workflow only makes TestFlight builds; a production push would reach nothing." ;;
+            *) echo "::warning::Could not read the signed aps-environment; the profile allows push, so registration should work." ;;
+          esac
 
 # ---------------------------------------------------------------------------
 # After this succeeds: the build shows up under App Store Connect ->
