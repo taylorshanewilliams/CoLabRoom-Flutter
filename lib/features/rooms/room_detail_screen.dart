@@ -13,6 +13,7 @@ import '../../widgets/app_surface.dart';
 import '../../widgets/bloom_tap.dart';
 import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/music_tiles.dart';
+import '../messages/room_thread_sheet.dart';
 import '../openmic/report_sheet.dart';
 import '../songs/new_song_flow.dart';
 import '../workspace/song_workspace_screen.dart';
@@ -645,6 +646,19 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
         automaticallyImplyLeading: !widget.embedded,
         title: Text(widget.embedded ? room.name : 'Rooms'),
         actions: <Widget>[
+          // The band, talking in its room. The same thread the Messages
+          // screen lists, reached from the room it belongs to.
+          IconButton(
+            key: const Key('room_talk'),
+            onPressed: () => unawaited(showRoomThread(
+              context,
+              repository: controller.repository,
+              roomId: room.id,
+              roomName: room.name,
+            )),
+            tooltip: 'Talk in ${room.name}',
+            icon: const Icon(Icons.forum_outlined),
+          ),
           IconButton(
             onPressed: rename,
             tooltip: 'Rename room',

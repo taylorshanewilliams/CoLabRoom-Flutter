@@ -113,6 +113,16 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   NotificationPreferences get notificationPreferences => _notificationPreferences;
   int get unreadNotificationCount => _notifications.where((n) => !n.isRead).length;
 
+  List<ThreadSummary> _threads = const <ThreadSummary>[];
+
+  /// Every thread you are in, as the Messages screen lists them.
+  List<ThreadSummary> get threads => List<ThreadSummary>.unmodifiable(_threads);
+
+  /// Lines from other people you have not seen, across every thread.
+  /// The number on the Messages icon.
+  int get unreadThreadCount =>
+      _threads.fold<int>(0, (sum, thread) => sum + thread.unread);
+
   List<ActivityItem> _activity = const <ActivityItem>[];
 
   /// What the band has been doing, newest first, nobody's own actions.
@@ -257,6 +267,11 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       } catch (_) {
         // Same bargain: news is the nicest thing on Home and the least
         // important. Songs load or nothing else matters.
+      }
+      try {
+        _threads = await repository.myThreads();
+      } catch (_) {
+        // The badge on the Messages icon. Same bargain again.
       }
       // The signed-in user's own picture, fetched once with everything else.
       // It used to be fetched only by the account screen, so the face in the
@@ -747,6 +762,37 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> submitFeedback(FeedbackDraft feedback) {
     return repository.submitFeedback(feedback);
+  }
+
+  /// The Messages list, fresh. On its own rather than through [load]
+  /// because a thread is the one thing that changes while you look.
+  Future<void> refreshThreads() async {
+    try {
+      _threads = await repository.myThreads();
+      notifyListeners();
+    } catch (error) {
+      unawaited(ErrorReporter().reportWarning(
+          service: 'app', stage: 'threads', message: error.toString()));
+    }
+  }
+
+  /// Seen. The count clears here before the server hears about it, so
+  /// the badge does not linger on the way back to Home.
+  Future<void> markThreadRead(ThreadSummary thread) async {
+    _threads = <ThreadSummary>[
+      for (final existing in _threads)
+        if (existing.kind == thread.kind && existing.targetId == thread.targetId)
+          existing.copyWith(unread: 0)
+        else
+          existing,
+    ];
+    notifyListeners();
+    try {
+      await repository.markThreadRead(kind: thread.kind, targetId: thread.targetId);
+    } catch (error) {
+      unawaited(ErrorReporter().reportWarning(
+          service: 'app', stage: 'thread_read', message: error.toString()));
+    }
   }
 
   Future<void> markNotificationRead(AppNotification notification) async {

@@ -14,6 +14,7 @@ import '../../widgets/play_button.dart';
 import '../openmic/report_sheet.dart';
 import '../../app/routes.dart';
 import '../openmic/musician_profile_screen.dart';
+import '../messages/room_thread_sheet.dart';
 import '../openmic/person_thread_sheet.dart';
 import '../workspace/ask_thread_sheet.dart';
 import '../workspace/song_workspace_screen.dart';
@@ -294,7 +295,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             // A message opens the thread it came from: the
                             // sender rides on the notification as its actor
                             // and the title is their name.
+                            // Said in a room, it opens the room's thread:
+                            // the room rides on the notification, and the
+                            // title is "Name · Room".
                             if (notification.type ==
+                                    NotificationType.directMessage &&
+                                notification.roomId != null) {
+                              final room = controller.roomById(notification.roomId!);
+                              final title = notification.title;
+                              final dot = title.lastIndexOf(' · ');
+                              unawaited(showRoomThread(
+                                context,
+                                repository: controller.repository,
+                                roomId: notification.roomId!,
+                                roomName: room?.name ??
+                                    (dot < 0 ? title : title.substring(dot + 3)),
+                              ));
+                            } else if (notification.type ==
                                     NotificationType.directMessage &&
                                 notification.actorId != null) {
                               unawaited(showPersonThread(

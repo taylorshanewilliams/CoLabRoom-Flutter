@@ -666,6 +666,24 @@ class InMemoryMusicRepository implements MusicRepository {
   final Map<String, List<AskReply>> _replies = <String, List<AskReply>>{};
   final Map<String, List<DirectMessage>> _messages =
       <String, List<DirectMessage>>{};
+
+  /// What each room has said, and when you last looked at each thread.
+  /// Seeded with one line from Jess so the Messages screen has something
+  /// unread to show in the preview.
+  final Map<String, List<RoomMessage>> _roomMessages =
+      <String, List<RoomMessage>>{
+    'room-1': <RoomMessage>[
+      RoomMessage(
+        id: 'room-message-1',
+        roomId: 'room-1',
+        authorId: 'preview-jess',
+        authorName: 'Jess',
+        body: 'Got a bass idea for the chorus. Thursday?',
+        createdAt: DateTime.now().subtract(const Duration(minutes: 40)),
+      ),
+    ],
+  };
+  final Map<String, DateTime> _threadReads = <String, DateTime>{};
   final List<StandingWant> _wants = <StandingWant>[];
   final Map<String, Set<String>> _nods = <String, Set<String>>{};
   final Map<String, String> _nodNotes = <String, String>{};
@@ -1687,6 +1705,96 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<void> deleteMessage(DirectMessage message) async {
     _messages[message.personId]
+        ?.removeWhere((existing) => existing.id == message.id);
+  }
+
+  int _unreadSince(String key, Iterable<({String authorId, DateTime at})> lines) {
+    final since = _threadReads[key];
+    return lines
+        .where((line) =>
+            line.authorId != currentUserId &&
+            (since == null || line.at.isAfter(since)))
+        .length;
+  }
+
+  @override
+  Future<List<ThreadSummary>> myThreads() async {
+    final threads = <ThreadSummary>[];
+    for (final room in _rooms) {
+      final lines = _roomMessages[room.id] ?? const <RoomMessage>[];
+      final last = lines.isEmpty ? null : lines.last;
+      threads.add(ThreadSummary(
+        kind: ThreadKind.room,
+        targetId: room.id,
+        name: room.name,
+        icon: room.icon,
+        memberCount: room.members.length,
+        lastBody: last?.body,
+        lastAuthorId: last?.authorId,
+        lastAuthorName: last?.authorName,
+        lastAt: last?.createdAt,
+        unread: _unreadSince('room:${room.id}',
+            lines.map((l) => (authorId: l.authorId, at: l.createdAt))),
+      ));
+    }
+    for (final entry in _messages.entries) {
+      if (entry.value.isEmpty) continue;
+      final last = entry.value.last;
+      final person = _connections
+          .where((c) => c.personId == entry.key)
+          .map((c) => c.displayName)
+          .firstOrNull;
+      threads.add(ThreadSummary(
+        kind: ThreadKind.person,
+        targetId: entry.key,
+        name: person ?? 'Somebody',
+        lastBody: last.body,
+        lastAuthorId: last.authorId,
+        lastAuthorName: last.authorName,
+        lastAt: last.createdAt,
+        unread: _unreadSince('person:${entry.key}',
+            entry.value.map((l) => (authorId: l.authorId, at: l.createdAt))),
+      ));
+    }
+    threads.sort((a, b) {
+      final at = a.lastAt;
+      final bt = b.lastAt;
+      if (at == null && bt == null) return a.name.compareTo(b.name);
+      if (at == null) return 1;
+      if (bt == null) return -1;
+      return bt.compareTo(at);
+    });
+    return threads;
+  }
+
+  @override
+  Future<void> markThreadRead(
+          {required ThreadKind kind, required String targetId}) async =>
+      _threadReads['${kind.name}:$targetId'] = DateTime.now();
+
+  @override
+  Future<List<RoomMessage>> loadRoomMessages(String roomId) async =>
+      List<RoomMessage>.unmodifiable(
+          _roomMessages[roomId] ?? const <RoomMessage>[]);
+
+  @override
+  Future<RoomMessage> sendRoomMessage(
+      {required String roomId, required String body}) async {
+    final message = RoomMessage(
+      id: 'room-message-${DateTime.now().microsecondsSinceEpoch}',
+      roomId: roomId,
+      authorId: currentUserId,
+      authorName: 'You',
+      body: body.trim(),
+      createdAt: DateTime.now(),
+    );
+    _roomMessages.putIfAbsent(roomId, () => <RoomMessage>[]).add(message);
+    return message;
+  }
+
+  @override
+  Future<void> deleteRoomMessage(RoomMessage message) async {
+    _roomMessages[message.roomId]
         ?.removeWhere((existing) => existing.id == message.id);
   }
 

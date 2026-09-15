@@ -2156,6 +2156,90 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<ThreadSummary>> myThreads() async {
+    final rows = await client.rpc<dynamic>('my_threads');
+    return <ThreadSummary>[
+      for (final value in (rows as List<dynamic>? ?? const <dynamic>[]))
+        _thread(Map<String, dynamic>.from(value as Map)),
+    ];
+  }
+
+  ThreadSummary _thread(Map<String, dynamic> row) {
+    final at = row['last_at'] as String?;
+    return ThreadSummary(
+      kind: row['kind'] == 'room' ? ThreadKind.room : ThreadKind.person,
+      targetId: row['target'] as String,
+      name: row['name'] as String? ?? 'Somebody',
+      icon: row['icon'] as String?,
+      avatarPath: row['avatar_path'] as String?,
+      memberCount: (row['member_count'] as num?)?.toInt() ?? 2,
+      lastBody: row['last_body'] as String?,
+      lastAuthorId: row['last_author_id'] as String?,
+      lastAuthorName: row['last_author_name'] as String?,
+      lastAt: at == null ? null : DateTime.parse(at).toLocal(),
+      unread: (row['unread'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
+  Future<void> markThreadRead(
+      {required ThreadKind kind, required String targetId}) async {
+    await client.rpc<void>('mark_thread_read', params: <String, dynamic>{
+      'thread_kind': kind.name,
+      'thread_target': targetId,
+    });
+  }
+
+  static const String _roomMessageColumns =
+      'id, room_id, author_id, body, created_at, '
+      'author:profiles!room_messages_author_id_fkey(display_name)';
+
+  RoomMessage _roomMessage(Map<String, dynamic> row) {
+    final author = row['author'] as Map<String, dynamic>?;
+    return RoomMessage(
+      id: row['id'] as String,
+      roomId: row['room_id'] as String,
+      authorId: row['author_id'] as String,
+      authorName: author?['display_name'] as String? ?? 'Somebody',
+      body: row['body'] as String,
+      createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
+    );
+  }
+
+  @override
+  Future<List<RoomMessage>> loadRoomMessages(String roomId) async {
+    final rows = await client
+        .from('room_messages')
+        .select(_roomMessageColumns)
+        .eq('room_id', roomId)
+        .order('created_at', ascending: true);
+    return <RoomMessage>[
+      for (final row in rows as List<dynamic>)
+        _roomMessage(row as Map<String, dynamic>),
+    ];
+  }
+
+  @override
+  Future<RoomMessage> sendRoomMessage(
+      {required String roomId, required String body}) async {
+    final row = await client
+        .from('room_messages')
+        .insert(<String, dynamic>{
+          'room_id': roomId,
+          'author_id': _userId,
+          'body': body.trim(),
+        })
+        .select(_roomMessageColumns)
+        .single();
+    return _roomMessage(row);
+  }
+
+  @override
+  Future<void> deleteRoomMessage(RoomMessage message) async {
+    await client.from('room_messages').delete().eq('id', message.id);
+  }
+
+  @override
   Future<List<StandingWant>> myWants() async {
     final rows = await client.rpc<dynamic>('my_wants');
     return <StandingWant>[
