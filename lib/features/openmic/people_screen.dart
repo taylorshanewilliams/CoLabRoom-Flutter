@@ -97,9 +97,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
         _suggestions = suggestions;
         _loading = false;
       });
-      unawaited(PeoplePresence.instance.watch(
-        connections.where((c) => c.accepted).map((c) => c.personId),
-      ));
+      // Everybody on the screen, not only connections: whether a
+      // band-mate is here now is the same question.
+      unawaited(PeoplePresence.instance.watch(<String>[
+        ...connections.where((c) => c.accepted).map((c) => c.personId),
+        ...suggestions.map((s) => s.personId),
+      ]));
     } catch (error) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -348,7 +351,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
         if (known.isEmpty && waiting.isEmpty && asked.isEmpty)
           const _NobodyYet()
         else if (known.isNotEmpty) ...<Widget>[
-          _Label('YOUR PEOPLE · ${known.length}'),
+          _Label(_online.any((id) => known.any((k) => k.personId == id))
+              ? 'YOUR PEOPLE · ${known.length} · '
+                  '${known.where((k) => _online.contains(k.personId)).length} HERE NOW'
+              : 'YOUR PEOPLE · ${known.length}'),
           for (final person in known)
             _PersonRow(
               name: person.displayName,
@@ -402,16 +408,38 @@ class _PeopleScreenState extends State<PeopleScreen> {
               name: person.displayName,
               avatarPath: person.avatarPath,
               line: person.because,
+              here: _online.contains(person.personId),
               onTap: () => unawaited(_openProfile(person.personId)),
               trailing: _busyWith == person.personId
                   ? const _Spinner()
-                  : TextButton(
-                      key: Key('add_${person.personId}'),
-                      onPressed: () => _act(person.personId,
-                          () => _repo.requestConnection(person.personId)),
-                      style:
-                          TextButton.styleFrom(foregroundColor: AppColors.cyan),
-                      child: const Text('Add'),
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        // A band-mate can be written to already; the
+                        // thread does not wait for a connection.
+                        if (person.canMessage)
+                          IconButton(
+                            key: Key('message_${person.personId}'),
+                            tooltip: 'Message ${person.displayName}',
+                            onPressed: () => unawaited(showPersonThread(
+                              context,
+                              repository: _repo,
+                              changes: BetaScope.of(context, listen: false),
+                              personId: person.personId,
+                              personName: person.displayName,
+                            )),
+                            icon: const Icon(Icons.chat_bubble_outline_rounded,
+                                size: 18, color: AppColors.cyan),
+                          ),
+                        TextButton(
+                          key: Key('add_${person.personId}'),
+                          onPressed: () => _act(person.personId,
+                              () => _repo.requestConnection(person.personId)),
+                          style: TextButton.styleFrom(
+                              foregroundColor: AppColors.cyan),
+                          child: const Text('Add'),
+                        ),
+                      ],
                     ),
             ),
         ],

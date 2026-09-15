@@ -1144,6 +1144,7 @@ class SupabaseMusicRepository implements MusicRepository {
           displayName: (row['display_name'] as String?) ?? 'Someone',
           avatarPath: row['avatar_path'] as String?,
           because: (row['because'] as String?) ?? '',
+          canMessage: row['can_message'] as bool? ?? false,
         ),
     ];
   }

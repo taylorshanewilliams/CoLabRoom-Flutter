@@ -3336,5 +3336,33 @@ end $$;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- ---------------------------------------------------------------------
+-- Everybody you know (0119).
+--
+-- Joiner one shares The Invite Room with the writer and is not connected
+-- to them, so the writer is somebody they might add -- named with the
+-- room, and writable to, because a room-mate is somebody may_tell allows.
+-- ---------------------------------------------------------------------
+
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888"}';
+
+do $$
+declare
+  found record;
+begin
+  select * into found from public.people_you_might_add()
+  where person_id = '11111111-1111-1111-1111-111111111111';
+  if found is null then
+    raise exception 'the room-mate is not somebody you might add';
+  end if;
+  if found.because not like 'In %The Invite Room% with you' then
+    raise exception 'the reason does not name the room (got %)', found.because;
+  end if;
+  if not found.can_message then
+    raise exception 'a room-mate should be writable to';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;

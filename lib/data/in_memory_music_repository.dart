@@ -1564,7 +1564,8 @@ class InMemoryMusicRepository implements MusicRepository {
             SuggestedPerson(
               personId: member.userId,
               displayName: member.displayName,
-              because: 'In a room with you',
+              because: 'In ${room.name} with you',
+              canMessage: true,
             ),
     ];
   }
