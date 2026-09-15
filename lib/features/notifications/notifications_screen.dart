@@ -307,6 +307,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                               unawaited(showRoomThread(
                                 context,
                                 repository: controller.repository,
+                                changes: controller,
                                 roomId: notification.roomId!,
                                 roomName: room?.name ??
                                     (dot < 0 ? title : title.substring(dot + 3)),
@@ -317,6 +318,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                               unawaited(showPersonThread(
                                 context,
                                 repository: controller.repository,
+                                changes: controller,
                                 personId: notification.actorId!,
                                 personName: notification.title,
                               ));

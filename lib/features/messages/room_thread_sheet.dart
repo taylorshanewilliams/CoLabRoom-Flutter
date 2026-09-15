@@ -18,6 +18,7 @@ import '../../widgets/thread_sheet.dart';
 Future<void> showRoomThread(
   BuildContext context, {
   required MusicRepository repository,
+  Listenable? changes,
   required String roomId,
   required String roomName,
 }) {
@@ -25,6 +26,7 @@ Future<void> showRoomThread(
     context,
     sheet: RoomThreadSheet(
       repository: repository,
+      changes: changes,
       roomId: roomId,
       roomName: roomName,
     ),
@@ -34,12 +36,16 @@ Future<void> showRoomThread(
 class RoomThreadSheet extends StatelessWidget {
   const RoomThreadSheet({
     required this.repository,
+    this.changes,
     required this.roomId,
     required this.roomName,
     super.key,
   });
 
   final MusicRepository repository;
+
+  /// Fires when the world changes; the sheet re-reads. See ThreadSheet.
+  final Listenable? changes;
   final String roomId;
   final String roomName;
 
@@ -59,6 +65,7 @@ class RoomThreadSheet extends StatelessWidget {
       stage: 'room_thread',
       headline: roomName,
       currentUserId: repository.currentUserId,
+      changes: changes,
       emptyLine: 'Nothing said yet. Everybody in this room can read what is '
           'said here.',
       load: () async => <ThreadLine>[

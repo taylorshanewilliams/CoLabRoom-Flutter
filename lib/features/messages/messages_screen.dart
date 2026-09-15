@@ -71,6 +71,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
         await showRoomThread(
           context,
           repository: controller.repository,
+          changes: controller,
           roomId: thread.targetId,
           roomName: thread.name,
         );
@@ -78,6 +79,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
         await showPersonThread(
           context,
           repository: controller.repository,
+          changes: controller,
           personId: thread.targetId,
           personName: thread.name,
         );

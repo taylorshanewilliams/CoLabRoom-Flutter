@@ -653,6 +653,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
             onPressed: () => unawaited(showRoomThread(
               context,
               repository: controller.repository,
+              changes: controller,
               roomId: room.id,
               roomName: room.name,
             )),
