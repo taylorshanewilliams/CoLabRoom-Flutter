@@ -6,6 +6,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../app/routes.dart';
 import '../../data/music_repository.dart';
+import '../../domain/your_people.dart';
 import '../../services/people_presence.dart';
 import '../../widgets/player_face.dart';
 import '../openmic/musician_profile_screen.dart';
@@ -22,20 +23,6 @@ import '../openmic/person_thread_sheet.dart';
 /// faces, the ones here now first and marked, a count, and *All* into the
 /// full screen. Tap a face and the thread between you opens; somebody the
 /// app will not let you write to yet opens on their page instead.
-class _Person {
-  const _Person({
-    required this.id,
-    required this.name,
-    required this.canMessage,
-    this.avatarPath,
-  });
-
-  final String id;
-  final String name;
-  final String? avatarPath;
-  final bool canMessage;
-}
-
 class PeopleStrip extends StatefulWidget {
   const PeopleStrip({required this.repository, super.key});
 
@@ -46,7 +33,7 @@ class PeopleStrip extends StatefulWidget {
 }
 
 class _PeopleStripState extends State<PeopleStrip> {
-  List<_Person> _people = const <_Person>[];
+  List<KnownPerson> _people = const <KnownPerson>[];
   Set<String> _online = PeoplePresence.instance.onlineNow;
   StreamSubscription<Set<String>>? _presence;
   bool _loaded = false;
@@ -76,25 +63,14 @@ class _PeopleStripState extends State<PeopleStrip> {
       final connections = await widget.repository.listConnections();
       final suggested = await widget.repository.peopleYouMightAdd();
       if (!mounted) return;
-      final seen = <String>{};
-      final people = <_Person>[
-        for (final c in connections)
-          if (c.accepted && seen.add(c.personId))
-            _Person(
-              id: c.personId,
-              name: c.displayName,
-              avatarPath: c.avatarPath,
-              canMessage: true,
-            ),
-        for (final s in suggested)
-          if (seen.add(s.personId))
-            _Person(
-              id: s.personId,
-              name: s.displayName,
-              avatarPath: s.avatarPath,
-              canMessage: s.canMessage,
-            ),
-      ];
+      // Connections, band-mates, and whoever the server adds. See
+      // yourPeople for why a band-mate needs no button pressed.
+      final people = yourPeople(
+        me: widget.repository.currentUserId,
+        rooms: BetaScope.of(context, listen: false).rooms,
+        connections: connections,
+        suggested: suggested,
+      );
       setState(() {
         _people = people;
         _loaded = true;
@@ -110,7 +86,7 @@ class _PeopleStripState extends State<PeopleStrip> {
   Future<void> _watch() =>
       PeoplePresence.instance.watch(_people.map((p) => p.id));
 
-  Future<void> _open(_Person person) async {
+  Future<void> _open(KnownPerson person) async {
     final controller = BetaScope.of(context, listen: false);
     if (person.canMessage) {
       await showPersonThread(
@@ -148,7 +124,7 @@ class _PeopleStripState extends State<PeopleStrip> {
   Widget build(BuildContext context) {
     if (!_loaded || _people.isEmpty) return const SizedBox.shrink();
     final controller = BetaScope.of(context);
-    final ordered = <_Person>[
+    final ordered = <KnownPerson>[
       for (final p in _people)
         if (_online.contains(p.id)) p,
       for (final p in _people)
