@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:colabroom/app/beta_config.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -19,7 +21,19 @@ void main() {
     // This drifted three releases once, and every crash report, help request
     // and usage row was labelled 0.3.0 while 0.4.0 shipped. A version that
     // lies is worse than none: it points triage at the wrong build.
-    expect(BetaConfig.appVersion, '0.4.2');
+    //
+    // Read out of pubspec rather than typed here. The first version of this
+    // test asserted a literal, which meant the guard against drift was
+    // itself a second place to remember — and on 15 September 2026, bumping
+    // to 0.5.0, this test was the only thing that failed. A check that has
+    // to be updated by hand alongside the thing it checks is a reminder, not
+    // a check.
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    final declared = RegExp(r'^version:\s*([0-9]+\.[0-9]+\.[0-9]+)', multiLine: true)
+        .firstMatch(pubspec)
+        ?.group(1);
+    expect(declared, isNotNull, reason: 'pubspec.yaml must declare a version');
+    expect(BetaConfig.appVersion, declared);
   });
 
   test('a build made outside CI says so rather than claiming a commit', () {
@@ -30,6 +44,6 @@ void main() {
   });
 
   test('the two are shown together, because either alone is ambiguous', () {
-    expect(BetaConfig.fullVersion, '0.4.2 (local)');
+    expect(BetaConfig.fullVersion, '${BetaConfig.appVersion} (local)');
   });
 }
