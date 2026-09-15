@@ -3565,7 +3565,7 @@ end $$;
 insert into public.notifications (user_id, type, title, body, actor_id)
 values ('11111111-1111-1111-1111-111111111111', 'project_update',
         'A receipt that outlives its row', 'body',
-        '22222222-2222-2222-2222-222222222222');
+        'eeeeeeee-0000-0000-0000-00000000000e');
 
 do $$
 declare
