@@ -4,7 +4,14 @@ abstract final class BetaConfig {
   /// releases behind — so every crash report, every help request and every
   /// usage row has been labelled 0.3.0 since 0.4.0 shipped. A version that
   /// lies is worse than no version: it points triage at the wrong build.
-  static const appVersion = '0.4.2';
+  ///
+  /// 0.5.0 on 15 September 2026, and the bump is not decoration. Every build
+  /// of the last week called itself 0.4.2 — including the ones that predate
+  /// the fix for an unknown notification type, which still crash on loading
+  /// an inbox that now holds messages. `minimum_app_version` compares these
+  /// numbers, so while the broken builds and the fixed ones share one, there
+  /// is no way to tell anybody their app is the problem.
+  static const appVersion = '0.5.0';
 
   /// Which build this is, as a short commit ref.
   ///

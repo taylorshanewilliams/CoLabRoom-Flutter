@@ -1,9 +1,13 @@
 """Reads the crash-free rate, and fails loudly when it drops.
 
 A number nobody looks at is not a metric, it is a column. This runs daily,
-prints the rate per app version, and exits non-zero when it falls below the
-floor — which turns a silent regression into a failed workflow, an email, and
-a red mark next to the day it started.
+prints the rate per app version **and the errors driving it**, and exits
+non-zero when it falls below the floor — which turns a silent regression into
+a failed workflow, an email, and a red mark next to the day it started.
+
+The causes are in the email on purpose. The first version printed the
+percentage alone, failed every morning for six days, and told nobody what to
+fix; an alert that cannot be acted on is training to ignore alerts.
 
 That is deliberately the crudest possible alerting. It uses machinery this
 project already has rather than adding a service, and the failure it produces
@@ -99,6 +103,43 @@ def main() -> int:
     if total_sessions < 20:
         print(f"\nOnly {total_sessions} sessions — too few to judge. Not failing.")
         return 0
+
+    # What actually broke.
+    #
+    # This workflow failed every morning from 10 September and the email said
+    # only the percentage, so six days of alerts produced no diagnosis and
+    # nobody could act on one. A rate without its causes is a smoke alarm with
+    # no address on it. The same query the triage workflow uses, summarised to
+    # the few lines that fit in a notification.
+    causes_ok, causes = run_sql(
+        project_ref,
+        token,
+        """
+        select coalesce(e.app_version, '-') as app_version,
+               coalesce(e.platform, '-') as platform,
+               coalesce(e.stage, '-') as stage,
+               left(coalesce(e.message, ''), 80) as message,
+               count(*) as times
+        from public.analysis_errors e
+        where e.created_at > now() - interval '7 days'
+          and e.severity = 'error'
+        group by 1, 2, 3, 4
+        order by count(*) desc
+        limit 6;
+        """,
+    )
+    if causes_ok and isinstance(causes, list) and causes:
+        print("\nWhat broke, most often first:\n")
+        for row in causes:
+            print(
+                f"  {row.get('times')}x  {row.get('app_version')} {row.get('platform')}"
+                f"  {row.get('stage')}: {row.get('message')}"
+            )
+        print(
+            "\nAn old build is the usual answer: a version that predates a "
+            "notification type, a column or an RPC fails on it every launch. "
+            "Check minimum_app_version before chasing anything else."
+        )
 
     if worst < floor:
         print(f"\n::error::Crash-free rate {worst:.2f}% is below the {floor}% floor.")
