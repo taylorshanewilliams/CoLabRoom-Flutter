@@ -132,10 +132,14 @@ Deno.serve(async (request: Request) => {
   const url = new URL(request.url);
   if (url.pathname.endsWith('/note')) {
     const step = url.searchParams.get('step') ?? '';
+    // The flier or board the visitor came from, when the page kept one.
+    // Validated again on the server; anything odd counts as nothing.
+    const code = (url.searchParams.get('c') ?? '').trim().toLowerCase();
+    const in_code = /^[a-z0-9-]{1,32}$/.test(code) ? code : null;
     if (step && step.length < 32) {
       try {
         await createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-          .rpc('note_public_tool_step', { in_step: step });
+          .rpc('note_public_tool_step', { in_step: step, in_code });
       } catch (_) {
         // A counter must never be the reason a page reports a problem.
       }
