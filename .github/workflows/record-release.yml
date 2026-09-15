@@ -1,0 +1,57 @@
+name: Record the release
+
+# The app announces itself.
+#
+# Every pull request title in this repository is already a sentence a
+# person can read -- "The band talks in the room", "Your band is your
+# people" -- so the Tonight card on Home can say what changed without
+# anybody writing a changelog. On every push to main this writes the merge
+# commit's title and first paragraph into public.releases (0121), through
+# PostgREST with the service key. The app reads the last two weeks and
+# shows each one once.
+#
+# Best effort by design: a release that fails to record is a missing card,
+# not a broken build, and the step says so instead of failing the run.
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write the title and first paragraph to public.releases
+        env:
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+          SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, urllib.request
+          message = os.environ["MESSAGE"].replace("\r", "")
+          lines = message.split("\n")
+          # "Title (#265)" -> "Title". The number is the repository's, not the reader's.
+          title = re.sub(r"\s*\(#\d+\)\s*$", "", lines[0]).strip()[:120]
+          rest = "\n".join(lines[1:]).strip()
+          paragraph = rest.split("\n\n")[0].replace("\n", " ").strip()
+          # Trailers are not for the reader.
+          paragraph = re.sub(r"Co-Authored-By:.*$", "", paragraph).strip()[:400]
+          if not title:
+              print("no title; nothing to record")
+              raise SystemExit(0)
+          body = json.dumps({"sha": os.environ["SHA"], "title": title, "body": paragraph}).encode()
+          url = f"https://{os.environ['PROJECT_REF']}.supabase.co/rest/v1/releases"
+          req = urllib.request.Request(url, data=body, method="POST", headers={
+              "apikey": os.environ["SERVICE_KEY"],
+              "Authorization": f"Bearer {os.environ['SERVICE_KEY']}",
+              "Content-Type": "application/json",
+              "Prefer": "resolution=ignore-duplicates",
+          })
+          try:
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  print("recorded", title, r.status)
+          except Exception as e:  # noqa: BLE001
+              print("could not record the release:", e)
+          PY

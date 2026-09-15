@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import '../domain/activity.dart';
 import '../data/music_repository.dart';
 import '../domain/music_models.dart';
+import '../domain/tonight_models.dart';
 import '../services/retry.dart';
 import '../services/user_facing_error.dart';
 import '../services/error_reporter.dart';
@@ -122,6 +123,15 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// The number on the Messages icon.
   int get unreadThreadCount =>
       _threads.fold<int>(0, (sum, thread) => sum + thread.unread);
+
+  Tonight _tonight = const Tonight();
+  List<ReleaseNote> _releases = const <ReleaseNote>[];
+
+  /// Today's prompt and song, for the Tonight card on Home.
+  Tonight get tonight => _tonight;
+
+  /// What changed lately, for the same card.
+  List<ReleaseNote> get releases => List<ReleaseNote>.unmodifiable(_releases);
 
   List<ActivityItem> _activity = const <ActivityItem>[];
 
@@ -272,6 +282,18 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
         _threads = await repository.myThreads();
       } catch (_) {
         // The badge on the Messages icon. Same bargain again.
+      }
+      // The Tonight card. The nicest thing on Home and, again, the
+      // least important: a day without one is a day, not a failure.
+      try {
+        _tonight = await repository.tonight();
+      } catch (_) {
+        // Left as it was.
+      }
+      try {
+        _releases = await repository.releaseNotes();
+      } catch (_) {
+        // Left as it was.
       }
       // The signed-in user's own picture, fetched once with everything else.
       // It used to be fetched only by the account screen, so the face in the

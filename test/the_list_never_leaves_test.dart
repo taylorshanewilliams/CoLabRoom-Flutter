@@ -38,7 +38,10 @@ Future<MusicBetaController> _seedRoomWithManySongs(WidgetTester tester) async {
 }
 
 Future<void> _pumpDesk(WidgetTester tester, MusicBetaController controller) async {
-  tester.view.physicalSize = const Size(1500, 950);
+  // Taller than a laptop, on purpose: the Tonight card sits above the
+  // library now, and a lazily built list only builds what fits, so the
+  // fold-up control at the end of eight songs needs the room to exist.
+  tester.view.physicalSize = const Size(1500, 1400);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
 

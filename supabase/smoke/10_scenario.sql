@@ -3405,4 +3405,43 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Tonight (0121).
+--
+-- The writer asks twice on the same day and gets the same prompt; the
+-- song with a key and chords is theirs; the website's row exists; a
+-- release written the way the workflow writes it comes back as notes.
+-- ---------------------------------------------------------------------
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+insert into public.releases (sha, title, body)
+values ('abc1234', 'The band talks in the room', 'Every room is a thread now.');
+
+do $$
+declare
+  first_id integer;
+  second_id integer;
+  song uuid;
+begin
+  select prompt_id, song_id into first_id, song from public.tonight();
+  if first_id is null then
+    raise exception 'no prompt for tonight';
+  end if;
+  select prompt_id into second_id from public.tonight();
+  if second_id is distinct from first_id then
+    raise exception 'the prompt changed within the day (% then %)', first_id, second_id;
+  end if;
+  if (select count(*) from public.tonight_seen
+      where user_id = '11111111-1111-1111-1111-111111111111') <> 1 then
+    raise exception 'the day was recorded more than once';
+  end if;
+  if (select count(*) from public.tonight_for_everyone()) <> 1 then
+    raise exception 'the website has no prompt today';
+  end if;
+  if (select count(*) from public.release_notes()) <> 1 then
+    raise exception 'the release did not come back as a note';
+  end if;
+end $$;
+
 commit;
