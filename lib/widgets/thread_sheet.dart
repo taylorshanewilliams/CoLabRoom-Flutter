@@ -59,6 +59,7 @@ class ThreadSheet extends StatefulWidget {
     this.keyPrefix = 'thread',
     this.stage = 'thread',
     this.changes,
+    this.header,
     super.key,
   });
 
@@ -90,6 +91,11 @@ class ThreadSheet extends StatefulWidget {
   /// re-reads the thread, so a conversation is one without closing and
   /// reopening it to see the answer. Null means the sheet reads once.
   final Listenable? changes;
+
+  /// Something richer than a headline at the top -- a room's picture,
+  /// name, people and actions. When given, drawn instead of [headline]
+  /// and [note]; the headline still names the sheet for accessibility.
+  final Widget? header;
 
   @override
   State<ThreadSheet> createState() => _ThreadSheetState();
@@ -212,7 +218,7 @@ class _ThreadSheetState extends State<ThreadSheet> {
           children: <Widget>[
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              child: Column(
+              child: widget.header ?? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(

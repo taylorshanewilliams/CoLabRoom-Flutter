@@ -1,13 +1,16 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../app/music_beta_controller.dart';
 import '../../app/routes.dart';
 import '../../domain/music_models.dart';
 import '../../widgets/app_top_bar.dart';
 import '../../widgets/player_face.dart';
+import '../../widgets/room_mark.dart';
 import '../openmic/people_screen.dart';
 import '../openmic/person_thread_sheet.dart';
 import '../songs/new_song_flow.dart';
@@ -71,8 +74,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
       case ThreadKind.room:
         await showRoomThread(
           context,
-          repository: controller.repository,
-          changes: controller,
+          controller: controller,
           roomId: thread.targetId,
           roomName: thread.name,
         );
@@ -118,8 +120,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
     if (!mounted) return;
     await showRoomThread(
       context,
-      repository: controller.repository,
-      changes: controller,
+      controller: controller,
       roomId: room.id,
       roomName: room.name,
     );
@@ -285,7 +286,13 @@ class _ThreadRow extends StatelessWidget {
         child: Row(
           children: <Widget>[
             if (thread.kind == ThreadKind.room)
-              _RoomMark(icon: thread.icon ?? '♪')
+              // The room's own picture, or its initials. Never the glyph:
+              // Taylor, on the first cut, "the cheesy cheap looking emojis
+              // that we had removed from the app are back".
+              RoomMark(
+                name: thread.name,
+                logo: _logoFor(controller, thread.targetId),
+              )
             else
               PlayerFace(
                 name: thread.name,
@@ -365,6 +372,11 @@ class _ThreadRow extends StatelessWidget {
     );
   }
 
+  static Uint8List? _logoFor(MusicBetaController controller, String roomId) {
+    final room = controller.roomById(roomId);
+    return room == null ? null : controller.roomLogoBytes(room);
+  }
+
   static String _when(DateTime time) {
     final gap = DateTime.now().difference(time);
     if (gap.inMinutes < 1) return 'now';
@@ -372,29 +384,6 @@ class _ThreadRow extends StatelessWidget {
     if (gap.inDays < 1) return '${gap.inHours}h';
     if (gap.inDays < 7) return '${gap.inDays}d';
     return '${time.day}/${time.month}';
-  }
-}
-
-/// A room, as a mark: its icon in a rounded square, the way the room list
-/// draws it, so a band chat and the band's room read as one thing.
-class _RoomMark extends StatelessWidget {
-  const _RoomMark({required this.icon});
-
-  final String icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 42,
-      height: 42,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: AppColors.gold.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.gold.withValues(alpha: 0.45)),
-      ),
-      child: Text(icon, style: const TextStyle(fontSize: 19)),
-    );
   }
 }
 
