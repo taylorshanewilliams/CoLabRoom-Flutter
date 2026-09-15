@@ -1,0 +1,124 @@
+name: Delete the retired drafts bucket
+
+# Remove the studio-drafts audio, once it exists somewhere else.
+#
+# 98 MB across 33 objects, all belonging to one account: seven original
+# recordings and the separated stems beside them. The Studio was retired in
+# migration 0066, which deliberately kept the audio because three of those
+# recordings never became songs and existed nowhere else.
+#
+# They exist somewhere else now. `rescue-retired-drafts.yml` downloaded every
+# original on 15 September 2026 and they were verified as real audio, byte
+# sizes matching the bucket, before this workflow was written. Taylor asked
+# for the bucket to go after seeing the list.
+#
+# This is irreversible, so it is deliberate about three things:
+#
+#   * it refuses to run unless `confirm` is typed exactly, so a stray click
+#     on the Actions tab cannot empty a bucket;
+#   * it counts and prints every object before removing anything, so the log
+#     is a record of what was there;
+#   * it leaves `retired_studio_drafts` alone. Those rows are names,
+#     durations and transcripts — a few kilobytes that say what existed, and
+#     the whole point of archiving rather than dropping.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "delete the drafts" to confirm'
+        type: string
+        required: true
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Remove every object in studio-drafts
+        env:
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, urllib.error, urllib.request
+
+          if (os.environ.get("CONFIRM") or "").strip() != "delete the drafts":
+              print('Not confirmed. Type "delete the drafts" exactly to run this.')
+              sys.exit(1)
+
+          ref = os.environ["PROJECT_REF"]
+          key = os.environ["SERVICE_KEY"]
+          base = f"https://{ref}.supabase.co"
+          headers = {
+              "apikey": key,
+              "Authorization": f"Bearer {key}",
+              "Content-Type": "application/json",
+          }
+
+          def call(method, url, payload=None):
+              request = urllib.request.Request(
+                  url,
+                  data=json.dumps(payload).encode() if payload is not None else None,
+                  method=method,
+                  headers=headers,
+              )
+              with urllib.request.urlopen(request, timeout=120) as response:
+                  body = response.read().decode("utf-8", errors="replace")
+                  return json.loads(body) if body.strip() else []
+
+          # What is there, named, before anything goes.
+          objects = call(
+              "POST",
+              f"{base}/storage/v1/object/list/studio-drafts",
+              {"prefix": "", "limit": 1000, "sortBy": {"column": "name", "order": "asc"}},
+          )
+          # The listing is one level deep; each account id is a folder.
+          names = []
+          for entry in objects:
+              if entry.get("id") is None:
+                  inner = call(
+                      "POST",
+                      f"{base}/storage/v1/object/list/studio-drafts",
+                      {"prefix": entry["name"], "limit": 1000,
+                       "sortBy": {"column": "name", "order": "asc"}},
+                  )
+                  names.extend(f"{entry['name']}/{i['name']}" for i in inner if i.get("id"))
+              else:
+                  names.append(entry["name"])
+
+          if names:
+              print(f"{len(names)} object(s) to remove:")
+              print()
+              for name in names:
+                  print(f"  {name}")
+              print()
+              removed = call(
+                  "DELETE",
+                  f"{base}/storage/v1/object/studio-drafts",
+                  {"prefixes": names},
+              )
+              count = len(removed) if isinstance(removed, list) else len(names)
+              print(f"Removed {count} object(s).")
+          else:
+              print("The bucket already held no objects.")
+
+          # An empty bucket is still a bucket. Remove the bucket itself, so the
+          # Studio leaves nothing behind that a future reader has to explain.
+          try:
+              call("DELETE", f"{base}/storage/v1/bucket/studio-drafts")
+              print("Removed the studio-drafts bucket.")
+          except urllib.error.HTTPError as error:
+              detail = error.read().decode("utf-8", errors="replace")
+              print(f"Objects are gone; the bucket row remains: HTTP {error.code} {detail}")
+
+          print()
+          print(
+              "retired_studio_drafts still holds the names, durations and "
+              "transcripts. The audio was exported and verified first."
+          )
+          PY
