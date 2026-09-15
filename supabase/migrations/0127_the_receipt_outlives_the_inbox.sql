@@ -167,12 +167,18 @@ returns void
 language plpgsql
 security definer set search_path = ''
 as $$
+-- `notification_id` is both this function's parameter and a column of
+-- push_arrivals, and `on conflict (notification_id)` is a column
+-- specification, so plpgsql refuses it as ambiguous. 0120 lost a run to the
+-- same thing. This says the column wins, which is what every bare name in
+-- these statements means; the values the parameters carry go through the
+-- locals below, which share no name with any column.
+#variable_conflict use_column
 declare
-  -- Copied into locals on purpose. `notification_id` is both this function's
-  -- parameter and a column of push_arrivals, and the insert below puts the
-  -- table in scope; 0120 lost a run to exactly that ambiguity. Locals that
-  -- share no name with any column leave nothing to resolve.
-  the_id uuid := notification_id;
+  -- `$1` rather than `notification_id`: under use_column a bare
+  -- `notification_id` means the column wherever one is in scope, and reading
+  -- the parameter by its position cannot be misread no matter what is.
+  the_id uuid := $1;
   me uuid := auth.uid();
 begin
   if me is null then
