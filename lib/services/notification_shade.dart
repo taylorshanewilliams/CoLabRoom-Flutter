@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'error_reporter.dart';
+import 'push_receipts.dart';
 
 /// Putting a notification where somebody can see it.
 ///
@@ -92,6 +93,8 @@ abstract final class NotificationShade {
   }
 
   static Future<void> _show(RemoteMessage message) async {
+    // Arrived with the app open: say so, whatever gets drawn below.
+    unawaited(PushReceipts.arrived(message, PushArrival.open));
     final notification = message.notification;
     if (notification == null) return;
     try {

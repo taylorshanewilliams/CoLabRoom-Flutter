@@ -44,5 +44,19 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+# Pinned, not chosen.
+#
+# pubspec.lock is not committed, so CI resolves every dependency fresh on
+# every run. On 15 Sep 2026 objective_c 9.6.1 was published between one CI
+# run and the next, and its build hook references `Architecture.arm64e`,
+# which the Dart in Flutter stable does not have yet -- so every job that
+# runs `flutter pub get` failed at "Building native assets", on a change
+# that touched nothing near it. Nothing in this app uses objective_c
+# directly; it arrives through a transitive dependency. Held at the last
+# version that builds until Flutter stable catches up, at which point this
+# block can go.
+dependency_overrides:
+  objective_c: 9.6.0
+
 flutter:
   uses-material-design: true

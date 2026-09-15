@@ -5,6 +5,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'push_delivery_report.dart';
 import 'retry.dart';
 import 'user_facing_error.dart';
 
@@ -272,6 +273,22 @@ abstract final class PushRegistration {
   /// failure it was built to catch.
   static Future<bool> sendTestNotification() async {
     return Supabase.instance.client.rpc<bool>('send_myself_a_test_notification');
+  }
+
+  /// The week's pushes, as the server counted them out and the phone
+  /// confirmed them back. Null when it cannot be fetched: the screen then
+  /// says nothing rather than something wrong.
+  static Future<PushDeliveryReport?> deliveryReport() async {
+    try {
+      final rows =
+          await Supabase.instance.client.rpc<dynamic>('push_delivery_report');
+      final row = rows is List ? (rows.isEmpty ? null : rows.first) : rows;
+      if (row is! Map) return null;
+      return PushDeliveryReport.fromRow(Map<String, dynamic>.from(row));
+    } catch (error) {
+      reportAndDescribe(error, service: 'app', stage: 'push.delivery_report');
+      return null;
+    }
   }
 
   /// Signing out, so the next person to use this phone does not receive the
