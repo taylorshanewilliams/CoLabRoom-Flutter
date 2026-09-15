@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'push_delivery_report.dart';
+import 'registered_devices.dart';
 import 'retry.dart';
 import 'user_facing_error.dart';
 
@@ -287,6 +288,42 @@ abstract final class PushRegistration {
       return PushDeliveryReport.fromRow(Map<String, dynamic>.from(row));
     } catch (error) {
       reportAndDescribe(error, service: 'app', stage: 'push.delivery_report');
+      return null;
+    }
+  }
+
+  /// The devices registered to this account, most recently seen first, and
+  /// this install's own token so the screen can say which row is this phone.
+  ///
+  /// The token is fetched rather than remembered because nothing here keeps
+  /// it: `getToken` answers from the local cache after the first call, and a
+  /// token that has changed since registration should read as a device that
+  /// is not this one, which is the truth.
+  ///
+  /// Null when it cannot be fetched, so the screen says nothing rather than
+  /// something wrong.
+  static Future<({List<RegisteredDevice> devices, String? myToken})?>
+      registeredDevices() async {
+    try {
+      final rows = await Supabase.instance.client.rpc<dynamic>('my_devices');
+      final devices = <RegisteredDevice>[
+        if (rows is List)
+          for (final row in rows)
+            if (row is Map)
+              RegisteredDevice.fromRow(Map<String, dynamic>.from(row)),
+      ];
+      String? mine;
+      try {
+        mine = await FirebaseMessaging.instance.getToken();
+      } catch (_) {
+        // On iOS this throws until APNs hands over a token, which is the
+        // state that made this screen necessary. An unknown token means no
+        // row gets marked as this phone, which is the honest answer.
+        mine = null;
+      }
+      return (devices: devices, myToken: mine);
+    } catch (error) {
+      reportAndDescribe(error, service: 'app', stage: 'push.my_devices');
       return null;
     }
   }

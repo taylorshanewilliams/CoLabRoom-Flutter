@@ -3519,4 +3519,106 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- The receipt outlives the inbox (0127).
+--
+-- 0117 put the receipt on the notification, and the notification is the
+-- inbox: there is a Clear-read button on that screen. On 15 September a
+-- push was accepted by FCM for two of Taylor's devices and the evidence
+-- was gone by the time anybody looked, because the row had been cleared.
+--
+-- So: a registered phone, a notification, a receipt, then the
+-- notification deleted out from under it. The receipt has to still be
+-- there afterwards, and the week's report has to still count it. If a
+-- foreign key is ever added to push_arrivals.notification_id, this
+-- section is what fails.
+-- ---------------------------------------------------------------------
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+select public.register_device_token('smoke-device-token-ABCDEF', 'android');
+
+do $$
+declare
+  seen record;
+  found integer;
+begin
+  select count(*) into found from public.my_devices();
+  if found <> 1 then
+    raise exception 'the registered phone is not listed (got %)', found;
+  end if;
+
+  select * into seen from public.my_devices() limit 1;
+  if seen.token_tail <> 'ABCDEF' then
+    raise exception 'the device is not identifiable by its tail (got %)', seen.token_tail;
+  end if;
+  if seen.platform <> 'android' then
+    raise exception 'the platform was not kept (got %)', seen.platform;
+  end if;
+  if seen.first_seen_at is null or seen.last_seen_at is null then
+    raise exception 'a device with no timestamps cannot be told from another';
+  end if;
+end $$;
+
+-- A notification for the writer, from somebody else, with a phone now on
+-- the account: the trigger should write down that a push was queued.
+insert into public.notifications (user_id, type, title, body, actor_id)
+values ('11111111-1111-1111-1111-111111111111', 'project_update',
+        'A receipt that outlives its row', 'body',
+        '22222222-2222-2222-2222-222222222222');
+
+do $$
+declare
+  target uuid;
+  queued record;
+  before_sent integer;
+  after_sent integer;
+  kept record;
+begin
+  select id into target from public.notifications
+  where user_id = '11111111-1111-1111-1111-111111111111'
+    and title = 'A receipt that outlives its row';
+  if target is null then
+    raise exception 'the notification under test was not written';
+  end if;
+
+  select * into queued from public.push_arrivals where notification_id = target;
+  if queued.notification_id is null then
+    raise exception 'the queued push was not written down';
+  end if;
+  if queued.arrived_at is not null then
+    raise exception 'a push nobody has confirmed must not read as arrived';
+  end if;
+  if queued.user_id <> '11111111-1111-1111-1111-111111111111' then
+    raise exception 'the receipt is filed under the wrong account';
+  end if;
+
+  -- The phone says it got it with the app closed.
+  perform public.push_arrived(target, 'closed');
+  select sent into before_sent from public.push_delivery_report();
+
+  -- And now the inbox is cleared, which is what actually happened.
+  delete from public.notifications where id = target;
+  if exists (select 1 from public.notifications where id = target) then
+    raise exception 'the notification did not delete';
+  end if;
+
+  select * into kept from public.push_arrivals where notification_id = target;
+  if kept.notification_id is null then
+    raise exception 'clearing the inbox destroyed the receipt again';
+  end if;
+  if kept.arrived_how <> 'closed' then
+    raise exception 'the receipt survived without what it said (got %)', kept.arrived_how;
+  end if;
+
+  select sent into after_sent from public.push_delivery_report();
+  if after_sent <> before_sent then
+    raise exception 'the week''s report changed when the inbox was cleared (% then %)',
+      before_sent, after_sent;
+  end if;
+  if (select arrived from public.push_delivery_report()) < 1 then
+    raise exception 'the report counts no arrival for a phone that confirmed one';
+  end if;
+end $$;
+
 commit;
