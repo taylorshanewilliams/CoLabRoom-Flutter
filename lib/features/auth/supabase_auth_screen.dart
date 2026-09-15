@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+
+import '../../services/arrival_code.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -85,6 +87,10 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
             'display_name': _name.text.trim(),
             'agreed_to_terms': true,
             'age_confirmed_13': true,
+            // The flier, board or video this person came from, when the
+            // address says. Claimed on the profile after sign-in; kept
+            // here too so the auth row shows the door as well.
+            if (_arrivedVia != null) 'arrived_via': _arrivedVia,
           },
           emailRedirectTo: BetaConfig.authRedirectUrl.isEmpty ? null : BetaConfig.authRedirectUrl,
         );
@@ -100,6 +106,7 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
           password: _password.text,
         );
       }
+      await _claimArrival();
     } on AuthException catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
@@ -112,6 +119,27 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
       }
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// The code on the address, on the web only: a phone has no address
+  /// bar, and its installs cannot be traced to a board.
+  String? get _arrivedVia => kIsWeb ? arrivalCodeFrom(Uri.base) : null;
+
+  /// Tells the server which door this account came in by. Once: the
+  /// first claim wins on the server, so signing in again from the same
+  /// link is not a second arrival. Best effort, and never the reason a
+  /// sign-in looks like it failed.
+  Future<void> _claimArrival() async {
+    final code = _arrivedVia;
+    if (code == null || widget.client.auth.currentSession == null) return;
+    try {
+      await widget.client.rpc<dynamic>(
+        'claim_arrival',
+        params: <String, dynamic>{'code': code},
+      );
+    } catch (_) {
+      // A count, not a feature. The person is signed in either way.
     }
   }
 

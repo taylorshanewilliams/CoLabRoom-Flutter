@@ -3365,4 +3365,44 @@ end $$;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- ---------------------------------------------------------------------
+-- Where they came from (0120).
+--
+-- A visitor with a flier code opens the tool and gets chords; the writer
+-- signs in from the same link and claims the code once. The report
+-- then answers which board worked. A second claim, with another code,
+-- changes nothing.
+-- ---------------------------------------------------------------------
+
+select public.note_public_tool_step('opened', 'ORL-WP');
+select public.note_public_tool_step('analyzed_ok', 'orl-wp');
+select public.note_public_tool_step('opened', 'not a code');
+
+do $$
+declare
+  claimed boolean;
+  rep record;
+begin
+  select public.claim_arrival('orl-wp') into claimed;
+  if not claimed then
+    raise exception 'the first claim was refused';
+  end if;
+  select public.claim_arrival('other') into claimed;
+  if claimed then
+    raise exception 'a second claim overwrote the first';
+  end if;
+  if (select arrived_via from public.profiles
+      where id = '11111111-1111-1111-1111-111111111111') <> 'orl-wp' then
+    raise exception 'the profile does not remember its door';
+  end if;
+
+  select * into rep from public.arrival_report(7) where code = 'orl-wp';
+  if rep is null or rep.opened <> 1 or rep.analyzed <> 1 or rep.signed_up <> 1 or rep.people <> 1 then
+    raise exception 'the arrival report does not add up (got %)', rep;
+  end if;
+  if exists (select 1 from public.arrivals where code not in ('orl-wp')) then
+    raise exception 'a malformed code was counted';
+  end if;
+end $$;
+
 commit;
