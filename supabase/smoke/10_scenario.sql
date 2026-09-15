@@ -3481,4 +3481,42 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- What a crash actually is (0124).
+--
+-- One session with a push token that would not register is an error and
+-- is not a crash; one whose library never loaded is both. The two rates
+-- have to disagree about exactly that, or the split is decoration.
+-- ---------------------------------------------------------------------
+
+insert into public.app_sessions (id, user_id, app_version, platform)
+values ('health-quiet', '11111111-1111-1111-1111-111111111111', '9.9.9', 'android'),
+       ('health-noisy', '11111111-1111-1111-1111-111111111111', '9.9.9', 'android'),
+       ('health-broken', '11111111-1111-1111-1111-111111111111', '9.9.9', 'android');
+
+insert into public.analysis_errors
+  (session_id, severity, stage, message, service, signature)
+values ('health-noisy', 'error', 'push.register_token', 'no token', 'app', 'smoke-noisy'),
+       ('health-broken', 'error', 'load', 'Gateway Timeout', 'app', 'smoke-broken');
+
+do $$
+declare
+  health record;
+begin
+  select * into health from public.app_health(1) where app_version = '9.9.9';
+  if health.sessions <> 3 then
+    raise exception 'the three sessions were not counted (got %)', health.sessions;
+  end if;
+  if health.sessions_with_an_error <> 2 then
+    raise exception 'both errors should count as errors (got %)', health.sessions_with_an_error;
+  end if;
+  if health.sessions_that_could_not_work <> 1 then
+    raise exception 'only the failed load could not work (got %)', health.sessions_that_could_not_work;
+  end if;
+  if health.crash_free_percent <= health.error_free_percent then
+    raise exception 'the two rates should disagree here (% vs %)',
+      health.crash_free_percent, health.error_free_percent;
+  end if;
+end $$;
+
 commit;
