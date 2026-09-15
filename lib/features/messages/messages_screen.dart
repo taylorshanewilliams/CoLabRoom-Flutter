@@ -10,6 +10,7 @@ import '../../widgets/app_top_bar.dart';
 import '../../widgets/player_face.dart';
 import '../openmic/people_screen.dart';
 import '../openmic/person_thread_sheet.dart';
+import '../songs/new_song_flow.dart';
 import 'room_thread_sheet.dart';
 
 /// Everything anybody has said to you, in one place.
@@ -102,6 +103,30 @@ class _MessagesScreenState extends State<MessagesScreen> {
     );
   }
 
+  /// Starting a room from here.
+  ///
+  /// Taylor: "you can create rooms for your band, or message people
+  /// individually, but it's all in one place." The same dialog the song
+  /// flow uses; the band chat exists the moment the band does, so the new
+  /// room's thread opens straight away. Inviting people into it is the
+  /// room screen's job, as before.
+  Future<void> _newRoom() async {
+    final controller = BetaScope.of(context, listen: false);
+    final room = await showCreateRoomDialog(context, controller);
+    if (room == null || !mounted) return;
+    await controller.refreshThreads();
+    if (!mounted) return;
+    await showRoomThread(
+      context,
+      repository: controller.repository,
+      changes: controller,
+      roomId: room.id,
+      roomName: room.name,
+    );
+    if (!mounted) return;
+    await controller.refreshThreads();
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = BetaScope.of(context);
@@ -109,11 +134,43 @@ class _MessagesScreenState extends State<MessagesScreen> {
     final said = threads.where((t) => t.lastAt != null).toList(growable: false);
     final quiet = threads.where((t) => t.lastAt == null).toList(growable: false);
 
-    final compose = IconButton(
+    // Two ways to start something, under one pencil: a person, or a
+    // room for the band.
+    final compose = PopupMenuButton<String>(
       key: const Key('messages_new'),
-      tooltip: 'Message somebody',
-      onPressed: _newMessage,
+      tooltip: 'Start something',
       icon: const Icon(Icons.edit_outlined, color: AppColors.cyan),
+      color: AppColors.raised,
+      onSelected: (value) {
+        switch (value) {
+          case 'person':
+            _newMessage();
+          case 'room':
+            unawaited(_newRoom());
+        }
+      },
+      itemBuilder: (_) => <PopupMenuEntry<String>>[
+        const PopupMenuItem<String>(
+          key: Key('messages_new_person'),
+          value: 'person',
+          child: ListTile(
+            dense: true,
+            leading: Icon(Icons.chat_bubble_outline_rounded),
+            title: Text('Message somebody'),
+            subtitle: Text('One of your people'),
+          ),
+        ),
+        const PopupMenuItem<String>(
+          key: Key('messages_new_room'),
+          value: 'room',
+          child: ListTile(
+            dense: true,
+            leading: Icon(Icons.forum_outlined),
+            title: Text('Start a room'),
+            subtitle: Text('For the band: a thread, and a place for songs'),
+          ),
+        ),
+      ],
     );
 
     return Scaffold(
