@@ -12,9 +12,11 @@ import '../../widgets/app_surface.dart';
 import '../../domain/musical_roles.dart';
 import '../../widgets/play_button.dart';
 import '../openmic/report_sheet.dart';
+import '../../app/routes.dart';
 import '../openmic/musician_profile_screen.dart';
 import '../openmic/person_thread_sheet.dart';
 import '../workspace/ask_thread_sheet.dart';
+import '../workspace/song_workspace_screen.dart';
 
 /// The single inbox: pending invitations you can act on, then everything
 /// that has happened since you were last here.
@@ -300,6 +302,29 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 repository: controller.repository,
                                 personId: notification.actorId!,
                                 personName: notification.title,
+                              ));
+                            }
+                            // News about a song opens the song. "Mountains
+                            // is ready" used to be a card that went nowhere:
+                            // it marked itself read and left the person to
+                            // find the song by hand. Only the two kinds that
+                            // imply you can open it -- an analysis you ran,
+                            // an update on a song of yours. An ask is left to
+                            // its own card, because the person asked cannot
+                            // open the song until they say yes.
+                            if ((notification.type ==
+                                        NotificationType.analysisReady ||
+                                    notification.type ==
+                                        NotificationType.projectUpdate) &&
+                                notification.projectId != null) {
+                              final id = notification.projectId!;
+                              unawaited(Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  settings:
+                                      RouteSettings(name: AppRoutes.song(id)),
+                                  builder: (_) =>
+                                      SongWorkspaceScreen(projectId: id),
+                                ),
                               ));
                             }
                             // Somebody you left a note about has turned up:
