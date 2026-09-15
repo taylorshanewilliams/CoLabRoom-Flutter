@@ -235,10 +235,25 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
         repository.loadRooms,
         first: const Duration(seconds: 2),
       );
-      _invites = await repository.loadInvites();
-      _setlists = await repository.loadSetlists();
-      _notifications = await repository.loadNotifications();
-      _notificationPreferences = await repository.loadNotificationPreferences();
+      // And the four after it, for a different reason than the token.
+      //
+      // The note above is right about tokens and was wrong about the
+      // network. A gateway timeout on the third call is not the first
+      // call's problem happening again — it is its own, and it took the
+      // whole library down with it: one dropped connection anywhere in
+      // this sequence and somebody's songs were replaced by an error until
+      // they thought to try again. Production's log for the week of
+      // 15 September has exactly that, twice, and both landed in the
+      // crash-free rate as though the app had broken.
+      //
+      // Every call here is a read, so repeating one costs nothing and
+      // changes nothing. A failure that survives three tries is still
+      // reported, which is the one worth reading.
+      _invites = await retrying(repository.loadInvites);
+      _setlists = await retrying(repository.loadSetlists);
+      _notifications = await retrying(repository.loadNotifications);
+      _notificationPreferences =
+          await retrying(repository.loadNotificationPreferences);
       // Best-effort and last. A badge is the least important thing on this
       // screen: failing to fetch it must never cost somebody their songs,
       // which is what putting it in the main try would do.
