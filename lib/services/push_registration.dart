@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'push_delivery_report.dart';
+import 'push_trouble.dart';
 import 'registered_devices.dart';
 import 'retry.dart';
 import 'user_facing_error.dart';
@@ -207,6 +209,7 @@ abstract final class PushRegistration {
     }
     final sent = await _send(token);
     _registered = sent;
+    if (sent) unawaited(_rememberItWorked());
     return sent;
   }
 
@@ -393,6 +396,62 @@ abstract final class PushRegistration {
       return (devices: devices, myToken: mine);
     } catch (error) {
       reportAndDescribe(error, service: 'app', stage: 'push.my_devices');
+      return null;
+    }
+  }
+
+  /// Whether this install has ever had notifications actually working.
+  ///
+  /// The difference between telling somebody their phone has switched
+  /// notifications off and nagging somebody who never wanted them. Only the
+  /// first is worth a card: they had it, they lost it, and nothing told them.
+  static const String _everEnabledKey = 'push_ever_enabled';
+  static bool? _everEnabled;
+
+  static Future<bool> everEnabled() async {
+    final held = _everEnabled;
+    if (held != null) return held;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return _everEnabled = prefs.getBool(_everEnabledKey) ?? false;
+    } catch (_) {
+      // A preferences store that will not open means no card, which is one
+      // card too few rather than one that is wrong.
+      return _everEnabled = false;
+    }
+  }
+
+  static Future<void> _rememberItWorked() async {
+    if (_everEnabled == true) return;
+    _everEnabled = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_everEnabledKey, true);
+    } catch (_) {
+      // Same again: worth nothing, costs nothing.
+    }
+  }
+
+  /// Whether this phone has quietly stopped being reachable.
+  ///
+  /// Read at a moment somebody is looking at Home, because the state that
+  /// caused a week of silence was visible only on a settings screen nobody
+  /// opens. Costs one local check in the bad case and one query in the other;
+  /// returns null whenever it cannot be sure, which is most of the time.
+  static Future<PushTrouble?> troubleOnThisPhone() async {
+    if (!_available) return null;
+    try {
+      if (!await everEnabled()) return null;
+      if (!await isAllowed()) {
+        return pushTrouble(allowed: false, everEnabled: true);
+      }
+      return pushTrouble(
+        allowed: true,
+        everEnabled: true,
+        report: await deliveryReport(),
+      );
+    } catch (error) {
+      reportWarningAndDescribe(error, service: 'app', stage: 'push.trouble');
       return null;
     }
   }

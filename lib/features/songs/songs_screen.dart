@@ -25,6 +25,8 @@ import 'tonight.dart';
 import 'firsts.dart';
 import '../../app/beta_config.dart';
 import '../../services/app_release.dart';
+import '../../services/push_registration.dart';
+import '../../services/push_trouble.dart';
 import '../welcome/play_later.dart';
 import '../openmic/musician_profile_screen.dart';
 import '../rooms/room_detail_screen.dart';
@@ -156,6 +158,10 @@ class _SongsScreenState extends State<SongsScreen> {
     // is a convenience the screen works without.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_loadRequests());
+      // The state that cost a week of silence was readable the whole
+      // time, on a settings screen nobody opens. Read it where people
+      // actually are instead.
+      if (mounted) unawaited(_checkPush());
     });
     // The server's answer about this build arrives after the first frame;
     // the strip redraws when it does.
@@ -179,6 +185,74 @@ class _SongsScreenState extends State<SongsScreen> {
   }
 
   /// What to actually do about it, on this phone.
+  Future<void> _checkPush() async {
+    final trouble = await PushRegistration.troubleOnThisPhone();
+    if (mounted) setState(() => _pushTrouble = trouble);
+  }
+
+  /// One tap where one tap is enough, and honest words where it is not.
+  ///
+  /// Asking again works until somebody has hard-refused twice, after
+  /// which Android stops showing the dialog at all and only the system
+  /// settings page can turn it back on. A button that silently does
+  /// nothing is the thing this screen exists to avoid, so when the ask
+  /// cannot land this says where to go instead of pretending.
+  Future<void> _fixPush(PushTrouble trouble) async {
+    if (trouble.kind == PushTroubleKind.switchedOff) {
+      final allowed = await PushRegistration.enable();
+      if (!mounted) return;
+      if (allowed) {
+        await _checkPush();
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Turn notifications back on'),
+          content: const Text(
+            'Your phone will not show the request again, so it has to be '
+            'done in its own settings:\n\n'
+            'Settings, Apps, CoLabRoom, Notifications, and turn them '
+            'on.\n\n'
+            'While you are there, set Battery to Unrestricted. Phones '
+            'switch notifications off again for apps they decide are '
+            'unused.',
+          ),
+          actions: <Widget>[
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      await _checkPush();
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Your phone is holding the app asleep'),
+        content: const Text(
+          'Notifications are allowed, they were sent, and this phone '
+          'drew none of them. That is the phone saving battery rather '
+          'than anything in the app:\n\n'
+          'Settings, Apps, CoLabRoom, Battery, set it to Unrestricted.\n\n'
+          'On Samsung, also take CoLabRoom out of Deep sleeping apps, '
+          'and turn off the setting that removes permissions from '
+          'unused apps.',
+        ),
+        actions: <Widget>[
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _howToUpdate() async {
     final oldest = AppRelease.minimum.value ?? '';
     await showDialog<void>(
@@ -281,6 +355,13 @@ class _SongsScreenState extends State<SongsScreen> {
   /// guessed would flicker.
   List<Connection> _requests = const <Connection>[];
 
+  /// Whether this phone has quietly stopped being able to show
+  /// notifications.
+  ///
+  /// Null until the check has run, and null again whenever there is
+  /// nothing to say, which is almost always. See push_trouble.dart.
+  PushTrouble? _pushTrouble;
+
   Future<void> _loadRequests() async {
     try {
       final all = await BetaScope.of(context, listen: false)
@@ -382,6 +463,22 @@ class _SongsScreenState extends State<SongsScreen> {
     // person who just asked to connect may be waiting on a screen this build
     // does not have. The x hides it for the session -- there is no permanent
     // no to "you are out of date", only an update.
+    // The app saying it cannot reach you, which nothing else here can
+    // say. No permanent dismiss: there is no meaningful no to being
+    // unreachable, only turning it back on, and the card goes by itself
+    // once it is.
+    final trouble = _pushTrouble;
+    if (trouble != null) {
+      items.add(WaitingItem(
+        id: 'unreachable-' + trouble.kind.name,
+        kind: WaitingKind.unreachable,
+        line: trouble.line,
+        detail: trouble.detail,
+        actionLabel: trouble.actionLabel,
+        onAction: () => unawaited(_fixPush(trouble)),
+      ));
+    }
+
     if (AppRelease.isStale) {
       items.add(WaitingItem(
         id: 'update-${AppRelease.minimum.value}',
