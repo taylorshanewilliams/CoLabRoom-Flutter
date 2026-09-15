@@ -1,0 +1,141 @@
+name: Ask Apple whether push is enabled
+
+# Does the App ID actually have Push Notifications, and is the stored
+# provisioning profile older than the answer?
+#
+# 15 September 2026: a tester's iPhone reported "No APNs token after ten
+# seconds (permission authorized)" three times in one day. The app is asking
+# for the token -- firebase_messaging calls registerForRemoteNotifications
+# itself at plugin startup -- and the plugin's failure callback only NSLogs,
+# so Apple's reason has never been readable. The build-time check added
+# alongside this reads the signed profile off the uploaded binary, which says
+# whether push is in the profile.
+#
+# This says *why* it is or is not, which is the difference between two
+# different fixes:
+#
+#   * Push Notifications not enabled on the App ID -> somebody has to turn it
+#     on in the developer portal. No amount of rebuilding helps.
+#   * enabled, but the stored profile predates it -> match keeps reusing the
+#     profile on the ios-signing-certs branch, and one forced regeneration
+#     fixes it.
+#
+# Read-only. It asks Apple questions and changes nothing, which is why it is
+# safe to run whenever the answer is in doubt.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ask:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install --quiet pyjwt cryptography
+
+      - name: What Apple says about com.colabroom.beta
+        env:
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          BUNDLE: com.colabroom.beta
+        run: |
+          python3 - <<'PY'
+          import base64, json, os, sys, time, urllib.error, urllib.parse, urllib.request
+          import jwt
+
+          key_id = os.environ["KEY_ID"].strip()
+          issuer = os.environ["ISSUER_ID"].strip()
+          bundle = os.environ["BUNDLE"].strip()
+          p8 = os.environ["P8"]
+
+          # The secret has been stored both ways in this project's history.
+          if "BEGIN PRIVATE KEY" not in p8:
+              p8 = base64.b64decode(p8).decode("utf-8")
+
+          now = int(time.time())
+          token = jwt.encode(
+              {"iss": issuer, "iat": now, "exp": now + 600,
+               "aud": "appstoreconnect-v1"},
+              p8,
+              algorithm="ES256",
+              headers={"kid": key_id, "typ": "JWT"},
+          )
+
+          def get(path):
+              request = urllib.request.Request(
+                  "https://api.appstoreconnect.apple.com" + path,
+                  headers={"Authorization": "Bearer " + token},
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=60) as response:
+                      return json.loads(response.read().decode("utf-8"))
+              except urllib.error.HTTPError as error:
+                  body = error.read().decode("utf-8", errors="replace")
+                  print(f"HTTP {error.code} on {path}")
+                  print(body[:600])
+                  if error.code in (401, 403):
+                      print()
+                      print("::warning::This API key cannot read signing "
+                            "information. That is a key-role limit, not an "
+                            "answer about push; the build-time profile check "
+                            "is the fallback.")
+                  return None
+
+          ids = get("/v1/bundleIds?filter[identifier]="
+                    + urllib.parse.quote(bundle) + "&limit=10")
+          if ids is None:
+              sys.exit(1)
+
+          rows = ids.get("data") or []
+          if not rows:
+              print(f"::error::Apple has no App ID called {bundle}.")
+              sys.exit(1)
+
+          push_on = False
+          for row in rows:
+              bid = row["id"]
+              attrs = row.get("attributes", {})
+              print(f"App ID {attrs.get('identifier')}  "
+                    f"name={attrs.get('name')}  platform={attrs.get('platform')}")
+              caps = get(f"/v1/bundleIds/{bid}/bundleIdCapabilities?limit=50")
+              names = sorted(
+                  (c.get("attributes", {}).get("capabilityType") or "?")
+                  for c in ((caps or {}).get("data") or [])
+              )
+              print("  capabilities: " + (", ".join(names) if names else "(none)"))
+              if "PUSH_NOTIFICATIONS" in names:
+                  push_on = True
+
+          print()
+          profiles = get("/v1/profiles?limit=200")
+          for row in ((profiles or {}).get("data") or []):
+              attrs = row.get("attributes", {})
+              name = attrs.get("name") or ""
+              if bundle not in name:
+                  continue
+              print(f"profile {name}")
+              print(f"  type={attrs.get('profileType')} "
+                    f"state={attrs.get('profileState')}")
+              print(f"  created={attrs.get('createdDate')} "
+                    f"expires={attrs.get('expirationDate')}")
+
+          print()
+          if push_on:
+              print("Push Notifications IS enabled on the App ID.")
+              print("So if the signed profile carries no aps-environment, the "
+                    "profile predates the capability and match must regenerate "
+                    "it: the one on the ios-signing-certs branch was last "
+                    "written 2026-09-06 and is reused on every build.")
+          else:
+              print("::error::Push Notifications is NOT enabled on the App ID "
+                    f"{bundle}. This is why the phone gets no APNs token: iOS "
+                    "refuses the registration for a build whose profile cannot "
+                    "carry push, and the entitlements file saying 'production' "
+                    "changes nothing. Enable it in the developer portal under "
+                    "Identifiers, then regenerate the provisioning profile.")
+              sys.exit(1)
+          PY
