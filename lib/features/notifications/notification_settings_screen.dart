@@ -26,7 +26,8 @@ class _PhoneNotificationsTile extends StatefulWidget {
       _PhoneNotificationsTileState();
 }
 
-class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile> {
+class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile>
+    with WidgetsBindingObserver {
   bool? _allowed;
 
   /// Whether the server has a token for this account.
@@ -46,7 +47,32 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_check());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Coming back is the moment this tile is looked at.
+  ///
+  /// The closed-app test sends itself as the app leaves, and the person
+  /// comes back to see whether it arrived. Until now they came back to a
+  /// tile still saying "Now close the app" -- the arm had fired and
+  /// disarmed itself, and this widget's copy of the flag never heard --
+  /// and to a receipt line from before they left. Both are re-read on
+  /// the way back in, so the screen answers the question it was left
+  /// open to ask.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    setState(() => _armed = TestWhenClosed.instance.isArmed);
+    // A beat, so the receipt filed by the background handler has had
+    // time to land before the line is read.
+    unawaited(Future<void>.delayed(const Duration(seconds: 2), _check));
   }
 
   Future<void> _check() async {
