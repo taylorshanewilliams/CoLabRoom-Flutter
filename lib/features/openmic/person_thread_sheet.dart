@@ -13,6 +13,7 @@ import '../../widgets/thread_sheet.dart';
 Future<void> showPersonThread(
   BuildContext context, {
   required MusicRepository repository,
+  Listenable? changes,
   required String personId,
   required String personName,
 }) {
@@ -20,6 +21,7 @@ Future<void> showPersonThread(
     context,
     sheet: PersonThreadSheet(
       repository: repository,
+      changes: changes,
       personId: personId,
       personName: personName,
     ),
@@ -29,12 +31,16 @@ Future<void> showPersonThread(
 class PersonThreadSheet extends StatelessWidget {
   const PersonThreadSheet({
     required this.repository,
+    this.changes,
     required this.personId,
     required this.personName,
     super.key,
   });
 
   final MusicRepository repository;
+
+  /// Fires when the world changes; the sheet re-reads. See ThreadSheet.
+  final Listenable? changes;
   final String personId;
   final String personName;
 
@@ -54,6 +60,7 @@ class PersonThreadSheet extends StatelessWidget {
       stage: 'person_thread',
       headline: personName,
       currentUserId: repository.currentUserId,
+      changes: changes,
       emptyLine: 'Nothing said yet. Whatever you say here stays between the '
           'two of you.',
       load: () async => <ThreadLine>[

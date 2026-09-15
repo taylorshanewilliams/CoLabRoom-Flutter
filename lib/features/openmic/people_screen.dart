@@ -365,6 +365,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
                 onPressed: () => unawaited(showPersonThread(
                   context,
                   repository: _repo,
+                  changes: BetaScope.of(context, listen: false),
                   personId: person.personId,
                   personName: person.displayName,
                 )),

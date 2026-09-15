@@ -688,6 +688,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
                     ? () => unawaited(showPersonThread(
                           context,
                           repository: widget.repository,
+                          changes: BetaScope.maybeOf(context, listen: false),
                           personId: musician.id,
                           personName: musician.displayName,
                         ))

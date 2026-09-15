@@ -122,6 +122,26 @@ void main() {
       expect(find.textContaining('You: Thursday works.'), findsOneWidget);
     });
 
+    testWidgets('an open thread shows a line that arrives while it is open',
+        (tester) async {
+      final repo = InMemoryMusicRepository.seeded();
+      final controller = await _controller(repo);
+      await _pump(tester, controller);
+
+      await tester.tap(find.byKey(const Key('thread_room_room-1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Sound check at seven.'), findsNothing);
+
+      // Somebody else writes; the app hears about it the way it hears
+      // about everything -- the controller reloads and notifies.
+      await repo.sendRoomMessage(roomId: 'room-1', body: 'Sound check at seven.');
+      controller.notifyListeners();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Sound check at seven.'), findsOneWidget);
+    });
+
     testWidgets('a room with nobody in it but you still has its thread',
         (tester) async {
       final repo = InMemoryMusicRepository.seeded();

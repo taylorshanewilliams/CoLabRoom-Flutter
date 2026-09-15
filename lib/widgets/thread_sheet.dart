@@ -58,6 +58,7 @@ class ThreadSheet extends StatefulWidget {
     this.emptyLine = 'Nothing said yet.',
     this.keyPrefix = 'thread',
     this.stage = 'thread',
+    this.changes,
     super.key,
   });
 
@@ -83,6 +84,13 @@ class ThreadSheet extends StatefulWidget {
   /// Where a failure is filed, so the report says which thread this was.
   final String stage;
 
+  /// Something that fires when the world changes -- the controller, which
+  /// reloads on every notification that arrives, and a message from
+  /// anybody writes one. While this sheet is open, each such change
+  /// re-reads the thread, so a conversation is one without closing and
+  /// reopening it to see the answer. Null means the sheet reads once.
+  final Listenable? changes;
+
   @override
   State<ThreadSheet> createState() => _ThreadSheetState();
 }
@@ -93,15 +101,30 @@ class _ThreadSheetState extends State<ThreadSheet> {
   List<ThreadLine>? _lines;
   String? _problem;
   bool _sending = false;
+  Timer? _rereadDebounce;
 
   @override
   void initState() {
     super.initState();
+    widget.changes?.addListener(_changed);
     unawaited(_load());
+  }
+
+  /// The world moved; read the thread again, a beat later. A reload
+  /// keeps what is on screen until the new lines arrive, so nothing
+  /// flickers, and it waits for a send in flight rather than racing it.
+  void _changed() {
+    _rereadDebounce?.cancel();
+    _rereadDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted || _sending) return;
+      unawaited(_load());
+    });
   }
 
   @override
   void dispose() {
+    widget.changes?.removeListener(_changed);
+    _rereadDebounce?.cancel();
     _composer.dispose();
     _scroll.dispose();
     super.dispose();
