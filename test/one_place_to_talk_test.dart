@@ -64,6 +64,16 @@ void main() {
       expect(find.text('1 in the room'), findsOneWidget);
     });
 
+    testWidgets('a room without a picture wears its initials, never an emoji',
+        (tester) async {
+      final controller = await _controller();
+      await _pump(tester, controller);
+      expect(find.text('AH'), findsOneWidget, reason: 'After Hours Studio');
+      expect(find.text('AI'), findsOneWidget, reason: 'Acoustic Ideas');
+      expect(find.text('♪'), findsNothing);
+      expect(find.text('♬'), findsNothing);
+    });
+
     testWidgets('the unread count is on the row and on the icon',
         (tester) async {
       final controller = await _controller();
@@ -152,6 +162,36 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('room_thread_empty')), findsOneWidget);
     });
+    testWidgets('the thread carries the room: invite, picture, songs, delete',
+        (tester) async {
+      final repo = InMemoryMusicRepository.seeded();
+      final controller = await _controller(repo);
+      await _pump(tester, controller);
+
+      await tester.tap(find.byKey(const Key('thread_room_room-2')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('room_thread_mark')), findsOneWidget);
+      expect(find.byKey(const Key('room_thread_invite')), findsOneWidget);
+      expect(find.byKey(const Key('room_thread_picture')), findsOneWidget);
+      expect(find.byKey(const Key('room_thread_songs')), findsOneWidget);
+      // Nobody to list in a room of one.
+      expect(find.byKey(const Key('room_thread_members')), findsNothing);
+
+      // The owner can delete it, from here, and the list forgets it.
+      await tester.tap(find.byKey(const Key('room_thread_more')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('room_thread_leave')), findsNothing);
+      await tester.tap(find.byKey(const Key('room_thread_delete')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('delete_room_confirm')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('room_thread_headline')), findsNothing);
+      expect(find.text('Acoustic Ideas'), findsNothing);
+      final rooms = await repo.loadRooms();
+      expect(rooms.any((r) => r.id == 'room-2'), isFalse);
+    });
+
     testWidgets('a room can be started from here and opens as a thread',
         (tester) async {
       final repo = InMemoryMusicRepository.seeded();

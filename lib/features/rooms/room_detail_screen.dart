@@ -11,14 +11,12 @@ import '../../domain/music_models.dart';
 import '../../services/song_search.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/bloom_tap.dart';
-import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/music_tiles.dart';
 import '../messages/room_thread_sheet.dart';
 import '../openmic/report_sheet.dart';
 import '../songs/new_song_flow.dart';
 import '../workspace/song_workspace_screen.dart';
-import '../../services/picture_for_upload.dart';
-import '../../services/user_facing_error.dart';
+import 'room_actions.dart';
 import 'room_members_screen.dart';
 
 enum _ProjectSort { manual, updatedRecent, alphabetical, createdNewest, createdOldest }
@@ -453,120 +451,33 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
   }
 
   /// The room's picture, which used to live on a screen nothing opened.
-  Future<void> _pickRoomLogo(MusicRoom room) async {
-    final controller = BetaScope.of(context, listen: false);
-    final file = await FilePicker.pickFile(type: FileType.image);
-    if (file == null || !mounted) return;
-    try {
-      final bytes = await file.readAsBytes();
-      if (bytes.isEmpty) throw Exception('That image could not be read.');
-      await controller.setRoomLogo(room, await PictureForUpload.shrink(bytes));
-    } catch (error) {
-      if (!mounted) return;
-      _showMessage(reportAndDescribe(error,
-          service: 'app', stage: 'set_room_logo', route: 'Room'));
-    }
-  }
+  // The room's actions live in room_actions.dart, shared with the room's
+  // thread on the Messages tab, so the two doors never disagree.
+  Future<void> _pickRoomLogo(MusicRoom room) =>
+      pickRoomLogo(context, BetaScope.of(context, listen: false), room);
 
-  Future<void> _clearRoomLogo(MusicRoom room) async {
-    final controller = BetaScope.of(context, listen: false);
-    try {
-      await controller.clearRoomLogo(room);
-    } catch (error) {
-      if (!mounted) return;
-      _showMessage(reportAndDescribe(error,
-          service: 'app', stage: 'clear_room_logo', route: 'Room'));
-    }
-  }
+  Future<void> _clearRoomLogo(MusicRoom room) =>
+      clearRoomLogo(context, BetaScope.of(context, listen: false), room);
 
   /// Whether this room is yours to delete.
   ///
   /// An owner cannot leave — there would be nobody left who can invite,
   /// rename or delete it — and everybody else cannot delete. So the menu
   /// offers exactly one of the two, and never both.
-  bool _amOwner(MusicRoom room) {
-    final me = BetaScope.of(context, listen: false).repository.currentUserId;
-    for (final member in room.members) {
-      if (member.userId == me) return member.role == RoomRole.owner;
-    }
-    return false;
-  }
+  bool _amOwner(MusicRoom room) => isRoomOwner(
+      room, BetaScope.of(context, listen: false).repository.currentUserId);
 
   Future<void> _leaveRoom(MusicRoom room) async {
-    final controller = BetaScope.of(context, listen: false);
     final navigator = Navigator.of(context);
-    final sure = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.raised,
-        title: Text('Leave ${room.name}?'),
-        content: const Text(
-          'You lose the room and every song in it. What you recorded stays '
-          'with the songs — a take keeps its author, and leaving does not '
-          'erase the work you did with them.',
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Stay'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFFF718B)),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Leave'),
-          ),
-        ],
-      ),
-    );
-    if (sure != true || !mounted) return;
-    try {
-      await controller.leaveRoom(room.id);
+    if (await leaveRoom(context, BetaScope.of(context, listen: false), room)) {
       navigator.pop();
-    } catch (error) {
-      if (!mounted) return;
-      _showMessage(reportAndDescribe(error,
-          service: 'app', stage: 'leave_room', route: 'Room'));
     }
   }
 
   Future<void> _deleteRoom(MusicRoom room) async {
-    final controller = BetaScope.of(context, listen: false);
     final navigator = Navigator.of(context);
-    final sure = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.raised,
-        title: Text('Delete ${room.name}?'),
-        content: Text(
-          'This permanently deletes the room and everything in it — '
-          '${room.projects.length} '
-          '${room.projects.length == 1 ? 'song' : 'songs'}, with their '
-          'words, takes and song sheets. It takes them from everybody in '
-          'the room, not only you, and cannot be undone.',
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Keep'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFFF718B)),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (sure != true || !mounted) return;
-    try {
-      await controller.deleteRoom(room);
+    if (await deleteRoom(context, BetaScope.of(context, listen: false), room)) {
       navigator.pop();
-    } catch (error) {
-      if (!mounted) return;
-      _showMessage(reportAndDescribe(error,
-          service: 'app', stage: 'delete_room', route: 'Room'));
     }
   }
 
@@ -595,20 +506,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
       return const Scaffold(body: Center(child: Text('This room is no longer available.')));
     }
 
-    Future<void> rename() async {
-      final value = await showDialog<String>(
-        context: context,
-        builder: (_) => _RenameRoomDialog(initialName: room.name),
-      );
-      if (value == null) return;
-      try {
-        await controller.renameRoom(room, value);
-      } catch (error) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Room'))));
-        }
-      }
-    }
+    Future<void> rename() => renameRoom(context, controller, room);
 
     Future<void> newSong() async {
       final project = await showNewSongFlow(context, controller, initialRoom: room);
@@ -616,28 +514,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
       _openProject(project);
     }
 
-    Future<void> invite() async {
-      final draft = await showDialog<InviteDraft>(
-        context: context,
-        builder: (_) => const InviteCollaboratorDialog(),
-      );
-      if (draft == null) return;
-      try {
-        final result = await controller.createInvite(room, draft.email, role: draft.role);
-        if (!context.mounted) return;
-        if (result.matchedAccount) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Invite sent — ${draft.email} will see it in their Invites tab.')),
-          );
-        } else {
-          await showInviteReadyDialog(context, email: draft.email, code: result.code);
-        }
-      } catch (error) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Room'))));
-        }
-      }
-    }
+    Future<void> invite() => inviteToRoom(context, controller, room);
 
     return Scaffold(
       appBar: AppBar(
@@ -652,8 +529,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
             key: const Key('room_talk'),
             onPressed: () => unawaited(showRoomThread(
               context,
-              repository: controller.repository,
-              changes: controller,
+              controller: controller,
               roomId: room.id,
               roomName: room.name,
             )),
@@ -1246,51 +1122,6 @@ class _NewSetlistDialogState extends State<_NewSetlistDialog> {
       actions: <Widget>[
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(onPressed: () => Navigator.pop(context, _name.text), child: const Text('Create')),
-      ],
-    );
-  }
-}
-
-class _RenameRoomDialog extends StatefulWidget {
-  const _RenameRoomDialog({required this.initialName});
-
-  final String initialName;
-
-  @override
-  State<_RenameRoomDialog> createState() => _RenameRoomDialogState();
-}
-
-class _RenameRoomDialogState extends State<_RenameRoomDialog> {
-  late final TextEditingController _name;
-
-  @override
-  void initState() {
-    super.initState();
-    _name = TextEditingController(text: widget.initialName);
-  }
-
-  @override
-  void dispose() {
-    _name.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Rename room'),
-      content: TextField(
-        controller: _name,
-        autofocus: true,
-        textCapitalization: TextCapitalization.words,
-        onSubmitted: (value) => Navigator.pop(context, value),
-      ),
-      actions: <Widget>[
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _name.text),
-          child: const Text('Save'),
-        ),
       ],
     );
   }

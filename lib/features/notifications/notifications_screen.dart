@@ -306,8 +306,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                               final dot = title.lastIndexOf(' · ');
                               unawaited(showRoomThread(
                                 context,
-                                repository: controller.repository,
-                                changes: controller,
+                                controller: controller,
                                 roomId: notification.roomId!,
                                 roomName: room?.name ??
                                     (dot < 0 ? title : title.substring(dot + 3)),
