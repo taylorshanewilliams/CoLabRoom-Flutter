@@ -61,6 +61,10 @@ enum WaitingKind {
 
   /// Somebody said "not now" to playing something on their first launch.
   firstTake,
+
+  /// Something new for today: a release, a chord move on your own song,
+  /// a first line to record. See features/songs/tonight.dart.
+  tonight,
 }
 
 class WaitingItem {
@@ -153,6 +157,9 @@ class WaitingItem {
   /// best in one glance.
   int get rank => switch (kind) {
         WaitingKind.news => isPlayable ? 0 : 1,
+        // Between what you can hear and who is waiting: new every day,
+        // and the reason to have opened the app when nothing else is.
+        WaitingKind.tonight => 1,
         WaitingKind.request => 2,
         // Ahead of the chores: everything below it may be missing from this
         // phone, and the person on the other end of a request may be waiting
@@ -170,6 +177,7 @@ class WaitingItem {
         WaitingKind.sheet => Icons.article_outlined,
         WaitingKind.update => Icons.system_update_alt_rounded,
         WaitingKind.firstTake => Icons.mic_rounded,
+        WaitingKind.tonight => Icons.nightlight_round,
       };
 
   Color get tint => switch (kind) {
@@ -179,6 +187,7 @@ class WaitingItem {
         WaitingKind.sheet => AppColors.gold,
         WaitingKind.update => AppColors.orange,
         WaitingKind.firstTake => AppColors.cyan,
+        WaitingKind.tonight => AppColors.gold,
       };
 
   String get defaultEyebrow => switch (kind) {
@@ -188,6 +197,7 @@ class WaitingItem {
         WaitingKind.sheet => 'No song sheet',
         WaitingKind.update => 'Newer build',
         WaitingKind.firstTake => 'When you have a minute',
+        WaitingKind.tonight => 'Tonight',
       };
 }
 

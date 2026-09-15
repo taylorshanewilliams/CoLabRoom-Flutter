@@ -40,6 +40,10 @@ abstract final class SetAside {
   /// and should never appear again.
   static const String hint = 'hint';
 
+  /// A Tonight card somebody closed: a release sha, a song-and-chord, or
+  /// a prompt and its day. Closed means it does not come back.
+  static const String tonight = 'tonight';
+
   static String _key(String kind) => 'set_aside_$kind';
 
   /// Held in memory so a list can be drawn without waiting for a disk read,
@@ -56,7 +60,7 @@ abstract final class SetAside {
   static Future<void> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      for (final kind in <String>[pickItBackUp, songSheet, hint]) {
+      for (final kind in <String>[pickItBackUp, songSheet, hint, tonight]) {
         _held[kind] = prefs.getStringList(_key(kind))?.toSet() ?? <String>{};
       }
     } catch (_) {

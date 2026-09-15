@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../domain/activity.dart';
 import '../domain/music_models.dart';
+import '../domain/tonight_models.dart';
 
 abstract interface class MusicRepository {
   Stream<void> get changes;
@@ -574,6 +575,13 @@ abstract interface class MusicRepository {
 
   /// Take back something you said to the room.
   Future<void> deleteRoomMessage(RoomMessage message);
+
+  /// Today's prompt, kept for the day, and one of your songs with a key
+  /// and chords, for the Tonight card on Home.
+  Future<Tonight> tonight();
+
+  /// What changed in the app lately, newest first.
+  Future<List<ReleaseNote>> releaseNotes();
 
   /// The notes you have left, unexpired, newest first.
   Future<List<StandingWant>> myWants();

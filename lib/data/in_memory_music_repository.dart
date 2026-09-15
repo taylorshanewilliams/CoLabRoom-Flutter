@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../domain/activity.dart';
 import '../domain/music_models.dart';
+import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
 import 'music_repository.dart';
 
@@ -1798,6 +1799,21 @@ class InMemoryMusicRepository implements MusicRepository {
     _roomMessages[message.roomId]
         ?.removeWhere((existing) => existing.id == message.id);
   }
+
+  @override
+  Future<Tonight> tonight() async => const Tonight(
+        prompt: TonightPrompt(
+          id: 1,
+          kind: 'first_line',
+          title: 'Write the first line',
+          body: 'The thing you should have said in the car. One breath, '
+              'into the phone.',
+          cta: 'Record',
+        ),
+      );
+
+  @override
+  Future<List<ReleaseNote>> releaseNotes() async => const <ReleaseNote>[];
 
   @override
   Future<List<StandingWant>> myWants() async => List<StandingWant>.unmodifiable(

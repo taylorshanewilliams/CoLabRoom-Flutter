@@ -21,6 +21,7 @@ import '../../widgets/app_top_bar.dart';
 import 'new_song_flow.dart';
 import 'pick_it_back_up.dart';
 import 'waiting_on_you.dart';
+import 'tonight.dart';
 import '../../app/beta_config.dart';
 import '../../services/app_release.dart';
 import '../welcome/play_later.dart';
@@ -322,6 +323,33 @@ class _SongsScreenState extends State<SongsScreen> {
     final controller = BetaScope.of(context);
     final items = <WaitingItem>[];
 
+    // Something new for today. Closing it closes exactly this one; the
+    // next day has its own.
+    final tonight = composeTonight(
+      today: DateTime.now(),
+      releases: controller.releases,
+      song: controller.tonight.song,
+      prompt: controller.tonight.prompt,
+      seen: (id) => SetAside.has(SetAside.tonight, id),
+    );
+    if (tonight != null) {
+      items.add(WaitingItem(
+        id: 'tonight-${tonight.id}',
+        kind: WaitingKind.tonight,
+        eyebrow: switch (tonight.kind) {
+          TonightKind.whatChanged => 'New this week',
+          TonightKind.chordMove => 'Tonight · a chord',
+          TonightKind.firstLine => 'Tonight · a first line',
+          TonightKind.challenge => 'Tonight · a challenge',
+        },
+        line: tonight.title,
+        detail: tonight.body,
+        actionLabel: tonight.cta,
+        onAction: () => unawaited(_doTonight(tonight)),
+        onDismiss: () => unawaited(_setAside(SetAside.tonight, tonight.id)),
+      ));
+    }
+
     // People first. Somebody is on the other end of this one.
     for (final person in _requests) {
       items.add(WaitingItem(
@@ -460,6 +488,42 @@ class _SongsScreenState extends State<SongsScreen> {
     }
 
     return items;
+  }
+
+  /// Doing what the Tonight card asks. A first line opens the recorder; a
+  /// chord move opens the song; a challenge opens the song you left or
+  /// the first one you have; a release is read and closed.
+  Future<void> _doTonight(TonightCard card) async {
+    final controller = BetaScope.of(context, listen: false);
+    switch (card.kind) {
+      case TonightKind.whatChanged:
+        await _setAside(SetAside.tonight, card.id);
+      case TonightKind.chordMove:
+        final id = card.projectId;
+        if (id != null) _openProjectById(id);
+      case TonightKind.firstLine:
+        final record = widget.onRecord;
+        if (record != null) {
+          record();
+        } else {
+          await showNewSongFlow(context, controller);
+        }
+      case TonightKind.challenge:
+        final left = PickItBackUp.choose(<SongProject>[
+          for (final room in controller.rooms) ...room.projects,
+        ]);
+        final song = left?.song ??
+            controller.rooms
+                .expand((room) => room.projects)
+                .cast<SongProject?>()
+                .firstWhere((_) => true, orElse: () => null);
+        if (song != null) {
+          _open(song);
+        } else {
+          final record = widget.onRecord;
+          if (record != null) record();
+        }
+    }
   }
 
   /// Said no, and remembered.

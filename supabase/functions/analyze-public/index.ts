@@ -130,6 +130,23 @@ Deno.serve(async (request: Request) => {
   // measurement has to keep working on a day the chord service does not,
   // because that is one of the days it has something to say.
   const url = new URL(request.url);
+  // GET /analyze-public/tonight: the prompt of the day, for the website.
+  // The same table the app draws its Tonight card from (0121), one row
+  // for everybody, so the front door is alive from the same rows and the
+  // pages keep shipping no credentials of their own.
+  if (url.pathname.endsWith('/tonight')) {
+    try {
+      const { data } = await createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        .rpc('tonight_for_everyone');
+      const row = Array.isArray(data) ? data[0] : data;
+      return new Response(JSON.stringify(row ?? null), {
+        status: 200,
+        headers: { ...CORS, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
+      });
+    } catch (_) {
+      return new Response('null', { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } });
+    }
+  }
   if (url.pathname.endsWith('/note')) {
     const step = url.searchParams.get('step') ?? '';
     // The flier or board the visitor came from, when the page kept one.

@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../app/beta_config.dart';
 import '../domain/activity.dart';
 import '../domain/music_models.dart';
+import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
 import '../domain/song_analysis_models.dart' show SongAnalysisState;
 import 'music_repository.dart';
@@ -2238,6 +2239,51 @@ class SupabaseMusicRepository implements MusicRepository {
   @override
   Future<void> deleteRoomMessage(RoomMessage message) async {
     await client.from('room_messages').delete().eq('id', message.id);
+  }
+
+  @override
+  Future<Tonight> tonight() async {
+    final rows = await client.rpc<dynamic>('tonight');
+    final list = rows as List<dynamic>? ?? const <dynamic>[];
+    if (list.isEmpty) return const Tonight();
+    final row = Map<String, dynamic>.from(list.first as Map);
+    final promptId = row['prompt_id'];
+    final prompt = promptId == null
+        ? null
+        : TonightPrompt(
+            id: (promptId as num).toInt(),
+            kind: row['kind'] as String? ?? 'first_line',
+            title: row['title'] as String? ?? '',
+            body: row['body'] as String? ?? '',
+            cta: row['cta'] as String? ?? 'Open',
+          );
+    final songId = row['song_id'] as String?;
+    final song = songId == null
+        ? null
+        : TonightSong(
+            projectId: songId,
+            title: row['song_title'] as String? ?? 'A song',
+            key: row['song_key'] as String? ?? '',
+            chords: <String>[
+              for (final c in (row['song_chords'] as List<dynamic>? ?? const <dynamic>[]))
+                c as String,
+            ],
+          );
+    return Tonight(prompt: prompt, song: song);
+  }
+
+  @override
+  Future<List<ReleaseNote>> releaseNotes() async {
+    final rows = await client.rpc<dynamic>('release_notes');
+    return <ReleaseNote>[
+      for (final value in (rows as List<dynamic>? ?? const <dynamic>[]))
+        ReleaseNote(
+          sha: (value as Map)['sha'] as String,
+          title: value['title'] as String? ?? '',
+          body: value['body'] as String? ?? '',
+          mergedAt: DateTime.parse(value['merged_at'] as String).toLocal(),
+        ),
+    ];
   }
 
   @override
