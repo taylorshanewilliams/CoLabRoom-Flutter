@@ -54,6 +54,9 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+-- The variable and the column share a name in ON CONFLICT; the column
+-- is the one meant there.
+#variable_conflict use_column
 declare
   code text := lower(trim(coalesce(in_code, '')));
 begin
@@ -94,6 +97,9 @@ returns boolean
 language plpgsql
 security definer set search_path = ''
 as $$
+-- The parameter is called code and so is the column; the column wins
+-- inside the statements below.
+#variable_conflict use_column
 declare
   clean text := lower(trim(coalesce(code, '')));
   claimed boolean := false;
