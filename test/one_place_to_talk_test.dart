@@ -152,6 +152,34 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('room_thread_empty')), findsOneWidget);
     });
+    testWidgets('a room can be started from here and opens as a thread',
+        (tester) async {
+      final repo = InMemoryMusicRepository.seeded();
+      final controller = await _controller(repo);
+      await _pump(tester, controller);
+
+      await tester.tap(find.byKey(const Key('messages_new')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('messages_new_person')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('messages_new_room')));
+      await tester.pumpAndSettle();
+      expect(find.text('Create a room'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'Thursday Band');
+      await tester.tap(find.text('Create room'));
+      await tester.pumpAndSettle();
+
+      // The new room's thread is open, empty, ready.
+      expect(find.byKey(const Key('room_thread_headline')), findsOneWidget);
+      expect(find.byKey(const Key('room_thread_empty')), findsOneWidget);
+
+      // Closing it leaves the room in the list.
+      await tester.tapAt(const Offset(195, 40));
+      await tester.pumpAndSettle();
+      final threads = await repo.myThreads();
+      expect(threads.any((t) => t.name == 'Thursday Band'), isTrue);
+      expect(find.text('Thursday Band'), findsOneWidget);
+    });
   });
 
   group('the summary', () {
