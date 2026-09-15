@@ -6,6 +6,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../services/push_delivery_report.dart';
 import '../../services/push_registration.dart';
+import '../../services/registered_devices.dart';
 import '../../services/test_when_closed.dart';
 import '../../widgets/problem_report.dart';
 import '../../widgets/app_surface.dart';
@@ -40,6 +41,11 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile>
   /// What the phone has confirmed this week. The answer to "is this
   /// actually working", which the switch above cannot give.
   PushDeliveryReport? _report;
+
+  /// Which phones this account can be reached on, and whether this is one of
+  /// them. "Registered" and "registered here" are different facts, and until
+  /// now the screen could only say the first.
+  String? _devices;
   bool _busy = false;
   bool _testing = false;
   bool _armed = TestWhenClosed.instance.isArmed;
@@ -79,11 +85,17 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile>
     final allowed = await PushRegistration.isAllowed();
     final reachable = allowed ? await PushRegistration.reachesThisAccount() : false;
     final report = reachable ? await PushRegistration.deliveryReport() : null;
+    final registered =
+        reachable ? await PushRegistration.registeredDevices() : null;
     if (mounted) {
       setState(() {
         _allowed = allowed;
         _reachable = reachable;
         _report = report;
+        _devices = registered == null
+            ? null
+            : describeRegisteredDevices(registered.devices,
+                myToken: registered.myToken);
       });
     }
   }
@@ -223,6 +235,19 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile>
                 }
               }),
             ),
+            // Where a notification can go, which is not the same fact as
+            // whether notifications are on. An account can have a phone
+            // registered while this phone is not it, and that reads as
+            // working from every other line on this screen.
+            if (_devices != null)
+              ListTile(
+                key: const Key('registered_devices'),
+                dense: true,
+                title: const Text('Where they go'),
+                subtitle: Text(_devices!),
+                trailing: const Icon(Icons.phone_iphone_rounded, size: 18),
+                onTap: () => unawaited(_check()),
+              ),
             // The answer, from the phone itself. Every push carries its
             // notification's id and the app reports each one back as it
             // arrives -- with the app closed, open, or by a tap -- so this
