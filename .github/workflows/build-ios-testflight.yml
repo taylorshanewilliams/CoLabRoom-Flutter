@@ -279,17 +279,27 @@ jobs:
 
               # The watcher only exists if something registers it, and
               # GeneratedPluginRegistrant only knows about pub packages.
+              #
+              # What it registers *with* is not a constant, which is why the
+              # first version of this failed the build. Flutter 3.47 moved
+              # registration out of didFinishLaunching and into
+              # didInitializeImplicitFlutterEngine, where the registry is
+              # `engineBridge.pluginRegistry` rather than `self`. Rather than
+              # pick one and be wrong again the next time the template moves,
+              # this reads whatever GeneratedPluginRegistrant was handed and
+              # hands the watcher the same thing.
               ruby -e '
                 path = "ios/Runner/AppDelegate.swift"
                 src = File.read(path)
-                anchor = "GeneratedPluginRegistrant.register(with: self)"
-                unless src.include?(anchor)
-                  abort("::error::AppDelegate.swift is not the template this patch expects")
+                found = src.match(/GeneratedPluginRegistrant\.register\(with: ([^)]+)\)/)
+                if found.nil?
+                  abort("::error::AppDelegate.swift registers no plugins in any form this patch recognises; the Flutter template has moved again")
                 end
                 unless src.include?("ApnsWatcher.register")
-                  added = anchor + "\n    if let registrar = self.registrar(forPlugin: \"ApnsWatcher\") {\n      ApnsWatcher.register(with: registrar)\n    }"
-                  File.write(path, src.sub(anchor, added))
+                  added = found[0] + "\n    if let registrar = " + found[1] + ".registrar(forPlugin: \"ApnsWatcher\") {\n      ApnsWatcher.register(with: registrar)\n    }"
+                  File.write(path, src.sub(found[0], added))
                 end
+                puts "registered the APNs watcher with " + found[1]
               '
               grep -q "ApnsWatcher.register" ios/Runner/AppDelegate.swift \
                 || { echo "::error::The APNs watcher was never registered, so Apple would keep refusing invisibly"; exit 1; }
