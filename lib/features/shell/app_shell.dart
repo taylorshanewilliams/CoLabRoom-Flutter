@@ -203,6 +203,7 @@ class _AppShellState extends State<AppShell> {
           // button lives here, and finding people means changing tab.
           onRecord: () => unawaited(_record()),
           onFindMusicians: () => _go(1),
+          onOpenMessages: () => _go(2),
         ),
         // Built through a Builder because it needs the repository, and the
         // scope is not reachable from initState.

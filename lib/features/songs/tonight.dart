@@ -1,4 +1,5 @@
 import '../../domain/tonight_models.dart';
+import 'firsts.dart';
 import '../../services/chord_names.dart';
 import '../../services/music_reference.dart';
 
@@ -20,7 +21,7 @@ import '../../services/music_reference.dart';
 ///
 /// Pure, so the rule can be tested: give it the day and what the app knows,
 /// get the card. Nothing here is a lesson and nothing here is a score.
-enum TonightKind { whatChanged, chordMove, firstLine, challenge }
+enum TonightKind { whatChanged, firstStep, chordMove, firstLine, challenge }
 
 class TonightCard {
   const TonightCard({
@@ -30,6 +31,7 @@ class TonightCard {
     required this.body,
     required this.cta,
     this.projectId,
+    this.go,
   });
 
   final TonightKind kind;
@@ -41,6 +43,9 @@ class TonightCard {
   final String body;
   final String cta;
   final String? projectId;
+
+  /// Where a first step leads. Null for every other kind.
+  final FirstGo? go;
 }
 
 /// The note a chord label starts on: "F#m7" -> "F#", "A:min7" -> "A".
@@ -78,6 +83,7 @@ TonightCard? composeTonight({
   required TonightSong? song,
   required TonightPrompt? prompt,
   required bool Function(String id) seen,
+  List<First> firsts = const <First>[],
 }) {
   // 1. What changed, once per release, for a week.
   for (final release in releases) {
@@ -94,7 +100,21 @@ TonightCard? composeTonight({
     );
   }
 
-  // 2. A chord move on your own song, on even days, when there is one.
+  // 2. Something you can now do, unlocked by what you have done, once.
+  for (final first in firsts) {
+    if (seen(first.id)) continue;
+    return TonightCard(
+      kind: TonightKind.firstStep,
+      id: first.id,
+      title: first.title,
+      body: first.body,
+      cta: first.cta,
+      projectId: first.projectId,
+      go: first.go,
+    );
+  }
+
+  // 3. A chord move on your own song, on even days, when there is one.
   // Counted in UTC dates: a local difference across a clock change is a
   // day short, and an odd day would silently become an even one.
   final dayOfYear = DateTime.utc(today.year, today.month, today.day)
@@ -121,7 +141,7 @@ TonightCard? composeTonight({
     }
   }
 
-  // 3. A prompt from the table.
+  // 4. A prompt from the table.
   if (prompt != null) {
     final id = 'prompt-${prompt.id}-${today.year}-${today.month}-${today.day}';
     if (!seen(id)) {
