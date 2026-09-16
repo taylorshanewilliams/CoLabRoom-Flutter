@@ -109,10 +109,6 @@ class SongsScreen extends StatefulWidget {
 class _SongsScreenState extends State<SongsScreen> {
   /// How many times somebody has asked for a different old idea today.
   ///
-  /// Session-only on purpose. Saying "something else" is a mood, not a
-  /// setting, and a skip that persisted would slowly hide the pile it exists
-  /// to open up.
-  int _somethingElse = 0;
 
   final _searchController = TextEditingController();
   String _query = '';
@@ -414,9 +410,11 @@ class _SongsScreenState extends State<SongsScreen> {
     final controller = BetaScope.of(context);
     final items = <WaitingItem>[];
 
-    // Something new for today. Closing it closes exactly this one; the
-    // next day has its own.
-    final tonight = composeTonight(
+    // Something new for today -- every card that is due, each its own.
+    // Closing one closes exactly that one, and nothing steps out from
+    // behind it: Taylor wants them "all being there scrollable ... without
+    // anything being buried".
+    final tonightCards = composeTonightCards(
       today: DateTime.now(),
       releases: controller.releases,
       song: controller.tonight.song,
@@ -428,7 +426,7 @@ class _SongsScreenState extends State<SongsScreen> {
       ),
       seen: (id) => SetAside.has(SetAside.tonight, id),
     );
-    if (tonight != null) {
+    for (final tonight in tonightCards) {
       items.add(WaitingItem(
         id: 'tonight-${tonight.id}',
         kind: WaitingKind.tonight,
@@ -447,12 +445,9 @@ class _SongsScreenState extends State<SongsScreen> {
       ));
     }
 
-    // What a lesson left to practise. One card a song, the latest, and two
-    // at most: a row of five lessons is a timetable, not a thing to do
-    // tonight.
+    // What a lesson left to practise. One card a song, the latest.
     final practised = <String>{};
     for (final mark in controller.practiceMarks) {
-      if (practised.length == 2) break;
       if (practised.contains(mark.projectId)) continue;
       if (SetAside.has(SetAside.practice, mark.id)) continue;
       final song = _songById(controller, mark.projectId);
@@ -542,36 +537,38 @@ class _SongsScreenState extends State<SongsScreen> {
       ));
     }
 
-    // A recording with no sheet. One, not a queue: the queue was a card that
-    // announced how many other songs were behind this one, which is a fact
-    // about the pile rather than a thing to do.
+    // Every recording with no sheet, a card each. It used to be one at a
+    // time, so closing it only brought the next song out from behind.
     final queue = SongSheetQueue.from(controller.rooms)
         .without(SetAside.of(SetAside.songSheet));
+    // The queue keeps its lead apart from the rest of the waiting pile, so
+    // the lead goes back at the front of it.
     final lead = queue.lead;
-    if (lead != null && !queue.leadIsSheet) {
+    final unwritten = <SheetQueueEntry>[
+      if (lead != null && !queue.leadIsSheet) lead,
+      ...queue.waiting,
+    ];
+    for (final waiting in unwritten) {
       items.add(WaitingItem(
-        id: 'sheet-${lead.project.id}',
+        id: 'sheet-${waiting.project.id}',
         kind: WaitingKind.sheet,
-        line: lead.project.title,
+        line: waiting.project.title,
         detail: 'Recorded, not written down',
         actionLabel: 'Make it',
-        onAction: () => _openSheet(lead.project),
+        onAction: () => _openSheet(waiting.project),
         onDismiss: () =>
-            unawaited(_setAside(SetAside.songSheet, lead.project.id)),
+            unawaited(_setAside(SetAside.songSheet, waiting.project.id)),
       ));
     }
 
-    // Something you left. `_somethingElse` still rotates which one is
-    // offered; closing it stops this song being offered at all.
-    final left = PickItBackUp.choose(
-      <SongProject>[
-        for (final room in controller.rooms)
-          for (final project in room.projects)
-            if (!SetAside.has(SetAside.pickItBackUp, project.id)) project,
-      ],
-      skip: _somethingElse,
-    );
-    if (left != null) {
+    // Every song you left, a card each, the longest-left first. Closing one
+    // stops that song being offered and brings nothing out in its place.
+    final leftSongs = PickItBackUp.all(<SongProject>[
+      for (final room in controller.rooms)
+        for (final project in room.projects)
+          if (!SetAside.has(SetAside.pickItBackUp, project.id)) project,
+    ]);
+    for (final left in leftSongs) {
       items.add(WaitingItem(
         id: 'left-${left.song.id}',
         kind: WaitingKind.unfinished,
@@ -592,7 +589,7 @@ class _SongsScreenState extends State<SongsScreen> {
 
     // And what other people did. Last, because it is news rather than a
     // request -- nobody is waiting on you to read it.
-    for (final entry in controller.activity.take(3)) {
+    for (final entry in controller.activity) {
       final id = 'news-${entry.id}';
       if (SetAside.has(SetAside.pickItBackUp, id)) continue;
       items.add(WaitingItem(

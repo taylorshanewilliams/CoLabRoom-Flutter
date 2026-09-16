@@ -307,10 +307,19 @@ class _WaitingOnYouState extends State<WaitingOnYou> {
       for (final item in widget.items)
         if (!_hiddenForNow.contains(item.id)) item,
     ];
+    final order = <String, int>{
+      for (var i = 0; i < items.length; i++) items[i].id: i,
+    };
+    // Every card is in the row at once now, so where each one sits has to
+    // hold still: Dart's sort is not stable, and two cards of the same rank
+    // swapping places between rebuilds is a row that will not let you find
+    // the card you were looking at. Ties keep the order they were added in.
     items.sort((a, b) {
       final byRank = a.rank.compareTo(b.rank);
       if (byRank != 0) return byRank;
-      return (b.at ?? DateTime(0)).compareTo(a.at ?? DateTime(0));
+      final byWhen = (b.at ?? DateTime(0)).compareTo(a.at ?? DateTime(0));
+      if (byWhen != 0) return byWhen;
+      return order[a.id]!.compareTo(order[b.id]!);
     });
     return items;
   }

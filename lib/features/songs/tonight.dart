@@ -73,10 +73,7 @@ String? untouchedChordFor(TonightSong song) {
   return null;
 }
 
-/// Today's card.
-///
-/// [seen] is what the person has closed -- release shas, song-and-chord
-/// ids, prompt ids -- so nothing comes back once it has been dismissed.
+/// Today's card: the first of [composeTonightCards].
 TonightCard? composeTonight({
   required DateTime today,
   required List<ReleaseNote> releases,
@@ -85,25 +82,55 @@ TonightCard? composeTonight({
   required bool Function(String id) seen,
   List<First> firsts = const <First>[],
 }) {
+  final cards = composeTonightCards(
+    today: today,
+    releases: releases,
+    song: song,
+    prompt: prompt,
+    seen: seen,
+    firsts: firsts,
+  );
+  return cards.isEmpty ? null : cards.first;
+}
+
+/// Every card due today, in the order they matter.
+///
+/// Taylor, 16 September 2026, on Home's row: "currently you close one out
+/// and there's just another behind that one. i like the idea of them all
+/// being there scrollable and you can remove the ones you want and keep the
+/// ones you want without anything being buried." So all of them, side by
+/// side, rather than one at a time with the next waiting behind it.
+///
+/// [seen] is what the person has closed -- release shas, song-and-chord
+/// ids, prompt ids -- so nothing comes back once it has been dismissed.
+List<TonightCard> composeTonightCards({
+  required DateTime today,
+  required List<ReleaseNote> releases,
+  required TonightSong? song,
+  required TonightPrompt? prompt,
+  required bool Function(String id) seen,
+  List<First> firsts = const <First>[],
+}) {
+  final cards = <TonightCard>[];
   // 1. What changed, once per release, for a week.
   for (final release in releases) {
     final age = today.difference(release.mergedAt);
     if (age.inDays > 7 || age.isNegative) continue;
     final id = 'release-${release.sha}';
     if (seen(id)) continue;
-    return TonightCard(
+    cards.add(TonightCard(
       kind: TonightKind.whatChanged,
       id: id,
       title: release.title,
       body: release.body.isEmpty ? 'New in this build.' : release.body,
       cta: 'Got it',
-    );
+    ));
   }
 
   // 2. Something you can now do, unlocked by what you have done, once.
   for (final first in firsts) {
     if (seen(first.id)) continue;
-    return TonightCard(
+    cards.add(TonightCard(
       kind: TonightKind.firstStep,
       id: first.id,
       title: first.title,
@@ -111,7 +138,7 @@ TonightCard? composeTonight({
       cta: first.cta,
       projectId: first.projectId,
       go: first.go,
-    );
+    ));
   }
 
   // 3. A chord move on your own song, on even days, when there is one.
@@ -127,7 +154,7 @@ TonightCard? composeTonight({
       if (!seen(id)) {
         final key = keyReference(song.key);
         final written = chordDisplay(chord);
-        return TonightCard(
+        cards.add(TonightCard(
           kind: TonightKind.chordMove,
           id: id,
           title: 'Try $written on ${song.title}',
@@ -136,7 +163,7 @@ TonightCard? composeTonight({
               'hear what it does.',
           cta: 'Open ${song.title}',
           projectId: song.projectId,
-        );
+        ));
       }
     }
   }
@@ -145,7 +172,7 @@ TonightCard? composeTonight({
   if (prompt != null) {
     final id = 'prompt-${prompt.id}-${today.year}-${today.month}-${today.day}';
     if (!seen(id)) {
-      return TonightCard(
+      cards.add(TonightCard(
         kind: prompt.kind == 'challenge'
             ? TonightKind.challenge
             : TonightKind.firstLine,
@@ -153,8 +180,8 @@ TonightCard? composeTonight({
         title: prompt.title,
         body: prompt.body,
         cta: prompt.cta,
-      );
+      ));
     }
   }
-  return null;
+  return cards;
 }

@@ -116,6 +116,24 @@ class PickItBackUp extends StatelessWidget {
   /// Rotates by the day rather than always offering the oldest. A single dead
   /// song at the top of the list every morning stops being an invitation by
   /// Thursday, and the whole graveyard deserves a turn.
+  /// Every song that counts as left, the longest-left first -- for Home's
+  /// row, where each one is its own card and closing one never brings
+  /// another out from behind it.
+  static List<LeftBehind> all(List<SongProject> songs, {DateTime? now}) {
+    final today = now ?? DateTime.now();
+    final candidates = songs
+        .where((song) =>
+            song.status == SongStatus.active &&
+            song.hasAudioReference &&
+            today.difference(song.updatedAt) >= forgotten)
+        .toList()
+      ..sort((a, b) => a.updatedAt.compareTo(b.updatedAt));
+    return <LeftBehind>[
+      for (final song in candidates)
+        LeftBehind(song: song, since: today.difference(song.updatedAt)),
+    ];
+  }
+
   static LeftBehind? choose(
     List<SongProject> songs, {
     DateTime? now,
