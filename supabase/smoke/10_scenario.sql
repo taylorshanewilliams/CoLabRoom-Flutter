@@ -3621,4 +3621,130 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- What the lesson left (0128).
+--
+-- The writer followed somebody on their own song and kept what was worked
+-- on. Keeping it again under the same name updates the one row and keeps
+-- the note; a stranger can neither keep a mark on that song nor read the
+-- writer's; and a part that is not a part is refused.
+-- ---------------------------------------------------------------------
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+select public.keep_practice_mark(
+  'cccccccc-0128-0000-0000-000000000001',
+  'aaaaaaaa-0000-0000-0000-00000000000a',
+  'eeeeeeee-0000-0000-0000-00000000000e',
+  'The Teacher',
+  'Keep it slow until the change is clean',
+  '[{"start": 3000, "end": 6000, "label": "Chorus 1", "rate": 0.75, "seconds": 95}]'::jsonb
+);
+
+-- The student took over, followed again, and the phone saved the same mark
+-- with more in it and no note this time.
+select public.keep_practice_mark(
+  'cccccccc-0128-0000-0000-000000000001',
+  'aaaaaaaa-0000-0000-0000-00000000000a',
+  'eeeeeeee-0000-0000-0000-00000000000e',
+  'The Teacher',
+  null,
+  '[{"start": 3000, "end": 6000, "label": "Chorus 1", "rate": 0.75, "seconds": 140},
+    {"start": null, "end": null, "label": "The whole song", "rate": 1, "seconds": 30}]'::jsonb
+);
+
+do $$
+declare
+  kept record;
+begin
+  if (select count(*) from public.my_practice_marks()) <> 1 then
+    raise exception 'a second save of the same session made a second mark (got %)',
+      (select count(*) from public.my_practice_marks());
+  end if;
+  select * into kept from public.my_practice_marks() limit 1;
+  if kept.note is distinct from 'Keep it slow until the change is clean' then
+    raise exception 'a later save without a note took the note away (got %)', kept.note;
+  end if;
+  if jsonb_array_length(kept.parts) <> 2 then
+    raise exception 'the later save did not replace the parts';
+  end if;
+  if kept.led_by is distinct from 'eeeeeeee-0000-0000-0000-00000000000e'::uuid then
+    raise exception 'who led was not kept';
+  end if;
+end $$;
+
+-- A leader id that is nobody is kept as a name without a person.
+select public.keep_practice_mark(
+  'cccccccc-0128-0000-0000-000000000002',
+  'aaaaaaaa-0000-0000-0000-00000000000a',
+  'dddddddd-dead-dead-dead-dddddddddddd',
+  'Nobody Real',
+  null,
+  '[]'::jsonb
+);
+
+do $$
+begin
+  if (select led_by from public.practice_marks
+      where id = 'cccccccc-0128-0000-0000-000000000002') is not null then
+    raise exception 'an unknown leader id was stored as a person';
+  end if;
+
+  begin
+    perform public.keep_practice_mark(
+      'cccccccc-0128-0000-0000-000000000003',
+      'aaaaaaaa-0000-0000-0000-00000000000a',
+      null, 'Somebody', null,
+      '[{"label": "Chorus", "rate": "fast", "seconds": 10}]'::jsonb);
+    raise exception 'a part with no real speed was kept';
+  exception when invalid_parameter_value or invalid_text_representation then null;
+  end;
+
+  begin
+    insert into public.practice_marks (id, profile_id, project_id, led_by_name)
+    values ('cccccccc-0128-0000-0000-000000000004',
+            '11111111-1111-1111-1111-111111111111',
+            'aaaaaaaa-0000-0000-0000-00000000000a', 'Around the function');
+    raise exception 'a mark was written without going through keep_practice_mark';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- A stranger: not in the room, and the song was not shared with them.
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+
+do $$
+begin
+  if exists (select 1 from public.practice_marks) then
+    raise exception 'a stranger could read somebody''s practice marks';
+  end if;
+  if exists (select 1 from public.my_practice_marks()) then
+    raise exception 'my_practice_marks handed a stranger somebody else''s marks';
+  end if;
+
+  begin
+    perform public.keep_practice_mark(
+      'cccccccc-0128-0000-0000-000000000005',
+      'aaaaaaaa-0000-0000-0000-00000000000a',
+      null, 'Somebody', null, '[]'::jsonb);
+    raise exception 'a stranger kept a practice mark on a song that is not theirs';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- Nor take over the writer's mark by using its name.
+  begin
+    perform public.keep_practice_mark(
+      'cccccccc-0128-0000-0000-000000000001',
+      '44444444-4444-4444-4444-444444444444',
+      null, 'Somebody', 'mine now', '[]'::jsonb);
+    raise exception 'a stranger overwrote somebody else''s practice mark';
+  exception when insufficient_privilege or invalid_parameter_value then null;
+  end;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
 commit;

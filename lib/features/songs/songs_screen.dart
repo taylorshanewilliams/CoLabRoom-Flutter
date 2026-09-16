@@ -13,6 +13,11 @@ import '../../app/music_beta_controller.dart';
 import '../../widgets/player_face.dart';
 import '../../domain/activity.dart';
 import '../../domain/music_models.dart';
+import '../../domain/practice_mark.dart';
+import '../../domain/song_analysis_models.dart' show SongAnalysisBundle;
+import '../../services/song_analysis_service.dart';
+import '../workspace/live_performance_screen.dart';
+import '../workspace/practice_marks.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/bloom_tap.dart';
 import '../../domain/name_policy.dart';
@@ -442,6 +447,35 @@ class _SongsScreenState extends State<SongsScreen> {
       ));
     }
 
+    // What a lesson left to practise. One card a song, the latest, and two
+    // at most: a row of five lessons is a timetable, not a thing to do
+    // tonight.
+    final practised = <String>{};
+    for (final mark in controller.practiceMarks) {
+      if (practised.length == 2) break;
+      if (practised.contains(mark.projectId)) continue;
+      if (SetAside.has(SetAside.practice, mark.id)) continue;
+      final song = _songById(controller, mark.projectId);
+      if (song == null) continue;
+      practised.add(mark.projectId);
+      final worked = practiceWorked(mark);
+      final note = mark.note;
+      items.add(WaitingItem(
+        id: 'practice-${mark.id}',
+        kind: WaitingKind.practice,
+        who: mark.ledByName,
+        eyebrow: 'From ${mark.ledByName}',
+        line: song.title,
+        detail: <String>[
+          if (worked != null) worked,
+          if (note != null) '“$note”',
+        ].join(' · '),
+        actionLabel: 'Practise',
+        onAction: () => unawaited(_practise(song, mark)),
+        onDismiss: () => unawaited(_setAside(SetAside.practice, mark.id)),
+      ));
+    }
+
     // People first. Somebody is on the other end of this one.
     for (final person in _requests) {
       items.add(WaitingItem(
@@ -654,6 +688,39 @@ class _SongsScreenState extends State<SongsScreen> {
           if (record != null) record();
         }
     }
+  }
+
+  SongProject? _songById(MusicBetaController controller, String projectId) {
+    for (final room in controller.rooms) {
+      for (final project in room.projects) {
+        if (project.id == projectId) return project;
+      }
+    }
+    return null;
+  }
+
+  /// Straight to the part and the speed the lesson worked on, with the
+  /// song not yet playing: the student decides when to start.
+  Future<void> _practise(SongProject song, PracticeMark mark) async {
+    SongAnalysisBundle? bundle;
+    try {
+      bundle = await SongAnalysisService().load(song.id);
+    } catch (_) {
+      // Perform opens without the sheet's timing, as it does from the song.
+      bundle = null;
+    }
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.songLive(song.id)),
+        builder: (_) => LivePerformanceScreen(
+          project: song,
+          analysis: bundle,
+          practise: mark.lead,
+        ),
+        fullscreenDialog: true,
+      ),
+    );
   }
 
   /// Said no, and remembered.

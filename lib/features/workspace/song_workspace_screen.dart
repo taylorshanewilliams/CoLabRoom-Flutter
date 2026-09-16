@@ -756,6 +756,9 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       bundle = null;
     }
     if (!mounted) return;
+    // Held now rather than looked up when a mark arrives: the last one can
+    // arrive while this screen is being closed underneath Perform.
+    final controller = BetaScope.of(context, listen: false);
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         settings: RouteSettings(name: AppRoutes.songLive(project.id)),
@@ -764,6 +767,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           analysis: bundle,
           together: _together,
           me: currentUserIdOrNull() ?? '',
+          keepPractice: (mark) => unawaited(controller.keepPracticeMark(mark)),
         ),
         fullscreenDialog: true,
       ),

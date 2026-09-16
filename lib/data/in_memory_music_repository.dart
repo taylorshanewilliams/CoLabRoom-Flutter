@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../domain/activity.dart';
 import '../domain/music_models.dart';
+import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
 import 'music_repository.dart';
@@ -686,6 +687,7 @@ class InMemoryMusicRepository implements MusicRepository {
   };
   final Map<String, DateTime> _threadReads = <String, DateTime>{};
   final List<StandingWant> _wants = <StandingWant>[];
+  final List<PracticeMark> _practiceMarks = <PracticeMark>[];
   final Map<String, Set<String>> _nods = <String, Set<String>>{};
   final Map<String, String> _nodNotes = <String, String>{};
 
@@ -1842,6 +1844,33 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<void> dropWant(String id) async {
     _wants.removeWhere((want) => want.id == id);
+  }
+
+  @override
+  Future<List<PracticeMark>> myPracticeMarks() async {
+    final since = DateTime.now().subtract(const Duration(days: 14));
+    return List<PracticeMark>.unmodifiable(
+      _practiceMarks.where((mark) => mark.updatedAt.isAfter(since)),
+    );
+  }
+
+  @override
+  Future<void> keepPracticeMark(PracticeMark mark) async {
+    final index = _practiceMarks.indexWhere((kept) => kept.id == mark.id);
+    final note = (mark.note ?? '').trim().isNotEmpty
+        ? mark.note
+        : (index >= 0 ? _practiceMarks[index].note : null);
+    final kept = PracticeMark(
+      id: mark.id,
+      projectId: mark.projectId,
+      ledBy: mark.ledBy,
+      ledByName: mark.ledByName,
+      note: note,
+      parts: mark.parts,
+      updatedAt: DateTime.now(),
+    );
+    if (index >= 0) _practiceMarks.removeAt(index);
+    _practiceMarks.insert(0, kept);
   }
 
   @override

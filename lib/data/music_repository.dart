@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../domain/activity.dart';
 import '../domain/music_models.dart';
+import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
 
 abstract interface class MusicRepository {
@@ -596,6 +597,15 @@ abstract interface class MusicRepository {
 
   /// Not looking any more.
   Future<void> dropWant(String id);
+
+  /// What followed sessions left you to practise in the last fortnight,
+  /// newest first. Nobody else can read these.
+  Future<List<PracticeMark>> myPracticeMarks();
+
+  /// Keeps what a followed session worked on. Keeping a mark with the same
+  /// id again updates it; a note already kept is not lost to a later save
+  /// without one.
+  Future<void> keepPracticeMark(PracticeMark mark);
 
   /// Who is looking for what you play, as counts per part.
   Future<List<WantAround>> wantsAround();

@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../app/beta_config.dart';
 import '../domain/activity.dart';
 import '../domain/music_models.dart';
+import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
 import '../domain/song_analysis_models.dart' show SongAnalysisState;
@@ -2326,6 +2327,40 @@ class SupabaseMusicRepository implements MusicRepository {
   Future<void> dropWant(String id) async {
     await client.rpc<dynamic>('drop_want', params: <String, dynamic>{'target': id});
   }
+
+  @override
+  Future<List<PracticeMark>> myPracticeMarks() async {
+    final rows = await client.rpc<dynamic>('my_practice_marks');
+    return <PracticeMark>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        _practiceMark(row as Map<String, dynamic>),
+    ];
+  }
+
+  @override
+  Future<void> keepPracticeMark(PracticeMark mark) async {
+    await client.rpc<dynamic>('keep_practice_mark', params: <String, dynamic>{
+      'in_id': mark.id,
+      'in_project': mark.projectId,
+      'in_led_by': mark.ledBy,
+      'in_led_by_name': mark.ledByName,
+      'in_note': mark.note,
+      'in_parts': <Map<String, dynamic>>[for (final part in mark.parts) part.toJson()],
+    });
+  }
+
+  PracticeMark _practiceMark(Map<String, dynamic> row) => PracticeMark(
+        id: row['id'] as String,
+        projectId: row['project_id'] as String,
+        ledBy: row['led_by'] as String?,
+        ledByName: row['led_by_name'] as String? ?? 'Someone',
+        note: row['note'] as String?,
+        parts: <PracticePart>[
+          for (final entry in (row['parts'] as List<dynamic>? ?? const <dynamic>[]))
+            if (PracticePart.fromJson(entry) case final part?) part,
+        ],
+        updatedAt: DateTime.tryParse('${row['updated_at']}')?.toLocal() ?? DateTime.now(),
+      );
 
   @override
   Future<List<WantAround>> wantsAround() async {
