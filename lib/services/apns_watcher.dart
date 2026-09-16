@@ -19,13 +19,23 @@ import 'package:flutter/services.dart';
 /// is the supported way to see those callbacks without subclassing
 /// `FlutterAppDelegate`. This is the Dart side of that channel.
 class ApnsState {
-  const ApnsState({required this.registered, this.failure});
+  const ApnsState({
+    required this.registered,
+    this.osRegistered = false,
+    this.failure,
+  });
 
   /// True once Apple has handed this app a device token, ever, this launch.
   final bool registered;
 
   /// Apple's own words when it refused, or null if it never refused.
   final String? failure;
+
+  /// What UIKit itself believes, which is the one reading that does not
+  /// depend on a callback arriving. True once the app has successfully
+  /// registered for remote notifications, which separates the two silences:
+  /// a request Apple has not answered, and a request nobody made.
+  final bool osRegistered;
 
   /// Neither answered nor refused.
   ///
@@ -41,8 +51,14 @@ class ApnsState {
   String describe() {
     if (failure != null) return '; Apple refused: $failure';
     if (registered) return '; Apple did hand over a token at some point';
-    return '; Apple neither answered nor refused, which is what a device that '
-        'cannot reach the push service looks like';
+    if (osRegistered) {
+      return '; the system considers this app registered for remote '
+          'notifications and Apple has still sent nothing, which is a request '
+          'Apple has not answered';
+    }
+    return '; the system does not consider this app registered for remote '
+        'notifications, so the request never landed and Apple has nothing to '
+        'answer';
   }
 }
 
@@ -59,6 +75,7 @@ abstract final class ApnsWatcher {
       if (map == null) return null;
       return ApnsState(
         registered: map['registered'] == true,
+        osRegistered: map['osRegistered'] == true,
         failure: map['failure'] as String?,
       );
     } catch (_) {

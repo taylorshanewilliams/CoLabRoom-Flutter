@@ -26,17 +26,29 @@ void main() {
     expect(state.describe(), contains('aps-environment'));
   });
 
-  test('silence is named as silence, not as failure', () {
-    // The case nothing could say before, and the most useful one: no token
-    // and no error is what a device that cannot reach Apple's push service
-    // looks like from inside the app. A refusal is a configuration problem.
-    // Silence is a connectivity one, and telling a person to check their
-    // signing when their WiFi is the problem wastes another evening.
+  test('the two silences are told apart', () {
+    // 16 September, 00:45: two devices on three networks, permission granted,
+    // and Apple calling back neither way. That reading is only half an
+    // answer, because it cannot say whether Apple is ignoring a request or
+    // whether no request was ever made -- and UIKit ignores a registration
+    // asked for off the main thread, which looks identical from here.
+    const asked = ApnsState(registered: false, osRegistered: true);
+    expect(asked.describe(), contains('has not answered'));
+    expect(asked.describe(), contains('considers this app registered'));
+
+    const neverAsked = ApnsState(registered: false, osRegistered: false);
+    expect(neverAsked.describe(), contains('never landed'));
+    expect(neverAsked.describe(), contains('nothing to'));
+  });
+
+  test('silence is never reported as a failure', () {
+    // A refusal is a configuration problem and silence is not, so the two
+    // must never be worded alike. Telling somebody to check their signing
+    // when nothing refused anything wastes an evening, and did.
     const state = ApnsState(registered: false);
     expect(state.silent, isTrue);
-    expect(state.describe(), contains('neither answered nor refused'));
-    expect(state.describe(), contains('cannot reach the push service'));
     expect(state.describe(), isNot(contains('refused:')));
+    expect(state.describe(), isNot(contains('Apple refused')));
   });
 
   test('a token that did arrive is not silence', () {
