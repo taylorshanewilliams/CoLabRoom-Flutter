@@ -4,6 +4,7 @@ import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/features/lessons/lesson_link_screen.dart';
+import 'package:colabroom/features/lessons/lesson_poster.dart';
 import 'package:colabroom/features/messages/messages_screen.dart';
 import 'package:colabroom/features/notifications/notifications_screen.dart';
 import 'package:colabroom/services/invite_link.dart';
@@ -11,6 +12,7 @@ import 'package:colabroom/widgets/qr_code.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf/pdf.dart';
 
 /// A link for lessons.
 ///
@@ -41,6 +43,24 @@ void main() {
 
     test('said the way it is read off a wall', () {
       expect(lessonCodeSaid('a1b2c3d4e5f6'), 'a1b2-c3d4-e5f6');
+    });
+
+    test('the poster is a one-page PDF, whatever somebody typed', () async {
+      final bytes = await LessonPoster.document(
+        title: 'Guitar lessons 🎸',
+        code: 'a1b2c3d4e5f6',
+        teacher: 'Taylor',
+      ).save();
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+      expect(LessonPoster.printable('Guitar lessons 🎸'), 'Guitar lessons ');
+      expect(LessonPoster.printable('José'), 'José');
+      // No name, no "with"; and it still lays out on the shorter US page.
+      final anonymous = await LessonPoster.document(
+        title: '',
+        code: 'a1b2c3d4e5f6',
+        format: PdfPageFormat.letter,
+      ).save();
+      expect(anonymous.length, greaterThan(1000));
     });
 
     test('the QR code is drawn inside its square', () {
@@ -99,6 +119,7 @@ void main() {
       expect(find.text('Nobody has joined yet'), findsOneWidget);
       expect(find.text('a1b2-c3d4-e5f6'), findsOneWidget);
       expect(find.byType(QrCode), findsOneWidget);
+      expect(find.byKey(const Key('lesson_poster')), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('lesson_copy')));
       await tester.pump();

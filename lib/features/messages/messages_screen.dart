@@ -137,7 +137,10 @@ class _MessagesScreenState extends State<MessagesScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'Lesson link'),
-        builder: (_) => LessonLinkScreen(repository: controller.repository),
+        builder: (_) => LessonLinkScreen(
+          repository: controller.repository,
+          teacherName: widget.displayName,
+        ),
       ),
     );
     if (!mounted) return;
