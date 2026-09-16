@@ -777,6 +777,14 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     await load();
   }
 
+  /// Opens somebody's lesson link and returns the room it gave you, with
+  /// the library reloaded so the room is already on the shelf.
+  Future<MusicRoom?> joinLessonLink(String code) async {
+    final roomId = await repository.joinLessonLink(code);
+    await load();
+    return roomById(roomId);
+  }
+
   Future<void> declineInvite(BetaInvite invite) async {
     await repository.declineInvite(invite);
     await load();

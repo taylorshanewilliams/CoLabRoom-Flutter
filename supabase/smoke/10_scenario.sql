@@ -3747,4 +3747,142 @@ end $$;
 reset role;
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- ---------------------------------------------------------------------
+-- A link for lessons (0129).
+--
+-- The writer makes a lesson link and renames it without the code changing.
+-- A student opens it and gets a room of their own with the writer, told to
+-- the writer; opening it again (typed with dashes, in capitals) gives the
+-- same room. The teacher cannot join their own link, a stranger cannot see
+-- anybody's lesson rooms, and a link turned off opens nothing.
+-- ---------------------------------------------------------------------
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+select public.open_lesson_link('Guitar lessons') as lesson_code \gset
+select public.open_lesson_link('Guitar and voice') as lesson_code_again \gset
+select set_config('smoke.lesson_code', :'lesson_code', true);
+select set_config('smoke.lesson_code_again', :'lesson_code_again', true);
+
+do $$
+begin
+  if current_setting('smoke.lesson_code') <> current_setting('smoke.lesson_code_again') then
+    raise exception 'renaming a lesson link changed its code';
+  end if;
+  if (select count(*) from public.my_lesson_link()) <> 1 then
+    raise exception 'the teacher does not have exactly one open lesson link';
+  end if;
+  if (select title from public.my_lesson_link()) <> 'Guitar and voice' then
+    raise exception 'renaming the lesson link did not rename it';
+  end if;
+
+  begin
+    perform public.join_lesson_link(current_setting('smoke.lesson_code'));
+    raise exception 'a teacher joined their own lesson link';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+-- A student opens it.
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+
+select public.join_lesson_link(:'lesson_code') as lesson_room \gset
+select public.join_lesson_link(
+  upper(substr(:'lesson_code', 1, 4) || '-' || substr(:'lesson_code', 5, 4) || '-' || substr(:'lesson_code', 9, 4))
+) as lesson_room_again \gset
+select set_config('smoke.lesson_room', :'lesson_room', true);
+select set_config('smoke.lesson_room_again', :'lesson_room_again', true);
+
+do $$
+begin
+  if current_setting('smoke.lesson_room') <> current_setting('smoke.lesson_room_again') then
+    raise exception 'opening a lesson link twice made a second room';
+  end if;
+  if (select count(*) from public.lesson_rooms) <> 1 then
+    raise exception 'the student cannot see their own lesson room';
+  end if;
+  if exists (select 1 from public.lesson_links) then
+    raise exception 'a student can read the teacher''s lesson link';
+  end if;
+end $$;
+
+reset role;
+
+do $$
+declare
+  lesson uuid := current_setting('smoke.lesson_room')::uuid;
+begin
+  if (select account_id from public.rooms where id = lesson)
+     is distinct from '11111111-1111-1111-1111-111111111111'::uuid then
+    raise exception 'the lesson room does not belong to the teacher';
+  end if;
+  if (select name from public.rooms where id = lesson) not like 'Guitar and voice · %' then
+    raise exception 'the lesson room is not named for the lessons and the student (got %)',
+      (select name from public.rooms where id = lesson);
+  end if;
+  if (select count(*) from public.room_members where room_id = lesson) <> 2 then
+    raise exception 'a lesson room holds somebody besides the teacher and the student';
+  end if;
+  if (select role from public.room_members
+      where room_id = lesson and user_id = '11111111-1111-1111-1111-111111111111')
+     is distinct from 'owner' then
+    raise exception 'the teacher does not own the lesson room';
+  end if;
+  if (select role from public.room_members
+      where room_id = lesson and user_id = '88888888-8888-8888-8888-888888888888')
+     is distinct from 'editor' then
+    raise exception 'the student cannot work in their own lesson room';
+  end if;
+  if private.wants_invite_responses('11111111-1111-1111-1111-111111111111')
+     and not exists (
+       select 1 from public.notifications
+       where user_id = '11111111-1111-1111-1111-111111111111'
+         and type = 'invite_accepted'
+         and room_id = lesson
+     ) then
+    raise exception 'the teacher was not told a student joined';
+  end if;
+end $$;
+
+-- Somebody else entirely sees none of it.
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.lesson_rooms) or exists (select 1 from public.lesson_links) then
+    raise exception 'a stranger can see somebody''s lessons';
+  end if;
+end $$;
+
+-- The teacher turns the link off; the room made through it stays.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+select public.close_lesson_link();
+
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
+
+do $$
+begin
+  begin
+    perform public.join_lesson_link(current_setting('smoke.lesson_code'));
+    raise exception 'a lesson link that was turned off still made a room';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+reset role;
+
+do $$
+begin
+  if not exists (select 1 from public.rooms where id = current_setting('smoke.lesson_room')::uuid) then
+    raise exception 'turning the link off removed a lesson room';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
 commit;

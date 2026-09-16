@@ -10,6 +10,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../account/account_screen.dart';
 import '../messages/messages_screen.dart';
+import '../rooms/room_detail_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../openmic/open_mic_screen.dart';
 import '../openmic/open_mic_song_screen.dart';
@@ -153,6 +154,11 @@ class _AppShellState extends State<AppShell> {
   /// the library on the first tab, and the snackbar says which one.
   Future<void> _acceptInviteFromAddress() async {
     if (!kIsWeb) return;
+    final lesson = lessonCodeFrom(Uri.base);
+    if (lesson != null) {
+      await _joinLessonFromAddress(lesson);
+      return;
+    }
     final code = inviteCodeFrom(Uri.base);
     if (code == null) return;
     final controller = BetaScope.of(context, listen: false);
@@ -177,6 +183,35 @@ class _AppShellState extends State<AppShell> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(reportAndDescribe(error,
             service: 'app', stage: 'invite.link', route: 'Home')),
+      ));
+    }
+  }
+
+  /// A teacher's lesson link, read off the address once somebody is signed
+  /// in: their own room with the teacher, opened straight away -- "the
+  /// student could join right into their room".
+  Future<void> _joinLessonFromAddress(String code) async {
+    final controller = BetaScope.of(context, listen: false);
+    try {
+      final room = await controller.joinLessonLink(code);
+      if (!mounted) return;
+      setState(() => _index = 0);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(room == null
+            ? 'Your lesson room is ready. It is under Your music.'
+            : 'Your lesson room is ready: ${room.name}.'),
+      ));
+      if (room != null) {
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          settings: RouteSettings(name: AppRoutes.room(room.id)),
+          builder: (_) => RoomDetailScreen(roomId: room.id),
+        ));
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(reportAndDescribe(error,
+            service: 'app', stage: 'lesson.link', route: 'Home')),
       ));
     }
   }

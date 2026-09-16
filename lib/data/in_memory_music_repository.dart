@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../domain/activity.dart';
+import '../domain/lesson_link.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
@@ -688,6 +689,17 @@ class InMemoryMusicRepository implements MusicRepository {
   final Map<String, DateTime> _threadReads = <String, DateTime>{};
   final List<StandingWant> _wants = <StandingWant>[];
   final List<PracticeMark> _practiceMarks = <PracticeMark>[];
+  LessonLink? _lessonLink;
+  final Map<String, ({String title, String teacherName})> _lessonsOffered =
+      <String, ({String title, String teacherName})>{};
+  final Map<String, String> _lessonRooms = <String, String>{};
+
+  /// Somebody else's lesson link this repository will open. There is only
+  /// one person in an in-memory world, so the teacher on the other end of a
+  /// lesson has to be put there by hand, for tests and previews.
+  void offerLesson({required String code, required String title, required String teacherName}) {
+    _lessonsOffered[code] = (title: title, teacherName: teacherName);
+  }
   final Map<String, Set<String>> _nods = <String, Set<String>>{};
   final Map<String, String> _nodNotes = <String, String>{};
 
@@ -1844,6 +1856,70 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<void> dropWant(String id) async {
     _wants.removeWhere((want) => want.id == id);
+  }
+
+  @override
+  Future<LessonLink?> myLessonLink() async => _lessonLink;
+
+  @override
+  Future<LessonLink> openLessonLink(String title) async {
+    final cleaned = title.trim().isEmpty ? 'Lessons' : title.trim();
+    final existing = _lessonLink;
+    final link = LessonLink(
+      id: existing?.id ?? _id('lesson'),
+      code: existing?.code ?? 'a1b2c3d4e5f6',
+      title: cleaned.length > 60 ? cleaned.substring(0, 60) : cleaned,
+      createdAt: existing?.createdAt ?? DateTime.now(),
+      students: existing?.students ?? 0,
+    );
+    _lessonLink = link;
+    return link;
+  }
+
+  @override
+  Future<void> closeLessonLink() async {
+    _lessonLink = null;
+  }
+
+  @override
+  Future<String> joinLessonLink(String code) async {
+    final cleaned = code.toLowerCase().replaceAll(RegExp(r'[^0-9a-f]'), '');
+    if (_lessonLink?.code == cleaned) {
+      throw const NameConflict('That is your own lesson link. Share it with a student.');
+    }
+    final offered = _lessonsOffered[cleaned];
+    if (offered == null) {
+      throw const NameConflict('That lesson link is turned off, or it is not one.');
+    }
+    final already = _lessonRooms[cleaned];
+    if (already != null && _rooms.any((room) => room.id == already)) return already;
+    final now = DateTime.now();
+    final room = MusicRoom(
+      id: _id('room'),
+      accountId: 'teacher-${offered.teacherName.toLowerCase()}',
+      name: '${offered.title} · Taylor',
+      icon: '♪',
+      createdAt: now,
+      updatedAt: now,
+      sortOrder: _nextRoomSortOrder(),
+      members: <RoomMember>[
+        RoomMember(
+          userId: 'teacher-${offered.teacherName.toLowerCase()}',
+          displayName: offered.teacherName,
+          role: RoomRole.owner,
+          colorValue: 0xFFFF8A4C,
+        ),
+        const RoomMember(
+          userId: 'preview-user',
+          displayName: 'Taylor',
+          role: RoomRole.editor,
+          colorValue: 0xFF4C8AFF,
+        ),
+      ],
+    );
+    _rooms.add(room);
+    _lessonRooms[cleaned] = room.id;
+    return room.id;
   }
 
   @override

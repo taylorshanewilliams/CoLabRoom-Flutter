@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../lessons/lesson_link_screen.dart';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -129,6 +130,20 @@ class _MessagesScreenState extends State<MessagesScreen> {
     await controller.refreshThreads();
   }
 
+  /// A teacher's lesson link, beside starting a room: it is how a teacher
+  /// starts rooms -- one per student, made by the students themselves.
+  Future<void> _lessons() async {
+    final controller = BetaScope.of(context, listen: false);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'Lesson link'),
+        builder: (_) => LessonLinkScreen(repository: controller.repository),
+      ),
+    );
+    if (!mounted) return;
+    await controller.refreshThreads();
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = BetaScope.of(context);
@@ -149,6 +164,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
             _newMessage();
           case 'room':
             unawaited(_newRoom());
+          case 'lessons':
+            unawaited(_lessons());
         }
       },
       itemBuilder: (_) => <PopupMenuEntry<String>>[
@@ -170,6 +187,16 @@ class _MessagesScreenState extends State<MessagesScreen> {
             leading: Icon(Icons.forum_outlined),
             title: Text('Start a room'),
             subtitle: Text('For the band: a thread, and a place for songs'),
+          ),
+        ),
+        const PopupMenuItem<String>(
+          key: Key('messages_new_lessons'),
+          value: 'lessons',
+          child: ListTile(
+            dense: true,
+            leading: Icon(Icons.qr_code_2_rounded),
+            title: Text('Teach: a lesson link'),
+            subtitle: Text('One QR code. Every student gets their own room with you'),
           ),
         ),
       ],

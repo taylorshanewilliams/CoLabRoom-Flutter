@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   audioplayers: ^6.8.1
+  barcode: ^2.2.9
   archive: ^4.0.9
   audio_decoder: ^0.8.1
   cross_file: 0.3.5+4

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../domain/activity.dart';
+import '../domain/lesson_link.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
@@ -601,6 +602,20 @@ abstract interface class MusicRepository {
   /// What followed sessions left you to practise in the last fortnight,
   /// newest first. Nobody else can read these.
   Future<List<PracticeMark>> myPracticeMarks();
+
+  /// Your open lesson link, or null when you have none.
+  Future<LessonLink?> myLessonLink();
+
+  /// Makes your lesson link, or renames the open one -- the code stays, so
+  /// a poster already on a wall goes on working.
+  Future<LessonLink> openLessonLink(String title);
+
+  /// Turns your lesson link off. Rooms already made through it stay.
+  Future<void> closeLessonLink();
+
+  /// Opens somebody's lesson link: your own room with them, made the first
+  /// time and the same room every time after. Returns the room's id.
+  Future<String> joinLessonLink(String code);
 
   /// Keeps what a followed session worked on. Keeping a mark with the same
   /// id again updates it; a note already kept is not lost to a later save
