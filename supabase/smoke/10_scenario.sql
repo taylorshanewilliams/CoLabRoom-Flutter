@@ -3947,7 +3947,7 @@ begin
   if card.state <> 'none' or card.direction is not null then
     raise exception 'opening a meeting code did more than show whose it is (state %)', card.state;
   end if;
-  if exists (select 1 from public.connections) then
+  if exists (select 1 from public.my_connections()) then
     raise exception 'opening a meeting code added somebody';
   end if;
   if (select count(*) from public.meeting_codes) <> 1 then
