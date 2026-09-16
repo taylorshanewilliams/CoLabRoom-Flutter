@@ -479,7 +479,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _markLeaderId = end.leaderUserId ?? _markLeaderId;
     if (end.note != null) _markNote = end.note;
     final mark = _keepPractice();
-    if (!end.byLeader) return;
+    // Only a leader who said they had stopped ends the lesson. Losing touch
+    // keeps the same mark open: this phone follows again if they come back.
+    if (!end.stopped) return;
     if (mark != null && mounted) {
       final worked = practiceWorked(mark);
       _say(worked == null
@@ -553,9 +555,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// following.
   void _takeOver() {
     final together = widget.together;
-    if (together == null || !together.following) return;
+    if (together == null) return;
+    final wasFollowing = together.following;
+    // Also forgets a leader this phone lost touch with and was waiting for:
+    // pressing Start is choosing the song, and a leader coming back must
+    // not take it away again.
     together.unfollow();
-    _say('You have the song now. Follow again from the bar.');
+    if (wasFollowing) _say('You have the song now. Follow again from the bar.');
   }
 
   Future<void> _loadCountdownPrefs() async {

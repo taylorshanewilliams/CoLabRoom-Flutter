@@ -289,6 +289,7 @@ class FollowEnded {
     required this.leaderName,
     required this.byLeader,
     required this.said,
+    this.stopped = false,
     this.leaderUserId,
     this.note,
   });
@@ -299,6 +300,11 @@ class FollowEnded {
   /// The leader stopped or went quiet, rather than this phone taking the
   /// song back.
   final bool byLeader;
+
+  /// The leader said they had stopped. False when this phone only lost
+  /// touch with them, which may yet be followed again (see
+  /// FollowSession.rejoinWithinMs) -- so the lesson is not over.
+  final bool stopped;
 
   /// What happened, as a sentence ("Taylor stopped leading.").
   final String said;
@@ -356,9 +362,24 @@ class FollowSession extends ChangeNotifier {
   final Set<String> _seen = <String>{};
   bool _closed = false;
 
+  /// The leader this phone lost touch with while following, and until when
+  /// it follows them again by itself if they come back.
+  SongLeader? _rejoin;
+  int _rejoinUntil = 0;
+  int? _lastQuietCheck;
+
   /// Nothing heard from a leader for this long means they are gone, even
   /// if the connection has not said so yet.
   static const int quietAfterMs = 9000;
+
+  /// How long a follower who lost touch goes on waiting for the same
+  /// leader. Found on the second two-phone test: the follower dropped for a
+  /// few seconds while the leader's phone was busy, never followed again,
+  /// and so never received the teacher's note at the end. Nobody chose to
+  /// stop following; a signal flickered. A minute and a half covers a lift,
+  /// a tunnel, a phone locked and unlocked, and is short enough that coming
+  /// back to somebody who has moved on to another song is not a surprise.
+  static const int rejoinWithinMs = 90000;
 
   bool get leading => _leading;
   bool get following => _following && _leader != null;
@@ -393,6 +414,7 @@ class FollowSession extends ChangeNotifier {
 
   void lead() {
     if (_closed || _leading) return;
+    _rejoin = null;
     if (_following) {
       _following = false;
       unawaited(line.markFollowing(null));
@@ -441,13 +463,17 @@ class FollowSession extends ChangeNotifier {
     final leader = _leader;
     if (_closed || leader == null) return;
     if (_leading) stopLeading();
+    _rejoin = null;
     _following = true;
     unawaited(line.markFollowing(leader.device));
     notifyListeners();
     _states.add(leader.state);
   }
 
+  /// Stops following -- and stops waiting to follow again a leader this
+  /// phone lost touch with, because taking the song back is a choice.
   void unfollow() {
+    _rejoin = null;
     if (!_following) return;
     _following = false;
     unawaited(line.markFollowing(null));
@@ -455,13 +481,20 @@ class FollowSession extends ChangeNotifier {
     if (!_closed) notifyListeners();
   }
 
-  void _ended({required bool byLeader, String? said, String? note, SongLeader? leader}) {
+  void _ended({
+    required bool byLeader,
+    bool stopped = false,
+    String? said,
+    String? note,
+    SongLeader? leader,
+  }) {
     final who = leader ?? _leader;
     if (who == null || _endings.isClosed) return;
     _endings.add(FollowEnded(
       leaderName: who.name,
       leaderUserId: who.userId.isEmpty ? null : who.userId,
       byLeader: byLeader,
+      stopped: stopped,
       said: said ?? 'You stopped following ${who.name}.',
       note: note,
     ));
@@ -483,8 +516,14 @@ class FollowSession extends ChangeNotifier {
       case 'lead':
         _heardLead(device, message);
       case 'end':
-        if (_leader?.device == device) {
-          _lose('${_leader!.name} stopped leading.', leaderNote: _cleanNote(message['note']));
+        // From the leader being followed, or from the one this phone lost
+        // touch with and is waiting for: the note is theirs either way.
+        final who = _leader?.device == device
+            ? _leader
+            : (_rejoin?.device == device ? _rejoin : null);
+        if (who != null) {
+          _lose('${who.name} stopped leading.',
+              leaderNote: _cleanNote(message['note']), stopped: true, who: who);
         }
     }
   }
@@ -505,6 +544,17 @@ class FollowSession extends ChangeNotifier {
       _leading = false;
       _lastSent = null;
       _notes.add('$who is leading now.');
+    }
+
+    // The leader this phone lost touch with is back: follow them again, as
+    // it was before the signal went.
+    final waitedFor = _rejoin;
+    if (waitedFor != null && waitedFor.device == device && !_following && !_leading) {
+      _rejoin = null;
+      if (_now() < _rejoinUntil) {
+        _following = true;
+        _notes.add('Back with $who.');
+      }
     }
 
     final previous = _leader;
@@ -568,27 +618,49 @@ class FollowSession extends ChangeNotifier {
   /// Drops a leader nothing has been heard from in a while. Public so a
   /// test can ask without waiting.
   void checkQuiet() {
+    final now = _now();
+    final last = _lastQuietCheck;
+    _lastQuietCheck = now;
     final leader = _leader;
     if (leader == null) {
       _quiet?.cancel();
       _quiet = null;
+      _lastQuietCheck = null;
       return;
     }
-    if (_now() - leader.heardAt > quietAfterMs) _lose('Lost touch with ${leader.name}.');
+    // This check is itself late, so this phone was the one stalled: the
+    // leader's messages may be waiting in the queue behind it. Look again
+    // at the next check rather than blame the leader for this phone's pause.
+    if (last != null && now - last > 5000) return;
+    if (now - leader.heardAt > quietAfterMs) _lose('Lost touch with ${leader.name}.');
   }
 
-  void _lose(String said, {String? leaderNote}) {
+  void _lose(String said, {String? leaderNote, bool stopped = false, SongLeader? who}) {
+    final leader = who ?? _leader;
+    if (leader == null) return;
     final wasFollowing = _following;
-    final leader = _leader;
-    _leader = null;
-    _clock.reset();
-    _quiet?.cancel();
-    _quiet = null;
+    final waitedFor = _rejoin?.device == leader.device && _now() < _rejoinUntil;
+    if (_leader?.device == leader.device) {
+      _leader = null;
+      _clock.reset();
+      _quiet?.cancel();
+      _quiet = null;
+      _lastQuietCheck = null;
+    }
     if (wasFollowing) {
       _following = false;
       unawaited(line.markFollowing(null));
-      _notes.add(said);
-      _ended(byLeader: true, said: said, note: leaderNote, leader: leader);
+    }
+    if (wasFollowing || (stopped && waitedFor)) {
+      if (stopped) {
+        _rejoin = null;
+        _notes.add(said);
+      } else {
+        _rejoin = leader;
+        _rejoinUntil = _now() + rejoinWithinMs;
+        _notes.add('$said Following again if they come back.');
+      }
+      _ended(byLeader: true, stopped: stopped, said: said, note: leaderNote, leader: leader);
     }
     notifyListeners();
   }

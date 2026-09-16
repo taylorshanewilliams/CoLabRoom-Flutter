@@ -169,10 +169,11 @@ class WaitingItem {
         // Between what you can hear and who is waiting: new every day,
         // and the reason to have opened the app when nothing else is.
         WaitingKind.tonight => 1,
-        // Beside Tonight, for the same reason, and left by a person: the
-        // part somebody gave you to work on is the best answer there is to
-        // "what shall I play today".
-        WaitingKind.practice => 1,
+        // At the front, beside a take you can hear: the part somebody gave
+        // you to work on is the best answer there is to "what shall I play
+        // today". On the first device test it sat third, behind a release
+        // note, which is backwards.
+        WaitingKind.practice => 0,
         WaitingKind.request => 2,
         // Ahead of the chores: everything below it may be missing from this
         // phone, and the person on the other end of a request may be waiting

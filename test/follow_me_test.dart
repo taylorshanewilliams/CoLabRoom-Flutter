@@ -328,6 +328,122 @@ void main() {
       teacher.dispose();
     });
 
+    test('a follower who loses touch follows again when the same leader comes back', () async {
+      // The second two-phone test, 16 Sep: the follower dropped for a few
+      // seconds while the leader's phone was busy, never followed again,
+      // and so never received the teacher's note.
+      final teacher = phone('t', 'u1', 'Taylor');
+      final student = phone('s', 'u2', 'Jess');
+      final notes = <String>[];
+      final endings = <FollowEnded>[];
+      student.notes.listen(notes.add);
+      student.endings.listen(endings.add);
+      teacher.lead();
+      teacher.publish(state(sent: now));
+      await pumpEventQueue();
+      student.follow();
+
+      now += FollowSession.quietAfterMs + 1000;
+      student.checkQuiet();
+      await pumpEventQueue();
+      expect(student.following, isFalse);
+      expect(endings.single.byLeader, isTrue);
+      expect(endings.single.stopped, isFalse, reason: 'losing touch is not the lesson ending');
+      expect(notes.last, 'Lost touch with Taylor. Following again if they come back.');
+
+      now += 20000;
+      teacher.publish(state(sent: now, at: 40000));
+      await pumpEventQueue();
+      expect(student.following, isTrue);
+      expect(notes.last, 'Back with Taylor.');
+      expect(teacher.followers, 1);
+      teacher.dispose();
+      student.dispose();
+    });
+
+    test('but not once a minute and a half has gone', () async {
+      final teacher = phone('t', 'u1', 'Taylor');
+      final student = phone('s', 'u2', 'Jess');
+      teacher.lead();
+      teacher.publish(state(sent: now));
+      await pumpEventQueue();
+      student.follow();
+      now += FollowSession.quietAfterMs + 1000;
+      student.checkQuiet();
+
+      now += FollowSession.rejoinWithinMs + 1000;
+      teacher.publish(state(sent: now, at: 200000));
+      await pumpEventQueue();
+      expect(student.leader?.name, 'Taylor');
+      expect(student.following, isFalse);
+      teacher.dispose();
+      student.dispose();
+    });
+
+    test('the note still arrives when the leader stops while this phone had lost touch', () async {
+      final teacher = phone('t', 'u1', 'Taylor');
+      final student = phone('s', 'u2', 'Jess');
+      final endings = <FollowEnded>[];
+      student.endings.listen(endings.add);
+      teacher.lead();
+      teacher.publish(state(sent: now));
+      await pumpEventQueue();
+      student.follow();
+      now += FollowSession.quietAfterMs + 1000;
+      student.checkQuiet();
+
+      teacher.stopLeading(note: 'Keep it slow');
+      await pumpEventQueue();
+      expect(endings, hasLength(2));
+      expect(endings.last.stopped, isTrue);
+      expect(endings.last.note, 'Keep it slow');
+      expect(endings.last.said, 'Taylor stopped leading.');
+      teacher.dispose();
+      student.dispose();
+    });
+
+    test('taking the song back forgets the leader it was waiting for', () async {
+      final teacher = phone('t', 'u1', 'Taylor');
+      final student = phone('s', 'u2', 'Jess');
+      teacher.lead();
+      teacher.publish(state(sent: now));
+      await pumpEventQueue();
+      student.follow();
+      now += FollowSession.quietAfterMs + 1000;
+      student.checkQuiet();
+
+      student.unfollow();
+      now += 5000;
+      teacher.publish(state(sent: now, at: 30000));
+      await pumpEventQueue();
+      expect(student.following, isFalse);
+      teacher.dispose();
+      student.dispose();
+    });
+
+    test('a check that is itself late does not blame the leader', () async {
+      final teacher = phone('t', 'u1', 'Taylor');
+      final student = phone('s', 'u2', 'Jess');
+      teacher.lead();
+      teacher.publish(state(sent: now));
+      await pumpEventQueue();
+      student.follow();
+
+      now += 3000;
+      student.checkQuiet();
+      // This phone stalls for twelve seconds; the leader's messages are
+      // still in the queue behind the check.
+      now += 12000;
+      student.checkQuiet();
+      expect(student.following, isTrue);
+      // On time again, and still nothing: that is the leader.
+      now += 2000;
+      student.checkQuiet();
+      expect(student.following, isFalse);
+      teacher.dispose();
+      student.dispose();
+    });
+
     test('leading your own tablet from your phone', () async {
       final phoneOne = phone('p', 'u1', 'Taylor');
       final tablet = phone('t', 'u1', 'Taylor');
