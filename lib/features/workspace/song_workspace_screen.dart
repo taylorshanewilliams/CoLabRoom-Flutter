@@ -21,6 +21,7 @@ import '../../domain/song_analysis_models.dart';
 import '../../services/error_reporter.dart';
 import '../../services/project_export_service.dart';
 import '../../services/cowork_service.dart';
+import '../../services/follow_me.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/offer_notifications.dart';
@@ -32,6 +33,7 @@ import 'audience_dial.dart';
 import 'song_history_screen.dart';
 import 'ask_the_song_sheet.dart';
 import 'cowork_panel.dart';
+import 'follow_me_bar.dart';
 import 'live_performance_screen.dart';
 import 'lyric_import_flow.dart';
 import '../layers/song_layers_screen.dart';
@@ -136,13 +138,25 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   StreamSubscription<List<CoworkPresence>>? _presenceSub;
   bool _othersHere = false;
 
+  /// Follow me on this song: leading from Perform, or following whoever
+  /// does. Rides on the cowork connection, so it lives exactly as long.
+  late final FollowSession _together =
+      FollowSession(line: _cowork, userId: currentUserIdOrNull() ?? '');
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadAnalysisBundle());
     unawaited(_loadAudience());
+    // Listening before joining, so a leader heard in the first second is
+    // not missed.
+    _together.addListener(_togetherChanged);
     unawaited(_joinCowork());
+  }
+
+  void _togetherChanged() {
+    if (mounted) setState(() {});
   }
 
   /// Who can hear this song.
@@ -422,6 +436,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       _presenceSub = _cowork.presence.listen((here) {
         if (mounted) setState(() => _othersHere = here.length > 1);
       });
+      _together.name = name;
       await _cowork.join(projectId: widget.projectId, displayName: name);
     } catch (error) {
       // The song still works without the stream. Failing to open a panel is
@@ -454,6 +469,9 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_presenceSub?.cancel());
+    // Before the connection closes, so leaving still says goodbye.
+    _together.removeListener(_togetherChanged);
+    _together.dispose();
     unawaited(_cowork.dispose());
     _recordingTimer?.cancel();
     _playerCompleteSubscription?.cancel();
@@ -741,9 +759,32 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         settings: RouteSettings(name: AppRoutes.songLive(project.id)),
-        builder: (_) => LivePerformanceScreen(project: project, analysis: bundle),
+        builder: (_) => LivePerformanceScreen(
+          project: project,
+          analysis: bundle,
+          together: _together,
+          me: currentUserIdOrNull() ?? '',
+        ),
         fullscreenDialog: true,
       ),
+    );
+  }
+
+  /// Follow from the song: straight into Perform, already where the leader
+  /// is.
+  Future<void> _followFromSong(SongProject project) async {
+    _together.follow();
+    await _openLivePerformance(project);
+  }
+
+  /// The banner saying somebody leads this song, when there is one to
+  /// follow and this phone is neither following nor leading.
+  Widget? _followBanner(SongProject project) {
+    final leader = _together.leader;
+    if (leader == null || _together.following || _together.leading) return null;
+    return FollowBanner(
+      leaderName: leader.name,
+      onFollow: () => unawaited(_followFromSong(project)),
     );
   }
 
@@ -1484,6 +1525,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 onAnalyze: () => _openAnalysis(project),
                 onRecord: () => _openAnalysis(project, autoRecord: true),
                 editor: middle,
+                followBanner: _followBanner(project),
                 audience: _audience,
                 onOpenAudience: () => unawaited(_openAudience(project)),
                 projectId: widget.projectId,
@@ -1517,6 +1559,9 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     )),
                     othersHere: _othersHere,
                   ),
+                  // Above who can hear it: somebody leading this song right
+                  // now is the most time-bound thing on the screen.
+                  if (_followBanner(project) case final banner?) banner,
                   // The first thing under the toolbar, because it is the
                   // thing somebody most needs to know and never could: who
                   // can hear this. Above the asks and above the words.
@@ -1750,6 +1795,7 @@ class _LandscapeWorkspace extends StatelessWidget {
     required this.onAnalyze,
     required this.onRecord,
     required this.editor,
+    this.followBanner,
     required this.audience,
     required this.onOpenAudience,
     required this.projectId,
@@ -1768,6 +1814,9 @@ class _LandscapeWorkspace extends StatelessWidget {
   final VoidCallback onAnalyze;
   final VoidCallback onRecord;
   final Widget editor;
+
+  /// Somebody leading this song, when there is.
+  final Widget? followBanner;
 
   /// The two things portrait shows and landscape did not.
   ///
@@ -1929,6 +1978,7 @@ class _LandscapeWorkspace extends StatelessWidget {
           ),
         ),
         const Divider(height: 1),
+        if (followBanner case final banner?) banner,
         // Two panes, because there is room for two.
         //
         // This was one: the editor across the whole width, with lyrics
