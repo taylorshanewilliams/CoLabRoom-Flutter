@@ -129,7 +129,8 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
 
   /// Whether the address carries an invitation (see invite_link.dart).
   /// The shell accepts it once the person is signed in.
-  bool get _invited => kIsWeb && inviteCodeFrom(Uri.base) != null;
+  bool get _invited =>
+      kIsWeb && (inviteCodeFrom(Uri.base) != null || lessonCodeFrom(Uri.base) != null);
 
   /// Tells the server which door this account came in by. Once: the
   /// first claim wins on the server, so signing in again from the same

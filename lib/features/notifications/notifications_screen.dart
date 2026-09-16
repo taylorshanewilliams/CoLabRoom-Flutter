@@ -6,6 +6,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../services/user_facing_error.dart';
+import '../../services/invite_link.dart';
 import '../../widgets/missed_on_your_phone.dart';
 import '../../widgets/problem_report.dart';
 import '../../widgets/app_surface.dart';
@@ -71,6 +72,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       builder: (_) => const _JoinCodeDialog(),
     );
     if (code == null || !mounted) return;
+    // A teacher's lesson code or link makes a room rather than joining one.
+    final lesson = lessonCodeFromText(code);
+    if (lesson != null) {
+      await _run(
+        () async {
+          await controller.joinLessonLink(lesson);
+        },
+        'Your lesson room is ready. It is under Your music.',
+      );
+      return;
+    }
     await _run(
       () => controller.acceptInvite(code: code),
       'Joined. You can open it from Songs.',
@@ -298,6 +310,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             // Said in a room, it opens the room's thread:
                             // the room rides on the notification, and the
                             // title is "Name · Room".
+                            // A student joining through a lesson link
+                            // arrives as an accepted invitation with the
+                            // new room on it: the card opens that room's
+                            // thread, where the lesson starts.
+                            if (notification.type ==
+                                    NotificationType.inviteAccepted &&
+                                notification.roomId != null) {
+                              final room = controller.roomById(notification.roomId!);
+                              unawaited(showRoomThread(
+                                context,
+                                controller: controller,
+                                roomId: notification.roomId!,
+                                roomName: room?.name ?? 'Lessons',
+                              ));
+                            }
                             if (notification.type ==
                                     NotificationType.directMessage &&
                                 notification.roomId != null) {
@@ -887,8 +914,8 @@ class _JoinCodeDialogState extends State<_JoinCodeDialog> {
           autofocus: true,
           autocorrect: false,
           decoration: const InputDecoration(
-            labelText: 'Invite code',
-            helperText: 'Only needed if the invite was sent before you had an account.',
+            labelText: 'Invite or lesson code',
+            helperText: 'A code somebody sent you, or a teacher\'s lesson code or link.',
           ),
           onSubmitted: (value) => Navigator.pop(context, value),
         ),
@@ -896,6 +923,7 @@ class _JoinCodeDialogState extends State<_JoinCodeDialog> {
       actions: <Widget>[
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(
+          key: const Key('join_code_submit'),
           onPressed: () => Navigator.pop(context, _code.text),
           child: const Text('Join'),
         ),

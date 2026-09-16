@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app/beta_config.dart';
 import '../domain/activity.dart';
+import '../domain/lesson_link.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
@@ -2326,6 +2327,42 @@ class SupabaseMusicRepository implements MusicRepository {
   @override
   Future<void> dropWant(String id) async {
     await client.rpc<dynamic>('drop_want', params: <String, dynamic>{'target': id});
+  }
+
+  @override
+  Future<LessonLink?> myLessonLink() async {
+    final rows = await client.rpc<dynamic>('my_lesson_link');
+    final list = rows as List<dynamic>? ?? const <dynamic>[];
+    if (list.isEmpty) return null;
+    final row = list.first as Map<String, dynamic>;
+    return LessonLink(
+      id: row['id'] as String,
+      code: row['code'] as String,
+      title: row['title'] as String? ?? 'Lessons',
+      createdAt: DateTime.tryParse('${row['created_at']}')?.toLocal() ?? DateTime.now(),
+      students: (row['students'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
+  Future<LessonLink> openLessonLink(String title) async {
+    await client.rpc<dynamic>('open_lesson_link', params: <String, dynamic>{'in_title': title.trim()});
+    final link = await myLessonLink();
+    if (link == null) {
+      throw StateError('The lesson link was made but could not be read back.');
+    }
+    return link;
+  }
+
+  @override
+  Future<void> closeLessonLink() async {
+    await client.rpc<dynamic>('close_lesson_link');
+  }
+
+  @override
+  Future<String> joinLessonLink(String code) async {
+    final room = await client.rpc<dynamic>('join_lesson_link', params: <String, dynamic>{'in_code': code});
+    return '$room';
   }
 
   @override
