@@ -3885,4 +3885,134 @@ end $$;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- ---------------------------------------------------------------------
+-- A code for meeting in person (0130).
+--
+-- The writer's code is made once and kept; a changed code opens nobody.
+-- Somebody who opens it sees whose it is and is added to nothing. Once
+-- each has asked from the other's code the two are connected, with no
+-- third step. Nobody reads anybody else's code, and a block shuts the
+-- door from either side with the same words.
+-- ---------------------------------------------------------------------
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+select public.my_meeting_code() as first_code \gset
+select public.my_meeting_code() as first_code_again \gset
+select set_config('smoke.first_code_again', :'first_code_again', true);
+select public.change_my_meeting_code() as writer_code \gset
+select set_config('smoke.first_code', :'first_code', true);
+select set_config('smoke.writer_code', :'writer_code', true);
+
+do $$
+begin
+  if current_setting('smoke.first_code') !~ '^[0-9a-hjkmnp-tv-z]{8}$' then
+    raise exception 'a meeting code has the wrong shape (got %)', current_setting('smoke.first_code');
+  end if;
+  if current_setting('smoke.first_code_again') <> current_setting('smoke.first_code') then
+    raise exception 'asking for your code again made a new one';
+  end if;
+  if current_setting('smoke.first_code') = current_setting('smoke.writer_code') then
+    raise exception 'changing a meeting code kept the same code';
+  end if;
+  if public.my_meeting_code() <> current_setting('smoke.writer_code') then
+    raise exception 'the changed code is not the one kept';
+  end if;
+  begin
+    perform public.person_with_meeting_code(current_setting('smoke.writer_code'));
+    raise exception 'somebody opened their own meeting code';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+-- Somebody else opens it: typed with a dash, in capitals, an O for the 0.
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+
+select public.my_meeting_code() as joiner_code \gset
+select set_config('smoke.joiner_code', :'joiner_code', true);
+
+do $$
+declare
+  typed text := upper(substr(current_setting('smoke.writer_code'), 1, 4) || '-'
+                      || substr(current_setting('smoke.writer_code'), 5, 4));
+  card record;
+begin
+  typed := replace(typed, '0', 'O');
+  select * into card from public.person_with_meeting_code(typed);
+  if card.person_id is distinct from '11111111-1111-1111-1111-111111111111'::uuid then
+    raise exception 'a typed meeting code did not open its person';
+  end if;
+  if card.state <> 'none' or card.direction is not null then
+    raise exception 'opening a meeting code did more than show whose it is (state %)', card.state;
+  end if;
+  if exists (select 1 from public.connections) then
+    raise exception 'opening a meeting code added somebody';
+  end if;
+  if (select count(*) from public.meeting_codes) <> 1 then
+    raise exception 'somebody can read a meeting code that is not theirs';
+  end if;
+  begin
+    perform public.person_with_meeting_code(current_setting('smoke.first_code'));
+    raise exception 'a meeting code that was changed still opens its person';
+  exception when invalid_parameter_value then null;
+  end;
+
+  if public.request_connection('11111111-1111-1111-1111-111111111111') <> 'pending' then
+    raise exception 'adding from a meeting code was not a request';
+  end if;
+  select * into card from public.person_with_meeting_code(current_setting('smoke.writer_code'));
+  if card.state <> 'pending' or card.direction <> 'outgoing' then
+    raise exception 'the card does not say the request is waiting (% %)', card.state, card.direction;
+  end if;
+end $$;
+
+-- The writer scans back, and the two are connected on the spot.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+do $$
+declare
+  card record;
+begin
+  select * into card from public.person_with_meeting_code(current_setting('smoke.joiner_code'));
+  if card.state <> 'pending' or card.direction <> 'incoming' then
+    raise exception 'the card does not say they already asked (% %)', card.state, card.direction;
+  end if;
+  if public.request_connection(card.person_id) <> 'accepted' then
+    raise exception 'scanning each other''s codes did not connect the two';
+  end if;
+end $$;
+
+-- A block closes the door from either side, in the words request_connection uses.
+reset role;
+insert into public.user_blocks (blocker_id, blocked_id)
+values ('99999999-9999-9999-9999-999999999999', '11111111-1111-1111-1111-111111111111');
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
+
+do $$
+begin
+  begin
+    perform public.person_with_meeting_code(current_setting('smoke.writer_code'));
+    raise exception 'somebody who blocked a person can still open their code';
+  exception when insufficient_privilege then
+    if sqlerrm <> 'That person cannot be added.' then
+      raise exception 'a blocked meeting code says something else: %', sqlerrm;
+    end if;
+  end;
+end $$;
+
+reset role;
+delete from public.user_blocks
+where blocker_id = '99999999-9999-9999-9999-999999999999'
+  and blocked_id = '11111111-1111-1111-1111-111111111111';
+delete from public.connections
+where '11111111-1111-1111-1111-111111111111' in (requester_id, addressee_id);
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
 commit;
