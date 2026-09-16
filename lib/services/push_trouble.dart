@@ -65,6 +65,7 @@ PushTrouble? pushTrouble({
   required bool? allowed,
   required bool everEnabled,
   PushDeliveryReport? report,
+  bool receiptsAreReliable = true,
 }) {
   if (!everEnabled) return null;
 
@@ -81,6 +82,20 @@ PushTrouble? pushTrouble({
   // Unknown is not a problem. A null means the check could not run, and a
   // screen that cries about what it does not know is worse than a quiet one.
   if (allowed != true || report == null) return null;
+
+  // On iOS a missing receipt means almost nothing. Filing one needs the
+  // system to wake the app, and iOS throttles that as it pleases -- so a
+  // notification can be drawn on the lock screen, read, and dismissed without
+  // the app ever running to say so. On 16 September a tester's iPhone got a
+  // notification while the server still had it down as unconfirmed.
+  //
+  // Which would have made this card lie to every iPhone in the worst
+  // available way: telling somebody their phone is broken and sending them
+  // into their battery settings, while the notifications arrive perfectly
+  // well. Android wakes the app for every push -- proven the same night by a
+  // 'closed' receipt three seconds after a send -- so the inference is sound
+  // there and nowhere else.
+  if (!receiptsAreReliable) return null;
 
   if (report.sent >= kUnconfirmedBeforeSaying && report.arrived == 0) {
     return PushTrouble(

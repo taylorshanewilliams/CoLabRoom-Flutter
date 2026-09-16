@@ -82,6 +82,37 @@ void main() {
     }
   });
 
+  test('a platform that does not file receipts is never accused', () {
+    // 16 September, 01:19: a tester's iPhone drew a notification while the
+    // server still had that push down as unconfirmed. iOS files a receipt
+    // only if the system wakes the app, which it throttles as it pleases, so
+    // "sent and never confirmed" is not evidence of anything there.
+    //
+    // Without this the card would tell every iPhone owner their phone was
+    // broken and send them into their battery settings, while the
+    // notifications were arriving perfectly well. That is the exact failure
+    // this whole strip exists to end, pointed the other way.
+    expect(
+      pushTrouble(
+        allowed: true,
+        everEnabled: true,
+        report: report(sent: 20, arrived: 0),
+        receiptsAreReliable: false,
+      ),
+      isNull,
+    );
+    // The switched-off case is a fact about the system, not an inference from
+    // receipts, so it still stands on any platform.
+    expect(
+      pushTrouble(
+        allowed: false,
+        everEnabled: true,
+        receiptsAreReliable: false,
+      ),
+      isNotNull,
+    );
+  });
+
   test('sent repeatedly and never drawn names the battery setting', () {
     final trouble = pushTrouble(
       allowed: true,
