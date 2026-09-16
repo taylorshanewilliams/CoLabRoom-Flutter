@@ -1,19 +1,24 @@
 import 'package:colabroom/app/deep_link.dart';
-import 'package:colabroom/services/web_addresses.dart';
+import 'package:colabroom/services/incoming_addresses.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The web build died four times in one week on the browser's forward
 /// button: the framework answered a pushed address by calling `pushNamed`
-/// on a navigator with no routes. This observer answers first.
+/// on a navigator with no routes. This observer answers first -- and since
+/// 16 September 2026 it does the same on a phone, where a link opening the
+/// app arrives as exactly that push.
 void main() {
+  setUp(IncomingAddresses.reset);
+  tearDown(IncomingAddresses.reset);
+
   test('a pushed address reaches whoever is attached, and is always handled',
       () async {
-    final observer = WebAddresses();
+    final observer = IncomingAddresses();
     final opened = <String>[];
-    void open(String path) => opened.add(path);
-    WebAddresses.attach(open);
-    addTearDown(() => WebAddresses.detach(open));
+    void open(Uri address) => opened.add(address.path);
+    IncomingAddresses.attach(open);
+    addTearDown(() => IncomingAddresses.detach(open));
 
     final handled = await observer.didPushRouteInformation(
       RouteInformation(uri: Uri.parse('/song/abc')),
@@ -23,9 +28,9 @@ void main() {
     expect(opened, <String>['/song/abc']);
   });
 
-  test('with nobody attached the address is swallowed rather than passed on',
+  test('with nobody attached the address is kept rather than passed on',
       () async {
-    final observer = WebAddresses();
+    final observer = IncomingAddresses();
     // True is the whole fix: false hands the address to the framework, and
     // the framework throws.
     expect(
@@ -34,17 +39,18 @@ void main() {
       ),
       isTrue,
     );
+    expect(IncomingAddresses.waiting, Uri.parse('/nothing/here'));
   });
 
   test('detaching somebody else leaves the attached handler alone', () async {
-    final observer = WebAddresses();
+    final observer = IncomingAddresses();
     final opened = <String>[];
-    void mine(String path) => opened.add(path);
-    void theirs(String path) {}
-    WebAddresses.attach(mine);
-    addTearDown(() => WebAddresses.detach(mine));
+    void mine(Uri address) => opened.add(address.path);
+    void theirs(Uri address) {}
+    IncomingAddresses.attach(mine);
+    addTearDown(() => IncomingAddresses.detach(mine));
 
-    WebAddresses.detach(theirs);
+    IncomingAddresses.detach(theirs);
     await observer.didPushRouteInformation(
       RouteInformation(uri: Uri.parse('/musician/m1')),
     );

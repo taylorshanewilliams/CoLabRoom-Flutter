@@ -10,7 +10,6 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../account/account_screen.dart';
 import '../messages/messages_screen.dart';
-import '../rooms/room_detail_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../openmic/open_mic_screen.dart';
 import '../openmic/open_mic_song_screen.dart';
@@ -19,11 +18,12 @@ import '../workspace/song_analysis_screen.dart';
 import '../../services/current_route.dart';
 import '../../services/people_presence.dart';
 import '../../services/push_receipts.dart';
-import '../../services/invite_link.dart';
+import '../../services/incoming_addresses.dart';
 import '../../services/app_release.dart';
 import '../../services/now_playing.dart';
 import '../../widgets/app_top_bar.dart';
 import '../welcome/welcome_flow.dart';
+import 'join_from_address.dart';
 import '../../widgets/now_playing_bar.dart';
 import '../../services/user_facing_error.dart';
 
@@ -149,71 +149,23 @@ class _AppShellState extends State<AppShell> {
 
   }
 
-  /// The link an invitation travels as (see invite_link.dart), read off
-  /// the address on the web once somebody is signed in. The room joins
-  /// the library on the first tab, and the snackbar says which one.
+  /// The link that brought somebody here, once they are signed in: an
+  /// invitation or a lesson link (see invite_link.dart), read off the
+  /// address on the web and handed over by the phone when a link or a QR
+  /// code opened the app. The room joins the library on the first tab, and
+  /// the snackbar says which one. A link that arrives while the app is
+  /// already open is WorkspaceShell's.
   Future<void> _acceptInviteFromAddress() async {
-    if (!kIsWeb) return;
-    final lesson = lessonCodeFrom(Uri.base);
-    if (lesson != null) {
-      await _joinLessonFromAddress(lesson);
-      return;
-    }
-    final code = inviteCodeFrom(Uri.base);
-    if (code == null) return;
-    final controller = BetaScope.of(context, listen: false);
-    final before = controller.rooms.map((room) => room.id).toSet();
-    try {
-      await controller.acceptInvite(code: code);
-      if (!mounted) return;
-      final joined = controller.rooms
-          .where((room) => !before.contains(room.id))
-          .map((room) => room.name)
-          .toList();
-      setState(() => _index = 0);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(joined.isEmpty
-            ? 'You are in. The room is under Your music.'
-            : 'You are in ${joined.first}. It is under Your music.'),
-      ));
-    } catch (error) {
-      if (!mounted) return;
-      // Used, expired, or already yours: said plainly, and the app goes
-      // on as it would have without the link.
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(error,
-            service: 'app', stage: 'invite.link', route: 'Home')),
-      ));
-    }
-  }
-
-  /// A teacher's lesson link, read off the address once somebody is signed
-  /// in: their own room with the teacher, opened straight away -- "the
-  /// student could join right into their room".
-  Future<void> _joinLessonFromAddress(String code) async {
-    final controller = BetaScope.of(context, listen: false);
-    try {
-      final room = await controller.joinLessonLink(code);
-      if (!mounted) return;
-      setState(() => _index = 0);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(room == null
-            ? 'Your lesson room is ready. It is under Your music.'
-            : 'Your lesson room is ready: ${room.name}.'),
-      ));
-      if (room != null) {
-        await Navigator.of(context).push(MaterialPageRoute<void>(
-          settings: RouteSettings(name: AppRoutes.room(room.id)),
-          builder: (_) => RoomDetailScreen(roomId: room.id),
-        ));
-      }
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(error,
-            service: 'app', stage: 'lesson.link', route: 'Home')),
-      ));
-    }
+    final address = IncomingAddresses.takeArrival();
+    if (address == null || !opensARoom(address)) return;
+    await joinFromAddress(
+      address,
+      context: context,
+      navigator: Navigator.of(context),
+      onJoined: () {
+        if (mounted) setState(() => _index = 0);
+      },
+    );
   }
 
   /// The tabs, rebuilt each time rather than made once.

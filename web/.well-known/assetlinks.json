@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.colabroom.beta",
+      "sha256_cert_fingerprints": [
+        "B4:EA:2E:F4:7F:67:E7:B7:BA:B2:9C:34:76:CD:79:4C:FD:00:94:80:10:E3:6C:97:B9:18:C8:C5:38:1D:2C:C2"
+      ]
+    }
+  }
+]

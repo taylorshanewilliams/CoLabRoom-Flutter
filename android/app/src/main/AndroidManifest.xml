@@ -34,6 +34,28 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="com.colabroom.beta" android:host="login-callback"/>
             </intent-filter>
+            <!-- Links to app.colabroom.com open the app when it is installed:
+                 a lesson QR code, an invitation, a song somebody sent. Android
+                 checks https://app.colabroom.com/.well-known/assetlinks.json
+                 (web/.well-known in this repo) at install before it trusts
+                 this, and the file must name the key the APK is signed with.
+                 By path, never the root: password resets and account deletion
+                 land on app.colabroom.com/?... and only work in a browser.
+                 Every prefix here must be one the app opens; see
+                 test/a_link_opens_the_app_test.dart. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="app.colabroom.com"/>
+                <data android:pathPrefix="/lesson/"/>
+                <data android:pathPrefix="/invite/"/>
+                <data android:pathPrefix="/song/"/>
+                <data android:pathPrefix="/room/"/>
+                <data android:pathPrefix="/musician/"/>
+                <data android:pathPrefix="/heard/"/>
+                <data android:pathPrefix="/set/"/>
+            </intent-filter>
         </activity>
         <!-- Must name a channel the app has actually created; see
              NotificationShade.channelId. Naming one that does not exist
