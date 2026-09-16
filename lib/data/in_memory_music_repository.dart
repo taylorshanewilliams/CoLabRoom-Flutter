@@ -7,6 +7,7 @@ import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
 import 'music_repository.dart';
+import '../services/invite_link.dart';
 
 class InMemoryMusicRepository implements MusicRepository {
   InMemoryMusicRepository._(this._rooms, this._invites, this._setlists);
@@ -699,6 +700,36 @@ class InMemoryMusicRepository implements MusicRepository {
   /// lesson has to be put there by hand, for tests and previews.
   void offerLesson({required String code, required String title, required String teacherName}) {
     _lessonsOffered[code] = (title: title, teacherName: teacherName);
+  }
+
+  String _myMeetingCode = 'k7m29xqp';
+  final Map<String, ({String personId, String displayName, List<String> plays})> _meetingCodes =
+      <String, ({String personId, String displayName, List<String> plays})>{};
+
+  /// Somebody else's meeting code this repository will open, for the same
+  /// reason as [offerLesson]: the person on the other end is put there by
+  /// hand.
+  void offerMeetingCode({
+    required String code,
+    required String personId,
+    required String displayName,
+    List<String> plays = const <String>[],
+  }) {
+    _meetingCodes[code] = (personId: personId, displayName: displayName, plays: plays);
+  }
+
+  /// Somebody asks to connect, the way scanning your code does on their
+  /// phone.
+  void somebodyAsks({required String personId, required String displayName, List<String> plays = const <String>[]}) {
+    _connections.removeWhere((c) => c.personId == personId);
+    _connections.add(Connection(
+      personId: personId,
+      displayName: displayName,
+      plays: plays,
+      accepted: false,
+      incoming: true,
+      since: DateTime.now(),
+    ));
   }
   final Map<String, Set<String>> _nods = <String, Set<String>>{};
   final Map<String, String> _nodNotes = <String, String>{};
@@ -1879,6 +1910,42 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<void> closeLessonLink() async {
     _lessonLink = null;
+  }
+
+  @override
+  Future<String> myMeetingCode() async => _myMeetingCode;
+
+  @override
+  Future<String> changeMyMeetingCode() async {
+    _myMeetingCode = _myMeetingCode == 'k7m29xqp' ? 'p4r8tv2w' : 'k7m29xqp';
+    return _myMeetingCode;
+  }
+
+  @override
+  Future<MetPerson> personWithMeetingCode(String code) async {
+    final cleaned = meetingCodeFromText(code);
+    if (cleaned != null && cleaned == _myMeetingCode) {
+      throw const NameConflict('That is your own code. Show it to somebody.');
+    }
+    final offered = cleaned == null ? null : _meetingCodes[cleaned];
+    if (offered == null) {
+      throw const NameConflict('That code does not open anybody. They may have changed it.');
+    }
+    if (_blocked.any((b) => b.id == offered.personId)) {
+      throw const NameConflict('That person cannot be added.');
+    }
+    final held = _connections.where((c) => c.personId == offered.personId).firstOrNull;
+    return MetPerson(
+      personId: offered.personId,
+      displayName: offered.displayName,
+      plays: offered.plays,
+      standing: held == null
+          ? ConnectionStanding.none
+          : held.accepted
+              ? ConnectionStanding.accepted
+              : ConnectionStanding.pending,
+      askedYou: held != null && !held.accepted && held.incoming,
+    );
   }
 
   @override

@@ -85,3 +85,46 @@ String lessonCodeSaid(String code) {
   if (clean.length != 12) return clean;
   return '${clean.substring(0, 4)}-${clean.substring(4, 8)}-${clean.substring(8)}';
 }
+
+/// Somebody's code for meeting in person (0130): `/add/<code>` opens their
+/// card, so the two of you can add each other. Eight characters from an
+/// alphabet with no i, l, o or u, because it gets read out over a band.
+String meetingLink(String code) => '${_webApp}add/${Uri.encodeComponent(code.trim().toLowerCase())}';
+
+final RegExp _meetingShape = RegExp(r'^[0-9a-hjkmnp-tv-z]{8}$');
+
+/// What somebody typed, the way it is stored -- the same rule as
+/// `private.clean_meeting_code`: no dashes or spaces, lower case, and the
+/// letters people read as digits read as those digits.
+String? _meetingCode(String raw) {
+  final cleaned = raw
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^0-9a-z]'), '')
+      .replaceAll('o', '0')
+      .replaceAll(RegExp('[il]'), '1');
+  return _meetingShape.hasMatch(cleaned) ? cleaned : null;
+}
+
+/// The meeting code on an address, or null when there is none.
+String? meetingCodeFrom(Uri address) {
+  final raw = _codeOn(address, 'add');
+  return raw == null ? null : _meetingCode(raw);
+}
+
+/// A meeting code in whatever somebody typed or pasted: the whole link, or
+/// the code on its own.
+String? meetingCodeFromText(String text) {
+  final trimmed = text.trim();
+  if (trimmed.contains('/add/')) {
+    final address = Uri.tryParse(trimmed);
+    return address == null ? null : meetingCodeFrom(address);
+  }
+  return _meetingCode(trimmed);
+}
+
+/// The code the way it is read out: k7m2-9xqp.
+String meetingCodeSaid(String code) {
+  final clean = code.toLowerCase();
+  if (clean.length != 8) return clean;
+  return '${clean.substring(0, 4)}-${clean.substring(4)}';
+}

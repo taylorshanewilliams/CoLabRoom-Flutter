@@ -1,5 +1,6 @@
 import 'dart:async';
 import '../lessons/lesson_link_screen.dart';
+import '../meeting/your_code_screen.dart';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -132,6 +133,17 @@ class _MessagesScreenState extends State<MessagesScreen> {
 
   /// A teacher's lesson link, beside starting a room: it is how a teacher
   /// starts rooms -- one per student, made by the students themselves.
+  /// Your code, for somebody you have just met (0130).
+  void _meet() {
+    final controller = BetaScope.of(context, listen: false);
+    unawaited(Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: AppRoutes.yourCode),
+        builder: (_) => YourCodeScreen(repository: controller.repository),
+      ),
+    ));
+  }
+
   Future<void> _lessons() async {
     final controller = BetaScope.of(context, listen: false);
     await Navigator.of(context).push(
@@ -169,6 +181,8 @@ class _MessagesScreenState extends State<MessagesScreen> {
             unawaited(_newRoom());
           case 'lessons':
             unawaited(_lessons());
+          case 'meet':
+            _meet();
         }
       },
       itemBuilder: (_) => <PopupMenuEntry<String>>[
@@ -190,6 +204,16 @@ class _MessagesScreenState extends State<MessagesScreen> {
             leading: Icon(Icons.forum_outlined),
             title: Text('Start a room'),
             subtitle: Text('For the band: a thread, and a place for songs'),
+          ),
+        ),
+        const PopupMenuItem<String>(
+          key: Key('messages_new_meet'),
+          value: 'meet',
+          child: ListTile(
+            dense: true,
+            leading: Icon(Icons.qr_code_scanner_rounded),
+            title: Text('Meet somebody: your code'),
+            subtitle: Text("Scan each other's codes and you are connected"),
           ),
         ),
         const PopupMenuItem<String>(

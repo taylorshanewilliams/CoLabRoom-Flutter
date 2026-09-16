@@ -26,6 +26,7 @@ import '../welcome/welcome_flow.dart';
 import 'what_you_get.dart';
 import '../notifications/notification_settings_screen.dart';
 import '../openmic/musician_profile_screen.dart';
+import '../meeting/your_code_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({this.supabase, super.key});
@@ -377,6 +378,22 @@ class _AccountScreenState extends State<AccountScreen> {
                         profileId: controller.repository.currentUserId,
                         repository: controller.repository,
                       ),
+                    ),
+                  );
+                },
+              ),
+              // Taylor asked for the code "in their profile": this is the
+              // page with your name and face on it, and the row sits beside
+              // your Open Mic page because both are how other people find you.
+              _AccountRow(
+                icon: Icons.qr_code_2_rounded,
+                label: 'Your code, for meeting people',
+                onTap: () {
+                  final controller = BetaScope.of(context, listen: false);
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      settings: const RouteSettings(name: AppRoutes.yourCode),
+                      builder: (_) => YourCodeScreen(repository: controller.repository),
                     ),
                   );
                 },

@@ -942,6 +942,30 @@ ConnectionStanding standingFrom(String? raw) => switch (raw) {
       _ => ConnectionStanding.none,
     };
 
+/// Whose meeting code this is (0130): enough to recognise the person in
+/// front of you, and where the two of you already stand. Opening a code adds
+/// nobody.
+class MetPerson {
+  const MetPerson({
+    required this.personId,
+    required this.displayName,
+    this.avatarPath,
+    this.plays = const <String>[],
+    this.standing = ConnectionStanding.none,
+    this.askedYou = false,
+  });
+
+  final String personId;
+  final String displayName;
+  final String? avatarPath;
+  final List<String> plays;
+  final ConnectionStanding standing;
+
+  /// They already asked you -- they scanned your code first -- so adding
+  /// them back connects you on the spot.
+  final bool askedYou;
+}
+
 /// Somebody the app can say a true sentence about, who is not connected yet.
 class SuggestedPerson {
   const SuggestedPerson({

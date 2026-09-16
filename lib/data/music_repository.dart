@@ -617,6 +617,17 @@ abstract interface class MusicRepository {
   /// time and the same room every time after. Returns the room's id.
   Future<String> joinLessonLink(String code);
 
+  /// Your code for meeting in person (0130), made the first time you ask.
+  Future<String> myMeetingCode();
+
+  /// A new meeting code. The old one opens nobody; people already added
+  /// stay added.
+  Future<String> changeMyMeetingCode();
+
+  /// Whose meeting code this is, typed however it was typed. Adds nobody:
+  /// adding is [requestConnection].
+  Future<MetPerson> personWithMeetingCode(String code);
+
   /// Keeps what a followed session worked on. Keeping a mark with the same
   /// id again updates it; a note already kept is not lost to a later save
   /// without one.
