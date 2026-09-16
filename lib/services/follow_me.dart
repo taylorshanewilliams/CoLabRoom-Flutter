@@ -317,6 +317,7 @@ class FollowSession extends ChangeNotifier {
   bool _following = false;
   SongLeader? _leader;
   List<SongDevice> _here = const <SongDevice>[];
+  final Set<String> _seen = <String>{};
   bool _closed = false;
 
   /// Nothing heard from a leader for this long means they are gone, even
@@ -458,7 +459,13 @@ class FollowSession extends ChangeNotifier {
       heardAt: receivedAt,
     );
     if (_following) {
-      unawaited(line.markFollowing(device));
+      // Told to presence only when who is followed changes. Saying it again
+      // on every heartbeat was a loop on the first two-phone test: each
+      // re-announcement reaches the leader as its follower leaving and
+      // arriving, the leader answers an arrival at once, and the answer
+      // prompts the next re-announcement -- as fast as the network goes,
+      // until the server stops carrying the song's messages at all.
+      if (previous?.device != device) unawaited(line.markFollowing(device));
       _states.add(state);
     }
     _watchForQuiet();
@@ -471,7 +478,6 @@ class FollowSession extends ChangeNotifier {
 
   void _heardDevices(List<SongDevice> devices) {
     if (_closed) return;
-    final before = _here.map((each) => each.device).toSet();
     _here = devices;
     // A leader missing from this list is not taken as gone. Phones drop
     // off presence for a second when the signal flickers, and a lesson that
@@ -479,9 +485,15 @@ class FollowSession extends ChangeNotifier {
     // worse than one that notices a real departure nine seconds late: an
     // 'end' says so at once, and silence says so after [quietAfterMs].
     //
-    // Somebody arrived while this phone leads: tell them now rather than at
-    // the next heartbeat.
-    if (_leading && devices.any((each) => !before.contains(each.device))) _lastSent = null;
+    // Somebody new arrived while this phone leads: tell them now rather than
+    // at the next heartbeat. New means never seen on this song -- not merely
+    // absent from the last list, which is what a phone that updates its
+    // presence looks like for a moment (see _heardLead).
+    var arrived = false;
+    for (final each in devices) {
+      if (_seen.add(each.device)) arrived = true;
+    }
+    if (_leading && arrived) _lastSent = null;
     notifyListeners();
   }
 

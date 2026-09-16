@@ -272,6 +272,62 @@ void main() {
       student.dispose();
     });
 
+    test('a heartbeat does not start a loop between leader and follower', () async {
+      // The first two-phone test, 16 Sep: the follower re-announced itself
+      // on every heartbeat, the leader took each re-announcement for an
+      // arrival and answered at once, and within a minute the server had
+      // stopped carrying the song's messages either way.
+      final teacherLine = _Line(bus, 't', 'u1', 'Taylor');
+      final studentLine = _Line(bus, 's', 'u2', 'Jess');
+      final teacher = FollowSession(line: teacherLine, userId: 'u1', name: 'Taylor', now: clock);
+      final student = FollowSession(line: studentLine, userId: 'u2', name: 'Jess', now: clock);
+      bus.announce();
+
+      teacher.lead();
+      teacher.publish(state(sent: now));
+      student.follow();
+      final start = bus.sent.length;
+
+      // Five seconds of the leader's screen ticking every 50 ms.
+      for (var tick = 1; tick <= 100; tick += 1) {
+        now += 50;
+        teacher.publish(state(sent: now, at: 10000 + tick * 50));
+      }
+      await pumpEventQueue();
+      final sends = bus.sent.length - start;
+      expect(sends, lessThanOrEqualTo(3), reason: 'a heartbeat every two seconds, not every tick');
+      expect(studentLine.marks, 1);
+      expect(student.following, isTrue);
+      expect(teacher.followers, 1);
+      teacher.dispose();
+      student.dispose();
+    });
+
+    test('somebody new arriving is told at once; somebody flickering is not', () async {
+      final teacher = phone('t', 'u1', 'Taylor');
+      final studentLine = _Line(bus, 's', 'u2', 'Jess');
+      bus.announce();
+      teacher.lead();
+      teacher.publish(state(sent: now));
+      final start = bus.sent.length;
+
+      // The same phone dropping off presence and coming back.
+      bus.here.remove('s');
+      bus.announce();
+      bus.here['s'] = SongDevice(device: 's', userId: 'u2', displayName: studentLine.name);
+      bus.announce();
+      now += 300;
+      teacher.publish(state(sent: now, at: 10300));
+      expect(bus.sent.length, start);
+
+      // A phone never seen on this song.
+      _Line(bus, 'r', 'u3', 'Ro').arrive();
+      now += 50;
+      teacher.publish(state(sent: now, at: 10350));
+      expect(bus.sent.length, start + 1);
+      teacher.dispose();
+    });
+
     test('leading your own tablet from your phone', () async {
       final phoneOne = phone('p', 'u1', 'Taylor');
       final tablet = phone('t', 'u1', 'Taylor');
@@ -582,8 +638,16 @@ class _Line implements FollowLine {
     bus.messages.add(message);
   }
 
+  /// How many times this phone told presence who it follows.
+  int marks = 0;
+
+  /// As the real server delivers it: a presence update reaches everyone
+  /// else as this phone leaving and then arriving again.
   @override
   Future<void> markFollowing(String? following) async {
+    marks += 1;
+    bus.here.remove(device);
+    bus.announce();
     bus.here[device] = SongDevice(
       device: device,
       userId: userId,
