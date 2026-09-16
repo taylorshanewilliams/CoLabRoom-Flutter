@@ -10,6 +10,7 @@ import '../../domain/lesson_link.dart';
 import '../../services/invite_link.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/qr_code.dart';
+import 'lesson_poster.dart';
 
 /// A teacher's lesson link: one QR code, and a room of their own with the
 /// teacher for every student who opens it.
@@ -23,9 +24,12 @@ import '../../widgets/qr_code.dart';
 /// The screen is the code. Before there is one it asks a single question,
 /// what you teach, because that is what every student's room will be called.
 class LessonLinkScreen extends StatefulWidget {
-  const LessonLinkScreen({required this.repository, super.key});
+  const LessonLinkScreen({required this.repository, this.teacherName = '', super.key});
 
   final MusicRepository repository;
+
+  /// Who teaches, for the poster ("with Taylor"). Left off when unknown.
+  final String teacherName;
 
   @override
   State<LessonLinkScreen> createState() => _LessonLinkScreenState();
@@ -119,6 +123,14 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
       text: '${link.title}: open this to get your own lesson room with me on CoLabRoom.\n'
           '${lessonLink(link.code)}',
     ));
+  }
+
+  Future<void> _poster(LessonLink link) async {
+    try {
+      await LessonPoster.print(title: link.title, code: link.code, teacher: widget.teacherName);
+    } catch (error) {
+      _say(reportAndDescribe(error, service: 'app', stage: 'lesson_link.poster', route: 'Lesson link'));
+    }
   }
 
   void _say(String message) {
@@ -254,6 +266,14 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
             onPressed: () => unawaited(_copy(link)),
             icon: const Icon(Icons.link_rounded, size: 18),
             label: const Text('Copy link'),
+          ),
+          // For the wall: the same code, on a page big enough to scan from
+          // across a room.
+          OutlinedButton.icon(
+            key: const Key('lesson_poster'),
+            onPressed: () => unawaited(_poster(link)),
+            icon: const Icon(Icons.print_outlined, size: 18),
+            label: const Text('Print a poster'),
           ),
         ],
       ),
