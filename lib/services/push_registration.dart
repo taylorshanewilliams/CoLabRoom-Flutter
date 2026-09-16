@@ -455,6 +455,10 @@ abstract final class PushRegistration {
         allowed: true,
         everEnabled: true,
         report: await deliveryReport(),
+        // Only Android wakes the app for every push, so only there does a
+        // missing receipt mean the phone is not drawing them.
+        receiptsAreReliable:
+            !kIsWeb && defaultTargetPlatform == TargetPlatform.android,
       );
     } catch (error) {
       reportWarningAndDescribe(error, service: 'app', stage: 'push.trouble');
