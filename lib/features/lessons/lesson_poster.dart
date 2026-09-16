@@ -32,76 +32,99 @@ abstract final class LessonPoster {
     String? teacher,
     PdfPageFormat format = PdfPageFormat.a4,
   }) {
-    final heading = printable(title).trim().isEmpty ? 'Lessons' : printable(title).trim();
     final who = printable(teacher ?? '').trim();
-    final document = pw.Document(title: heading, author: who.isEmpty ? 'CoLabRoom' : who);
+    final document = pw.Document(title: _heading(title), author: who.isEmpty ? 'CoLabRoom' : who);
 
     document.addPage(
       pw.Page(
         pageFormat: format,
-        margin: const pw.EdgeInsets.fromLTRB(48, 44, 48, 40),
-        build: (context) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.center,
-          children: <pw.Widget>[
-            pw.Text(
-              'CoLabRoom',
-              style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey700, letterSpacing: 2),
-            ),
-            pw.SizedBox(height: 26),
-            pw.Text(
-              heading,
-              textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(fontSize: 40, fontWeight: pw.FontWeight.bold),
-            ),
-            if (who.isNotEmpty) ...<pw.Widget>[
-              pw.SizedBox(height: 6),
-              pw.Text('with $who', style: const pw.TextStyle(fontSize: 22, color: PdfColors.grey800)),
-            ],
-            pw.SizedBox(height: 30),
-            pw.BarcodeWidget(
-              barcode: pw.Barcode.qrCode(errorCorrectLevel: pw.BarcodeQRCorrectionLevel.medium),
-              data: lessonLink(code),
-              // As big as a US Letter page allows under everything else:
-              // scanned from across a room, not from arm's length.
-              width: 320,
-              height: 320,
-              drawText: false,
-            ),
-            pw.SizedBox(height: 18),
-            pw.Text(
-              'Scan with your phone camera',
-              style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.SizedBox(height: 10),
-            pw.Container(
-              width: 380,
-              child: pw.Text(
-                'Everybody who scans gets their own room with me: just the two of us, '
-                'the song sheet, and what we worked on last time.',
-                textAlign: pw.TextAlign.center,
-                style: const pw.TextStyle(fontSize: 13, color: PdfColors.grey800, lineSpacing: 3),
-              ),
-            ),
-            pw.Spacer(),
-            pw.Text(
-              'Or open CoLabRoom, choose Join with a code, and type',
-              style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey700),
-            ),
-            pw.SizedBox(height: 6),
-            pw.Text(
-              lessonCodeSaid(code),
-              style: pw.TextStyle(fontSize: 28, fontWeight: pw.FontWeight.bold, letterSpacing: 3),
-            ),
-            pw.SizedBox(height: 14),
-            pw.Text(
-              'app.colabroom.com',
-              style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
-            ),
-          ],
-        ),
+        margin: margin,
+        build: (context) => sheet(title: title, code: code, teacher: teacher),
       ),
     );
     return document;
+  }
+
+  /// The white space round the page.
+  static const margin = pw.EdgeInsets.fromLTRB(48, 44, 48, 40);
+
+  /// Everything printed on the page, inside [margin].
+  ///
+  /// Centred: a page lays its child out loosely, and a column on its own
+  /// shrinks to its widest line and sits against the left margin.
+  static pw.Widget sheet({
+    required String title,
+    required String code,
+    String? teacher,
+  }) {
+    final heading = _heading(title);
+    final who = printable(teacher ?? '').trim();
+    return pw.Center(
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: <pw.Widget>[
+          pw.Text(
+            'CoLabRoom',
+            style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey700, letterSpacing: 2),
+          ),
+          pw.SizedBox(height: 26),
+          pw.Text(
+            heading,
+            textAlign: pw.TextAlign.center,
+            style: pw.TextStyle(fontSize: 40, fontWeight: pw.FontWeight.bold),
+          ),
+          if (who.isNotEmpty) ...<pw.Widget>[
+            pw.SizedBox(height: 6),
+            pw.Text('with $who', style: const pw.TextStyle(fontSize: 22, color: PdfColors.grey800)),
+          ],
+          pw.SizedBox(height: 30),
+          pw.BarcodeWidget(
+            barcode: pw.Barcode.qrCode(errorCorrectLevel: pw.BarcodeQRCorrectionLevel.medium),
+            data: lessonLink(code),
+            // As big as a US Letter page allows under everything else:
+            // scanned from across a room, not from arm's length.
+            width: 320,
+            height: 320,
+            drawText: false,
+          ),
+          pw.SizedBox(height: 18),
+          pw.Text(
+            'Scan with your phone camera',
+            style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 10),
+          pw.Container(
+            width: 380,
+            child: pw.Text(
+              'Everybody who scans gets their own room with me: just the two of us, '
+              'the song sheet, and what we worked on last time.',
+              textAlign: pw.TextAlign.center,
+              style: const pw.TextStyle(fontSize: 13, color: PdfColors.grey800, lineSpacing: 3),
+            ),
+          ),
+          pw.Spacer(),
+          pw.Text(
+            'Or open CoLabRoom, choose Join with a code, and type',
+            style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey700),
+          ),
+          pw.SizedBox(height: 6),
+          pw.Text(
+            lessonCodeSaid(code),
+            style: pw.TextStyle(fontSize: 28, fontWeight: pw.FontWeight.bold, letterSpacing: 3),
+          ),
+          pw.SizedBox(height: 14),
+          pw.Text(
+            'app.colabroom.com',
+            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _heading(String title) {
+    final printed = printable(title).trim();
+    return printed.isEmpty ? 'Lessons' : printed;
   }
 
   /// What the page's built-in font can draw. Names and titles are typed by

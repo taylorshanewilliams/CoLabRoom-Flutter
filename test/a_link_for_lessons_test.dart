@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 /// A link for lessons.
 ///
@@ -61,6 +62,21 @@ void main() {
         format: PdfPageFormat.letter,
       ).save();
       expect(anonymous.length, greaterThan(1000));
+    });
+
+    test('the poster sits in the middle of the page', () async {
+      // Found on the emulator's print preview, 16 Sep: the page lays its
+      // child out loosely, so the column shrank to its widest line and sat
+      // against the left margin, the QR code 60 pt left of centre.
+      for (final format in <PdfPageFormat>[PdfPageFormat.a4, PdfPageFormat.letter]) {
+        final sheet = LessonPoster.sheet(title: 'Guitar', code: 'a1b2c3d4e5f6', teacher: 'Taylor');
+        await (pw.Document()
+              ..addPage(pw.Page(pageFormat: format, margin: LessonPoster.margin, build: (_) => sheet)))
+            .save();
+        final qr = _onPage(sheet, (widget) => widget is pw.BarcodeWidget);
+        expect(qr, isNotNull);
+        expect(qr!.left + qr.width / 2, closeTo(format.width / 2, 0.5));
+      }
     });
 
     test('the QR code is drawn inside its square', () {
@@ -218,4 +234,22 @@ void main() {
       expect(find.textContaining('your own lesson link'), findsOneWidget);
     });
   });
+}
+
+/// Where the widget [find] matches landed across the page. A pdf widget's box
+/// is measured from its parent's, so the offsets above it are added up.
+({double left, double width})? _onPage(pw.Widget widget, bool Function(pw.Widget) find, [double left = 0]) {
+  final box = widget.box!;
+  final x = left + box.left;
+  if (find(widget)) return (left: x, width: box.width);
+  final children = switch (widget) {
+    pw.SingleChildWidget(:final child?) => <pw.Widget>[child],
+    pw.MultiChildWidget(:final children) => children,
+    _ => const <pw.Widget>[],
+  };
+  for (final child in children) {
+    final found = _onPage(child, find, x);
+    if (found != null) return found;
+  }
+  return null;
 }
