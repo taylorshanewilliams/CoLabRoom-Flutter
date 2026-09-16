@@ -6,34 +6,50 @@
 /// instruction to install something. The web app is the same account, the
 /// same rooms and the same songs in a browser, so the code now travels as a
 /// link that opens there. Sign in or sign up on that page and the room is
-/// already yours; on a phone the same link works in the browser.
+/// already yours; on a phone with the app installed the same link opens the
+/// app instead (see IncomingAddresses and the App Links in the manifest).
 ///
-/// `from=invite` rides along so an account made this way counts as one
-/// that arrived by invitation (0120), which is the channel the plan for the
-/// first ten thousand expects to matter most.
+/// The code is the path -- `/invite/<code>`, `/lesson/<code>` -- rather than
+/// a query, for two reasons. A phone claims links by path, and the paths it
+/// claims must leave the root to the browser: password resets and account
+/// deletion land on `app.colabroom.com/?...` and only work on the web. And a
+/// shorter link is a less dense QR code, which scans from further across a
+/// room. The query form (`?invite=`, `?lesson=`) came first and is still
+/// read, so nothing already sent or printed stops working.
+///
+/// The path names the door, so an account made this way still counts as one
+/// that arrived by invitation or lesson (0120; see arrivalCodeFrom).
 const String _webApp = 'https://app.colabroom.com/';
 
 String inviteLink(String code) {
   final clean = code.trim();
-  return '$_webApp?invite=${Uri.encodeQueryComponent(clean)}&from=invite';
+  return '${_webApp}invite/${Uri.encodeComponent(clean)}';
 }
 
 final RegExp _shape = RegExp(r'^[A-Za-z0-9_-]{4,80}$');
 
+/// The code a link carries under [key]: `/<key>/<code>`, or the older
+/// `?<key>=<code>`.
+String? _codeOn(Uri address, String key) {
+  final segments = address.pathSegments.where((segment) => segment.isNotEmpty).toList();
+  if (segments.length == 2 && segments.first == key) return segments.last;
+  return address.queryParameters[key];
+}
+
 /// The code on the address, or null when there is none or it is not one.
 String? inviteCodeFrom(Uri address) {
-  final raw = address.queryParameters['invite'];
+  final raw = _codeOn(address, 'invite');
   if (raw == null) return null;
   final code = raw.trim();
   return _shape.hasMatch(code) ? code : null;
 }
 
 /// A teacher's lesson link (0129): whoever opens it gets their own room
-/// with the teacher. The same web app as an invitation, a different key on
-/// the address, so the shell can tell "join this room" from "make me one".
+/// with the teacher. The same web app as an invitation, a different door,
+/// so the shell can tell "join this room" from "make me one".
 String lessonLink(String code) {
   final clean = code.trim().toLowerCase();
-  return '$_webApp?lesson=${Uri.encodeQueryComponent(clean)}&from=lesson';
+  return '${_webApp}lesson/${Uri.encodeComponent(clean)}';
 }
 
 final RegExp _lessonShape = RegExp(r'^[0-9a-f]{12}$');
@@ -47,7 +63,7 @@ String? _lessonCode(String raw) {
 
 /// The lesson code on the address, or null when there is none.
 String? lessonCodeFrom(Uri address) {
-  final raw = address.queryParameters['lesson'];
+  final raw = _codeOn(address, 'lesson');
   return raw == null ? null : _lessonCode(raw);
 }
 
@@ -56,7 +72,7 @@ String? lessonCodeFrom(Uri address) {
 /// which includes an invitation's much longer code.
 String? lessonCodeFromText(String text) {
   final trimmed = text.trim();
-  if (trimmed.contains('lesson=')) {
+  if (trimmed.contains('lesson=') || trimmed.contains('/lesson/')) {
     final address = Uri.tryParse(trimmed);
     return address == null ? null : lessonCodeFrom(address);
   }

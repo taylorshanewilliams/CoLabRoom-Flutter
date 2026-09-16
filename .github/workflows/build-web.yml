@@ -60,10 +60,18 @@ jobs:
             --dart-define=AUTH_REDIRECT_URL=https://app.colabroom.com/ \
             --dart-define=BUILD_REF=${GITHUB_SHA::7}
 
+      # include-hidden-files: upload-artifact leaves out anything starting
+      # with a dot, and .well-known/assetlinks.json is what lets Android open
+      # app.colabroom.com links in the app. Without it the links still work,
+      # in the browser, and nothing says why.
+      - name: Check the App Links file made it into the build
+        run: test -s build/web/.well-known/assetlinks.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: colabroom-web
           path: build/web
+          include-hidden-files: true
           retention-days: 14
 
 # ---------------------------------------------------------------------------

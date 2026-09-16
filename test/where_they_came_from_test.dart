@@ -12,6 +12,14 @@ void main() {
     expect(arrivalCodeFrom(Uri.parse('https://colabroom.com/chords.html?c=orl-wp')), 'orl-wp');
   });
 
+  test('an invitation or a lesson link names its own door in the path', () {
+    expect(arrivalCodeFrom(Uri.parse('https://app.colabroom.com/lesson/a1b2c3d4e5f6')), 'lesson');
+    expect(arrivalCodeFrom(Uri.parse('https://app.colabroom.com/invite/AB12-CD34')), 'invite');
+    // A code on the address still wins: a flier can point at an invitation.
+    expect(arrivalCodeFrom(Uri.parse('https://app.colabroom.com/invite/AB12-CD34?from=orl-wp')), 'orl-wp');
+    expect(arrivalCodeFrom(Uri.parse('https://app.colabroom.com/song/abc')), isNull);
+  });
+
   test('anything but a plain code is ignored', () {
     expect(arrivalCodeFrom(Uri.parse('https://app.colabroom.com/')), isNull);
     expect(arrivalCodeFrom(Uri.parse('https://app.colabroom.com/?from=')), isNull);

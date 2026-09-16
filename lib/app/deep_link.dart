@@ -14,6 +14,7 @@ import '../features/openmic/open_mic_song_screen.dart';
 import '../features/rooms/room_detail_screen.dart';
 import '../features/rooms/setlist_detail_screen.dart';
 import '../features/workspace/song_workspace_screen.dart';
+import '../services/incoming_addresses.dart';
 import 'routes.dart';
 
 /// Turning an address back into the place it names.
@@ -33,10 +34,12 @@ abstract final class DeepLink {
   /// Where the app was opened, as the engine reports it.
   ///
   /// On the web this is the path in the address bar. On a phone it is `/`
-  /// unless something handed the app a link, which is the same question with
-  /// the same answer.
+  /// unless a link opened the app, and then it is the whole link, which
+  /// [AppRoutes.match] reads the path from. A link that arrived while nothing
+  /// could open it — tapped while the sign-in screen was up — goes first:
+  /// it is the more recent of the two. See IncomingAddresses.
   static String initialRoute(WidgetsBinding binding) =>
-      binding.platformDispatcher.defaultRouteName;
+      IncomingAddresses.waiting?.toString() ?? binding.platformDispatcher.defaultRouteName;
 
   /// The stack an address should open as.
   ///

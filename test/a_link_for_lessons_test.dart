@@ -24,11 +24,15 @@ import 'package:pdf/widgets.dart' as pw;
 void main() {
   group('the link and the code', () {
     test('the link opens the web app with the lesson on it', () {
-      expect(
-        lessonLink('A1B2C3D4E5F6'),
-        'https://app.colabroom.com/?lesson=a1b2c3d4e5f6&from=lesson',
-      );
+      expect(lessonLink('A1B2C3D4E5F6'), 'https://app.colabroom.com/lesson/a1b2c3d4e5f6');
       expect(lessonCodeFrom(Uri.parse(lessonLink('a1b2c3d4e5f6'))), 'a1b2c3d4e5f6');
+      // The first posters carried the code as a query; they still open.
+      expect(
+        lessonCodeFrom(Uri.parse('https://app.colabroom.com/?lesson=a1b2c3d4e5f6&from=lesson')),
+        'a1b2c3d4e5f6',
+      );
+      expect(lessonCodeFrom(Uri.parse('https://app.colabroom.com/lesson/nope')), isNull);
+      expect(lessonCodeFrom(Uri.parse('https://app.colabroom.com/invite/a1b2c3d4e5f6')), isNull);
       expect(lessonCodeFrom(Uri.parse('https://app.colabroom.com/?lesson=nope')), isNull);
       expect(lessonCodeFrom(Uri.parse('https://app.colabroom.com/?invite=a1b2c3d4e5f6')), isNull);
     });
@@ -37,6 +41,7 @@ void main() {
       expect(lessonCodeFromText('a1b2-c3d4-e5f6'), 'a1b2c3d4e5f6');
       expect(lessonCodeFromText(' A1B2 C3D4 E5F6 '), 'a1b2c3d4e5f6');
       expect(lessonCodeFromText(lessonLink('a1b2c3d4e5f6')), 'a1b2c3d4e5f6');
+      expect(lessonCodeFromText('https://app.colabroom.com/?lesson=a1b2c3d4e5f6'), 'a1b2c3d4e5f6');
       // An invitation's code is much longer and is not a lesson.
       expect(lessonCodeFromText('0123456789abcdef0123456789abcdef0123'), isNull);
       expect(lessonCodeFromText('hello'), isNull);

@@ -14,7 +14,7 @@ import 'services/notification_shade.dart';
 import 'services/push_receipts.dart';
 import 'services/push_registration.dart';
 import 'services/set_aside.dart';
-import 'services/web_addresses.dart';
+import 'services/incoming_addresses.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,8 +24,8 @@ Future<void> main() async {
   CrashReporter.install();
   ErrorWidget.builder = (details) => _CrashScreen(details: details);
   // Before runApp, so it is asked about a pushed address before the
-  // framework is. Web only; a no-op everywhere else.
-  WebAddresses.install();
+  // framework is: the browser's forward button, or a link opening the app.
+  IncomingAddresses.install();
 
   if (BetaConfig.hasSupabase) {
     await Supabase.initialize(

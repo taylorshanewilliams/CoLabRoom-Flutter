@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -6,7 +8,8 @@ import '../services/browser_history.dart';
 import '../services/current_route.dart';
 import 'beta_scope.dart';
 import 'deep_link.dart';
-import '../services/web_addresses.dart';
+import '../features/shell/join_from_address.dart';
+import '../services/incoming_addresses.dart';
 import 'music_beta_controller.dart';
 
 /// Keeps every workspace route and dialog below [BetaScope].
@@ -37,23 +40,30 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   @override
   void initState() {
     super.initState();
-    // The browser's forward button lands here rather than on the navigator
+    // The browser's forward button, and a link or QR code opening the app
+    // while it is already running, land here rather than on the navigator
     // MaterialApp built, which has no routes and used to throw. See
-    // WebAddresses.
-    WebAddresses.attach(_openAddress);
+    // IncomingAddresses.
+    IncomingAddresses.attach(_openAddress);
   }
 
   @override
   void dispose() {
-    WebAddresses.detach(_openAddress);
+    IncomingAddresses.detach(_openAddress);
     super.dispose();
   }
 
   /// An address arriving while the app is open, made into the screen it
-  /// names — or, for a tab, a return to the bottom of the stack.
-  void _openAddress(String path) {
+  /// names — or, for a tab, a return to the bottom of the stack, or, for an
+  /// invitation or a lesson link, the room it opens.
+  void _openAddress(Uri address) {
     final navigator = _navigatorKey.currentState;
     if (navigator == null) return;
+    if (opensARoom(address)) {
+      unawaited(joinFromAddress(address, context: navigator.context, navigator: navigator));
+      return;
+    }
+    final path = address.path;
     if (DeepLink.isATab(path)) {
       navigator.popUntil((route) => route.isFirst);
       return;

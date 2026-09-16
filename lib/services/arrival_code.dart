@@ -12,8 +12,15 @@
 /// in the address bar is ignored rather than argued with.
 final RegExp _shape = RegExp(r'^[a-z0-9-]{1,32}$');
 
+/// An invitation or a lesson link names its own door in the path
+/// (`/invite/<code>`, `/lesson/<code>`; see invite_link.dart), so it counts
+/// as `invite` or `lesson` without carrying a `from`.
 String? arrivalCodeFrom(Uri address) {
-  final raw = address.queryParameters['from'] ?? address.queryParameters['c'];
+  final segments = address.pathSegments.where((segment) => segment.isNotEmpty).toList();
+  final door = segments.length == 2 && (segments.first == 'invite' || segments.first == 'lesson')
+      ? segments.first
+      : null;
+  final raw = address.queryParameters['from'] ?? address.queryParameters['c'] ?? door;
   if (raw == null) return null;
   final code = raw.trim().toLowerCase();
   return _shape.hasMatch(code) ? code : null;
