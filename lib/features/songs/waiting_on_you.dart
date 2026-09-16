@@ -70,6 +70,10 @@ enum WaitingKind {
   /// Something new for today: a release, a chord move on your own song,
   /// a first line to record. See features/songs/tonight.dart.
   tonight,
+
+  /// What a followed session left to practise: the part, the speed, and
+  /// the leader's note. See features/workspace/practice_marks.dart.
+  practice,
 }
 
 class WaitingItem {
@@ -165,6 +169,10 @@ class WaitingItem {
         // Between what you can hear and who is waiting: new every day,
         // and the reason to have opened the app when nothing else is.
         WaitingKind.tonight => 1,
+        // Beside Tonight, for the same reason, and left by a person: the
+        // part somebody gave you to work on is the best answer there is to
+        // "what shall I play today".
+        WaitingKind.practice => 1,
         WaitingKind.request => 2,
         // Ahead of the chores: everything below it may be missing from this
         // phone, and the person on the other end of a request may be waiting
@@ -188,6 +196,7 @@ class WaitingItem {
         WaitingKind.unreachable => Icons.notifications_off_rounded,
         WaitingKind.firstTake => Icons.mic_rounded,
         WaitingKind.tonight => Icons.nightlight_round,
+        WaitingKind.practice => Icons.repeat_rounded,
       };
 
   Color get tint => switch (kind) {
@@ -199,6 +208,7 @@ class WaitingItem {
         WaitingKind.unreachable => AppColors.orange,
         WaitingKind.firstTake => AppColors.cyan,
         WaitingKind.tonight => AppColors.gold,
+        WaitingKind.practice => AppColors.gold,
       };
 
   String get defaultEyebrow => switch (kind) {
@@ -210,6 +220,7 @@ class WaitingItem {
         WaitingKind.unreachable => 'Not reaching you',
         WaitingKind.firstTake => 'When you have a minute',
         WaitingKind.tonight => 'Tonight',
+        WaitingKind.practice => 'To practise',
       };
 }
 

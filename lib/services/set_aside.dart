@@ -44,6 +44,10 @@ abstract final class SetAside {
   /// a prompt and its day. Closed means it does not come back.
   static const String tonight = 'tonight';
 
+  /// A practice mark somebody closed on Home. The mark itself is kept on
+  /// their account; only the card goes.
+  static const String practice = 'practice';
+
   static String _key(String kind) => 'set_aside_$kind';
 
   /// Held in memory so a list can be drawn without waiting for a disk read,

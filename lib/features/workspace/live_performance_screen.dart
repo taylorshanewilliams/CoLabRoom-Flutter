@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
+import '../../domain/practice_mark.dart';
 import '../../domain/song_analysis_models.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -23,6 +24,7 @@ import 'follow_me_bar.dart';
 import 'live_countdown_store.dart';
 import 'musician_sheet_line.dart';
 import 'musician_sheet_logic.dart';
+import 'practice_marks.dart';
 import 'practice_rules.dart';
 
 enum LiveScrollMode { off, synced, slow, medium, fast, timed }
@@ -71,8 +73,19 @@ class LivePerformanceScreen extends StatefulWidget {
     this.playAlongMixer,
     this.together,
     this.me = '',
+    this.keepPractice,
+    this.practise,
     super.key,
   });
+
+  /// Where what a followed session leaves behind goes: the part worked on,
+  /// the speed, and the leader's note. Null keeps nothing, which is every
+  /// screen that is not the song itself.
+  final void Function(PracticeMark mark)? keepPractice;
+
+  /// Opened from a practice mark on Home: already on this part, at this
+  /// speed, waiting for Start.
+  final PracticePart? practise;
 
   final SongProject project;
 
@@ -149,7 +162,32 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
 
   StreamSubscription<FollowState>? _followSub;
   StreamSubscription<String>? _noteSub;
+  StreamSubscription<FollowEnded>? _endSub;
   bool _hadLeader = false;
+
+  /// What following has worked on, and the mark it will be kept as. The
+  /// mark is named up front so that saving it again -- the student took the
+  /// song back, then followed again -- updates one mark rather than adding a
+  /// second. A new name only once a leader has stopped.
+  PracticeLog _practice = PracticeLog();
+  String _markId = newPracticeMarkId();
+  String? _markNote;
+  String? _markLeaderName;
+  String? _markLeaderId;
+
+  /// The leader's clock at the last state heard, and this phone's at the
+  /// moment it arrived. Practice is timed on the leader's clock -- the
+  /// states say when they left, two seconds apart while playing -- and the
+  /// stretch after the last one is carried on from there.
+  int? _heardSentAt;
+  int? _heardLocalAt;
+
+  int _practiceNow() {
+    final sent = _heardSentAt;
+    final local = _heardLocalAt;
+    if (sent == null || local == null) return DateTime.now().millisecondsSinceEpoch;
+    return sent + (DateTime.now().millisecondsSinceEpoch - local);
+  }
 
   /// Practising: one part on repeat, and the recording slowed.
   ///
@@ -232,6 +270,20 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final sheetReady = widget.analysis?.ready ?? false;
     _source = sheetReady ? LiveLyricSource.songSheet : LiveLyricSource.workspace;
     _mode = _hasSync ? LiveScrollMode.synced : LiveScrollMode.off;
+    // Opened to practise: the part and the speed from the mark, the song at
+    // the start of that part, and nothing playing until Start.
+    final practise = widget.practise;
+    if (practise != null && _hasSync) {
+      _rate = practise.rate;
+      _loop = _sectionAt(practise.startMs, practise.endMs);
+      _elapsed = Duration(milliseconds: _loop?.startMs ?? 0);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scroll.hasClients) return;
+        _captureLineOffsets();
+        final position = _scroll.position;
+        if (position.maxScrollExtent > 0) _tickSynced(position, position.maxScrollExtent);
+      });
+    }
     if (_hasSync) {
       final track = widget.analysis?.reference;
       final lastLineEnd = _sheetLines.isEmpty ? 0 : _sheetLines.last.endMs;
@@ -250,6 +302,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _hadLeader = together.leader != null;
       _followSub = together.states.listen(_applyFollow);
       _noteSub = together.notes.listen(_say);
+      _endSub = together.endings.listen(_followEnded);
       // Arrived by pressing Follow on the song: catch up with the leader
       // as soon as there are words on screen to move.
       final leader = together.leader;
@@ -284,9 +337,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
 
   void _say(String note) {
     if (!mounted) return;
+    // Cleared rather than only the current one hidden: a sentence still
+    // queued behind the one on screen would play after the newer one that
+    // replaced it ("Taylor stopped leading." three seconds after "Taylor
+    // stopped leading. Chorus at ¾ is on your Home").
     ScaffoldMessenger.maybeOf(context)
-      ?..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(note), duration: const Duration(seconds: 3)));
+      ?..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(note), duration: const Duration(seconds: 4)));
   }
 
   /// What this screen tells its followers: where the song is, and nothing
@@ -317,6 +374,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   void _applyFollow(FollowState state) {
     final together = widget.together;
     if (!mounted || together == null || !together.following) return;
+    _practice.heard(state, state.sentAt);
+    _heardSentAt = state.sentAt;
+    _heardLocalAt = DateTime.now().millisecondsSinceEpoch;
+    final leader = together.leader;
+    if (leader != null) {
+      _markLeaderName = leader.name;
+      _markLeaderId = leader.userId.isEmpty ? null : leader.userId;
+    }
     _cancelCountdown();
     final source = state.sheet && _sheetLines.isNotEmpty
         ? LiveLyricSource.songSheet
@@ -403,6 +468,82 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       if (section.startMs == startMs && section.endMs == endMs) return section;
     }
     return null;
+  }
+
+  /// Following ended. Whatever was worked on is kept, with the leader's
+  /// note; when it was the leader who stopped, the phone says where it went,
+  /// because that sentence is the only way anybody finds out Home has it.
+  void _followEnded(FollowEnded end) {
+    _practice.pause(_practiceNow());
+    _markLeaderName = end.leaderName;
+    _markLeaderId = end.leaderUserId ?? _markLeaderId;
+    if (end.note != null) _markNote = end.note;
+    final mark = _keepPractice();
+    if (!end.byLeader) return;
+    if (mark != null && mounted) {
+      final worked = practiceWorked(mark);
+      _say(worked == null
+          ? '${end.said} Their note is on your Home.'
+          : '${end.said} $worked is on your Home to practise.');
+    }
+    // A leader who stopped ended that lesson. Following somebody again on
+    // this screen is a new one.
+    _practice = PracticeLog();
+    _markId = newPracticeMarkId();
+    _markNote = null;
+    _heardSentAt = null;
+    _heardLocalAt = null;
+  }
+
+  /// Hands what has been worked on to [LivePerformanceScreen.keepPractice],
+  /// when there is anything worth a card.
+  PracticeMark? _keepPractice() {
+    final keep = widget.keepPractice;
+    final mark = _practiceMark();
+    if (keep == null || mark == null) return null;
+    keep(mark);
+    return mark;
+  }
+
+  /// What following has worked on so far, as a mark, or null when nothing
+  /// was practised and nothing was said.
+  PracticeMark? _practiceMark() {
+    if (widget.keepPractice == null) return null;
+    final parts = _practice.parts(_partLabel);
+    if (!worthKeeping(parts, _markNote)) return null;
+    return PracticeMark(
+      id: _markId,
+      projectId: widget.project.id,
+      ledBy: _markLeaderId,
+      ledByName: _markLeaderName ?? 'Someone',
+      note: _markNote,
+      parts: parts,
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  /// A part named the way its chip is.
+  String _partLabel(int? startMs, int? endMs) {
+    if (startMs == null || endMs == null) return 'The whole song';
+    final labels = sectionChipLabels(_sections);
+    for (var i = 0; i < _sections.length; i++) {
+      if (_sections[i].startMs == startMs && _sections[i].endMs == endMs) return labels[i];
+    }
+    return 'A part of the song';
+  }
+
+  /// Stop leading. With somebody following, first the chance to leave them
+  /// something to practise from.
+  Future<void> _stopLeading() async {
+    final together = widget.together;
+    if (together == null || !together.leading) return;
+    if (together.followers == 0) {
+      together.stopLeading();
+      return;
+    }
+    final note = await showLeaveANote(context, followers: together.followers);
+    if (note == null || !mounted) return;
+    together.stopLeading(note: note);
   }
 
   /// A follower touched the song, so it is theirs now.
@@ -502,16 +643,28 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final together = widget.together;
     if (together != null) {
       together.removeListener(_togetherChanged);
+      // Closing the song while following keeps what was worked on, quietly:
+      // the ending the session sends after this screen is gone has nobody
+      // left to hear it. Built now, handed over after the frame with the
+      // rest -- Home listens to where it goes.
+      PracticeMark? closing;
+      if (together.following) {
+        _practice.pause(_practiceNow());
+        closing = _practiceMark();
+      }
+      final keep = widget.keepPractice;
       // After this frame: the song underneath listens to the session, and
       // telling it anything while this screen is being taken down would ask
       // a locked tree to rebuild.
       scheduleMicrotask(() {
+        if (closing != null) keep?.call(closing);
         together.stopLeading();
         together.unfollow();
       });
     }
     unawaited(_followSub?.cancel());
     unawaited(_noteSub?.cancel());
+    unawaited(_endSub?.cancel());
     _ticker?.cancel();
     _hideControls?.cancel();
     _countdownTimer?.cancel();
@@ -1265,7 +1418,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                       opacity: _controlsVisible ? 1 : 0,
                       child: _LiveControls(
                         together: widget.together != null && TogetherRow.shows(widget.together!)
-                            ? TogetherRow(session: widget.together!, me: widget.me)
+                            ? TogetherRow(
+                                session: widget.together!,
+                                me: widget.me,
+                                onStopLeading: () => unawaited(_stopLeading()),
+                              )
                             : null,
                         mode: _mode,
                         playing: _playing,

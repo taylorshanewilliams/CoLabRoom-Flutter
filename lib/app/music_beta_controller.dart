@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import '../domain/activity.dart';
 import '../data/music_repository.dart';
 import '../domain/music_models.dart';
+import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
 import '../services/retry.dart';
 import '../services/user_facing_error.dart';
@@ -132,6 +133,40 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// What changed lately, for the same card.
   List<ReleaseNote> get releases => List<ReleaseNote>.unmodifiable(_releases);
+
+  List<PracticeMark> _practiceMarks = const <PracticeMark>[];
+
+  /// What followed sessions left to practise, newest first. See
+  /// features/workspace/practice_marks.dart.
+  List<PracticeMark> get practiceMarks => List<PracticeMark>.unmodifiable(_practiceMarks);
+
+  /// Keeps what a followed session worked on, and shows it on Home at once
+  /// rather than at the next reload. A save that fails is reported, and the
+  /// card stays for this session: the student still has it tonight.
+  Future<void> keepPracticeMark(PracticeMark mark) async {
+    final previous = _practiceMarks.where((kept) => kept.id == mark.id).firstOrNull;
+    final shown = PracticeMark(
+      id: mark.id,
+      projectId: mark.projectId,
+      ledBy: mark.ledBy,
+      ledByName: mark.ledByName,
+      note: (mark.note ?? '').trim().isNotEmpty ? mark.note : previous?.note,
+      parts: mark.parts,
+      updatedAt: mark.updatedAt,
+    );
+    _practiceMarks = <PracticeMark>[
+      shown,
+      for (final kept in _practiceMarks)
+        if (kept.id != mark.id) kept,
+    ];
+    notifyListeners();
+    try {
+      await retrying(() => repository.keepPracticeMark(mark));
+    } catch (error) {
+      unawaited(ErrorReporter().reportWarning(
+        service: 'app', stage: 'practice_mark.keep', message: error.toString()));
+    }
+  }
 
   List<ActivityItem> _activity = const <ActivityItem>[];
 
@@ -307,6 +342,12 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       }
       try {
         _releases = await repository.releaseNotes();
+      } catch (_) {
+        // Left as it was.
+      }
+      // What a lesson left to practise. Same bargain as Tonight.
+      try {
+        _practiceMarks = await repository.myPracticeMarks();
       } catch (_) {
         // Left as it was.
       }

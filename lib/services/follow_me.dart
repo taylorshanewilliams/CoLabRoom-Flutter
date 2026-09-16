@@ -282,6 +282,41 @@ class SongLeader {
   final int heardAt;
 }
 
+/// Following ended, and how.
+@immutable
+class FollowEnded {
+  const FollowEnded({
+    required this.leaderName,
+    required this.byLeader,
+    required this.said,
+    this.leaderUserId,
+    this.note,
+  });
+
+  final String leaderName;
+  final String? leaderUserId;
+
+  /// The leader stopped or went quiet, rather than this phone taking the
+  /// song back.
+  final bool byLeader;
+
+  /// What happened, as a sentence ("Taylor stopped leading.").
+  final String said;
+
+  /// What the leader left on the way out, if anything.
+  final String? note;
+}
+
+/// The longest note a leader can leave when they stop.
+const int leaderNoteMax = 280;
+
+String? _cleanNote(Object? note) {
+  if (note is! String) return null;
+  final trimmed = note.trim();
+  if (trimmed.isEmpty) return null;
+  return trimmed.length > leaderNoteMax ? trimmed.substring(0, leaderNoteMax) : trimmed;
+}
+
 /// Follow me for one open song: who leads, who follows, and what to tell.
 ///
 /// One leader at a time. When two people press Lead, the later press wins
@@ -308,6 +343,7 @@ class FollowSession extends ChangeNotifier {
   late final StreamSubscription<List<SongDevice>> _devicesSub;
   final StreamController<FollowState> _states = StreamController<FollowState>.broadcast();
   final StreamController<String> _notes = StreamController<String>.broadcast();
+  final StreamController<FollowEnded> _endings = StreamController<FollowEnded>.broadcast();
   final LeaderClock _clock = LeaderClock();
   Timer? _quiet;
 
@@ -344,6 +380,10 @@ class FollowSession extends ChangeNotifier {
   /// else took over.
   Stream<String> get notes => _notes.stream;
 
+  /// Every time this phone stops following, however it happened. What the
+  /// session leaves behind is kept from here (see practice_marks.dart).
+  Stream<FollowEnded> get endings => _endings.stream;
+
   /// Where the leader's song is right now, or null with nobody leading.
   int? targetMs() {
     final leader = _leader;
@@ -356,6 +396,7 @@ class FollowSession extends ChangeNotifier {
     if (_following) {
       _following = false;
       unawaited(line.markFollowing(null));
+      _ended(byLeader: false);
     }
     _leading = true;
     _since = _now();
@@ -379,11 +420,19 @@ class FollowSession extends ChangeNotifier {
     }));
   }
 
-  void stopLeading() {
+  /// Stops leading, leaving [note] with whoever was following: "keep it
+  /// slow until the change is clean". It travels inside the stop message
+  /// and is kept only on the phones that were following.
+  void stopLeading({String? note}) {
     if (!_leading) return;
     _leading = false;
     _lastSent = null;
-    unawaited(_send(<String, dynamic>{'kind': 'end', 'device': line.device}));
+    final cleaned = _cleanNote(note);
+    unawaited(_send(<String, dynamic>{
+      'kind': 'end',
+      'device': line.device,
+      if (cleaned != null) 'note': cleaned,
+    }));
     if (!_closed) notifyListeners();
   }
 
@@ -402,7 +451,20 @@ class FollowSession extends ChangeNotifier {
     if (!_following) return;
     _following = false;
     unawaited(line.markFollowing(null));
+    _ended(byLeader: false);
     if (!_closed) notifyListeners();
+  }
+
+  void _ended({required bool byLeader, String? said, String? note, SongLeader? leader}) {
+    final who = leader ?? _leader;
+    if (who == null || _endings.isClosed) return;
+    _endings.add(FollowEnded(
+      leaderName: who.name,
+      leaderUserId: who.userId.isEmpty ? null : who.userId,
+      byLeader: byLeader,
+      said: said ?? 'You stopped following ${who.name}.',
+      note: note,
+    ));
   }
 
   Future<void> _send(Map<String, dynamic> message) async {
@@ -421,7 +483,9 @@ class FollowSession extends ChangeNotifier {
       case 'lead':
         _heardLead(device, message);
       case 'end':
-        if (_leader?.device == device) _lose('${_leader!.name} stopped leading.');
+        if (_leader?.device == device) {
+          _lose('${_leader!.name} stopped leading.', leaderNote: _cleanNote(message['note']));
+        }
     }
   }
 
@@ -513,8 +577,9 @@ class FollowSession extends ChangeNotifier {
     if (_now() - leader.heardAt > quietAfterMs) _lose('Lost touch with ${leader.name}.');
   }
 
-  void _lose(String note) {
+  void _lose(String said, {String? leaderNote}) {
     final wasFollowing = _following;
+    final leader = _leader;
     _leader = null;
     _clock.reset();
     _quiet?.cancel();
@@ -522,7 +587,8 @@ class FollowSession extends ChangeNotifier {
     if (wasFollowing) {
       _following = false;
       unawaited(line.markFollowing(null));
-      _notes.add(note);
+      _notes.add(said);
+      _ended(byLeader: true, said: said, note: leaderNote, leader: leader);
     }
     notifyListeners();
   }
@@ -539,6 +605,7 @@ class FollowSession extends ChangeNotifier {
     unawaited(_devicesSub.cancel());
     unawaited(_states.close());
     unawaited(_notes.close());
+    unawaited(_endings.close());
     super.dispose();
   }
 }
