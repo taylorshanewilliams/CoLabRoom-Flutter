@@ -132,6 +132,9 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
   bool get _invited =>
       kIsWeb && (inviteCodeFrom(Uri.base) != null || lessonCodeFrom(Uri.base) != null);
 
+  /// Whether that invitation is a teacher's lesson link.
+  bool get _lesson => kIsWeb && lessonCodeFrom(Uri.base) != null;
+
   /// Tells the server which door this account came in by. Once: the
   /// first claim wins on the server, so signing in again from the same
   /// link is not a second arrival. Best effort, and never the reason a
@@ -201,9 +204,14 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
                     // Somebody who arrived on an invitation link is here to
                     // join a room, and the page should say so before it
                     // asks for anything.
+                    // Sign in only: the web does not create accounts (see
+                    // the closed-beta line below), so the page must not
+                    // promise that it does. Found by opening a lesson
+                    // link's page, 16 September 2026.
                     _invited
-                        ? 'You have been invited into a room. Sign in, or '
-                            'create an account, and it opens.'
+                        ? (_lesson
+                            ? 'Your lesson room is waiting. Sign in and it opens.'
+                            : 'You have been invited into a room. Sign in and it opens.')
                         : _createAccount
                             ? 'Start a private room and invite your collaborators.'
                             : 'Your rooms and songs stay in sync across every device.',

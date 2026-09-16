@@ -915,6 +915,7 @@ class _JoinCodeDialogState extends State<_JoinCodeDialog> {
           autocorrect: false,
           decoration: const InputDecoration(
             labelText: 'Invite or lesson code',
+            helperMaxLines: 2,
             helperText: 'A code somebody sent you, or a teacher\'s lesson code or link.',
           ),
           onSubmitted: (value) => Navigator.pop(context, value),

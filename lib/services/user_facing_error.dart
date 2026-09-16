@@ -94,6 +94,14 @@ String describeForUser(Object error) {
   return 'Something went wrong. It has been reported — try again in a moment.';
 }
 
+/// Whether [error] is the app or the server saying no on purpose, in a
+/// sentence already written for a reader: a name that is taken, an
+/// invitation that has lapsed, "That is your own lesson link. Share it with
+/// a student." Those are answers, not faults, and a screen should say them
+/// plainly rather than offer to take a bug report about them.
+bool isRefusal(Object error) =>
+    error is NameConflict || (error is PostgrestException && error.code == '22023');
+
 /// Report a failure, then say what to show for it.
 ///
 /// The reporting is deliberately fire-and-forget and deliberately unawaited:
