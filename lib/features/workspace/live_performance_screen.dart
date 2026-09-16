@@ -5,6 +5,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/audio_source_for.dart';
+import '../../services/follow_me.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/colabroom_theme.dart';
@@ -18,6 +19,7 @@ import '../../services/play_along.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
+import 'follow_me_bar.dart';
 import 'live_countdown_store.dart';
 import 'musician_sheet_line.dart';
 import 'musician_sheet_logic.dart';
@@ -67,10 +69,22 @@ class LivePerformanceScreen extends StatefulWidget {
     this.analysis,
     this.openMicrophone,
     this.playAlongMixer,
+    this.together,
+    this.me = '',
     super.key,
   });
 
   final SongProject project;
+
+  /// Follow me, when the song is open on other phones: this screen leads
+  /// them, follows whoever leads, or offers to. Null when the song is opened
+  /// from somewhere that is not the song itself, which then works exactly
+  /// as it always did.
+  final FollowSession? together;
+
+  /// Who is looking, so "your other device" can be told apart from a
+  /// bandmate. Only read by the Follow me row.
+  final String me;
 
   /// Analyzed sync data for this song (from Song Analysis), if any. When
   /// this has real per-line timing (`hasSyncedLyrics`), Live mode drives the
@@ -126,6 +140,16 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   StreamSubscription<Duration>? _audioPositionSub;
   StreamSubscription<void>? _audioCompleteSub;
   bool _audioReady = false;
+
+  /// When [_elapsed] was last read off the player. The player reports its
+  /// position a few times a second; two phones comparing those reports
+  /// would disagree by up to twice that for no reason, and correct each
+  /// other into a stutter. See [_elapsedNow].
+  DateTime? _elapsedStamp;
+
+  StreamSubscription<FollowState>? _followSub;
+  StreamSubscription<String>? _noteSub;
+  bool _hadLeader = false;
 
   /// Practising: one part on repeat, and the recording slowed.
   ///
@@ -219,6 +243,178 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final reference = widget.analysis?.reference;
     if (reference != null) unawaited(_prepareAudio(reference));
     unawaited(_loadCountdownPrefs());
+
+    final together = widget.together;
+    if (together != null) {
+      together.addListener(_togetherChanged);
+      _hadLeader = together.leader != null;
+      _followSub = together.states.listen(_applyFollow);
+      _noteSub = together.notes.listen(_say);
+      // Arrived by pressing Follow on the song: catch up with the leader
+      // as soon as there are words on screen to move.
+      final leader = together.leader;
+      if (together.following && leader != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _applyFollow(leader.state));
+      }
+    }
+  }
+
+  /// Where the song is this instant: the player's last report, moved on by
+  /// the time since it was made. See [_elapsedStamp].
+  Duration get _elapsedNow {
+    final stamp = _elapsedStamp;
+    final audioIsClock = _audioPlayer != null && _mode == LiveScrollMode.synced;
+    if (!_playing || !audioIsClock || stamp == null) return _elapsed;
+    return _elapsed + atRate(DateTime.now().difference(stamp), _rate);
+  }
+
+  void _togetherChanged() {
+    if (!mounted) return;
+    final hasLeader = widget.together?.leader != null;
+    final arrived = hasLeader && !_hadLeader;
+    _hadLeader = hasLeader;
+    // Somebody just started leading: show the bar, because Follow is on it
+    // and a hidden button is not an offer.
+    if (arrived) {
+      _showControls();
+    } else {
+      setState(() {});
+    }
+  }
+
+  void _say(String note) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(note), duration: const Duration(seconds: 3)));
+  }
+
+  /// What this screen tells its followers: where the song is, and nothing
+  /// about what this phone is hearing (see follow_me.dart).
+  FollowState _followStateNow() {
+    final synced = _mode == LiveScrollMode.synced && _hasSync;
+    final loop = _loop;
+    return FollowState(
+      sheet: _source == LiveLyricSource.songSheet,
+      synced: synced,
+      // A count-in is not playing yet; followers start when the song does.
+      playing: _playing,
+      positionMs: synced ? _elapsedNow.inMilliseconds : 0,
+      rate: _rate,
+      sentAt: DateTime.now().millisecondsSinceEpoch,
+      loopStartMs: synced ? loop?.startMs : null,
+      loopEndMs: synced ? loop?.endMs : null,
+      lineKey: synced ? null : _lineOnAnchor(),
+    );
+  }
+
+  /// Puts this screen where the leader's is.
+  ///
+  /// Only what is shared moves: which words, whether the song is the clock,
+  /// the speed, the part on repeat, playing or not, and where. A small
+  /// disagreement is left alone, because every correction is a seek and a
+  /// seek is a hiccup you can hear.
+  void _applyFollow(FollowState state) {
+    final together = widget.together;
+    if (!mounted || together == null || !together.following) return;
+    _cancelCountdown();
+    final source = state.sheet && _sheetLines.isNotEmpty
+        ? LiveLyricSource.songSheet
+        : LiveLyricSource.workspace;
+    if (source != _source) _switchSource(source);
+    if (state.synced && _hasSync) {
+      _followClock(state, together);
+    } else {
+      _followLine(state);
+    }
+  }
+
+  void _followClock(FollowState state, FollowSession together) {
+    final audio = _audioPlayer;
+    if (_mode != LiveScrollMode.synced) {
+      _mode = LiveScrollMode.synced;
+      _markOffsetsDirty();
+    }
+    if (_rate != state.rate) {
+      _rate = state.rate;
+      if (audio != null) unawaited(audio.setPlaybackRate(state.rate));
+    }
+    _loop = _sectionAt(state.loopStartMs, state.loopEndMs);
+    final target = together.targetMs() ?? state.positionMs;
+    final moved = worthCorrecting(_elapsedNow.inMilliseconds, target);
+    if (moved) _seekTo(Duration(milliseconds: target));
+    final started = state.playing != _playing;
+    if (started) {
+      _playing = state.playing;
+      if (audio != null) unawaited(_playing ? audio.resume() : audio.pause());
+    }
+    _lastTick = null;
+    setState(() {});
+    // Only when playing starts or stops. A heartbeat arrives every two
+    // seconds, and re-arming on each one would keep the controls over the
+    // words for the whole song on a phone sitting on a music stand.
+    if (started) _armControlHide();
+    if (!_playing && moved) {
+      // Paused, the words still go to where the leader is looking.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scroll.hasClients) return;
+        final position = _scroll.position;
+        if (position.maxScrollExtent > 0) _tickSynced(position, position.maxScrollExtent);
+      });
+    }
+  }
+
+  /// A leader scrolling by hand, or at a speed, has no clock to share; what
+  /// they are looking at is the line on their anchor, so that line comes to
+  /// this phone's anchor. The words follow, not the recording.
+  void _followLine(FollowState state) {
+    final audio = _audioPlayer;
+    if (_playing) {
+      _playing = false;
+      if (audio != null) unawaited(audio.pause());
+    }
+    _loop = null;
+    if (_mode == LiveScrollMode.synced) _mode = LiveScrollMode.off;
+    setState(() {});
+    final key = state.lineKey;
+    if (key == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      if (_offsetsDirty || !_lineOffsets.containsKey(key)) _captureLineOffsets();
+      final offset = _lineOffsets[key];
+      if (offset == null) return;
+      final target = scrollToPutLineAtAnchor(
+        lineOffset: offset,
+        viewportHeight: _viewportHeight,
+        maxExtent: _scroll.position.maxScrollExtent,
+      );
+      unawaited(_scroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 420),
+        curve: Curves.easeOutCubic,
+      ));
+    });
+  }
+
+  /// The section on repeat, found by where it sits in the song.
+  StructureSection? _sectionAt(int? startMs, int? endMs) {
+    if (startMs == null || endMs == null) return null;
+    for (final section in _sections) {
+      if (section.startMs == startMs && section.endMs == endMs) return section;
+    }
+    return null;
+  }
+
+  /// A follower touched the song, so it is theirs now.
+  ///
+  /// Only the controls that move the song count. Bigger words, chords, a
+  /// part left out and singing along are each person's own, and never end
+  /// following.
+  void _takeOver() {
+    final together = widget.together;
+    if (together == null || !together.following) return;
+    together.unfollow();
+    _say('You have the song now. Follow again from the bar.');
   }
 
   Future<void> _loadCountdownPrefs() async {
@@ -242,6 +438,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       final player = AudioPlayer();
       await player.setSource(audioSourceFor(path));
       if (_rate != 1) await player.setPlaybackRate(_rate);
+      // The song may already be somewhere: Start pressed while this loaded,
+      // or a leader followed from the first second. The recording starts
+      // from there rather than from the top, under words that are not.
+      if (_elapsed > Duration.zero) await player.seek(_elapsed);
       if (!mounted) {
         await player.dispose();
         return;
@@ -249,7 +449,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _audioPositionSub = player.onPositionChanged.listen((position) {
         // Only the actual clock for "synced" mode — other scroll modes keep
         // their own manual speed, with audio just playing alongside.
-        if (_playing && _mode == LiveScrollMode.synced) _elapsed = position;
+        if (_playing && _mode == LiveScrollMode.synced) {
+          _elapsed = position;
+          _elapsedStamp = DateTime.now();
+        }
       });
       _audioCompleteSub = player.onPlayerComplete.listen((_) {
         if (mounted) setState(() => _playing = false);
@@ -270,6 +473,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
 
   void _selectSource(LiveLyricSource source) {
     if (source == _source) return;
+    _takeOver();
+    _switchSource(source);
+  }
+
+  void _switchSource(LiveLyricSource source) {
     _cancelCountdown();
     final audio = _audioPlayer;
     if (audio != null) {
@@ -291,6 +499,19 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
 
   @override
   void dispose() {
+    final together = widget.together;
+    if (together != null) {
+      together.removeListener(_togetherChanged);
+      // After this frame: the song underneath listens to the session, and
+      // telling it anything while this screen is being taken down would ask
+      // a locked tree to rebuild.
+      scheduleMicrotask(() {
+        together.stopLeading();
+        together.unfollow();
+      });
+    }
+    unawaited(_followSub?.cancel());
+    unawaited(_noteSub?.cancel());
     _ticker?.cancel();
     _hideControls?.cancel();
     _countdownTimer?.cancel();
@@ -384,6 +605,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   }
 
   void _tick() {
+    // Leading: offered every tick, sent only when it says something new.
+    final together = widget.together;
+    if (together != null && together.leading) together.publish(_followStateNow());
     if (!_playing || !_scroll.hasClients) {
       _lastTick = null;
       return;
@@ -587,6 +811,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// instantly. Pausing, and tapping play again mid-countdown to cancel it,
   /// both skip straight to _togglePlay.
   void _onPlayPressed() {
+    _takeOver();
     if (_countdownRemaining != null) {
       _cancelCountdown();
       return;
@@ -640,6 +865,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   }
 
   void _restart() {
+    _takeOver();
     _cancelCountdown();
     if (_scroll.hasClients) _scroll.jumpTo(0);
     final audio = _audioPlayer;
@@ -681,6 +907,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   }
 
   void _selectMode(LiveScrollMode mode) {
+    _takeOver();
     _cancelCountdown();
     if (mode == LiveScrollMode.timed) {
       unawaited(_chooseTimedDuration());
@@ -710,12 +937,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// the right one rather than fading between two.
   void _seekTo(Duration where) {
     _elapsed = where;
+    _elapsedStamp = DateTime.now();
     _activeLineKey = null;
     final audio = _audioPlayer;
     if (audio != null) unawaited(audio.seek(where));
   }
 
   void _onSeek(Duration where) {
+    _takeOver();
     setState(() {
       _seekTo(where);
       _controlsVisible = true;
@@ -725,6 +954,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   }
 
   void _setRate(double rate) {
+    _takeOver();
     setState(() {
       _rate = rate;
       _controlsVisible = true;
@@ -806,7 +1036,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     if (player == null) {
       player = AudioPlayer();
       _audioPositionSub = player.onPositionChanged.listen((position) {
-        if (_playing && _mode == LiveScrollMode.synced) _elapsed = position;
+        if (_playing && _mode == LiveScrollMode.synced) {
+          _elapsed = position;
+          _elapsedStamp = DateTime.now();
+        }
       });
       _audioCompleteSub = player.onPlayerComplete.listen((_) {
         if (mounted) setState(() => _playing = false);
@@ -879,6 +1112,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// there and stays there, playing or paused. Paused, the sheet still moves
   /// to the part so the next press of Start begins where the eye is.
   void _setLoop(StructureSection section) {
+    _takeOver();
     _cancelCountdown();
     final same = identical(section, _loop);
     setState(() {
@@ -1030,6 +1264,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                       duration: const Duration(milliseconds: 180),
                       opacity: _controlsVisible ? 1 : 0,
                       child: _LiveControls(
+                        together: widget.together != null && TogetherRow.shows(widget.together!)
+                            ? TogetherRow(session: widget.together!, me: widget.me)
+                            : null,
                         mode: _mode,
                         playing: _playing,
                         elapsed: _elapsed,
@@ -1479,6 +1716,7 @@ class _CountdownSettingsSheetState extends State<_CountdownSettingsSheet> {
 
 class _LiveControls extends StatelessWidget {
   const _LiveControls({
+    this.together,
     required this.mode,
     required this.playing,
     required this.elapsed,
@@ -1504,6 +1742,9 @@ class _LiveControls extends StatelessWidget {
     this.onWithout,
     this.mixNote,
   });
+
+  /// Follow me's line, when the song is open on more than one phone.
+  final Widget? together;
 
   final LiveScrollMode mode;
   final bool playing;
@@ -1563,6 +1804,7 @@ class _LiveControls extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
+            if (together != null) ...<Widget>[together!, const SizedBox(height: 2)],
             Row(
               children: <Widget>[
                 FilledButton.tonalIcon(

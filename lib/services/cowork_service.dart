@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/error_reporter.dart';
+import 'follow_me.dart';
 
 /// One entry in a song's stream — someone talking, or the app reporting.
 class ProjectEvent {
@@ -67,8 +69,10 @@ class CoworkPresence {
 /// does to a phone in a pocket — so this one is opened when somebody opens
 /// the song and closed when they leave. Which is also the only window in
 /// which "Jess is here" means anything.
-class CoworkService {
-  CoworkService({SupabaseClient? client}) : _clientOverride = client;
+class CoworkService implements FollowLine {
+  CoworkService({SupabaseClient? client})
+      : _clientOverride = client,
+        device = _newDevice();
 
   final SupabaseClient? _clientOverride;
   SupabaseClient get client => _clientOverride ?? Supabase.instance.client;
@@ -76,9 +80,31 @@ class CoworkService {
   RealtimeChannel? _channel;
   final _events = StreamController<List<ProjectEvent>>.broadcast();
   final _presence = StreamController<List<CoworkPresence>>.broadcast();
+  final _devices = StreamController<List<SongDevice>>.broadcast();
+  final _follow = StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<List<ProjectEvent>> get events => _events.stream;
   Stream<List<CoworkPresence>> get presence => _presence.stream;
+
+  /// This phone while the song is open -- see FollowLine.device.
+  @override
+  final String device;
+
+  @override
+  Stream<List<SongDevice>> get devices => _devices.stream;
+
+  @override
+  Stream<Map<String, dynamic>> get followMessages => _follow.stream;
+
+  /// What this phone last told presence, kept so following somebody can be
+  /// said again without forgetting who is saying it.
+  Map<String, dynamic>? _tracked;
+  String? _followingDevice;
+
+  static String _newDevice() {
+    final random = math.Random.secure();
+    return List<String>.generate(16, (_) => random.nextInt(16).toRadixString(16)).join();
+  }
 
   /// Most recent first from the database, reversed so the newest sits at the
   /// bottom where a conversation belongs.
@@ -146,14 +172,28 @@ class CoworkService {
           // say "Someone" until you reopen it is worse than one extra query.
           callback: (_) => unawaited(_refresh(projectId)),
         )
+        // Follow me: where the leader's song is. A few numbers a message,
+        // never audio -- see follow_me.dart.
+        .onBroadcast(
+          event: 'follow',
+          callback: (message) {
+            final inner = message['payload'];
+            _follow.add(inner is Map ? Map<String, dynamic>.from(inner) : message);
+          },
+        )
         .onPresenceSync((_) => _emitPresence(channel))
         .onPresenceJoin((_) => _emitPresence(channel))
         .onPresenceLeave((_) => _emitPresence(channel))
         .subscribe((status, _) async {
       if (status != RealtimeSubscribeStatus.subscribed) return;
-      await channel.track(<String, dynamic>{
+      _tracked = <String, dynamic>{
         'user_id': userId,
         'display_name': displayName,
+        'device': device,
+      };
+      await channel.track(<String, dynamic>{
+        ..._tracked!,
+        if (_followingDevice != null) 'following': _followingDevice,
       });
     });
 
@@ -175,20 +215,53 @@ class CoworkService {
 
   void _emitPresence(RealtimeChannel channel) {
     final seen = <String, CoworkPresence>{};
+    final phones = <String, SongDevice>{};
     for (final state in channel.presenceState()) {
       for (final entry in state.presences) {
         final payload = entry.payload;
         final id = payload['user_id'] as String?;
         if (id == null) continue;
+        final name = payload['display_name'] as String? ?? 'Someone';
         // Keyed by user rather than by connection: one person with the song
         // open on a phone and a tablet is one person in the room.
-        seen[id] = CoworkPresence(
+        seen[id] = CoworkPresence(userId: id, displayName: name);
+        // Follow me keys by phone instead, for the same person on two. A
+        // build from before Follow me says no device; it still counts as
+        // somebody here, it just cannot lead.
+        final phone = payload['device'] as String? ?? 'user:$id:${entry.presenceRef}';
+        phones[phone] = SongDevice(
+          device: phone,
           userId: id,
-          displayName: payload['display_name'] as String? ?? 'Someone',
+          displayName: name,
+          following: payload['following'] as String?,
         );
       }
     }
     _presence.add(seen.values.toList(growable: false));
+    _devices.add(phones.values.toList(growable: false));
+  }
+
+  @override
+  Future<void> sendFollow(Map<String, dynamic> message) async {
+    final channel = _channel;
+    if (channel == null) return;
+    await channel.sendBroadcastMessage(event: 'follow', payload: message);
+  }
+
+  @override
+  Future<void> markFollowing(String? device) async {
+    _followingDevice = device;
+    final channel = _channel;
+    final tracked = _tracked;
+    if (channel == null || tracked == null) return;
+    try {
+      await channel.track(<String, dynamic>{
+        ...tracked,
+        if (device != null) 'following': device,
+      });
+    } catch (_) {
+      // Only the leader's count of followers depends on this.
+    }
   }
 
   /// Closes the live connection. Called when the song closes — see the note
@@ -196,6 +269,7 @@ class CoworkService {
   Future<void> leave() async {
     final channel = _channel;
     _channel = null;
+    _tracked = null;
     if (channel == null) return;
     try {
       await channel.untrack();
@@ -209,5 +283,7 @@ class CoworkService {
     await leave();
     await _events.close();
     await _presence.close();
+    await _devices.close();
+    await _follow.close();
   }
 }
