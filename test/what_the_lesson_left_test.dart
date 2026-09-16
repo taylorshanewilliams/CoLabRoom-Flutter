@@ -396,6 +396,79 @@ void main() {
       mine.dispose();
     });
 
+    testWidgets('losing touch mid-lesson keeps one mark, and the note still arrives', (tester) async {
+      await sized(tester);
+      final bus = _Bus();
+      var clock = DateTime.now().millisecondsSinceEpoch;
+      final mine = FollowSession(
+        line: _Line(bus, 'me', 'u2', 'Jess'),
+        userId: 'u2',
+        name: 'Jess',
+        now: () => clock,
+      );
+      final teacher = _Line(bus, 'teacher', 'u1', 'Taylor')..arrive();
+      final kept = <PracticeMark>[];
+      final start = clock;
+      void beat(int i) => unawaited(teacher.sendFollow(<String, dynamic>{
+            'kind': 'lead',
+            'device': 'teacher',
+            'user': 'u1',
+            'name': 'Taylor',
+            'since': start,
+            'state': state(at: 3000, sent: start + i * 2000).toJson(),
+          }));
+
+      beat(0);
+      mine.follow();
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: bundle,
+          together: mine,
+          me: 'u2',
+          keepPractice: kept.add,
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+      for (var i = 1; i <= 12; i++) {
+        clock += 2000;
+        beat(i);
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+
+      // The leader's phone goes quiet for twelve seconds.
+      clock += 12000;
+      mine.checkQuiet();
+      await tester.pump();
+      expect(mine.following, isFalse);
+      expect(kept, hasLength(1), reason: 'what was worked on is kept at once, in case they never come back');
+      final firstId = kept.single.id;
+
+      for (var i = 19; i <= 24; i++) {
+        clock += 2000;
+        beat(i);
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(mine.following, isTrue);
+
+      unawaited(teacher.sendFollow(<String, dynamic>{
+        'kind': 'end',
+        'device': 'teacher',
+        'note': 'Keep it slow until the change is clean',
+      }));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(kept.last.id, firstId, reason: 'one lesson, one mark, dropout and all');
+      expect(kept.last.note, 'Keep it slow until the change is clean');
+      expect(find.text('Taylor stopped leading. Chorus at ¾ is on your Home to practise.'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      mine.dispose();
+    });
+
     testWidgets('a run-through that practised nothing keeps nothing', (tester) async {
       await sized(tester);
       final bus = _Bus();
