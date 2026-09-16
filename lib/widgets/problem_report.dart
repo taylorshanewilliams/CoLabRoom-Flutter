@@ -43,6 +43,16 @@ void showProblem(
   );
   final where = route ?? CurrentRoute.name;
 
+  // A refusal is an answer, not a fault. It is still counted above, but
+  // "Tell us" beside "That is your own lesson link" reads as the app
+  // thinking it broke -- found on the emulator, 16 September 2026.
+  if (isRefusal(error)) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(described), duration: const Duration(seconds: 4)),
+    );
+    return;
+  }
+
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Text(described),
