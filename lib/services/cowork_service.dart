@@ -245,11 +245,15 @@ class CoworkService implements FollowLine {
   Future<void> sendFollow(Map<String, dynamic> message) async {
     final channel = _channel;
     if (channel == null) return;
-    await channel.sendBroadcastMessage(event: 'follow', payload: message);
+    // A copy: the client writes its own keys into the map it is handed.
+    await channel.sendBroadcastMessage(event: 'follow', payload: Map<String, dynamic>.of(message));
   }
 
   @override
   Future<void> markFollowing(String? device) async {
+    // Every track is a leave and a join on everybody else's phone, so the
+    // same thing is never said twice in a row. See FollowSession._heardLead.
+    if (device == _followingDevice) return;
     _followingDevice = device;
     final channel = _channel;
     final tracked = _tracked;
