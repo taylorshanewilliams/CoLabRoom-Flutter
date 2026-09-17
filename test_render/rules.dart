@@ -422,22 +422,38 @@ Set<String>? _appPainters;
 /// is a thing that goes stale silently: the painter added in six months is
 /// exactly the one nobody thinks to add to it, and a rule that quietly stops
 /// covering new work is worse than no rule.
-Set<String> appPainters() {
-  final cached = _appPainters;
-  if (cached != null) return cached;
+///
+/// `lib/` is found relative to wherever the process was started, so this is
+/// only right when the harness is run from the package root. See
+/// [paintersUnder] for what happens when it is not.
+Set<String> appPainters() => _appPainters ??= paintersUnder(Directory('lib'));
 
+/// Every `CustomPainter` declared under [source].
+///
+/// Throws rather than returning nothing when there is no source to read, which
+/// is the stale-list argument one step further on: a run from the wrong
+/// directory -- a tools package, a subdirectory, a future harness that moves
+/// -- would otherwise judge no painters at all and report a clean sheet
+/// forever. A rule that cannot find what it judges has to fail, not pass.
+Set<String> paintersUnder(Directory source) {
   final names = <String>{};
   final declaration = RegExp(r'class\s+(\w+)\s+extends\s+CustomPainter\b');
-  final lib = Directory('lib');
-  if (lib.existsSync()) {
-    for (final entity in lib.listSync(recursive: true)) {
+  if (source.existsSync()) {
+    for (final entity in source.listSync(recursive: true)) {
       if (entity is! File || !entity.path.endsWith('.dart')) continue;
       for (final match in declaration.allMatches(entity.readAsStringSync())) {
         names.add(match.group(1)!);
       }
     }
   }
-  return _appPainters = names;
+  if (names.isEmpty) {
+    throw StateError(
+      'No CustomPainter declared under ${source.absolute.path}. Run this from '
+      'the package root, where lib/ is: the painted-meaning rule judges the '
+      'app by its own source, and cannot report on source it cannot read.',
+    );
+  }
+  return names;
 }
 
 void _walkSemantics(

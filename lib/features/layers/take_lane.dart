@@ -278,7 +278,16 @@ class TakeLane extends StatelessWidget {
     final from = startsFraction.clamp(0.0, 1.0);
     final to = (from + spansFraction).clamp(0.0, 1.0);
     if (from <= 0.05 && to >= 0.95) return 'Plays right through the song.';
-    return 'Plays from ${_placeInSong(from)} to ${_placeInSong(to)}.';
+    final start = _placeInSong(from);
+    final end = _placeInSong(to);
+    // A nine-second punch-in starts and ends in the same place, as far as
+    // these words can tell, and "from halfway to halfway" is a sentence
+    // nobody should have to listen to. "Near" is already an "around", so it
+    // does not get a second one.
+    if (start == end) {
+      return start.startsWith('near') ? 'Plays $start.' : 'Plays around $start.';
+    }
+    return 'Plays from $start to $end.';
   }
 
   static String _placeInSong(double at) {

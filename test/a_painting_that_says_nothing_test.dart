@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:colabroom/app/colabroom_theme.dart';
@@ -127,6 +128,20 @@ void main() {
       expect(appPainters(), isNot(contains('ScrollbarPainter')));
     });
 
+    test('source it cannot read is an error, not a clean sheet', () {
+      // The way this rule would go quietly stale: run from somewhere that is
+      // not the package root, find no lib/, judge no painters, and report
+      // nothing wrong forever. It has to say so instead.
+      final nowhere = Directory.systemTemp.createTempSync('no_painters');
+      addTearDown(() => nowhere.deleteSync(recursive: true));
+      File('${nowhere.path}/not_a_painter.dart')
+          .writeAsStringSync('class Quiet {}\n');
+
+      expect(() => paintersUnder(nowhere), throwsStateError);
+      expect(() => paintersUnder(Directory('${nowhere.path}/missing')),
+          throwsStateError);
+    });
+
     testWidgets('a Scrollbar does not fail this rule', (tester) async {
       await tester.pumpWidget(MaterialApp(
         home: Scrollbar(
@@ -210,6 +225,20 @@ void main() {
       );
     });
 
+    testWidgets('a take too short to go anywhere says one place, not two',
+        (tester) async {
+      // Nine seconds punched in at 1:21 of a three-minute song begins and
+      // ends in the same words. "Plays from halfway to halfway" is a sentence
+      // nobody should have to listen to.
+      expect(await _lanePlaying(tester, starts: 0.45, spans: 0.05),
+          'Plays around halfway.');
+      expect(await _lanePlaying(tester, starts: 0.96, spans: 0.04),
+          'Plays around the end.');
+      // "Near" is already vague, and does not need an "around" in front of it.
+      expect(await _lanePlaying(tester, starts: 0.10, spans: 0.05),
+          'Plays near the start.');
+    });
+
     testWidgets('the ring while the sheet is made is decoration',
         (tester) async {
       await tester.pumpWidget(MaterialApp(
@@ -249,3 +278,32 @@ void main() {
 Finder _byLabel(String label) => find.byWidgetPredicate(
       (widget) => widget is Semantics && widget.properties.label == label,
     );
+
+/// What one lane says about where its take sits, and nothing else.
+Future<String> _lanePlaying(
+  WidgetTester tester, {
+  required double starts,
+  required double spans,
+}) async {
+  await tester.pumpWidget(MaterialApp(
+    theme: CoLabRoomTheme.dark(),
+    home: Scaffold(
+      body: TakeLane(
+        take: Take(
+          id: 't1',
+          path: 'takes/t1.m4a',
+          label: 'Harmony',
+          recordedAt: DateTime(2026, 9, 17),
+          durationMs: 9000,
+        ),
+        onToggle: () {},
+        startsFraction: starts,
+        spansFraction: spans,
+      ),
+    ),
+  ));
+  final lane = tester.widgetList<Semantics>(find.byType(Semantics)).firstWhere(
+        (widget) => (widget.properties.label ?? '').startsWith('Plays'),
+      );
+  return lane.properties.label!;
+}

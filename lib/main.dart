@@ -53,14 +53,17 @@ SemanticsHandle? enableWebSemantics({bool onWeb = kIsWeb}) {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Before runApp, so the first frame the browser paints is already one a
-  // screen reader can read. See enableWebSemantics.
-  enableWebSemantics();
   // Before anything else that can fail. A build error reaches
   // FlutterError.onError, so the crash screen below is what the user sees
   // while this is what makes it countable.
   CrashReporter.install();
   ErrorWidget.builder = (details) => _CrashScreen(details: details);
+  // After the crash reporter and before runApp: the semantics call is a
+  // platform call like any other, and if a browser engine ever throws on it
+  // the launch should be counted and shown rather than lost. The first frame
+  // has not been asked for yet, which is all this needs. See
+  // enableWebSemantics.
+  enableWebSemantics();
   // Before runApp, so it is asked about a pushed address before the
   // framework is: the browser's forward button, or a link opening the app.
   IncomingAddresses.install();
