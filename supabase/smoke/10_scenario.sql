@@ -4342,4 +4342,56 @@ end $$;
 reset role;
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- Your people have pages (0137).
+--
+-- Somebody met at a gig: not listed in Open Mic, no room together. Before
+-- they ask, their page is closed; once either of you asks, it opens; a block
+-- closes it again.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('c0ec7000-0000-0000-0000-000000000137', 'metatagig@smoke.test', '{"display_name": "Met At A Gig"}');
+
+do $$
+begin
+  if exists (
+    select 1 from public.musician_profile('c0ec7000-0000-0000-0000-000000000137')
+  ) then
+    raise exception 'a stranger''s unlisted page opened before anybody asked';
+  end if;
+
+  insert into public.connections (requester_id, addressee_id)
+  values ('c0ec7000-0000-0000-0000-000000000137', '11111111-1111-1111-1111-111111111111');
+
+  if not exists (
+    select 1 from public.musician_profile('c0ec7000-0000-0000-0000-000000000137')
+  ) then
+    raise exception 'somebody asking to add you had no page to decide from';
+  end if;
+
+  update public.connections set state = 'accepted', responded_at = now()
+  where requester_id = 'c0ec7000-0000-0000-0000-000000000137'
+    and addressee_id = '11111111-1111-1111-1111-111111111111';
+
+  if not exists (
+    select 1 from public.musician_profile('c0ec7000-0000-0000-0000-000000000137')
+      where discoverable is null and location_visibility is null
+  ) then
+    raise exception 'a connection''s page did not open, or showed their settings';
+  end if;
+
+  insert into public.user_blocks (blocker_id, blocked_id)
+  values ('11111111-1111-1111-1111-111111111111', 'c0ec7000-0000-0000-0000-000000000137');
+
+  if exists (
+    select 1 from public.musician_profile('c0ec7000-0000-0000-0000-000000000137')
+  ) then
+    raise exception 'a blocked connection''s page still opened';
+  end if;
+
+  delete from public.user_blocks
+  where blocker_id = '11111111-1111-1111-1111-111111111111'
+    and blocked_id = 'c0ec7000-0000-0000-0000-000000000137';
+  delete from public.connections
+  where requester_id = 'c0ec7000-0000-0000-0000-000000000137';
+end $$;
+
 commit;
