@@ -5453,6 +5453,413 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Leave it for the student (0143).
+--
+-- A teacher leaves practice on a song in their own lesson room without a
+-- live session. It lands as a mark the student owns and the teacher cannot
+-- read back, leaving again replaces it rather than piling up, and everybody
+-- else -- a band room's owner, the student themselves, somebody outside --
+-- is refused.
+-- ---------------------------------------------------------------------
+
+reset role;
+
+-- Made fresh rather than borrowed. The accounts earlier in this file are
+-- already teachers, students and blockers of each other by this point, and a
+-- refusal that happened for one of those older reasons would look exactly
+-- like the refusal this block is checking.
+insert into auth.users (id, email, raw_user_meta_data) values
+  -- Spelled "guitar" because 0141's block further up this file already has a
+  -- the.student@smoke.test, and an address is one account (00_shim.sql).
+  ('1ea50143-0000-0000-0000-000000000143', 'the.guitar.teacher@smoke.test',
+   '{"display_name": "The Teacher"}'),
+  ('1ea50143-0000-0000-0000-000000000144', 'the.guitar.student@smoke.test',
+   '{"display_name": "The Student"}'),
+  ('1ea50143-0000-0000-0000-000000000145', 'the.band.owner@smoke.test',
+   '{"display_name": "The Band Owner"}'),
+  -- A real account with a real token and nothing to do with any of this: in
+  -- no room here, in no lesson here, and not the student of anybody. The
+  -- `is distinct from` null path is not this account -- the lesson_rooms
+  -- guard above it refuses them first -- and is reached further down by a
+  -- room the teacher is genuinely a teacher of and genuinely not in.
+  ('1ea50143-0000-0000-0000-000000000146', 'outside.the.lesson@smoke.test',
+   '{"display_name": "Outside The Lesson"}');
+
+insert into public.rooms (id, account_id, name) values
+  ('1ea50143-0000-0000-0000-00000000014a',
+   '1ea50143-0000-0000-0000-000000000143', 'Guitar lessons · The Student'),
+  ('1ea50143-0000-0000-0000-00000000014b',
+   '1ea50143-0000-0000-0000-000000000145', 'The Band Room');
+
+-- Distinct colours, as every other room in this file: a room's members are
+-- uniquely coloured (room_members_room_color_unique, 0006).
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('1ea50143-0000-0000-0000-00000000014a', '1ea50143-0000-0000-0000-000000000143',
+   'The Teacher', 'owner', 4294937166),
+  ('1ea50143-0000-0000-0000-00000000014a', '1ea50143-0000-0000-0000-000000000144',
+   'The Student', 'editor', 4283215698),
+  -- The student is in the band room too, so the refusal below is about the
+  -- room not being a lesson rather than about them not being there.
+  ('1ea50143-0000-0000-0000-00000000014b', '1ea50143-0000-0000-0000-000000000145',
+   'The Band Owner', 'owner', 4294937167),
+  ('1ea50143-0000-0000-0000-00000000014b', '1ea50143-0000-0000-0000-000000000144',
+   'The Student', 'editor', 4283215699);
+
+insert into public.projects (id, room_id, account_id, title, created_by) values
+  ('1ea50143-0000-0000-0000-00000000014c', '1ea50143-0000-0000-0000-00000000014a',
+   '1ea50143-0000-0000-0000-000000000143', 'Caro Mio Ben',
+   '1ea50143-0000-0000-0000-000000000143'),
+  ('1ea50143-0000-0000-0000-00000000014d', '1ea50143-0000-0000-0000-00000000014b',
+   '1ea50143-0000-0000-0000-000000000145', 'The Band Song',
+   '1ea50143-0000-0000-0000-000000000145');
+
+-- The lesson itself. Written here rather than through join_lesson_link
+-- because what is being checked is 0143's guard, not 0129's flow -- and the
+-- link is deliberately already closed, to hold the rule that a teacher who
+-- took their poster down still teaches the people who scanned it.
+insert into public.lesson_links (id, teacher_id, code, title, closed_at) values
+  ('1ea50143-0000-0000-0000-00000000014e', '1ea50143-0000-0000-0000-000000000143',
+   '0143aaaabbbb', 'Guitar lessons', now());
+insert into public.lesson_rooms (link_id, student_id, room_id) values
+  ('1ea50143-0000-0000-0000-00000000014e', '1ea50143-0000-0000-0000-000000000144',
+   '1ea50143-0000-0000-0000-00000000014a');
+
+set local request.jwt.claims = '{"sub": "1ea50143-0000-0000-0000-000000000143"}';
+set local role authenticated;
+
+do $$
+declare
+  left_mark uuid;
+  again uuid;
+begin
+  left_mark := public.leave_practice_mark(
+    '1ea50143-0000-0000-0000-00000000014c',
+    '1ea50143-0000-0000-0000-000000000144',
+    'Chorus 2', 0.75, 41000, 58000,
+    'Keep it slow until the change is clean.');
+  if left_mark is null then
+    raise exception 'leaving practice left nothing';
+  end if;
+
+  -- The half of this that matters most: the teacher wrote it and cannot see
+  -- it. Practice is where people are allowed to be bad at things.
+  if exists (select 1 from public.practice_marks) then
+    raise exception 'a teacher can read the student''s practice marks';
+  end if;
+  if exists (select 1 from public.my_practice_marks()) then
+    raise exception 'a mark left for a student came back to the teacher';
+  end if;
+
+  -- Again on the same song is the same mark, brought up to date, and this
+  -- one carries no note: the teacher left the words off deliberately.
+  again := public.leave_practice_mark(
+    '1ea50143-0000-0000-0000-00000000014c',
+    '1ea50143-0000-0000-0000-000000000144',
+    'Verse 1', 0.5, null, null, null);
+  if again is distinct from left_mark then
+    raise exception 'leaving practice again made a second mark';
+  end if;
+
+  -- Somebody who is not their student, in the room or out of it.
+  begin
+    perform public.leave_practice_mark(
+      '1ea50143-0000-0000-0000-00000000014c',
+      '1ea50143-0000-0000-0000-000000000146',
+      'Chorus 2', 1, null, null, null);
+    raise exception 'a teacher left practice for somebody who is not their student';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- A song that is not in the lesson.
+  begin
+    perform public.leave_practice_mark(
+      '1ea50143-0000-0000-0000-00000000014d',
+      '1ea50143-0000-0000-0000-000000000144',
+      'Chorus 2', 1, null, null, null);
+    raise exception 'a teacher left practice on a song outside the lesson';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- Nothing in it at all. `student_id = null` matches no row rather than
+  -- every row, and the refusal is said before anything is looked up.
+  begin
+    perform public.leave_practice_mark(
+      '1ea50143-0000-0000-0000-00000000014c', null,
+      'Chorus 2', 1, null, null, null);
+    raise exception 'a call with nobody in it left practice';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- And the shapes the app would never send.
+  begin
+    perform public.leave_practice_mark(
+      '1ea50143-0000-0000-0000-00000000014c',
+      '1ea50143-0000-0000-0000-000000000144',
+      'Chorus 2', 9, null, null, null);
+    raise exception 'practice was left at a speed nobody could play';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.leave_practice_mark(
+      '1ea50143-0000-0000-0000-00000000014c',
+      '1ea50143-0000-0000-0000-000000000144',
+      '   ', 1, null, null, null);
+    raise exception 'practice was left pointing at nothing';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+-- A band room's owner is not a teacher, and the same call in a band room
+-- would be one member writing on another member's Home.
+reset role;
+set local request.jwt.claims = '{"sub": "1ea50143-0000-0000-0000-000000000145"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.leave_practice_mark(
+      '1ea50143-0000-0000-0000-00000000014d',
+      '1ea50143-0000-0000-0000-000000000144',
+      'Chorus 2', 1, null, null, null);
+    raise exception 'a band room owner left practice on one of their members';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- And on the lesson's song, which they have no role in at all.
+  begin
+    perform public.leave_practice_mark(
+      '1ea50143-0000-0000-0000-00000000014c',
+      '1ea50143-0000-0000-0000-000000000144',
+      'Chorus 2', 1, null, null, null);
+    raise exception 'somebody outside the lesson left practice in it';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- The student can read what was left for them, and can leave nothing for
+-- anybody: the lesson runs one way.
+reset role;
+set local request.jwt.claims = '{"sub": "1ea50143-0000-0000-0000-000000000144"}';
+set local role authenticated;
+
+do $$
+begin
+  if (select count(*) from public.my_practice_marks()) <> 1 then
+    raise exception 'the student does not have exactly one mark left for them';
+  end if;
+  if (select led_by from public.practice_marks)
+     is distinct from '1ea50143-0000-0000-0000-000000000143'::uuid then
+    raise exception 'the mark does not say who left it';
+  end if;
+  if (select led_by_name from public.practice_marks) <> 'The Teacher' then
+    raise exception 'the mark does not carry the teacher''s name';
+  end if;
+  if (select parts -> 0 ->> 'label' from public.practice_marks) <> 'Verse 1' then
+    raise exception 'leaving practice again did not replace what it pointed at';
+  end if;
+  if (select (parts -> 0 ->> 'rate')::numeric from public.practice_marks) <> 0.5 then
+    raise exception 'leaving practice again did not replace the speed';
+  end if;
+  -- Unlike keep_practice_mark's upsert, which protects a teacher's words
+  -- from a student's phone. This is the teacher themselves, and a note they
+  -- deliberately left off comes off.
+  if (select note from public.practice_marks) is not null then
+    raise exception 'a note the teacher took off stayed on';
+  end if;
+
+  begin
+    perform public.leave_practice_mark(
+      '1ea50143-0000-0000-0000-00000000014c',
+      '1ea50143-0000-0000-0000-000000000144',
+      'Chorus 2', 1, null, null, null);
+    raise exception 'a student left practice for themselves';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.leave_practice_mark(
+      '1ea50143-0000-0000-0000-00000000014c',
+      '1ea50143-0000-0000-0000-000000000143',
+      'Chorus 2', 1, null, null, null);
+    raise exception 'a student left practice for their teacher';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Somebody with a valid token and nothing to do with any of it.
+reset role;
+set local request.jwt.claims = '{"sub": "1ea50143-0000-0000-0000-000000000146"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.practice_marks) then
+    raise exception 'a stranger can read somebody''s practice marks';
+  end if;
+  begin
+    perform public.leave_practice_mark(
+      '1ea50143-0000-0000-0000-00000000014c',
+      '1ea50143-0000-0000-0000-000000000144',
+      'Chorus 2', 1, null, null, null);
+    raise exception 'a stranger left practice on somebody''s Home';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
+
+do $$
+begin
+  -- One mark, not three: every refusal above left the table where it was.
+  if (select count(*) from public.practice_marks
+      where profile_id = '1ea50143-0000-0000-0000-000000000144') <> 1 then
+    raise exception 'the refusals left practice marks behind';
+  end if;
+
+  -- And the student was told, through the switch that already covers
+  -- somebody else doing something to one of their songs.
+  if private.wants_project_updates('1ea50143-0000-0000-0000-000000000144')
+     and not exists (
+       select 1 from public.notifications
+       where user_id = '1ea50143-0000-0000-0000-000000000144'
+         and type = 'project_update'
+         and project_id = '1ea50143-0000-0000-0000-00000000014c'
+         and actor_id = '1ea50143-0000-0000-0000-000000000143'
+     ) then
+    raise exception 'the student was not told their teacher left them something';
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- The marks a lesson already left, folded in rather than left beside.
+--
+-- keep_practice_mark names a mark per followed stretch (0128) and the phone
+-- makes a fresh name each time, so a student who followed this teacher on
+-- this song is already carrying a row of their own led by them -- with the
+-- teacher's parting words on it. Home shows one card a song and prefers
+-- whichever mark carries words, so a row like this left behind speaks over
+-- the practice just left, and the student practises last week's part.
+--
+-- Written straight into the table, because keep_practice_mark writes as the
+-- student's own phone; the row is the one it would make.
+-- ---------------------------------------------------------------------
+
+reset role;
+
+insert into public.practice_marks
+  (id, profile_id, project_id, led_by, led_by_name, note, parts, updated_at)
+values (
+  '1ea50143-0000-0000-0000-00000000014f',
+  '1ea50143-0000-0000-0000-000000000144',
+  '1ea50143-0000-0000-0000-00000000014c',
+  '1ea50143-0000-0000-0000-000000000143',
+  'The Teacher',
+  'Keep it slow until the change is clean.',
+  '[{"start": 41000, "end": 58000, "label": "Chorus 1", "rate": 0.5, "seconds": 900}]'::jsonb,
+  -- Older than the one leaving practice will bring up to date, which is the
+  -- order that bites: the newest row is the one that gets the new words, and
+  -- this one keeps the old ones.
+  now() - interval '1 hour');
+
+set local request.jwt.claims = '{"sub": "1ea50143-0000-0000-0000-000000000143"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.leave_practice_mark(
+    '1ea50143-0000-0000-0000-00000000014c',
+    '1ea50143-0000-0000-0000-000000000144',
+    'Bridge', 1, null, null, null);
+end $$;
+
+reset role;
+
+do $$
+begin
+  if (select count(*) from public.practice_marks
+      where profile_id = '1ea50143-0000-0000-0000-000000000144'
+        and project_id = '1ea50143-0000-0000-0000-00000000014c'
+        and led_by = '1ea50143-0000-0000-0000-000000000143') <> 1 then
+    raise exception 'a mark this teacher led was left beside the one they just left';
+  end if;
+  if (select parts -> 0 ->> 'label' from public.practice_marks
+      where profile_id = '1ea50143-0000-0000-0000-000000000144'
+        and project_id = '1ea50143-0000-0000-0000-00000000014c') <> 'Bridge' then
+    raise exception 'the mark that survived is not the practice just left';
+  end if;
+  -- The one that went was the one with the words on it, so nothing is left
+  -- for Home to prefer over what the teacher actually said this time.
+  if (select note from public.practice_marks
+      where profile_id = '1ea50143-0000-0000-0000-000000000144'
+        and project_id = '1ea50143-0000-0000-0000-00000000014c') is not null then
+    raise exception 'an older lesson''s words outlived the practice left after them';
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- A lesson of theirs, in a room that is not theirs.
+--
+-- The one call that gets past the lesson_rooms guard and reaches the role
+-- check with nothing to check: the link is this teacher's, the student is
+-- this student, and the teacher is not a member of the room the lesson was
+-- pointed at. room_role_for answers null, `null <> 'owner'` is null, and an
+-- `if` on null does nothing -- so a plain `<>` here would wave this through
+-- and let somebody write on a Home in a room they are not in. This is the
+-- case `is distinct from` is spelled out for.
+-- ---------------------------------------------------------------------
+
+reset role;
+
+insert into public.rooms (id, account_id, name) values
+  ('1ea50143-0000-0000-0000-000000000150',
+   '1ea50143-0000-0000-0000-000000000145', 'Somebody Else''s Room');
+
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('1ea50143-0000-0000-0000-000000000150', '1ea50143-0000-0000-0000-000000000145',
+   'The Band Owner', 'owner', 4294937168),
+  ('1ea50143-0000-0000-0000-000000000150', '1ea50143-0000-0000-0000-000000000144',
+   'The Student', 'editor', 4283215700);
+
+insert into public.projects (id, room_id, account_id, title, created_by) values
+  ('1ea50143-0000-0000-0000-000000000151', '1ea50143-0000-0000-0000-000000000150',
+   '1ea50143-0000-0000-0000-000000000145', 'A Song Elsewhere',
+   '1ea50143-0000-0000-0000-000000000145');
+
+-- A second link of the teacher's, also closed, so the one-open-link-per-
+-- teacher index (0129) is not the thing being tested here.
+insert into public.lesson_links (id, teacher_id, code, title, closed_at) values
+  ('1ea50143-0000-0000-0000-000000000152', '1ea50143-0000-0000-0000-000000000143',
+   '0143ccccdddd', 'Guitar lessons, elsewhere', now());
+insert into public.lesson_rooms (link_id, student_id, room_id) values
+  ('1ea50143-0000-0000-0000-000000000152', '1ea50143-0000-0000-0000-000000000144',
+   '1ea50143-0000-0000-0000-000000000150');
+
+set local request.jwt.claims = '{"sub": "1ea50143-0000-0000-0000-000000000143"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.leave_practice_mark(
+      '1ea50143-0000-0000-0000-000000000151',
+      '1ea50143-0000-0000-0000-000000000144',
+      'Chorus 2', 1, null, null, null);
+    raise exception 'a teacher left practice in a room they are not a member of';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
+
+do $$
+begin
+  if exists (select 1 from public.practice_marks
+             where project_id = '1ea50143-0000-0000-0000-000000000151') then
+    raise exception 'the refused call wrote a mark anyway';
+  end if;
+end $$;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;

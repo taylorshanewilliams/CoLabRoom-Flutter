@@ -705,6 +705,27 @@ abstract interface class MusicRepository {
   /// without one.
   Future<void> keepPracticeMark(PracticeMark mark);
 
+  /// Leaves a student something to practise, without a live session (0143).
+  ///
+  /// Only a teacher can, and only in a lesson room of their own (0129) on a
+  /// song in it; everybody else is refused. It writes the mark 0128 writes,
+  /// owned by the student and led by the teacher, so what arrives is the
+  /// practice card Home already has. Leaving practice again on the same song
+  /// replaces what this teacher left before rather than adding a second.
+  ///
+  /// Nothing comes back. A mark is read by its owner and nobody else, so a
+  /// teacher never sees this again — not the mark, and not whether it was
+  /// opened.
+  Future<void> leavePracticeForStudent({
+    required String projectId,
+    required String studentId,
+    required String label,
+    required double rate,
+    int? startMs,
+    int? endMs,
+    String? note,
+  });
+
   /// Every note pinned to a moment of a recording on this song, earliest
   /// moment first.
   ///
