@@ -2163,6 +2163,15 @@ class InMemoryMusicRepository implements MusicRepository {
   /// this, by whether the recording is one you can hear.
   final List<MomentNote> _momentNotes = <MomentNote>[];
 
+  /// Takes nobody has been shared with, so a note pinned on one comes back
+  /// marked the way 0141's before-insert trigger marks it.
+  ///
+  /// The one piece of the rule worth modelling here, because it is the piece
+  /// the screen shows: a note on your own draft reads "only you". The layers
+  /// come from the layer service rather than from this repository, so
+  /// whoever sets them up says which ids are drafts.
+  final Set<String> draftLayerIds = <String>{};
+
   @override
   Future<List<MomentNote>> loadMomentNotes(String projectId) async {
     final mine = <MomentNote>[
@@ -2189,6 +2198,9 @@ class InMemoryMusicRepository implements MusicRepository {
       body: body.trim(),
       authorId: currentUserId,
       authorName: 'Taylor',
+      // As the trigger does it: the song's own recording is always the
+      // room's, and a take is only the room's once it has been shared.
+      onSharedTake: layerId == null || !draftLayerIds.contains(layerId),
       createdAt: DateTime.now(),
     );
     _momentNotes.add(note);

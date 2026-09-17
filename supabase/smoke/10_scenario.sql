@@ -4875,6 +4875,90 @@ begin
   end if;
 end $$;
 
+-- Sharing a take does not share what its recorder said to themselves.
+--
+-- The student pinned 'the bridge fell apart here' on their own draft while
+-- nobody else could hear it. They are happy with the take now and send it.
+-- The take becomes the room's; the note does not.
+set local request.jwt.claims = '{"sub": "5011e500-0000-0000-0000-000000000141", "email": "the.student@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.share_layer('5011e500-0000-0000-0000-00000000014d');
+
+  if not exists (
+    select 1 from public.moment_notes
+    where layer_id = '5011e500-0000-0000-0000-00000000014d'
+      and on_shared_take is false
+  ) then
+    raise exception 'a note pinned on a draft was not frozen as the author''s own';
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  after_sharing uuid;
+begin
+  if not exists (
+    select 1 from public.song_layers
+    where id = '5011e500-0000-0000-0000-00000000014d' and shared_at is not null
+  ) then
+    raise exception 'the draft was not shared, so this proves nothing';
+  end if;
+
+  -- The heart of the fix: the take is audible now, the note still is not.
+  if exists (
+    select 1 from public.moment_notes
+    where layer_id = '5011e500-0000-0000-0000-00000000014d'
+  ) then
+    raise exception 'sharing a take published the notes its recorder left on it';
+  end if;
+
+  -- What is written after the share is the room's, the way a note on any
+  -- shared take is -- otherwise the take would be one nobody could discuss.
+  insert into public.moment_notes (project_id, layer_id, at_ms, body)
+  values ('5011e500-0000-0000-0000-00000000014b',
+          '5011e500-0000-0000-0000-00000000014d', 3000, 'much better')
+  returning id into after_sharing;
+
+  if not exists (
+    select 1 from public.moment_notes
+    where id = after_sharing and on_shared_take is true
+  ) then
+    raise exception 'a note pinned on a shared take was frozen as private';
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "5011e500-0000-0000-0000-000000000141", "email": "the.student@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  if not exists (
+    select 1 from public.moment_notes
+    where layer_id = '5011e500-0000-0000-0000-00000000014d'
+      and body = 'much better'
+  ) then
+    raise exception 'the recorder could not read a note left on their shared take';
+  end if;
+
+  -- And their own words are still theirs to read.
+  if not exists (
+    select 1 from public.moment_notes
+    where layer_id = '5011e500-0000-0000-0000-00000000014d'
+      and body = 'the bridge fell apart here'
+  ) then
+    raise exception 'an author lost sight of their own note';
+  end if;
+end $$;
+
+reset role;
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../domain/moment_note.dart';
 import '../../domain/music_models.dart';
 import '../../services/user_facing_error.dart';
 import '../../services/invite_link.dart';
@@ -189,7 +190,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   /// Straight to the takes, which is where the recording, the marks on its
   /// lane and the note itself are -- not the words. Opening the song would
   /// leave the person on the lyrics with one more tap to work out.
-  void _openTakesAtTheNote(SongProject project) {
+  ///
+  /// The card itself is the note's address. `notifications` has no column for
+  /// the thing a notification is about, so who left it and the words the card
+  /// is already showing are how the screen picks the right one out of a song
+  /// two people have both pinned something on.
+  void _openTakesAtTheNote(SongProject project, AppNotification about) {
     if (!mounted) return;
     unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
       settings: RouteSettings(name: AppRoutes.songTakes(project.id)),
@@ -197,7 +203,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         roomId: project.roomId,
         projectId: project.id,
         songTitle: project.title,
-        openNoteForMe: true,
+        openNote: NoteToOpen(authorId: about.actorId, bodyStart: about.body),
       ),
     )));
   }
@@ -546,7 +552,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 notification.projectId != null) {
                               final song = controller
                                   .projectById(notification.projectId!);
-                              if (song != null) _openTakesAtTheNote(song);
+                              if (song != null) {
+                                _openTakesAtTheNote(song, notification);
+                              }
                             }
                             // Somebody asked to add you: Your people is
                             // where a request is answered, and it lists the

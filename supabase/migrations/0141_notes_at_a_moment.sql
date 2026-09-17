@@ -19,12 +19,15 @@
 -- A word for it
 -- ---------------------------------------------------------------------
 
--- On its own and first, the way 0131 and 0133 did it: a new enum value
--- cannot be *evaluated* in the transaction that adds it. The only place
--- 'moment_note' is used below is inside plpgsql function bodies, which are
--- parsed now and planned when they are first called -- in a later
--- transaction. Nothing in this file compares or casts it at DDL time, which
--- is why this can sit in the same migration.
+-- First in the file, because a new enum value cannot be *evaluated* in the
+-- transaction that adds it. Every earlier addition (0035, 0048, 0090, 0111,
+-- 0114, 0131, 0133) got a migration of its own to sidestep that rule; this
+-- slice was given one number, so the rule is sidestepped a different way.
+-- The only 'moment_note' left below that resolves to the enum type is the
+-- literal in announce_moment_note's `perform`, inside a plpgsql body, which
+-- is planned on first call -- a later transaction under either runner.
+-- notify_user's guard compares text instead, so it never resolves the label.
+-- See the comment there for why that difference is worth the oddness.
 alter type public.notification_type add value if not exists 'moment_note';
 
 -- ---------------------------------------------------------------------
@@ -38,6 +41,16 @@ create table public.moment_notes (
   -- and words were derived from, which is not a row in song_layers and is
   -- the first lane on the Takes screen.
   layer_id uuid references public.song_layers(id) on delete cascade,
+  -- Who the note was written in front of, frozen when it was written.
+  --
+  -- Set by the trigger below, never by the client. Without it the audience
+  -- would be derived at read time from the take's shared_at, and pressing
+  -- Share would retroactively publish every private note the recorder had
+  -- pinned on their own draft -- the exact opposite of what 0057 exists for.
+  -- Somebody marking "came in flat, redo the second verse" on a take only
+  -- they can hear has said it to themselves, and it stays said to themselves
+  -- after they are happy with the take.
+  on_shared_take boolean not null default true,
   at_ms integer not null check (at_ms >= 0),
   -- A range, when the note is about a passage rather than an instant.
   end_ms integer check (end_ms is null or end_ms > at_ms),
@@ -62,6 +75,10 @@ comment on column public.moment_notes.layer_id is
   'The take this is about, or null for the song''s own recording. Cascades '
   'rather than nulling on delete: a note left pointing at nothing would read '
   'as a note on the song''s own recording, which is a different audience.';
+comment on column public.moment_notes.on_shared_take is
+  'Whether the recording had been shared when the note was written. False '
+  'means the note is its author''s alone, for good: sharing the take later '
+  'does not hand somebody''s private notes to the room.';
 
 alter table public.moment_notes enable row level security;
 
@@ -111,10 +128,45 @@ $fn$;
 revoke all on function private.can_hear_recording(uuid, uuid) from public, anon;
 grant execute on function private.can_hear_recording(uuid, uuid) to authenticated;
 
+-- Freezing the audience at the moment the words are typed.
+--
+-- Before insert and from the layer, so the client cannot claim an audience
+-- the recording does not have -- a column the app could set would be a
+-- column somebody could set to true on a draft and read the room's notes
+-- back. The song's own recording is always the room's, so a null layer is
+-- true.
+create or replace function private.freeze_note_audience()
+returns trigger
+language plpgsql
+security definer set search_path = ''
+as $fn$
+begin
+  new.on_shared_take := new.layer_id is null or exists (
+    select 1 from public.song_layers l
+    where l.id = new.layer_id and l.shared_at is not null
+  );
+  return new;
+end;
+$fn$;
+
+drop trigger if exists moment_notes_freeze_audience on public.moment_notes;
+create trigger moment_notes_freeze_audience
+before insert on public.moment_notes
+for each row execute function private.freeze_note_audience();
+
+-- Two conditions, and both are needed.
+--
+-- `on_shared_take` is who the note was written in front of and never changes.
+-- `can_hear_recording` is who can hear the recording now, so unsharing a take
+-- takes its notes back out of sight with it. An author always keeps their own
+-- words, which is what makes a note on your own draft a note to yourself.
 create policy moment_notes_read on public.moment_notes
 for select to authenticated using (
   deleted_at is null
-  and private.can_hear_recording(project_id, layer_id)
+  and (
+    author_id = (select auth.uid())
+    or (on_shared_take and private.can_hear_recording(project_id, layer_id))
+  )
 );
 
 create policy moment_notes_write on public.moment_notes
@@ -207,7 +259,18 @@ begin
   end if;
   -- 0141. Words about a recording of yours: the same switch as anything else
   -- somebody does to one of your songs.
-  if notif_type = 'moment_note' and not private.wants_project_updates(target_user) then
+  --
+  -- Compared as text, alone among these branches, because 'moment_note' is
+  -- added to the enum at the top of this same file. Nothing here resolves the
+  -- label at DDL time as it stands -- but the two runners disagree about that
+  -- rule: CI replays each migration through psql without -1, so every
+  -- statement commits on its own, while tools/apply_migration.py sends the
+  -- whole file as one transaction. A text comparison never resolves the label
+  -- at all, so the file cannot grow into the difference between them. The
+  -- enum literal that is left, in announce_moment_note's perform below, is
+  -- planned on first call, which is a later transaction either way.
+  if notif_type::text = 'moment_note'
+     and not private.wants_project_updates(target_user) then
     return;
   end if;
 

@@ -7,6 +7,7 @@ import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/layers/moment_notes.dart';
 import 'package:colabroom/features/layers/song_layers_screen.dart';
+import 'package:colabroom/features/layers/timeline_ruler.dart';
 import 'package:colabroom/features/notifications/notifications_screen.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:colabroom/services/song_layer_service.dart';
@@ -79,6 +80,50 @@ class _ToldAboutANote extends InMemoryMusicRepository {
       ];
 }
 
+/// A song somebody else has already pinned notes on.
+///
+/// [InMemoryMusicRepository.addMomentNote] always signs the note with whoever
+/// is signed in, which is the only honest thing it can do — so a note from
+/// Jess is seeded rather than written.
+class _NotesAlreadyThere extends InMemoryMusicRepository {
+  _NotesAlreadyThere(this.alreadyThere)
+      : super.from(InMemoryMusicRepository.seeded());
+
+  final List<MomentNote> alreadyThere;
+
+  @override
+  Future<List<MomentNote>> loadMomentNotes(String projectId) async {
+    return <MomentNote>[
+      for (final note in alreadyThere)
+        if (note.projectId == projectId) note,
+      ...await super.loadMomentNotes(projectId),
+    ]..sort((a, b) => a.atMs.compareTo(b.atMs));
+  }
+}
+
+MomentNote _note({
+  required String id,
+  required int atMs,
+  required String body,
+  String authorId = 'preview-jess',
+  String? authorName = 'Jess',
+  String? layerId = 'layer-sent',
+  bool onSharedTake = true,
+  DateTime? createdAt,
+}) {
+  return MomentNote(
+    id: id,
+    projectId: 'song-1',
+    layerId: layerId,
+    atMs: atMs,
+    body: body,
+    authorId: authorId,
+    authorName: authorName,
+    onSharedTake: onSharedTake,
+    createdAt: createdAt ?? DateTime(2026, 9, 17),
+  );
+}
+
 SharedLayer _layer({
   required String id,
   required String label,
@@ -102,7 +147,7 @@ Future<MusicBetaController> _openTakes(
   WidgetTester tester,
   InMemoryMusicRepository repository, {
   required List<SharedLayer> layers,
-  bool openNoteForMe = false,
+  NoteToOpen? openNote,
   bool sideways = false,
 }) async {
   final controller = MusicBetaController(repository);
@@ -124,7 +169,7 @@ Future<MusicBetaController> _openTakes(
         songTitle: 'Caro mio ben',
         layerService: _Takes(layers),
         analysisService: _NoAnalysis(),
-        openNoteForMe: openNoteForMe,
+        openNote: openNote,
       ),
     ),
   ));
@@ -175,6 +220,64 @@ void main() {
       expect(note.isRange, isTrue);
       expect(note.playFromMs, 18000);
       expect(note.loopEndMs, 27000);
+    });
+  });
+
+  group('finding the note a notification was about', () {
+    final jess = _note(
+      id: 'from-jess',
+      atMs: 108000,
+      body: 'breathe before mio',
+      createdAt: DateTime(2026, 9, 17, 10),
+    );
+    final sam = _note(
+      id: 'from-sam',
+      atMs: 12000,
+      body: 'the piano is loud here',
+      authorId: 'preview-sam',
+      authorName: 'Sam',
+      createdAt: DateTime(2026, 9, 17, 11),
+    );
+    final mine = _note(
+      id: 'from-me',
+      atMs: 1000,
+      body: 'my own words',
+      authorId: 'preview-user',
+      authorName: 'Taylor',
+      createdAt: DateTime(2026, 9, 17, 12),
+    );
+    final notes = <MomentNote>[jess, sam, mine];
+
+    test('is the one the card named, not the newest one', () {
+      const card = NoteToOpen(
+        authorId: 'preview-jess',
+        bodyStart: 'breathe before mio',
+      );
+      expect(card.findIn(notes, exceptAuthor: 'preview-user')?.id, jess.id);
+    });
+
+    test('is never your own', () {
+      const card = NoteToOpen(authorId: 'preview-user');
+      expect(card.findIn(<MomentNote>[mine], exceptAuthor: 'preview-user'),
+          isNull);
+    });
+
+    test('falls back to the newest by that person when the words are gone',
+        () {
+      // A note taken back between the notification and the tap, or words the
+      // card truncated somewhere this does not reach. Landing near it beats
+      // landing nowhere: the person tapped a card that said somebody left
+      // them a note.
+      const card = NoteToOpen(
+        authorId: 'preview-jess',
+        bodyStart: 'something else entirely',
+      );
+      expect(card.findIn(notes, exceptAuthor: 'preview-user')?.id, jess.id);
+    });
+
+    test('falls back to the newest of anybody when the person is gone', () {
+      const card = NoteToOpen(authorId: 'preview-nobody');
+      expect(card.findIn(notes, exceptAuthor: 'preview-user')?.id, sam.id);
     });
   });
 
@@ -332,6 +435,67 @@ void main() {
       expect(find.byKey(const Key('pin_moment_note')), findsOneWidget);
     });
 
+    testWidgets('and the sheet says who will ever read it', (tester) async {
+      // The promise has to be made before the words are typed, because it
+      // cannot be taken back afterwards. A note on a take nobody has heard is
+      // its author's alone — and stays theirs when they share the take, or
+      // pressing Share would hand the room every private note on that
+      // recording at once (0141's on_shared_take).
+      await _openTakes(
+        tester,
+        InMemoryMusicRepository.seeded(),
+        // Sideways, to dodge the same pre-existing lane overflow the test
+        // above explains.
+        sideways: true,
+        layers: <SharedLayer>[
+          _layer(
+            id: 'layer-mine',
+            label: 'Mine',
+            recordedBy: 'preview-user',
+            shared: false,
+          ),
+        ],
+      );
+
+      await tester.tap(find.byKey(const Key('pin_moment_note')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Only you can read this one, even after you share the take.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a note on a draft says so in the list', (tester) async {
+      final repository = InMemoryMusicRepository.seeded()
+        ..draftLayerIds.add('layer-mine');
+      await _openTakes(
+        tester,
+        repository,
+        sideways: true,
+        layers: <SharedLayer>[
+          _layer(
+            id: 'layer-mine',
+            label: 'Mine',
+            recordedBy: 'preview-user',
+            shared: false,
+          ),
+        ],
+      );
+
+      await tester.tap(find.byKey(const Key('pin_moment_note')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('moment_note_body')), 'came in flat, redo it');
+      await tester.tap(find.byKey(const Key('moment_note_pin')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('came in flat, redo it'), findsOneWidget);
+      // Otherwise a note you wrote to yourself sits in the list looking
+      // exactly like one the band can read.
+      expect(find.textContaining('only you'), findsWidgets);
+    });
+
     testWidgets('the sheet offers the recordings you can be heard on, only',
         (tester) async {
       await _openTakes(
@@ -356,6 +520,33 @@ void main() {
       expect(find.widgetWithText(ChoiceChip, 'Heard'), findsOneWidget);
       expect(find.widgetWithText(ChoiceChip, 'Draft'), findsNothing,
           reason: 'nobody else can hear it, so there is nobody to tell');
+    });
+  });
+
+  group('sideways, at the faders', () {
+    testWidgets('the notes come too', (tester) async {
+      // A teacher turns the phone to reach the faders while a student's take
+      // plays. Pinning already worked here, because the button is in the
+      // bottom bar -- but until the list came with it there was no way to
+      // read a note back, hear its moment again, or take one back.
+      await _openTakes(
+        tester,
+        _NotesAlreadyThere(<MomentNote>[
+          _note(id: 'from-jess', atMs: 108000, body: 'breathe before mio'),
+        ]),
+        sideways: true,
+        layers: <SharedLayer>[
+          _layer(id: 'layer-sent', label: 'Sent', recordedBy: 'preview-jess'),
+        ],
+      );
+
+      expect(find.text('breathe before mio'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('moment_note_from-jess')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Note at 1:45'), findsOneWidget,
+          reason: 'tapping a note sideways moves to its moment too');
     });
   });
 
@@ -414,11 +605,89 @@ void main() {
       expect(pushed, contains('/song/song-1/takes'),
           reason: 'the note is on a recording, so the takes are where it is');
       expect(find.byType(SongLayersScreen), findsOneWidget);
-      // And on the song it is about, not on whichever song was open.
-      expect(
-        tester.widget<SongLayersScreen>(find.byType(SongLayersScreen)).openNoteForMe,
-        isTrue,
+      // And on the song it is about, not on whichever song was open, carrying
+      // the address of the note itself: who left it and what they said.
+      final opened =
+          tester.widget<SongLayersScreen>(find.byType(SongLayersScreen)).openNote;
+      expect(opened?.authorId, 'preview-jess');
+      expect(opened?.bodyStart, 'breathe before mio');
+    });
+
+    testWidgets('and lands on that note, not on whichever was newest',
+        (tester) async {
+      // Two people pin on the same song in the same minute. The card says who
+      // and what, which is enough to tell them apart -- `notifications` has no
+      // column for the thing it is about, so this is the whole address there
+      // is.
+      await _openTakes(
+        tester,
+        _NotesAlreadyThere(<MomentNote>[
+          _note(
+            id: 'from-jess',
+            atMs: 108000,
+            body: 'breathe before mio',
+            createdAt: DateTime(2026, 9, 17, 10),
+          ),
+          // Newer, and by somebody else again: the one the old rule would
+          // have opened on.
+          _note(
+            id: 'from-sam',
+            atMs: 12000,
+            body: 'the piano is loud here',
+            authorId: 'preview-sam',
+            authorName: 'Sam',
+            createdAt: DateTime(2026, 9, 17, 11),
+          ),
+        ]),
+        openNote: const NoteToOpen(
+          authorId: 'preview-jess',
+          bodyStart: 'breathe before mio',
+        ),
+        layers: <SharedLayer>[
+          _layer(id: 'layer-sent', label: 'Sent', recordedBy: 'preview-jess'),
+        ],
       );
+
+      expect(find.text('Note at 1:45'), findsOneWidget,
+          reason: 'the note the card was about, not the newest on the song');
+    });
+
+    testWidgets('and stays where you go next', (tester) async {
+      // Arriving is a one-off. Every pin and every delete reloads the notes,
+      // and without a latch each reload would drag the playhead back to the
+      // note the notification was about -- you answer at 0:59, press Pin it,
+      // and the screen throws you back to 1:45.
+      await _openTakes(
+        tester,
+        _NotesAlreadyThere(<MomentNote>[
+          _note(id: 'from-jess', atMs: 108000, body: 'breathe before mio'),
+        ]),
+        openNote: const NoteToOpen(
+          authorId: 'preview-jess',
+          bodyStart: 'breathe before mio',
+        ),
+        layers: <SharedLayer>[
+          _layer(id: 'layer-sent', label: 'Sent', recordedBy: 'preview-jess'),
+        ],
+      );
+      expect(find.text('Note at 1:45'), findsOneWidget);
+
+      // Somewhere else in the song, which is what a person does before they
+      // answer.
+      await tester.tap(find.byType(TimelineRuler));
+      await tester.pumpAndSettle();
+      expect(find.text('Note at 1:45'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('pin_moment_note')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('moment_note_body')), 'yes, I hear it');
+      await tester.tap(find.byKey(const Key('moment_note_pin')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('yes, I hear it'), findsOneWidget);
+      expect(find.text('Note at 1:45'), findsNothing,
+          reason: 'pinning a reply does not throw you back to the first note');
     });
   });
 

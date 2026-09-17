@@ -20,6 +20,7 @@ class MomentNote {
     this.layerId,
     this.endMs,
     this.authorName,
+    this.onSharedTake = true,
   });
 
   final String id;
@@ -41,6 +42,16 @@ class MomentNote {
   /// Who left it, for a note somebody else left on your playing. Null when
   /// they have no display name, which the list reads as "Somebody".
   final String? authorName;
+
+  /// Whether the recording had been shared when these words were typed
+  /// (0141's `on_shared_take`, frozen by the database, never sent by the app).
+  ///
+  /// False is a note somebody pinned on a take only they could hear, and it
+  /// stays theirs alone after they share the take — otherwise pressing Share
+  /// would hand the room every private note on that recording at once. The
+  /// list says "only you" on one, so nobody writes to the band on a row that
+  /// only they will ever read.
+  final bool onSharedTake;
 
   final DateTime createdAt;
 
@@ -77,5 +88,50 @@ class MomentNote {
   static String clockOf(int ms) {
     final seconds = ms ~/ 1000;
     return '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
+  }
+}
+
+/// Which note a notification was about, as much of it as the row can carry.
+///
+/// `public.notifications` has columns for the person, the type, a title, a
+/// body, a room, a song, an invitation and an actor — and nothing for the
+/// thing the notification is about. So a note's id cannot travel on it, and
+/// the address we have is who left the note and the first 200 characters of
+/// what they said, which is already in the body of the card somebody tapped.
+///
+/// That is enough to land on the right one: two people leaving notes on the
+/// same song in the same minute still wrote different words. A nullable
+/// `notifications.subject_id` is the honest fix and belongs to whichever
+/// slice next touches that table.
+@immutable
+class NoteToOpen {
+  const NoteToOpen({this.authorId, this.bodyStart});
+
+  /// The notification's actor — whoever pinned the note.
+  final String? authorId;
+
+  /// The note's words, as far as the notification carried them.
+  final String? bodyStart;
+
+  /// The note this points at, out of everything on the song.
+  ///
+  /// Narrowing, never empty-handed: the person tapped a card saying somebody
+  /// left them a note, so landing on the closest match beats landing nowhere.
+  /// [exceptAuthor] is the person reading, who is never the one being told.
+  MomentNote? findIn(Iterable<MomentNote> notes, {String? exceptAuthor}) {
+    final others = <MomentNote>[
+      for (final note in notes)
+        if (note.authorId != exceptAuthor) note,
+    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    if (others.isEmpty) return null;
+
+    final words = bodyStart?.trim() ?? '';
+    MomentNote? bySamePerson;
+    for (final note in others) {
+      if (authorId != null && note.authorId != authorId) continue;
+      if (words.isNotEmpty && note.body.trim().startsWith(words)) return note;
+      bySamePerson ??= note;
+    }
+    return bySamePerson ?? others.first;
   }
 }

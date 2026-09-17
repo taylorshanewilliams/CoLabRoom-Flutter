@@ -18,10 +18,21 @@ import '../../widgets/send_on_enter.dart';
 /// A null [id] is the song's own recording, which is not a take.
 @immutable
 class NoteTarget {
-  const NoteTarget({required this.id, required this.label});
+  const NoteTarget({
+    required this.id,
+    required this.label,
+    this.yoursAlone = false,
+  });
 
   final String? id;
   final String label;
+
+  /// A take of your own that nobody has been shared with.
+  ///
+  /// Words pinned on one are read by you and by nobody else — now, and after
+  /// you share the take, because 0141 freezes a note's audience when it is
+  /// written. The sheet says so rather than leaving somebody to find out.
+  final bool yoursAlone;
 }
 
 /// What somebody typed, and which recording they typed it about.
@@ -45,107 +56,155 @@ Future<MomentNoteDraft?> showMomentNoteSheet(
   String? initialLayerId,
 }) {
   if (on.isEmpty) return Future<MomentNoteDraft?>.value();
-  var chosen = on.any((target) => target.id == initialLayerId)
-      ? initialLayerId
-      : on.first.id;
-  final typed = TextEditingController();
   return showModalBottomSheet<MomentNoteDraft>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
     backgroundColor: AppColors.deepNavy,
-    builder: (sheetContext) => StatefulBuilder(
-      builder: (builderContext, setSheetState) {
-        void pin() {
-          final body = typed.text.trim();
-          if (body.isEmpty) return;
-          Navigator.pop(
-            sheetContext,
-            MomentNoteDraft(layerId: chosen, body: body),
-          );
-        }
+    builder: (sheetContext) => _MomentNoteSheet(
+      atMs: atMs,
+      on: on,
+      initialLayerId: initialLayerId,
+    ),
+  );
+}
 
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-              18, 0, 18, MediaQuery.of(builderContext).viewInsets.bottom + 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                'Note at ${MomentNote.clockOf(atMs)}',
-                style: const TextStyle(
-                  color: AppColors.text,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Only the person who played it is told.',
-                style: TextStyle(color: AppColors.muted, fontSize: 12.5),
-              ),
-              if (on.length > 1) ...<Widget>[
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: <Widget>[
-                    for (final target in on)
-                      ChoiceChip(
-                        label: Text(target.label),
-                        selected: target.id == chosen,
-                        backgroundColor: AppColors.raised,
-                        selectedColor: AppColors.cyan.withValues(alpha: 0.22),
-                        labelStyle: const TextStyle(
-                            color: AppColors.text, fontSize: 13),
-                        side:
-                            BorderSide(color: AppColors.cyan.withValues(alpha: 0.25)),
-                        onSelected: (_) =>
-                            setSheetState(() => chosen = target.id),
-                      ),
-                  ],
-                ),
+/// The sheet itself, which owns its controller.
+///
+/// A widget rather than a [StatefulBuilder] for the same reason every other
+/// sheet in this app is one (ask_musician_sheet, heard_it_sheet): a
+/// controller made in a function has no dispose to be hung on, and a teacher
+/// going through fifteen takes opens this fifteen times.
+class _MomentNoteSheet extends StatefulWidget {
+  const _MomentNoteSheet({
+    required this.atMs,
+    required this.on,
+    this.initialLayerId,
+  });
+
+  final int atMs;
+  final List<NoteTarget> on;
+  final String? initialLayerId;
+
+  @override
+  State<_MomentNoteSheet> createState() => _MomentNoteSheetState();
+}
+
+class _MomentNoteSheetState extends State<_MomentNoteSheet> {
+  final TextEditingController _typed = TextEditingController();
+  String? _chosen;
+
+  @override
+  void initState() {
+    super.initState();
+    _chosen = widget.on.any((target) => target.id == widget.initialLayerId)
+        ? widget.initialLayerId
+        : widget.on.first.id;
+  }
+
+  @override
+  void dispose() {
+    _typed.dispose();
+    super.dispose();
+  }
+
+  NoteTarget get _target => widget.on.firstWhere(
+        (target) => target.id == _chosen,
+        orElse: () => widget.on.first,
+      );
+
+  void _pin() {
+    final body = _typed.text.trim();
+    if (body.isEmpty) return;
+    Navigator.pop(context, MomentNoteDraft(layerId: _chosen, body: body));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+          18, 0, 18, MediaQuery.of(context).viewInsets.bottom + 18),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Note at ${MomentNote.clockOf(widget.atMs)}',
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          // Said before the words are typed, because it cannot be taken back
+          // afterwards: a note on a take nobody has heard stays yours even
+          // once you send the take (0141).
+          Text(
+            _target.yoursAlone
+                ? 'Only you can read this one, even after you share the take.'
+                : 'Only the person who played it is told.',
+            key: const Key('moment_note_who'),
+            style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+          ),
+          if (widget.on.length > 1) ...<Widget>[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final target in widget.on)
+                  ChoiceChip(
+                    label: Text(target.label),
+                    selected: target.id == _chosen,
+                    backgroundColor: AppColors.raised,
+                    selectedColor: AppColors.cyan.withValues(alpha: 0.22),
+                    labelStyle:
+                        const TextStyle(color: AppColors.text, fontSize: 13),
+                    side: BorderSide(
+                        color: AppColors.cyan.withValues(alpha: 0.25)),
+                    onSelected: (_) => setState(() => _chosen = target.id),
+                  ),
               ],
-              const SizedBox(height: 14),
-              SendOnEnter(
-                onSend: pin,
-                child: TextField(
-                  key: const Key('moment_note_body'),
-                  controller: typed,
-                  autofocus: true,
-                  minLines: 2,
-                  maxLines: 5,
-                  textCapitalization: TextCapitalization.sentences,
-                  inputFormatters: <TextInputFormatter>[
-                    LengthLimitingTextInputFormatter(MomentNote.bodyLimit),
-                  ],
-                  decoration: const InputDecoration(
-                    hintText: 'What happens here',
-                  ),
-                ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          SendOnEnter(
+            onSend: _pin,
+            child: TextField(
+              key: const Key('moment_note_body'),
+              controller: _typed,
+              autofocus: true,
+              minLines: 2,
+              maxLines: 5,
+              textCapitalization: TextCapitalization.sentences,
+              inputFormatters: <TextInputFormatter>[
+                LengthLimitingTextInputFormatter(MomentNote.bodyLimit),
+              ],
+              decoration: const InputDecoration(
+                hintText: 'What happens here',
               ),
-              const SizedBox(height: 14),
-              Row(
-                children: <Widget>[
-                  TextButton(
-                    onPressed: () => Navigator.pop(sheetContext),
-                    child: const Text('Not now'),
-                  ),
-                  const Spacer(),
-                  FilledButton(
-                    key: const Key('moment_note_pin'),
-                    onPressed: pin,
-                    child: const Text('Pin it'),
-                  ),
-                ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Not now'),
+              ),
+              const Spacer(),
+              FilledButton(
+                key: const Key('moment_note_pin'),
+                onPressed: _pin,
+                child: const Text('Pin it'),
               ),
             ],
           ),
-        );
-      },
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }
 
 /// The notes on one song, in the order they happen.
@@ -234,6 +293,10 @@ class _NoteRow extends StatelessWidget {
     final said = <String>[
       if (!mine && author.isNotEmpty) author,
       if (on != null) on!,
+      // The same two words the lane uses for a take nobody has been sent.
+      // Without it a note you wrote to yourself on a draft sits in the list
+      // looking exactly like one the band can read.
+      if (!note.onSharedTake) 'only you',
     ].join(' · ');
 
     return InkWell(

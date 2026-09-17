@@ -64,19 +64,16 @@ class SongLayersScreen extends StatefulWidget {
     this.analysisService,
     this.embedded = false,
     this.onClose,
-    this.openNoteForMe = false,
+    this.openNote,
     super.key,
   });
 
-  /// Opens on the newest note somebody else left on a recording of yours.
+  /// The note to open on, for arriving from a notification (0141).
   ///
-  /// For arriving from the notification (0141). The notification carries the
-  /// song and the room and has nowhere to put the note's id — `notifications`
-  /// has no payload column — so the screen finds the note the person was just
-  /// told about rather than being handed it. Three notes pinned in one pass
-  /// send three notifications and any of them lands on the last one, which is
-  /// the same place the list starts from anyway.
-  final bool openNoteForMe;
+  /// `public.notifications` has no column for the thing a notification is
+  /// about, so the row cannot carry the note's id and this is the address we
+  /// have instead: who left it, and the words themselves. See [NoteToOpen].
+  final NoteToOpen? openNote;
 
   /// True when this is a panel inside the song rather than a route on top of
   /// it.
@@ -171,6 +168,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// the moment somebody scrubs or pauses, because both of those mean "let go
   /// of this bit".
   MomentNote? _noteLoop;
+
+  /// Whether the note a notification sent us to has already been opened.
+  ///
+  /// Arriving is a one-off. Every later reload -- and there is one after each
+  /// pin and each delete -- leaves the playhead where the person put it.
+  bool _openedTheNote = false;
 
   /// Where the playhead is, and how long the song runs.
   Duration _position = Duration.zero;
@@ -345,10 +348,17 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// returning null when nothing has been initialised — so a screen pumped
   /// with a take on it used to throw out of a getter that only wanted to know
   /// whose take it was.
+  /// Both branches are wrapped, because both throw. `Supabase.instance`
+  /// asserts rather than returning null when nothing has been initialised,
+  /// and `currentUserId` throws an AuthException when nobody is signed in —
+  /// and this is read from `build()`, by `_mine(take)` on every lane. A token
+  /// expiring while the screen is open used to turn the takes into a red
+  /// error box; not knowing who you are means every take is somebody else's,
+  /// which is what this returned before there was a repository in it.
   String? get _me {
-    final repository = _repository;
-    if (repository != null) return repository.currentUserId;
     try {
+      final repository = _repository;
+      if (repository != null) return repository.currentUserId;
       return Supabase.instance.client.auth.currentUser?.id;
     } catch (_) {
       return null;
@@ -368,17 +378,21 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       final notes = await repository.loadMomentNotes(widget.projectId);
       if (!mounted) return;
       setState(() => _notes = notes);
-      if (widget.openNoteForMe && _noteLoop == null) {
-        final mine = <MomentNote>[
-          for (final note in notes)
-            if (note.authorId != _me) note,
-        ];
-        if (mine.isNotEmpty) {
-          mine.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      // Once, on arrival, and never again.
+      //
+      // This runs after every pin and every delete as well, and without the
+      // latch each of those would drag the playhead back to the note the
+      // notification was about — you reply at 0:30, press Pin it, and the
+      // screen throws you back to 1:48.
+      final opening = widget.openNote;
+      if (opening != null && !_openedTheNote) {
+        final found = opening.findIn(notes, exceptAuthor: _me);
+        if (found != null) {
+          _openedTheNote = true;
           // Moved to, not played. Audio starting on its own because somebody
           // opened a notification is a surprise; the moment is where the
           // playhead is left, and Play does the rest.
-          await _openNote(mine.first, play: false);
+          await _openNote(found, play: false);
         }
       }
     } catch (error) {
@@ -1526,16 +1540,52 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                 ),
               )
             : console && _takes.isNotEmpty
-            ? LayerConsole(
-                takes: _takes,
-                silentIds: _silent,
-                onToggle: (take) => _toggle(take.id),
-                onGain: (take) {
-                  final layer = _layerFor(take);
-                  if (!_mine(take) || layer == null) return null;
-                  return (Take _, double value) =>
-                      unawaited(_setGain(layer, value));
-                },
+            // Sideways is the faders, and the notes underneath them.
+            //
+            // A teacher turns the phone to reach the faders while they listen
+            // to a student, and the notes have to come with them: pinning
+            // works sideways (the button is in the bottom bar, which does not
+            // rotate away) and until now nothing else did — no list, no way
+            // to hear a moment again, no way to take words back. There are no
+            // marks here because a fader strip has no time on it; the marks
+            // are on the lanes, which are the portrait view.
+            ? LayoutBuilder(
+                builder: (context, room) => Column(
+                  children: <Widget>[
+                    Expanded(
+                      child: LayerConsole(
+                        takes: _takes,
+                        silentIds: _silent,
+                        onToggle: (take) => _toggle(take.id),
+                        onGain: (take) {
+                          final layer = _layerFor(take);
+                          if (!_mine(take) || layer == null) return null;
+                          return (Take _, double value) =>
+                              unawaited(_setGain(layer, value));
+                        },
+                      ),
+                    ),
+                    if (_notes.isNotEmpty)
+                      ConstrainedBox(
+                        // A third of a landscape phone at most, so the desk
+                        // keeps the height it was rebuilt to fit in.
+                        constraints: BoxConstraints(
+                          maxHeight: math.min(132, room.maxHeight * 0.34),
+                        ),
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                          child: MomentNoteList(
+                            notes: _notes,
+                            focusedId: _noteLoop?.id,
+                            currentUserId: _me ?? '',
+                            labelFor: _takes.length > 1 ? _noteOnLabel : null,
+                            onOpen: (note) => unawaited(_openNote(note)),
+                            onDelete: (note) => unawaited(_deleteNote(note)),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               )
             : RefreshIndicator(
                 onRefresh: _load,
@@ -1914,7 +1964,14 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         continue;
       }
       if (!layer.isShared && !_mine(take)) continue;
-      out.add(NoteTarget(id: layer.id, label: TakeNaming.describe(take)));
+      out.add(NoteTarget(
+        id: layer.id,
+        label: TakeNaming.describe(take),
+        // A take of your own that nobody has been sent. You may write on it;
+        // what you write stays yours, this time and after you share it
+        // (0141's on_shared_take), and the sheet says so.
+        yoursAlone: !layer.isShared,
+      ));
     }
     return out;
   }

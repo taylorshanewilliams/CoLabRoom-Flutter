@@ -2546,7 +2546,8 @@ class SupabaseMusicRepository implements MusicRepository {
       );
 
   static const String _momentNoteColumns =
-      'id, project_id, layer_id, at_ms, end_ms, body, author_id, created_at, '
+      'id, project_id, layer_id, on_shared_take, at_ms, end_ms, body, '
+      'author_id, created_at, '
       'author:profiles!moment_notes_author_id_fkey(display_name)';
 
   @override
@@ -2605,6 +2606,10 @@ class SupabaseMusicRepository implements MusicRepository {
       id: row['id'] as String,
       projectId: row['project_id'] as String,
       layerId: row['layer_id'] as String?,
+      // Written by the trigger, not by us. Absent only if an older client
+      // ever reads a row from before 0141, and "the room can see it" is the
+      // reading that makes somebody careful rather than careless.
+      onSharedTake: row['on_shared_take'] as bool? ?? true,
       atMs: (row['at_ms'] as num?)?.toInt() ?? 0,
       endMs: (row['end_ms'] as num?)?.toInt(),
       body: row['body'] as String? ?? '',
