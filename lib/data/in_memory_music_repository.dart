@@ -380,6 +380,14 @@ class InMemoryMusicRepository implements MusicRepository {
   }) async {
     final cleaned = body.trim();
     if (cleaned.isEmpty) throw const NameConflict('Write something before adding it.');
+    // The song as it is stored now, not as the caller last saw it. A save
+    // that writes several lines passes the same project to every call, and
+    // appending to that copy threw away each line written before this one.
+    // The Supabase repository only ever used the id.
+    final stored = _allProjects.firstWhere(
+      (value) => value.id == project.id,
+      orElse: () => project,
+    );
     final contribution = Contribution(
       id: _id('line'),
       projectId: project.id,
@@ -388,15 +396,34 @@ class InMemoryMusicRepository implements MusicRepository {
       body: cleaned,
       colorValue: colorValue,
       createdAt: DateTime.now(),
-      position: position ?? _nextPosition(project),
+      position: position ?? _nextPosition(stored),
     );
     _replaceProject(
-      project.copyWith(
-        contributions: <Contribution>[...project.contributions, contribution],
+      stored.copyWith(
+        contributions: <Contribution>[...stored.contributions, contribution],
         updatedAt: contribution.createdAt,
       ),
     );
     return contribution;
+  }
+
+  @override
+  Future<Contribution> moveContribution({
+    required Contribution contribution,
+    required double position,
+  }) async {
+    final project = _allProjects.firstWhere((value) => value.id == contribution.projectId);
+    final stored = project.contributions.firstWhere((value) => value.id == contribution.id);
+    final moved = stored.copyWith(position: position);
+    _replaceProject(
+      project.copyWith(
+        contributions: project.contributions
+            .map((value) => value.id == moved.id ? moved : value)
+            .toList(growable: false),
+        updatedAt: DateTime.now(),
+      ),
+    );
+    return moved;
   }
 
   @override

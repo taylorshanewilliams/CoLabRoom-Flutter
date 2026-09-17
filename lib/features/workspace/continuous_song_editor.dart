@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
+import 'line_reconciliation.dart';
 
 /// What an intentionally-blank line is actually stored as: contributions'
 /// body has a non-empty check constraint, so a genuinely empty line (e.g. a
@@ -66,21 +67,33 @@ class ContinuousSongEditorController {
   String? _projectId;
   String _lastHydratedText = '';
 
-  /// The contribution ids, in order, that the text on screen was built from.
+  /// The lines, in order, that the text on screen was built from: which
+  /// contribution each one is and the words it held.
   ///
-  /// The save path reconciles lines to contributions **by position**, which is
-  /// only correct while the editor's picture of the document still matches the
-  /// server's. It stops matching the moment a bandmate adds a line, because
-  /// [syncProject] deliberately refuses to hydrate while somebody is typing —
-  /// nobody wants text replaced mid-sentence. Without a record of what this
-  /// editor actually saw, that stale picture gets written over the fresh one,
-  /// and from the save path's side it is indistinguishable from an edit.
-  List<String> _viewOfServer = const <String>[];
+  /// Two things read this. The save path diffs the text against it to decide
+  /// which contribution each line on screen is (see line_reconciliation.dart),
+  /// and it checks the order against the server's, because the picture can go
+  /// stale: [syncProject] deliberately refuses to hydrate while somebody is
+  /// typing — nobody wants text replaced mid-sentence — so a bandmate's new
+  /// line never reaches it. Without a record of what this editor actually
+  /// saw, that stale picture gets written over the fresh one, and from the
+  /// save path's side it is indistinguishable from an edit.
+  ///
+  /// The words matter as well as the ids. A bandmate can rewrite a line in
+  /// place without changing any id; comparing the text with the words this
+  /// editor was shown, rather than with the server's, leaves their rewrite
+  /// alone unless this writer changed that line too.
+  List<SeenLine> _seen = const <SeenLine>[];
 
   /// What the editor believes the server's line order is. Empty before the
   /// first hydrate, which callers must read as "unknown" rather than
   /// "the song has no lines".
-  List<String> get viewOfServer => List<String>.unmodifiable(_viewOfServer);
+  List<String> get viewOfServer =>
+      List<String>.unmodifiable(_seen.map((line) => line.contributionId));
+
+  /// The lines behind [viewOfServer], with the words, in stored form, that
+  /// this editor holds for each.
+  List<SeenLine> get seenLines => List<SeenLine>.unmodifiable(_seen);
 
   void syncProject(SongProject project, {bool force = false}) {
     final next = project.contributions
@@ -90,7 +103,12 @@ class ContinuousSongEditorController {
     if (!force && _projectId == project.id && text.text != _lastHydratedText) return;
     _projectId = project.id;
     _lastHydratedText = next;
-    _viewOfServer = project.contributions.map((line) => line.id).toList(growable: false);
+    _seen = List<SeenLine>.unmodifiable(project.contributions.map(
+      (line) => SeenLine(
+        contributionId: line.id,
+        body: storedLineFor(displayContributionBody(line.body)),
+      ),
+    ));
     if (text.text == next) return;
     text.value = TextEditingValue(
       text: next,
@@ -102,15 +120,41 @@ class ContinuousSongEditorController {
     _lastHydratedText = text.text;
   }
 
-  /// Records the server's line order straight after a save lands.
+  /// Records what the server holds of this editor's document straight after
+  /// a save, whether it landed whole or only in part.
   ///
-  /// A save creates and deletes rows, so the ids the editor hydrated with are
-  /// stale the instant one succeeds — and comparing against them would then
-  /// refuse the *next* save over changes this very editor made. Kept separate
-  /// from [syncProject] because that one also replaces the text, which is
-  /// exactly what must not happen to somebody still typing.
-  void noteServerOrder(Iterable<String> contributionIds) {
-    _viewOfServer = List<String>.unmodifiable(contributionIds);
+  /// A save creates, moves and deletes rows, so the lines the editor hydrated
+  /// with are stale the instant one succeeds — and comparing against them
+  /// would then refuse the *next* save over changes this very editor made.
+  /// Kept separate from [syncProject] because that one also replaces the
+  /// text, which is exactly what must not happen to somebody still typing.
+  ///
+  /// Only lines this editor wrote or was shown belong here. A line a
+  /// bandmate added during the save is still not on this screen, and
+  /// recording it as seen would let the next save delete it.
+  void noteServerView(Iterable<SeenLine> lines) {
+    _seen = List<SeenLine>.unmodifiable(lines);
+  }
+
+  /// What a save of [lines] would do, against what this editor was shown.
+  LineReconciliation reconcile(List<String> lines) =>
+      reconcileLines(_seen, lines.map(storedLineFor).toList(growable: false));
+
+  /// The contribution each line of the text on screen is, or null for words
+  /// that are not saved yet.
+  ///
+  /// The rail beside the words used to take the contribution at the same
+  /// index, which is the positional assumption the save path had: type a new
+  /// first line and every dot below it showed the colour and the voice note
+  /// of the line above until the save landed. The diff answers it properly.
+  List<Contribution?> ownersIn(SongProject project) {
+    final byId = <String, Contribution>{
+      for (final line in project.contributions) line.id: line,
+    };
+    return reconcile(text.text.split('\n'))
+        .lines
+        .map((line) => line.contributionId == null ? null : byId[line.contributionId])
+        .toList(growable: false);
   }
 
   void insertDictation(String words) {
@@ -379,13 +423,18 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
   /// Mirrors the states _BulletRailPainter draws, because a label that
   /// disagrees with the dot is worse than no label — someone acting on it
   /// records over a take they were told was empty.
-  String _voiceRailLabel(int index) {
-    final contributions = widget.project.contributions;
-    final contribution = index < contributions.length ? contributions[index] : null;
+  String _voiceRailLabel(int index, List<Contribution?> owners, List<String> words) {
+    final contribution = index < owners.length ? owners[index] : null;
     // The line's own words, so the rail is navigable rather than a column of
     // identical "line 7"s. Truncated: a screen reader reads the whole label
     // before the action at the end of it.
-    final body = contribution?.body.trim() ?? '';
+    //
+    // The words on screen, not the saved row's. A new line anywhere in the
+    // song has no row until its save lands, and read from the row it was
+    // announced as "empty line" with its words right there; a blank line's
+    // row holds the invisible stored-blank marker, which was read out as if
+    // it were words (review, 17 September 2026).
+    final body = index < words.length ? words[index].trim() : '';
     final excerpt = body.isEmpty
         ? 'empty line'
         : (body.length > 40 ? '${body.substring(0, 40)}…' : body);
@@ -418,9 +467,68 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
     // occupied this index before an insert/delete completed.
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
-    final project = widget.project;
-    if (index < 0 || index >= project.contributions.length) return;
-    widget.onVoiceBullet(project.contributions[index]);
+    // Through the diff, not `contributions[index]`: somebody else's line can
+    // be in the song and not on this screen, and words typed since the save
+    // are not a line anybody can record against yet.
+    final owners = widget.controller.ownersIn(widget.project);
+    if (index < 0 || index >= owners.length) return;
+    final owner = owners[index];
+    if (owner == null) return;
+    widget.onVoiceBullet(owner);
+  }
+
+  /// The smallest a line's voice-note target may be, either way: WCAG 2.2
+  /// SC 2.5.8, the floor the render harness fails a control under.
+  static const double _minimumTarget = 24;
+
+  /// One line's labelled, tappable place on the rail.
+  ///
+  /// A line of lyrics is 13 px tall in landscape and 15 in portrait, and the
+  /// target used to be exactly the line: 24x13, under the 24x24 floor (audit
+  /// H4, 17 September 2026). The dots cannot be spaced further apart without
+  /// pulling them away from their words, so instead each target is at least
+  /// 24 px tall, centred on its line, and overlaps its neighbours. Nothing
+  /// drawn changes.
+  ///
+  /// Overlapping means the box a finger lands in does not decide the line.
+  /// Where the finger is does: the tap is resolved through the same line
+  /// metrics the rest of the rail uses, so a tap just above a line's middle
+  /// still reaches that line and not the neighbour whose box is on top.
+  Widget _railTarget(
+    int index,
+    _LineMetrics metrics,
+    double railWidth,
+    List<Contribution?> owners,
+    List<String> words,
+  ) {
+    final lineHeight = metrics.heights[index];
+    final height = math.max(_minimumTarget, lineHeight).toDouble();
+    final middle = 4 + metrics.topFor(index) + lineHeight / 2;
+    // Never above the rail, where the Stack would clip the target back
+    // under the floor for the first line.
+    final top = math.max(0.0, middle - height / 2).toDouble();
+    return Positioned(
+      top: top,
+      left: 0,
+      width: railWidth,
+      height: height,
+      child: Semantics(
+        button: true,
+        label: _voiceRailLabel(index, owners, words),
+        onTap: () => unawaited(_voiceTap(index)),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          // The Semantics above already offers this line's tap, with its
+          // own index; a second, position-based one would have no position.
+          excludeFromSemantics: true,
+          onTapUp: (details) {
+            final line = metrics.indexForY(top + details.localPosition.dy - 4);
+            if (line >= 0) unawaited(_voiceTap(line));
+          },
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
   }
 
   @override
@@ -446,6 +554,8 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
           style: style,
           direction: Directionality.of(context),
         );
+        final owners = widget.controller.ownersIn(widget.project);
+        final words = widget.controller.text.text.split('\n');
         // The scroll view pads its content by 5 above and 86 below (room for
         // the dictation button). Filling the whole viewport *and* padding it
         // left 91 px to scroll on every song, and the workspace scrolls to
@@ -495,7 +605,7 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
                                 child: CustomPaint(
                                   painter: _BulletRailPainter(
                                     metrics: metrics,
-                                    project: widget.project,
+                                    owners: owners,
                                     fallbackColor: widget.authorColor,
                                     recordingContributionId: widget.recordingContributionId,
                                     savingContributionId: widget.savingContributionId,
@@ -506,22 +616,7 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
                                 ),
                               ),
                               for (var index = 0; index < metrics.heights.length; index += 1)
-                                Positioned(
-                                  top: 4 + metrics.topFor(index),
-                                  left: 0,
-                                  width: railWidth,
-                                  height: metrics.heights[index],
-                                  child: Semantics(
-                                    button: true,
-                                    label: _voiceRailLabel(index),
-                                    onTap: () => unawaited(_voiceTap(index)),
-                                    child: GestureDetector(
-                                      behavior: HitTestBehavior.opaque,
-                                      onTap: () => unawaited(_voiceTap(index)),
-                                      child: const SizedBox.expand(),
-                                    ),
-                                  ),
-                                ),
+                                _railTarget(index, metrics, railWidth, owners, words),
                             ],
                           ),
                         ),
@@ -652,6 +747,11 @@ class _LineMetrics {
 
   int indexForY(double y) {
     if (centers.isEmpty) return -1;
+    // Above the first line is the first line. It fell through the loop and
+    // clamped to the last one, so a tap on the top few pixels of the rail —
+    // which a target taller than its line now reaches — recorded against the
+    // end of the song.
+    if (y < 0) return 0;
     var top = 0.0;
     for (var index = 0; index < heights.length; index += 1) {
       final bottom = top + heights[index];
@@ -665,7 +765,7 @@ class _LineMetrics {
 class _BulletRailPainter extends CustomPainter {
   const _BulletRailPainter({
     required this.metrics,
-    required this.project,
+    required this.owners,
     required this.fallbackColor,
     required this.recordingContributionId,
     required this.savingContributionId,
@@ -675,7 +775,10 @@ class _BulletRailPainter extends CustomPainter {
   });
 
   final _LineMetrics metrics;
-  final SongProject project;
+
+  /// The contribution behind each line on screen, null for unsaved words,
+  /// which are drawn in [fallbackColor] because they will be the writer's.
+  final List<Contribution?> owners;
   final Color fallbackColor;
   final String? recordingContributionId;
   final String? savingContributionId;
@@ -686,7 +789,7 @@ class _BulletRailPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     for (var index = 0; index < metrics.centers.length; index += 1) {
-      final contribution = index < project.contributions.length ? project.contributions[index] : null;
+      final contribution = index < owners.length ? owners[index] : null;
       final color = contribution == null ? fallbackColor : Color(contribution.colorValue);
       final center = Offset(size.width * 0.48, topInset + metrics.centers[index]);
       final recording = contribution?.id == recordingContributionId;
