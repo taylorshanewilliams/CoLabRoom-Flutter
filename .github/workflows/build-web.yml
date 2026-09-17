@@ -60,12 +60,37 @@ jobs:
             --dart-define=AUTH_REDIRECT_URL=https://app.colabroom.com/ \
             --dart-define=BUILD_REF=${GITHUB_SHA::7}
 
+      # iPhones read this file (through Apple's CDN) before they will open
+      # app.colabroom.com links in the app, and it has to name the app as
+      # <Team ID>.<bundle id>. The Team ID is already a secret for the
+      # TestFlight build, so it is filled in here rather than copied into
+      # the repo by hand, where one wrong character would silently send
+      # every link to Safari.
+      - name: Name the iPhone app in the Universal Links file
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          FILE=build/web/.well-known/apple-app-site-association
+          test -s "$FILE"
+          if ! printf '%s' "$APPLE_TEAM_ID" | grep -Eq '^[A-Z0-9]{10}$'; then
+            echo "::error::APPLE_TEAM_ID is missing or not a ten-character Team ID, so iPhones would not open links in the app."
+            exit 1
+          fi
+          sed -i "s/__APPLE_TEAM_ID__/${APPLE_TEAM_ID}/" "$FILE"
+          if grep -q "__APPLE_TEAM_ID__" "$FILE"; then
+            echo "::error::The Team ID placeholder is still in $FILE."
+            exit 1
+          fi
+          python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$FILE"
+
       # include-hidden-files: upload-artifact leaves out anything starting
       # with a dot, and .well-known/assetlinks.json is what lets Android open
       # app.colabroom.com links in the app. Without it the links still work,
       # in the browser, and nothing says why.
-      - name: Check the App Links file made it into the build
-        run: test -s build/web/.well-known/assetlinks.json
+      - name: Check the App Links files made it into the build
+        run: |
+          test -s build/web/.well-known/assetlinks.json
+          test -s build/web/.well-known/apple-app-site-association
 
       - uses: actions/upload-artifact@v4
         with:

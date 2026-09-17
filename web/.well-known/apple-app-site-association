@@ -1,0 +1,19 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["__APPLE_TEAM_ID__.com.colabroom.beta"],
+        "components": [
+          { "/": "/lesson/*", "comment": "A teacher's lesson link" },
+          { "/": "/invite/*", "comment": "An invitation into a room" },
+          { "/": "/add/*", "comment": "Somebody's code for meeting in person" },
+          { "/": "/song/*" },
+          { "/": "/room/*" },
+          { "/": "/musician/*" },
+          { "/": "/heard/*" },
+          { "/": "/set/*" }
+        ]
+      }
+    ]
+  }
+}

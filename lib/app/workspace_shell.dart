@@ -58,7 +58,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// invitation or a lesson link, the room it opens.
   void _openAddress(Uri address) {
     final navigator = _navigatorKey.currentState;
-    if (navigator == null) return;
+    if (navigator == null) {
+      // An iPhone's launch link can arrive between this shell attaching and
+      // its navigator being built. One frame later it is there.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _navigatorKey.currentState != null) _openAddress(address);
+      });
+      return;
+    }
     if (opensARoom(address)) {
       unawaited(joinFromAddress(address, context: navigator.context, navigator: navigator));
       return;

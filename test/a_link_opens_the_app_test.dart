@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -56,6 +57,30 @@ void main() {
       expect(handled, isTrue);
       expect(opened, isEmpty);
       expect(IncomingAddresses.waiting, isNull);
+    });
+  });
+
+  group('a link from app_links, the way an iPhone hands one over', () {
+    test('waits for a shell, then opens; the sign-in callback is left alone', () async {
+      final links = StreamController<Uri>();
+      addTearDown(links.close);
+      IncomingAddresses.install(links: links.stream);
+
+      final launch = Uri.parse(meetingLink('k7m29xqp'));
+      links
+        ..add(Uri.parse('com.colabroom.beta://login-callback?code=x'))
+        ..add(launch);
+      await pumpEventQueue();
+      expect(IncomingAddresses.waiting, launch, reason: 'nothing could open it yet: signed out, or still loading');
+
+      final opened = <Uri>[];
+      void open(Uri address) => opened.add(address);
+      IncomingAddresses.attach(open);
+      addTearDown(() => IncomingAddresses.detach(open));
+      final later = Uri.parse(lessonLink('0123456789ab'));
+      links.add(later);
+      await pumpEventQueue();
+      expect(opened, <Uri>[later]);
     });
   });
 
@@ -121,6 +146,34 @@ void main() {
         expect(prefixes.any((prefix) => address.path.startsWith(prefix)), isTrue,
             reason: '$link would open the browser, not the app');
       }
+    });
+
+    test('iPhones are told exactly the same paths', () {
+      final association = jsonDecode(File('web/.well-known/apple-app-site-association').readAsStringSync())
+          as Map<String, dynamic>;
+      final details = ((association['applinks'] as Map<String, dynamic>)['details'] as List<dynamic>).single
+          as Map<String, dynamic>;
+      // Filled in from the APPLE_TEAM_ID secret by build-web.yml.
+      expect(details['appIDs'], <String>['__APPLE_TEAM_ID__.com.colabroom.beta']);
+      final paths = <String>{
+        for (final component in details['components'] as List<dynamic>) (component as Map<String, dynamic>)['/'] as String,
+      };
+      expect(paths, <String>{for (final prefix in prefixes) '$prefix*'},
+          reason: 'a path only one phone opens is a link that behaves differently on the other');
+
+      final web = File('.github/workflows/build-web.yml').readAsStringSync();
+      expect(web, contains('s/__APPLE_TEAM_ID__/'));
+      expect(web, contains('include-hidden-files: true'));
+    });
+
+    test('the iPhone build asks for the domain, and takes links through app_links', () {
+      final ios = File('.github/workflows/build-ios-testflight.yml').readAsStringSync();
+      expect(ios, contains('com.apple.developer.associated-domains'));
+      expect(ios, contains('applinks:${IncomingAddresses.host}'));
+      // The engine's own handling sends a cold-start link back to Safari
+      // after three seconds without a first frame.
+      expect(ios, contains('plist_set :FlutterDeepLinkingEnabled false bool'));
+      expect(ios, contains('force: ENV["NEW_SIGNING_PROFILE"] == "true"'));
     });
 
     test('the site vouches for this app and its key', () {
