@@ -169,19 +169,44 @@ void main() {
       expect(find.text(lessonLinksAreForStudents18AndOver), findsOneWidget);
     });
 
-    test('the poster says it on the wall too', () async {
+    test('the poster says it on the wall too', () {
       final sheet = LessonPoster.sheet(title: 'Guitar', code: 'a1b2c3d4e5f6', teacher: 'Taylor');
       expect(_printed(sheet), contains('For students 18 and over'));
+    });
 
-      // And it still lays out on both pages with the line on it.
-      for (final format in <PdfPageFormat>[PdfPageFormat.a4, PdfPageFormat.letter]) {
-        final bytes = await LessonPoster.document(
-          title: 'Guitar',
-          code: 'a1b2c3d4e5f6',
-          teacher: 'Taylor',
-          format: format,
-        ).save();
-        expect(bytes.length, greaterThan(1000));
+    test('the whole poster is printed, however long the title', () async {
+      // The line above costs the page about 24 pt, and the page had about
+      // that much left. A pdf column that runs out of room stops laying
+      // children out rather than complaining, so with the 60 characters the
+      // server allows for a title (0129) the typed code and the address were
+      // drawn nowhere -- a poster that saves and opens and has no bottom
+      // third, which a teacher would have found out at the print shop.
+      //
+      // So this reads what was drawn on the page rather than what the widget
+      // tree holds: an uncompressed page draws each word where it put it.
+      const long = 'Guitar lessons with Taylor in South Dean on Tuesday nights';
+      for (final title in <String>['Guitar', long, 'Wednesday ' * 6]) {
+        for (final format in <PdfPageFormat>[PdfPageFormat.a4, PdfPageFormat.letter]) {
+          final page = await _drawn(
+            LessonPoster.sheet(
+              title: title,
+              code: 'a1b2c3d4e5f6',
+              teacher: 'Bartholomew Fitzgerald-Montgomery Jr.',
+            ),
+            format,
+          );
+          final where = '${title.length} characters on a ${format.height.round()} pt page';
+          for (final word in <String>[
+            title.trim().split(' ').last, // the end of the title, not cut off
+            'Montgomery',
+            'students',
+            'over',
+            'a1b2-c3d4-e5f6',
+            'app.colabroom.com',
+          ]) {
+            expect(page, contains(word), reason: '"$word" is not on the poster with $where');
+          }
+        }
       }
     });
 
@@ -289,4 +314,14 @@ Iterable<String> _printed(pw.Widget widget) {
 
   walk(widget);
   return found;
+}
+
+/// The page as the printer gets it, with every word the poster actually drew
+/// in it. Uncompressed, so the words are readable in the bytes, and with no
+/// title or author on the document -- a word found there would have been
+/// found whether it was printed or not.
+Future<String> _drawn(pw.Widget sheet, PdfPageFormat format) async {
+  final document = pw.Document(compress: false)
+    ..addPage(pw.Page(pageFormat: format, margin: LessonPoster.margin, build: (_) => sheet));
+  return String.fromCharCodes(await document.save());
 }

@@ -71,11 +71,17 @@ abstract final class LessonPoster {
           pw.Text(
             heading,
             textAlign: pw.TextAlign.center,
-            style: pw.TextStyle(fontSize: 40, fontWeight: pw.FontWeight.bold),
+            maxLines: 2,
+            style: pw.TextStyle(fontSize: _headingSize(heading), fontWeight: pw.FontWeight.bold),
           ),
           if (who.isNotEmpty) ...<pw.Widget>[
             pw.SizedBox(height: 6),
-            pw.Text('with $who', style: const pw.TextStyle(fontSize: 22, color: PdfColors.grey800)),
+            pw.Text(
+              'with $who',
+              textAlign: pw.TextAlign.center,
+              maxLines: 2,
+              style: pw.TextStyle(fontSize: _nameSize(who), color: PdfColors.grey800),
+            ),
           ],
           pw.SizedBox(height: 30),
           pw.BarcodeWidget(
@@ -135,6 +141,25 @@ abstract final class LessonPoster {
     final printed = printable(title).trim();
     return printed.isEmpty ? 'Lessons' : printed;
   }
+
+  /// How big the title is drawn.
+  ///
+  /// A teacher can type 60 characters (0129), and at 40 pt that wraps to
+  /// three lines on the shorter US page. A column that runs out of room
+  /// stops laying children out rather than complaining, so the typed code
+  /// and the address simply were not on the printed page -- found by
+  /// measuring, not on paper. A long title is drawn smaller, and never on
+  /// more than two lines, so the bottom of the poster is always there.
+  static double _headingSize(String heading) => switch (heading.length) {
+        <= 24 => 40,
+        <= 40 => 30,
+        _ => 24,
+      };
+
+  /// The same rule for the teacher's own name, which nothing caps: a name is
+  /// drawn whole, smaller if it is long, rather than cut short or printed off
+  /// the page.
+  static double _nameSize(String who) => who.length <= 30 ? 22 : 16;
 
   /// What the page's built-in font can draw. Names and titles are typed by
   /// people and can carry an emoji or a script the standard PDF fonts do not

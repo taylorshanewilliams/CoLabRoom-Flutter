@@ -40,6 +40,11 @@ Future<T> withBirthMonth<T>(
       heading: 'One question first',
       why: 'Which month and year were you born? $lessonLinksAreForAdults '
           'Nobody else sees this, and you only say it once.',
+      // Filed where it happened. A question that fails only here is a lesson
+      // link problem, and reading it as a calls one is how a new gate breaks
+      // quietly (telemetry blind spot, 15 September 2026).
+      stage: 'lesson_link.birth_month',
+      route: 'Lesson link',
     );
     if (said == null) throw const NothingSaidAboutAge();
     return action();
