@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../app/routes.dart';
@@ -11,6 +10,7 @@ import '../../services/invite_link.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/qr_code.dart';
 import 'add_person_screen.dart';
+import '../../services/copy_text.dart';
 
 /// Your code, for meeting people in person.
 ///
@@ -157,10 +157,8 @@ class _YourCodeScreenState extends State<YourCodeScreen> {
     }
   }
 
-  Future<void> _copy(String code) async {
-    await Clipboard.setData(ClipboardData(text: meetingLink(code)));
-    _say('Link copied. Anybody who opens it can ask to add you.');
-  }
+  Future<void> _copy(String code) =>
+      copyAndSay(context, meetingLink(code), 'Link copied. Anybody who opens it can ask to add you.');
 
   void _openTyped() {
     final code = meetingCodeFromText(_typed.text);

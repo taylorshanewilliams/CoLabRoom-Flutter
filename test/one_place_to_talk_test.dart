@@ -223,6 +223,7 @@ void main() {
       expect(find.text('Create a room'), findsOneWidget);
 
       await tester.enterText(find.byType(TextField), 'Thursday Band');
+      await tester.pump();
       await tester.tap(find.text('Create room'));
       await tester.pumpAndSettle();
 

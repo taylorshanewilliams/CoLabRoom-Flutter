@@ -9,6 +9,7 @@ import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import 'help_answers.dart';
+import '../../widgets/send_on_enter.dart';
 
 /// Somewhere to ask.
 ///
@@ -295,7 +296,9 @@ class _HelpScreenState extends State<HelpScreen> {
               child: Row(
                 children: <Widget>[
                   Expanded(
-                    child: TextField(
+                    child: SendOnEnter(
+                      onSend: _ask,
+                      child: TextField(
                       key: const Key('help_question_field'),
                       controller: _asked,
                       textInputAction: TextInputAction.send,
@@ -309,17 +312,20 @@ class _HelpScreenState extends State<HelpScreen> {
                         border: OutlineInputBorder(),
                       ),
                     ),
+                    ),
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
                     key: const Key('help_ask_button'),
+                    // An arrow on its own reads as "button" to a screen
+                    // reader.
                     onPressed: _ask,
                     style: FilledButton.styleFrom(
                       minimumSize: const Size(52, 46),
                       backgroundColor: AppColors.cyan,
                       foregroundColor: AppColors.ink,
                     ),
-                    child: const Icon(Icons.arrow_upward_rounded, size: 20),
+                    child: const Icon(Icons.arrow_upward_rounded, size: 20, semanticLabel: 'Ask'),
                   ),
                 ],
               ),

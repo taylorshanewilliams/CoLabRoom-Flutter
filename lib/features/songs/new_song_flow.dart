@@ -124,9 +124,13 @@ class _CreateRoomDialogState extends State<_CreateRoomDialog> {
       ),
       actions: <Widget>[
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _RoomDraft(_name.text, _icon)),
-          child: const Text('Create room'),
+        // Waits for words: with nothing typed it used to close and complain.
+        ListenableBuilder(
+          listenable: _name,
+          builder: (context, _) => FilledButton(
+            onPressed: _name.text.trim().isEmpty ? null : () => Navigator.pop(context, _RoomDraft(_name.text, _icon)),
+            child: const Text('Create room'),
+          ),
         ),
       ],
     );
@@ -165,14 +169,20 @@ class _SongTitleDialogState extends State<_SongTitleDialog> {
             labelText: 'Song name',
             helperText: 'Saving to ${widget.roomName}',
           ),
-          onSubmitted: (value) => Navigator.pop(context, value),
+          onSubmitted: (value) {
+            if (value.trim().isNotEmpty) Navigator.pop(context, value);
+          },
         ),
       ),
       actions: <Widget>[
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _title.text),
-          child: const Text('Create Song'),
+        // Waits for words: with nothing typed it used to close and complain.
+        ListenableBuilder(
+          listenable: _title,
+          builder: (context, _) => FilledButton(
+            onPressed: _title.text.trim().isEmpty ? null : () => Navigator.pop(context, _title.text),
+            child: const Text('Create Song'),
+          ),
         ),
       ],
     );
@@ -255,7 +265,7 @@ class _RoomPickerSheetState extends State<_RoomPickerSheet> {
                                       ),
                                     ),
                                   ),
-                                  Text('${room.projects.length} songs'),
+                                  Text('${room.projects.length} ${room.projects.length == 1 ? 'song' : 'songs'}'),
                                   const SizedBox(width: 6),
                                   const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
                                 ],

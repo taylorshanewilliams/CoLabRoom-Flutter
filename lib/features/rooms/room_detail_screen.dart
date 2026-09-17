@@ -160,7 +160,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.queue_music_rounded, color: AppColors.cyan),
                   title: Text(value.name),
-                  subtitle: Text('${value.projectIds.length} songs'),
+                  subtitle: Text('${value.projectIds.length} ${value.projectIds.length == 1 ? 'song' : 'songs'}'),
                 ),
               ),
             SimpleDialogOption(
@@ -741,7 +741,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                                   child: Text(
                                     '${room.members.length} '
                                     '${room.members.length == 1 ? 'member' : 'members'}'
-                                    ' · ${room.projects.length} songs',
+                                    ' · ${room.projects.length} ${room.projects.length == 1 ? 'song' : 'songs'}',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -1131,7 +1131,9 @@ class _NewSetlistDialogState extends State<_NewSetlistDialog> {
         controller: _name,
         autofocus: true,
         textCapitalization: TextCapitalization.words,
-        onSubmitted: (value) => Navigator.pop(context, value),
+        onSubmitted: (value) {
+          if (value.trim().isNotEmpty) Navigator.pop(context, value);
+        },
         decoration: const InputDecoration(hintText: 'Setlist name'),
       ),
       actions: <Widget>[
@@ -1174,13 +1176,19 @@ class _RenameProjectDialogState extends State<_RenameProjectDialog> {
         controller: _title,
         autofocus: true,
         textCapitalization: TextCapitalization.words,
-        onSubmitted: (value) => Navigator.pop(context, value),
+        onSubmitted: (value) {
+          if (value.trim().isNotEmpty) Navigator.pop(context, value);
+        },
       ),
       actions: <Widget>[
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _title.text),
-          child: const Text('Save'),
+        // Waits for words: with nothing typed it used to close and complain.
+        ListenableBuilder(
+          listenable: _title,
+          builder: (context, _) => FilledButton(
+            onPressed: _title.text.trim().isEmpty ? null : () => Navigator.pop(context, _title.text),
+            child: const Text('Save'),
+          ),
         ),
       ],
     );

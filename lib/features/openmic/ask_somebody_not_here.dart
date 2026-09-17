@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../app/colabroom_theme.dart';
@@ -10,6 +9,7 @@ import '../../domain/music_models.dart';
 import '../../domain/musical_roles.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/problem_report.dart';
+import '../../services/copy_text.dart';
 
 /// Asking somebody who is not here yet.
 ///
@@ -332,14 +332,7 @@ class _AskSomebodyNotHereState extends State<AskSomebodyNotHere> {
             ),
             const SizedBox(width: 8),
             TextButton(
-              onPressed: () async {
-                final messenger = ScaffoldMessenger.of(context);
-                await Clipboard.setData(ClipboardData(text: message));
-                if (!mounted) return;
-                messenger.showSnackBar(
-                  const SnackBar(content: Text('Copied.')),
-                );
-              },
+              onPressed: () => copyAndSay(context, message, 'Copied.'),
               child: const Text('Copy'),
             ),
           ],
