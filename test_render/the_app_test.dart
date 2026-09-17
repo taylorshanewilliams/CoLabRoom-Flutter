@@ -250,6 +250,7 @@ void main() {
           ...auditContrast(tester, pixels, image.width, image.height),
           ...auditTapTargets(tester),
           ...auditLabels(tester),
+          ...auditPaintedMeaning(tester),
           ...auditMeasure(tester, device.size),
           ...auditInk(pixels, image.width, image.height, device: device.name),
         ];

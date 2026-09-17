@@ -25,7 +25,12 @@ class BrandMark extends StatelessWidget {
               BoxShadow(color: Color(0x243AD3FF), blurRadius: 24),
             ],
           ),
-          child: const CustomPaint(painter: CoLabRoomMarkPainter()),
+          // The wordmark sits right beside it and says the same thing, so a
+          // label here would have a screen reader announce "CoLabRoom" twice
+          // on every screen that has a header.
+          child: const ExcludeSemantics(
+            child: CustomPaint(painter: CoLabRoomMarkPainter()),
+          ),
         ),
         const SizedBox(width: 12),
         // FittedBox, not an ellipsis, and not a fixed size.

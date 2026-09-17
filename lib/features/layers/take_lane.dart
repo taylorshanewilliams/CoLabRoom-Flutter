@@ -237,17 +237,21 @@ class TakeLane extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: CustomPaint(
-              size: Size.infinite,
-              painter: _WavePainter(
-                wave: wave,
-                tint: live ? tint : AppColors.line,
-                played: playedFraction,
-                starts: startsFraction.clamp(0.0, 0.98),
-                spans: spansFraction.clamp(0.02, 1.0),
-                dim: live ? 0.28 : 0.5,
-                notes: noteMarks,
-                focused: focusedMark,
+            child: Semantics(
+              label: _whenItPlays,
+              image: true,
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: _WavePainter(
+                  wave: wave,
+                  tint: live ? tint : AppColors.line,
+                  played: playedFraction,
+                  starts: startsFraction.clamp(0.0, 0.98),
+                  spans: spansFraction.clamp(0.02, 1.0),
+                  dim: live ? 0.28 : 0.5,
+                  notes: noteMarks,
+                  focused: focusedMark,
+                ),
               ),
             ),
           ),
@@ -260,6 +264,31 @@ class TakeLane extends StatelessWidget {
     final seconds = (take.durationMs / 1000).round();
     if (seconds <= 0) return '';
     return '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
+  }
+
+  /// Where in the song this take sits, in words.
+  ///
+  /// Every Musician, Same Song, 17 September 2026: the lane's whole reason to
+  /// exist is that a list "has nowhere for time to live", and that fact was
+  /// painted and nowhere else — the row says who played it and how long it
+  /// runs, and nothing at all says a harmony covers only the last chorus. To
+  /// a screen reader the lane was a blank rectangle. The shape of the
+  /// waveform itself is not described, because a peak is not information.
+  String get _whenItPlays {
+    final from = startsFraction.clamp(0.0, 1.0);
+    final to = (from + spansFraction).clamp(0.0, 1.0);
+    if (from <= 0.05 && to >= 0.95) return 'Plays right through the song.';
+    return 'Plays from ${_placeInSong(from)} to ${_placeInSong(to)}.';
+  }
+
+  static String _placeInSong(double at) {
+    if (at <= 0.05) return 'the start';
+    if (at < 0.2) return 'near the start';
+    if (at < 0.4) return 'a quarter of the way in';
+    if (at < 0.6) return 'halfway';
+    if (at < 0.8) return 'three quarters of the way in';
+    if (at < 0.95) return 'near the end';
+    return 'the end';
   }
 }
 

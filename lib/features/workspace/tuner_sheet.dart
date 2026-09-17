@@ -215,13 +215,32 @@ class _Needle extends StatelessWidget {
   final double? cents;
   final Color accent;
 
+  /// Where the needle is, in words.
+  ///
+  /// Every Musician, Same Song, 17 September 2026: a tuner whose only answer
+  /// is a line on a track is a tuner nobody using a screen reader can tune
+  /// with. Said as a live region, because the interesting thing about this
+  /// one is that it keeps changing while the string is still ringing.
+  String get _reading {
+    final value = cents;
+    if (value == null) return 'No note yet.';
+    // The same five cents PitchReading.inTune uses, so the words and the
+    // green the needle turns never disagree.
+    if (value.abs() <= 5) return 'In tune.';
+    return '${value.abs().round()} cents ${value < 0 ? 'flat' : 'sharp'}.';
+  }
+
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 44,
-      child: CustomPaint(
-        painter: _NeedlePainter(cents: cents, accent: accent),
-        child: const SizedBox.expand(),
+    return Semantics(
+      label: _reading,
+      liveRegion: true,
+      child: SizedBox(
+        height: 44,
+        child: CustomPaint(
+          painter: _NeedlePainter(cents: cents, accent: accent),
+          child: const SizedBox.expand(),
+        ),
       ),
     );
   }

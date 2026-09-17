@@ -134,7 +134,16 @@ class _ChordReferenceSheet extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 for (final shape in reference.shapes)
-                  Expanded(child: _ShapeView(shape: shape)),
+                  Expanded(
+                    child: _ShapeView(
+                      shape: shape,
+                      // "G major", not "G" — a screen reader spells a bare
+                      // chord symbol out letter by letter, and `Gm7` comes
+                      // out as noise. The sheet already knows the long form.
+                      spokenName: '${reference.root} '
+                          '${reference.qualityName.toLowerCase()}',
+                    ),
+                  ),
               ],
             ),
           const SizedBox(height: 14),
@@ -311,9 +320,12 @@ class _SheetFrame extends StatelessWidget {
 }
 
 class _ShapeView extends StatelessWidget {
-  const _ShapeView({required this.shape});
+  const _ShapeView({required this.shape, required this.spokenName});
 
   final ChordShape shape;
+
+  /// What the chord is called out loud. See the call site.
+  final String spokenName;
 
   @override
   Widget build(BuildContext context) {
@@ -324,6 +336,7 @@ class _ShapeView extends StatelessWidget {
             name: shape.name,
             frets: shape.frets,
             baseFret: shape.baseFret,
+            spokenName: spokenName,
           ),
           size: 112,
         ),

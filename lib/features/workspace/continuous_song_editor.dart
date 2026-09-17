@@ -601,17 +601,24 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
                           // add meaning, not replace behaviour.
                           child: Stack(
                             children: <Widget>[
+                              // The painting itself is declared decoration:
+                              // every dot on it already has a named, tappable
+                              // region laid over it below, and labelling the
+                              // rail as well would put a second announcement
+                              // in front of every line.
                               Positioned.fill(
-                                child: CustomPaint(
-                                  painter: _BulletRailPainter(
-                                    metrics: metrics,
-                                    owners: owners,
-                                    fallbackColor: widget.authorColor,
-                                    recordingContributionId: widget.recordingContributionId,
-                                    savingContributionId: widget.savingContributionId,
-                                    loadingVoiceContributionId: widget.loadingVoiceContributionId,
-                                    playingContributionId: widget.playingContributionId,
-                                    topInset: 4,
+                                child: ExcludeSemantics(
+                                  child: CustomPaint(
+                                    painter: _BulletRailPainter(
+                                      metrics: metrics,
+                                      owners: owners,
+                                      fallbackColor: widget.authorColor,
+                                      recordingContributionId: widget.recordingContributionId,
+                                      savingContributionId: widget.savingContributionId,
+                                      loadingVoiceContributionId: widget.loadingVoiceContributionId,
+                                      playingContributionId: widget.playingContributionId,
+                                      topInset: 4,
+                                    ),
                                   ),
                                 ),
                               ),

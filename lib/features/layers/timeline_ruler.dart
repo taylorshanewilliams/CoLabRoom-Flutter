@@ -99,32 +99,39 @@ class Playhead extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The playhead: a line and the handle on top of it. Both are decoration
+    // in the strict sense — where the playhead is says nothing a screen
+    // reader can act on, and the transport says it in words. IgnorePointer
+    // keeps fingers off it but leaves it in the semantics tree, so the
+    // exclusion has to be said.
     return Positioned.fill(
       left: leftInset,
-      child: IgnorePointer(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final x = constraints.maxWidth * at.clamp(0.0, 1.0);
-            return Stack(
-              clipBehavior: Clip.none,
-              children: <Widget>[
-                Positioned(
-                  left: x - 1,
-                  top: 0,
-                  bottom: 0,
-                  child: Container(width: 2, color: AppColors.cyan),
-                ),
-                Positioned(
-                  left: x - 6,
-                  top: -6,
-                  child: CustomPaint(
-                    size: const Size(12, 9),
-                    painter: _KnobPainter(),
+      child: ExcludeSemantics(
+        child: IgnorePointer(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final x = constraints.maxWidth * at.clamp(0.0, 1.0);
+              return Stack(
+                clipBehavior: Clip.none,
+                children: <Widget>[
+                  Positioned(
+                    left: x - 1,
+                    top: 0,
+                    bottom: 0,
+                    child: Container(width: 2, color: AppColors.cyan),
                   ),
-                ),
-              ],
-            );
-          },
+                  Positioned(
+                    left: x - 6,
+                    top: -6,
+                    child: CustomPaint(
+                      size: const Size(12, 9),
+                      painter: _KnobPainter(),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );

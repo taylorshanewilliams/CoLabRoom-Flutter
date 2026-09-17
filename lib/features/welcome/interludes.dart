@@ -124,18 +124,24 @@ class _InterludeCurtainState extends State<InterludeCurtain>
 
   @override
   Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: RepaintBoundary(
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (context, _) => CustomPaint(
-            painter: switch (widget.kind) {
-              Interlude.sticks => _SticksPainter(_controller.value),
-              Interlude.picks => _PicksPainter(_controller.value),
-              Interlude.meters => _MetersPainter(_controller.value),
-              Interlude.notes => _NotesPainter(_controller.value),
-            },
-            size: Size.infinite,
+    // A curtain between two screens, and nothing else. IgnorePointer keeps a
+    // finger out of it but leaves it in the semantics tree, where a screen
+    // reader would find an unnamed rectangle covering the whole app for three
+    // quarters of a second. Declared decoration so it is skipped instead.
+    return ExcludeSemantics(
+      child: IgnorePointer(
+        child: RepaintBoundary(
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, _) => CustomPaint(
+              painter: switch (widget.kind) {
+                Interlude.sticks => _SticksPainter(_controller.value),
+                Interlude.picks => _PicksPainter(_controller.value),
+                Interlude.meters => _MetersPainter(_controller.value),
+                Interlude.notes => _NotesPainter(_controller.value),
+              },
+              size: Size.infinite,
+            ),
           ),
         ),
       ),

@@ -97,12 +97,19 @@ class PlayButton extends StatelessWidget {
                   alignment: Alignment.center,
                   children: <Widget>[
                     // How far through, only once this is the one playing.
+                    //
+                    // Decoration, and deliberately: the button is already
+                    // named "Pause <title>", and a ring that announced a
+                    // moving fraction would interrupt the thing being
+                    // listened to in order to describe it.
                     if (mine)
-                      SizedBox(
-                        width: size,
-                        height: size,
-                        child: CustomPaint(
-                          painter: _ProgressRing(fraction: fraction),
+                      ExcludeSemantics(
+                        child: SizedBox(
+                          width: size,
+                          height: size,
+                          child: CustomPaint(
+                            painter: _ProgressRing(fraction: fraction),
+                          ),
                         ),
                       ),
                     _Disc(

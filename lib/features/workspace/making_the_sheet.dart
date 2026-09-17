@@ -198,15 +198,21 @@ class _PulseState extends State<_Pulse> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 64,
-      width: 64,
-      child: AnimatedBuilder(
-        animation: _spin,
-        builder: (context, _) => CustomPaint(
-          painter: _RingPainter(
-            fraction: widget.fraction,
-            turn: _spin.value,
+    // Decoration. The screen says in words what is happening and that it
+    // keeps going without you; a ring that turns adds reassurance for an eye
+    // watching it and nothing at all for an ear, and a spinning label is a
+    // screen reader talking over itself.
+    return ExcludeSemantics(
+      child: SizedBox(
+        height: 64,
+        width: 64,
+        child: AnimatedBuilder(
+          animation: _spin,
+          builder: (context, _) => CustomPaint(
+            painter: _RingPainter(
+              fraction: widget.fraction,
+              turn: _spin.value,
+            ),
           ),
         ),
       ),
