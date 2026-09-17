@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../services/cowork_service.dart';
+import '../../widgets/send_on_enter.dart';
 
 /// The song's stream: what people said and what the app did, in one place.
 ///
@@ -287,7 +288,9 @@ class _Composer extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: <Widget>[
           Expanded(
-            child: TextField(
+            child: SendOnEnter(
+              onSend: () => unawaited(onSend()),
+              child: TextField(
               controller: controller,
               minLines: 1,
               maxLines: 4,
@@ -299,6 +302,7 @@ class _Composer extends StatelessWidget {
                 isDense: true,
                 border: OutlineInputBorder(),
               ),
+            ),
             ),
           ),
           const SizedBox(width: 6),

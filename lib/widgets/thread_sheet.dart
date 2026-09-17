@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app/colabroom_theme.dart';
 import '../services/user_facing_error.dart';
+import 'send_on_enter.dart';
 
 /// One line in a conversation, whoever said it and wherever it is kept.
 class ThreadLine {
@@ -295,7 +296,9 @@ class _ThreadSheetState extends State<ThreadSheet> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: <Widget>[
                     Expanded(
-                      child: TextField(
+                      child: SendOnEnter(
+                        onSend: () => unawaited(_send()),
+                        child: TextField(
                         key: _key('composer'),
                         controller: _composer,
                         minLines: 1,
@@ -311,6 +314,7 @@ class _ThreadSheetState extends State<ThreadSheet> {
                           border: OutlineInputBorder(),
                         ),
                         onSubmitted: (_) => unawaited(_send()),
+                      ),
                       ),
                     ),
                     IconButton(

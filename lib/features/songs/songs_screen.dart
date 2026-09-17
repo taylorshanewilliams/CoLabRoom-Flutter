@@ -1446,14 +1446,20 @@ class _NewSetDialogState extends State<_NewSetDialog> {
             hintText: 'Friday practice',
             helperText: 'You’ll pick the songs and their order next.',
           ),
-          onSubmitted: (value) => Navigator.pop(context, value),
+          onSubmitted: (value) {
+            if (value.trim().isNotEmpty) Navigator.pop(context, value);
+          },
         ),
       ),
       actions: <Widget>[
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _name.text),
-          child: const Text('Create'),
+        // Waits for words: with nothing typed it used to close and complain.
+        ListenableBuilder(
+          listenable: _name,
+          builder: (context, _) => FilledButton(
+            onPressed: _name.text.trim().isEmpty ? null : () => Navigator.pop(context, _name.text),
+            child: const Text('Create'),
+          ),
         ),
       ],
     );

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../app/colabroom_theme.dart';
 import '../services/invite_link.dart';
 import '../domain/music_models.dart';
+import '../services/copy_text.dart';
 
 class InviteDraft {
   const InviteDraft(this.email, this.role);
@@ -165,26 +165,12 @@ Future<void> showInviteReadyDialog(
       ),
       actions: <Widget>[
         TextButton(
-          onPressed: () async {
-            await Clipboard.setData(ClipboardData(text: code));
-            if (dialogContext.mounted) {
-              ScaffoldMessenger.of(dialogContext).showSnackBar(
-                const SnackBar(content: Text('Invite code copied.')),
-              );
-            }
-          },
+          onPressed: () => copyAndSay(dialogContext, code, 'Invite code copied.'),
           child: const Text('Copy code'),
         ),
         FilledButton(
           key: const Key('invite_copy_link'),
-          onPressed: () async {
-            await Clipboard.setData(ClipboardData(text: inviteLink(code)));
-            if (dialogContext.mounted) {
-              ScaffoldMessenger.of(dialogContext).showSnackBar(
-                const SnackBar(content: Text('Link copied. Send it however you talk to them.')),
-              );
-            }
-          },
+          onPressed: () => copyAndSay(dialogContext, inviteLink(code), 'Link copied. Send it however you talk to them.'),
           child: const Text('Copy link'),
         ),
         TextButton(

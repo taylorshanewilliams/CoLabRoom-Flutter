@@ -2309,16 +2309,22 @@ class _RenameProjectDialogState extends State<_RenameProjectDialog> {
         controller: _title,
         autofocus: true,
         textCapitalization: TextCapitalization.words,
-        onSubmitted: (value) => Navigator.pop(context, value),
+        onSubmitted: (value) {
+          if (value.trim().isNotEmpty) Navigator.pop(context, value);
+        },
         decoration: const InputDecoration(
           helperText: 'Song names are unique across your account.',
         ),
       ),
       actions: <Widget>[
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _title.text),
-          child: const Text('Save'),
+        // Waits for words: with nothing typed it used to close and complain.
+        ListenableBuilder(
+          listenable: _title,
+          builder: (context, _) => FilledButton(
+            onPressed: _title.text.trim().isEmpty ? null : () => Navigator.pop(context, _title.text),
+            child: const Text('Save'),
+          ),
         ),
       ],
     );

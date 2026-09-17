@@ -94,7 +94,9 @@ class _AccountScreenState extends State<AccountScreen> {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text('Could not remove that picture: $error')));
+          ..showSnackBar(SnackBar(
+            content: Text(reportAndDescribe(error, service: 'app', stage: 'clear_avatar', route: 'Account')),
+          ));
       }
     } finally {
       if (mounted) setState(() => _savingAvatar = false);
@@ -122,6 +124,12 @@ class _AccountScreenState extends State<AccountScreen> {
     } on AuthException catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(reportAndDescribe(error, service: 'app', stage: 'edit_profile', route: 'Account')),
+        ));
       }
     }
   }
@@ -199,9 +207,11 @@ class _AccountScreenState extends State<AccountScreen> {
       await PushRegistration.forget();
       await NowPlaying.instance.forget();
       await client.auth.signOut();
-    } on PostgrestException catch (error) {
+    } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(reportAndDescribe(error, service: 'app', stage: 'delete_account', route: 'Account')),
+        ));
       }
     }
   }
@@ -213,6 +223,9 @@ class _AccountScreenState extends State<AccountScreen> {
     );
     if (result == null || result.message.isEmpty || !context.mounted) return;
     final platform = kIsWeb ? 'web' : defaultTargetPlatform.name;
+    // A send that fails has to say so: somebody who wrote a paragraph and was
+    // told nothing assumes it arrived.
+    try {
     await BetaScope.of(context).submitFeedback(
       FeedbackDraft(
         category: 'general',
@@ -229,6 +242,14 @@ class _AccountScreenState extends State<AccountScreen> {
         screenshot: result.screenshot,
       ),
     );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(reportAndDescribe(error, service: 'app', stage: 'feedback', route: 'Account')),
+        ));
+      }
+      return;
+    }
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Sent. Thank you — I read all of these.')),
@@ -576,13 +597,19 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
         autofocus: true,
         textCapitalization: TextCapitalization.words,
         decoration: const InputDecoration(labelText: 'Display name'),
-        onSubmitted: (name) => Navigator.pop(context, name),
+        onSubmitted: (name) {
+          if (name.trim().isNotEmpty) Navigator.pop(context, name);
+        },
       ),
       actions: <Widget>[
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _name.text),
-          child: const Text('Save'),
+        // Waits for words: with nothing typed it used to close and complain.
+        ListenableBuilder(
+          listenable: _name,
+          builder: (context, _) => FilledButton(
+            onPressed: _name.text.trim().isEmpty ? null : () => Navigator.pop(context, _name.text),
+            child: const Text('Save'),
+          ),
         ),
       ],
     );
@@ -698,12 +725,19 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
       ),
       actions: <Widget>[
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
-          onPressed: () => Navigator.pop(
-            context,
-            _FeedbackResult(message: _message.text.trim(), screenshot: _screenshot),
+        // Waits for words: with nothing typed it closed, sent nothing and
+        // said nothing.
+        ListenableBuilder(
+          listenable: _message,
+          builder: (context, _) => FilledButton(
+            onPressed: _message.text.trim().isEmpty
+                ? null
+                : () => Navigator.pop(
+                      context,
+                      _FeedbackResult(message: _message.text.trim(), screenshot: _screenshot),
+                    ),
+            child: const Text('Send Feedback'),
           ),
-          child: const Text('Send Feedback'),
         ),
       ],
     );

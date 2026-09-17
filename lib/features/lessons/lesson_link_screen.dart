@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../app/colabroom_theme.dart';
@@ -11,6 +10,7 @@ import '../../services/invite_link.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/qr_code.dart';
 import 'lesson_poster.dart';
+import '../../services/copy_text.dart';
 
 /// A teacher's lesson link: one QR code, and a room of their own with the
 /// teacher for every student who opens it.
@@ -112,10 +112,8 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
     }
   }
 
-  Future<void> _copy(LessonLink link) async {
-    await Clipboard.setData(ClipboardData(text: lessonLink(link.code)));
-    _say('Link copied. Paste it into an email or a text.');
-  }
+  Future<void> _copy(LessonLink link) =>
+      copyAndSay(context, lessonLink(link.code), 'Link copied. Paste it into an email or a text.');
 
   Future<void> _share(LessonLink link) async {
     await SharePlus.instance.share(ShareParams(
