@@ -8,6 +8,32 @@ import '../domain/music_models.dart';
 class ProjectExportService {
   const ProjectExportService._();
 
+  /// What a print or a share says instead of the words, on a song the room
+  /// did not write.
+  ///
+  /// Said rather than left silent: an export that quietly dropped every line
+  /// would read as the app having lost somebody's work.
+  static const String wordsStayHome =
+      'Words are not included — somebody else wrote this one.';
+
+  /// Whether the words travel with the song.
+  ///
+  /// Every Musician, Same Song, 17 September 2026: a cover's text exports
+  /// carry the structure and leave the words in the room. The structure is
+  /// what a musician needs on a stand; the words are the part that is not
+  /// the room's to hand out. Audio exports of the band's own takes are a
+  /// different question and are left alone.
+  static bool _wordsTravel(SongProject project) =>
+      project.songOrigin != SongOrigin.cover;
+
+  /// The lines an export carries: everything on a song of the room's own,
+  /// and everything but the words on somebody else's.
+  static Iterable<Contribution> _linesFor(SongProject project) =>
+      _wordsTravel(project)
+          ? project.contributions
+          : project.contributions
+              .where((line) => line.kind != ContributionKind.lyric);
+
   static String songText(SongProject project) {
     final buffer = StringBuffer(project.title);
     if (project.description.trim().isNotEmpty) {
@@ -15,7 +41,12 @@ class ProjectExportService {
         ..writeln()
         ..writeln(project.description.trim());
     }
-    for (final line in project.contributions) {
+    if (!_wordsTravel(project)) {
+      buffer
+        ..writeln()
+        ..writeln(wordsStayHome);
+    }
+    for (final line in _linesFor(project)) {
       buffer
         ..writeln()
         ..write(line.kind == ContributionKind.section ? line.body.toUpperCase() : line.body);
@@ -85,8 +116,12 @@ class ProjectExportService {
             pw.SizedBox(height: 7),
             pw.Text(project.description.trim(), style: const pw.TextStyle(fontSize: 10)),
           ],
+          if (!_wordsTravel(project)) ...<pw.Widget>[
+            pw.SizedBox(height: 7),
+            pw.Text(wordsStayHome, style: const pw.TextStyle(fontSize: 10)),
+          ],
           pw.SizedBox(height: 22),
-          ...project.contributions.map((line) {
+          ..._linesFor(project).map((line) {
             final section = line.kind == ContributionKind.section;
             return pw.Padding(
               padding: pw.EdgeInsets.only(top: section ? 14 : 3, bottom: 3),

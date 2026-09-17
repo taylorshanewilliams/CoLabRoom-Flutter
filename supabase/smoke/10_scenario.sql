@@ -4959,6 +4959,153 @@ begin
 end $$;
 
 reset role;
+-- Whose song is this? (0142).
+--
+-- One of the two gates in Every Musician, Same Song, 17 September 2026: a
+-- song the room did not write never reaches the Open Mic, whichever way
+-- somebody tries to put it there. The function refuses it, a plain update
+-- refuses it, answering late takes a song that is already up back down, and
+-- somebody who can only look cannot answer for the room at all.
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('50a6e142-0000-0000-0000-000000000147', 'onlylooking@smoke.test',
+   '{"display_name": "Only Looking"}');
+
+insert into public.rooms (id, account_id, name)
+values ('50a6e142-0000-0000-0000-000000000142',
+        '11111111-1111-1111-1111-111111111111', 'The Covers Room');
+
+-- Distinct colours, the same as every other room in this file: a room's
+-- members are uniquely coloured (room_members_room_color_unique, 0006).
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('50a6e142-0000-0000-0000-000000000142', '11111111-1111-1111-1111-111111111111',
+   'The Writer', 'owner', 4294937165),
+  ('50a6e142-0000-0000-0000-000000000142', '22222222-2222-2222-2222-222222222222',
+   'Bandmate', 'editor', 4283215697),
+  ('50a6e142-0000-0000-0000-000000000142', '50a6e142-0000-0000-0000-000000000147',
+   'Only Looking', 'viewer', 4284000000);
+
+insert into public.projects (id, room_id, account_id, title, created_by) values
+  ('50a6e142-0000-0000-0000-00000000014a', '50a6e142-0000-0000-0000-000000000142',
+   '11111111-1111-1111-1111-111111111111', 'Somebody Elses',
+   '11111111-1111-1111-1111-111111111111'),
+  ('50a6e142-0000-0000-0000-00000000014b', '50a6e142-0000-0000-0000-000000000142',
+   '11111111-1111-1111-1111-111111111111', 'Ours',
+   '11111111-1111-1111-1111-111111111111'),
+  ('50a6e142-0000-0000-0000-00000000014c', '50a6e142-0000-0000-0000-000000000142',
+   '11111111-1111-1111-1111-111111111111', 'Up Already',
+   '11111111-1111-1111-1111-111111111111'),
+  ('50a6e142-0000-0000-0000-00000000014d', '50a6e142-0000-0000-0000-000000000142',
+   '11111111-1111-1111-1111-111111111111', 'Old Enough',
+   '11111111-1111-1111-1111-111111111111');
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  -- Null is the fourth state, and it is not the same as 'ours'. A song
+  -- arriving with an answer nobody gave would be the app making a claim on
+  -- somebody's behalf.
+  if (select song_origin from public.projects
+        where id = '50a6e142-0000-0000-0000-00000000014a') is not null then
+    raise exception 'a new song arrived with an answer nobody gave';
+  end if;
+
+  -- Somebody else's song. Refused by the function, with a sentence.
+  perform public.set_song_origin('50a6e142-0000-0000-0000-00000000014a', 'cover');
+  begin
+    perform public.put_on_open_mic('50a6e142-0000-0000-0000-00000000014a');
+    raise exception 'a cover was put on the Open Mic';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- And refused at the table, which is the one that matters: 0005 lets an
+  -- owner update this row directly, so a check that lived only in the
+  -- function would be one request away from nothing.
+  begin
+    update public.projects set open_mic_at = now()
+    where id = '50a6e142-0000-0000-0000-00000000014a';
+    raise exception 'a cover reached the Open Mic through a plain update';
+  exception when insufficient_privilege then null;
+  end;
+
+  if (select open_mic_at from public.projects
+        where id = '50a6e142-0000-0000-0000-00000000014a') is not null then
+    raise exception 'a cover is on the Open Mic';
+  end if;
+
+  -- Our own song goes up, which is the whole point of asking.
+  perform public.set_song_origin('50a6e142-0000-0000-0000-00000000014b', 'ours');
+  perform public.put_on_open_mic('50a6e142-0000-0000-0000-00000000014b');
+  if (select open_mic_at from public.projects
+        where id = '50a6e142-0000-0000-0000-00000000014b') is null then
+    raise exception 'our own song was kept off the Open Mic';
+  end if;
+
+  -- A song that is already up, answered late, comes down with the answer.
+  -- The order inside set_song_origin is load-bearing: clearing it in a
+  -- second statement would be refused by the trigger.
+  perform public.put_on_open_mic('50a6e142-0000-0000-0000-00000000014c');
+  perform public.set_song_origin('50a6e142-0000-0000-0000-00000000014c', 'cover');
+  if (select open_mic_at from public.projects
+        where id = '50a6e142-0000-0000-0000-00000000014c') is not null then
+    raise exception 'marking a live song as somebody else''s left it up';
+  end if;
+
+  -- Three answers, and nothing else.
+  begin
+    perform public.set_song_origin('50a6e142-0000-0000-0000-00000000014b', 'maybe');
+    raise exception 'a fourth answer was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+-- An editor can answer. The person who starts a cover in somebody else's
+-- catalog is usually the editor, and a question only the owner can answer is
+-- one that stays unanswered.
+reset role;
+set local request.jwt.claims = '{"sub": "22222222-2222-2222-2222-222222222222"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.set_song_origin('50a6e142-0000-0000-0000-00000000014d', 'public_domain');
+  if (select song_origin from public.projects
+        where id = '50a6e142-0000-0000-0000-00000000014d')
+     is distinct from 'public_domain' then
+    raise exception 'an editor could not say where a song came from';
+  end if;
+end $$;
+
+-- Somebody who can only look cannot answer for the room.
+reset role;
+set local request.jwt.claims = '{"sub": "50a6e142-0000-0000-0000-000000000147"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.set_song_origin('50a6e142-0000-0000-0000-00000000014b', 'cover');
+    raise exception 'somebody who can only look answered for the room';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select song_origin from public.projects
+        where id = '50a6e142-0000-0000-0000-00000000014b') is distinct from 'ours' then
+    raise exception 'a viewer changed whose song it is';
+  end if;
+  if (select open_mic_at from public.projects
+        where id = '50a6e142-0000-0000-0000-00000000014b') is null then
+    raise exception 'a viewer took our own song off the Open Mic';
+  end if;
+end $$;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;

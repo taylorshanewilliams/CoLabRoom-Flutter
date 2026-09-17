@@ -40,6 +40,7 @@ import 'lyric_import_flow.dart';
 import '../layers/song_layers_screen.dart';
 import 'song_analysis_screen.dart';
 import 'tell_about_song_sheet.dart';
+import 'whose_song_sheet.dart';
 
 enum _VoiceNoteAction { play, rerecord, delete }
 
@@ -60,6 +61,10 @@ enum _SongMenuAction {
   history,
   print,
   share,
+
+  /// Ours, public domain, or somebody else's. Asked once by the audience
+  /// dial; this is where the answer can be changed afterwards.
+  whoseSong,
 }
 
 /// What the middle of the song is showing.
@@ -208,8 +213,37 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       context,
       audience: audience,
       songTitle: project.title,
+      origin: project.songOrigin,
     );
     if (choice == null || !mounted) return;
+
+    // Every Musician, Same Song, 17 September 2026: whose song this is gets
+    // asked once, the first time its audience moves beyond "Only you". Here,
+    // rather than when the song was created, because at creation it is a
+    // form standing in front of a first line for a song that will probably
+    // never leave the writer's phone — and here it is obviously about the
+    // thing they just pressed.
+    var origin = project.songOrigin;
+    if (origin == null && _widens(choice)) {
+      origin = await showWhoseSongSheet(context, songTitle: project.title);
+      // Dismissed without answering. The move waits rather than happening
+      // on an assumption, and the question comes back next time.
+      if (origin == null || !mounted) return;
+      // A failed save means the app does not know whose song this is, so the
+      // move it was asked before does not happen either.
+      if (!await _saveSongOrigin(project, origin) || !mounted) return;
+    }
+
+    if (origin == SongOrigin.cover &&
+        choice == SongAudienceChoice.putOnOpenMic) {
+      // They answered "somebody else" to the question the Open Mic asked, so
+      // the move they came for is the one move that cannot happen. Said in
+      // the same sentence the dial uses, and nothing else happens.
+      _showMessage(whyCoversStayHome);
+      if (mounted) await _loadAudience();
+      return;
+    }
+
     switch (choice) {
       case SongAudienceChoice.putOnOpenMic:
         await _openMic(project);
@@ -222,6 +256,56 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       case SongAudienceChoice.takeOffShowcase:
         await _takeOffShowcase(project);
     }
+    if (mounted) await _loadAudience();
+  }
+
+  /// Whether a choice sends the song further out than it is now.
+  ///
+  /// Only the widening moves ask whose song it is. Taking something back
+  /// down is the move somebody should never be questioned about.
+  static bool _widens(SongAudienceChoice choice) => switch (choice) {
+        SongAudienceChoice.putOnOpenMic => true,
+        SongAudienceChoice.invite => true,
+        SongAudienceChoice.showFinished => true,
+        SongAudienceChoice.takeOffOpenMic => false,
+        SongAudienceChoice.takeOffShowcase => false,
+      };
+
+  /// The answer, from either the dial or the song menu. False if it did not
+  /// land, so a caller waiting on it can stop.
+  Future<bool> _saveSongOrigin(SongProject project, SongOrigin origin) async {
+    final controller = BetaScope.of(context, listen: false);
+    try {
+      await controller.repository.setSongOrigin(project.id, origin);
+      // The song itself carries the answer, and the export reads it off the
+      // song — so the local copy has to catch up before anybody prints.
+      await controller.refreshProject(project.id);
+      return true;
+    } catch (error) {
+      if (mounted) {
+        _showMessage(reportAndDescribe(
+          error,
+          service: 'app',
+          stage: 'set_song_origin',
+          projectId: project.id,
+          route: 'Song',
+        ));
+      }
+      return false;
+    }
+  }
+
+  /// Changing the answer later, from the song's menu.
+  Future<void> _changeSongOrigin(SongProject project) async {
+    final origin = await showWhoseSongSheet(
+      context,
+      songTitle: project.title,
+      answered: project.songOrigin,
+    );
+    if (origin == null || !mounted) return;
+    await _saveSongOrigin(project, origin);
+    // Saying it is somebody else's takes it off the Open Mic, so the dial
+    // above has a new answer to show.
     if (mounted) await _loadAudience();
   }
 
@@ -983,6 +1067,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       await _inviteToSong(project);
       return;
     }
+    if (action == _SongMenuAction.whoseSong) {
+      await _changeSongOrigin(project);
+      return;
+    }
     if (action == _SongMenuAction.markFinished) {
       await _markFinished(project);
       return;
@@ -1005,6 +1093,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         case _SongMenuAction.deleteSong:
         case _SongMenuAction.color:
         case _SongMenuAction.tell:
+        case _SongMenuAction.whoseSong:
           // Handled above, before this switch, because it opens a sheet
           // rather than producing an export.
           return;
@@ -1880,6 +1969,14 @@ class _PortraitProjectHeader extends StatelessWidget {
               ),
               PopupMenuDivider(),
               PopupMenuItem<_SongMenuAction>(
+                value: _SongMenuAction.whoseSong,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.edit_note_rounded),
+                  title: Text('Who wrote this song'),
+                ),
+              ),
+              PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.color,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -2079,6 +2176,14 @@ class _LandscapeWorkspace extends StatelessWidget {
                     ),
                   ),
                   PopupMenuDivider(),
+                  PopupMenuItem<_SongMenuAction>(
+                    value: _SongMenuAction.whoseSong,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.edit_note_rounded),
+                      title: Text('Who wrote this song'),
+                    ),
+                  ),
                   PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.color,
                     child: ListTile(
