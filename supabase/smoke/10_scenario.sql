@@ -4962,15 +4962,23 @@ reset role;
 -- Whose song is this? (0142).
 --
 -- One of the two gates in Every Musician, Same Song, 17 September 2026: a
--- song the room did not write never reaches the Open Mic, whichever way
--- somebody tries to put it there. The function refuses it, a plain update
--- refuses it, answering late takes a song that is already up back down, and
--- somebody who can only look cannot answer for the room at all.
+-- song the room did not write never goes in front of people the room never
+-- chose, whichever way somebody tries to put it there. Both public surfaces
+-- are covered — the Open Mic (0067) and the showcase (0088), which
+-- `public_songs` (0096) serves to anon. The functions refuse it, a plain
+-- update refuses it, answering late takes a song that is already up back
+-- down from either one, somebody who can only look cannot answer for the
+-- room, and neither can somebody who is not in it at all.
 
 reset role;
 insert into auth.users (id, email, raw_user_meta_data) values
   ('50a6e142-0000-0000-0000-000000000147', 'onlylooking@smoke.test',
-   '{"display_name": "Only Looking"}');
+   '{"display_name": "Only Looking"}'),
+  -- Never inserted into room_members anywhere. `room_role_for` returns null
+  -- for this account, which is the case the `is distinct from` pair in
+  -- set_song_origin exists for and the one a `not in` would wave through.
+  ('50a6e142-0000-0000-0000-000000000148', 'astranger@smoke.test',
+   '{"display_name": "A Stranger"}');
 
 insert into public.rooms (id, account_id, name)
 values ('50a6e142-0000-0000-0000-000000000142',
@@ -4998,6 +5006,9 @@ insert into public.projects (id, room_id, account_id, title, created_by) values
    '11111111-1111-1111-1111-111111111111'),
   ('50a6e142-0000-0000-0000-00000000014d', '50a6e142-0000-0000-0000-000000000142',
    '11111111-1111-1111-1111-111111111111', 'Old Enough',
+   '11111111-1111-1111-1111-111111111111'),
+  ('50a6e142-0000-0000-0000-00000000014e', '50a6e142-0000-0000-0000-000000000142',
+   '11111111-1111-1111-1111-111111111111', 'Shown Already',
    '11111111-1111-1111-1111-111111111111');
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
@@ -5036,12 +5047,40 @@ begin
     raise exception 'a cover is on the Open Mic';
   end if;
 
+  -- And refused the showcase, which is the surface that reaches furthest:
+  -- public_songs (0096) is granted to anon, so a showcased song is a page
+  -- anybody can open. show_song (0088) also admits anybody in the room,
+  -- where put_on_open_mic is the owner only, so this is the looser door.
+  begin
+    perform public.show_song('50a6e142-0000-0000-0000-00000000014a');
+    raise exception 'a cover was put on the showcase';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    update public.projects set showcased_at = now()
+    where id = '50a6e142-0000-0000-0000-00000000014a';
+    raise exception 'a cover reached the showcase through a plain update';
+  exception when insufficient_privilege then null;
+  end;
+
+  if (select showcased_at from public.projects
+        where id = '50a6e142-0000-0000-0000-00000000014a') is not null then
+    raise exception 'a cover is on the showcase';
+  end if;
+
   -- Our own song goes up, which is the whole point of asking.
   perform public.set_song_origin('50a6e142-0000-0000-0000-00000000014b', 'ours');
   perform public.put_on_open_mic('50a6e142-0000-0000-0000-00000000014b');
   if (select open_mic_at from public.projects
         where id = '50a6e142-0000-0000-0000-00000000014b') is null then
     raise exception 'our own song was kept off the Open Mic';
+  end if;
+
+  perform public.show_song('50a6e142-0000-0000-0000-00000000014b');
+  if (select showcased_at from public.projects
+        where id = '50a6e142-0000-0000-0000-00000000014b') is null then
+    raise exception 'our own finished song was kept off the showcase';
   end if;
 
   -- A song that is already up, answered late, comes down with the answer.
@@ -5052,6 +5091,23 @@ begin
   if (select open_mic_at from public.projects
         where id = '50a6e142-0000-0000-0000-00000000014c') is not null then
     raise exception 'marking a live song as somebody else''s left it up';
+  end if;
+
+  -- The same for a song that is already on the showcase, which is the case
+  -- that most needs it: that one is a public page, not a listing inside the
+  -- app, and nothing in the app would have said it was still up.
+  perform public.show_song('50a6e142-0000-0000-0000-00000000014e');
+  perform public.set_song_origin('50a6e142-0000-0000-0000-00000000014e', 'cover');
+  if (select showcased_at from public.projects
+        where id = '50a6e142-0000-0000-0000-00000000014e') is not null then
+    raise exception 'answering late left a cover on the showcase';
+  end if;
+
+  -- Finishing is private and survives the answer. A cover a band finished
+  -- is still finished; only the two consents are withdrawn.
+  if (select finished_at from public.projects
+        where id = '50a6e142-0000-0000-0000-00000000014e') is null then
+    raise exception 'the answer un-finished a finished song';
   end if;
 
   -- Three answers, and nothing else.
@@ -5093,6 +5149,25 @@ begin
   end;
 end $$;
 
+-- And somebody who is not in the room at all, which is the case the
+-- null-safety in set_song_origin is actually for. The viewer above has a
+-- role, so `not in ('owner', 'editor')` would still refuse them — this
+-- account has no role, `null not in (...)` is null, and the plain form would
+-- let a stranger with any valid token flip a room's answer and unlock the
+-- Open Mic on a song they have never seen.
+reset role;
+set local request.jwt.claims = '{"sub": "50a6e142-0000-0000-0000-000000000148"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.set_song_origin('50a6e142-0000-0000-0000-00000000014c', 'ours');
+    raise exception 'somebody outside the room answered for it';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
 reset role;
 do $$
 begin
@@ -5103,6 +5178,11 @@ begin
   if (select open_mic_at from public.projects
         where id = '50a6e142-0000-0000-0000-00000000014b') is null then
     raise exception 'a viewer took our own song off the Open Mic';
+  end if;
+  -- The stranger's attempt left the cover a cover, and off the Open Mic.
+  if (select song_origin from public.projects
+        where id = '50a6e142-0000-0000-0000-00000000014c') is distinct from 'cover' then
+    raise exception 'somebody outside the room changed whose song it is';
   end if;
 end $$;
 

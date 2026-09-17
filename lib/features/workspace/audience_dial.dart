@@ -136,8 +136,12 @@ class AudienceDial extends StatelessWidget {
 ///
 /// One short sentence, said once, where the move would have been. Every
 /// Musician, Same Song, 17 September 2026: a song the room did not write
-/// never reaches the Open Mic, which is the one place in this app a song is
-/// audible to people the room never chose.
+/// never goes in front of people the room never chose.
+///
+/// The sentence is about both public surfaces, because there are two — the
+/// Open Mic and the showcase — and the showcase is the wider one, a page on
+/// colabroom.com anybody can open. A promise this broad has to hold for
+/// every way out of the room or it is not a promise.
 const String whyCoversStayHome =
     'Songs by somebody else stay with the people you choose.';
 
@@ -153,9 +157,16 @@ Future<SongAudienceChoice?> showAudienceSheet(
   required String songTitle,
   SongOrigin? origin,
 }) {
-  // Somebody else's song can still come *down* from the Open Mic, so the
-  // refusal only covers the way up.
-  final closedAtTheTop = origin == SongOrigin.cover && !audience.onOpenMic;
+  final isCover = origin == SongOrigin.cover;
+  // Somebody else's song can still come *down* from either public surface,
+  // so the refusal only ever covers the way up. Whichever way it got up
+  // there, the person looking at it needs the way down more than anybody.
+  final openMicMove = !isCover || audience.onOpenMic;
+  final showcaseMove = !isCover || audience.onShowcase;
+  // Struck through only when neither way up is open. A cover that is
+  // somehow already public is *at* "Anyone", and drawing that position as
+  // unreachable while the song sits in it is the dial contradicting itself.
+  final closedAtTheTop = !openMicMove && !showcaseMove;
   return showModalBottomSheet<SongAudienceChoice>(
     context: context,
     showDragHandle: true,
@@ -263,7 +274,7 @@ Future<SongAudienceChoice?> showAudienceSheet(
             // Gone entirely on somebody else's song, rather than present and
             // dead: a button that cannot work is a thing to press twice and
             // then wonder about, and the step above has already said why.
-            if (!closedAtTheTop) ...<Widget>[
+            if (openMicMove) ...<Widget>[
               FilledButton.icon(
                 key: const Key('audience_open_mic_toggle'),
                 onPressed: () => Navigator.pop(
@@ -300,35 +311,43 @@ Future<SongAudienceChoice?> showAudienceSheet(
             // a different audience from one asking for help on the Open Mic,
             // and putting it anywhere else would make it look like a filing
             // status rather than a reach.
-            OutlinedButton.icon(
-              key: const Key('audience_show_finished'),
-              onPressed: () => Navigator.pop(
-                sheetContext,
-                audience.onShowcase
-                    ? SongAudienceChoice.takeOffShowcase
-                    : SongAudienceChoice.showFinished,
+            //
+            // Gone on somebody else's song for the same reason the Open Mic
+            // toggle is, and it matters more here: this button publishes
+            // further than that one does. It sat eleven lines under a
+            // sentence promising the song stayed with the people you choose.
+            if (showcaseMove) ...<Widget>[
+              OutlinedButton.icon(
+                key: const Key('audience_show_finished'),
+                onPressed: () => Navigator.pop(
+                  sheetContext,
+                  audience.onShowcase
+                      ? SongAudienceChoice.takeOffShowcase
+                      : SongAudienceChoice.showFinished,
+                ),
+                icon: Icon(
+                  audience.onShowcase
+                      ? Icons.remove_circle_outline_rounded
+                      : Icons.workspace_premium_outlined,
+                  size: 18,
+                ),
+                // A one-way door is a door nobody walks through — the same
+                // reason the Open Mic toggle had to say which direction it
+                // goes. This shipped without a way back for exactly one day.
+                label: Text(
+                  audience.onShowcase
+                      ? 'Take it off the showcase'
+                      : 'It is finished — show it',
+                ),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(46),
+                  foregroundColor: AppColors.gold,
+                  side:
+                      BorderSide(color: AppColors.gold.withValues(alpha: 0.45)),
+                ),
               ),
-              icon: Icon(
-                audience.onShowcase
-                    ? Icons.remove_circle_outline_rounded
-                    : Icons.workspace_premium_outlined,
-                size: 18,
-              ),
-              // A one-way door is a door nobody walks through — the same
-              // reason the Open Mic toggle had to say which direction it
-              // goes. This shipped without a way back for exactly one day.
-              label: Text(
-                audience.onShowcase
-                    ? 'Take it off the showcase'
-                    : 'It is finished — show it',
-              ),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(46),
-                foregroundColor: AppColors.gold,
-                side: BorderSide(color: AppColors.gold.withValues(alpha: 0.45)),
-              ),
-            ),
-            const SizedBox(height: 8),
+              const SizedBox(height: 8),
+            ],
             OutlinedButton.icon(
               key: const Key('audience_invite'),
               onPressed: () =>

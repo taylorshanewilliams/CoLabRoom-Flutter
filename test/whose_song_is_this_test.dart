@@ -55,14 +55,25 @@ Future<void> _reachForTheOpenMic(WidgetTester tester) async {
   await _settle(tester);
 }
 
+/// Opens the dial and presses the other way out of the room — the one that
+/// publishes furthest, onto a page `public_songs` (0096) serves to anybody.
+Future<void> _reachForTheShowcase(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('song_audience_dial')));
+  await _settle(tester);
+  await tester.tap(find.byKey(const Key('audience_show_finished')));
+  await _settle(tester);
+}
+
 SongAudience _audience(
   SongReach reach, {
   bool onOpenMic = false,
+  bool onShowcase = false,
 }) =>
     SongAudience(
       reach: reach,
       listeners: const <SongListener>[],
       onOpenMic: onOpenMic,
+      onShowcase: onShowcase,
       roomName: 'The Basement',
       roomIcon: '🎸',
     );
@@ -186,9 +197,43 @@ void main() {
         isFalse,
       );
     });
+
+    testWidgets('answering somebody else stops the showcase too',
+        (tester) async {
+      final controller = await _openSong(tester);
+      await _reachForTheShowcase(tester);
+
+      // The same question, asked by the other way out of the room — and the
+      // one that publishes furthest. `show_song` (0088) makes a page
+      // `public_songs` (0096) serves to anon, so an answer that only
+      // governed the Open Mic would let the sheet ask about somebody else's
+      // song and then publish it wider than the move it just refused.
+      expect(find.text('Who wrote this song?'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('whose_song_cover')));
+      await _settle(tester);
+
+      expect(find.text('Show Midnight Signal as finished?'), findsNothing);
+      expect(find.text(whyCoversStayHome), findsOneWidget);
+      expect(controller.projectById('song-1')!.songOrigin, SongOrigin.cover);
+    });
+
+    testWidgets('our own finished song is still shown', (tester) async {
+      await _openSong(tester);
+      await _reachForTheShowcase(tester);
+
+      await tester.tap(find.byKey(const Key('whose_song_ours')));
+      await _settle(tester);
+
+      // The gate is about somebody else's song and nothing else. A song the
+      // room wrote goes where finished work is played, as before.
+      expect(find.text('Show Midnight Signal as finished?'), findsOneWidget);
+      expect(find.text(whyCoversStayHome), findsNothing);
+      await tester.tap(find.text('Not yet'));
+      await _settle(tester);
+    });
   });
 
-  group('the dial refuses the Open Mic for somebody else\'s song', () {
+  group('the dial closes both ways out for somebody else\'s song', () {
     testWidgets('the top of the gradient is closed, with the reason',
         (tester) async {
       await _openDial(
@@ -204,16 +249,32 @@ void main() {
       expect(find.text(whyCoversStayHome), findsOneWidget);
       // Nothing to press. A dead button is a thing to press twice.
       expect(find.byKey(const Key('audience_open_mic_toggle')), findsNothing);
+      // Both ways out, not only the Open Mic. This one is the wider of the
+      // two, and it sat eleven lines under the sentence above.
+      expect(find.byKey(const Key('audience_show_finished')), findsNothing);
+      // The way somebody invites a person they chose is untouched, because
+      // that is the thing the sentence says still works.
+      expect(find.byKey(const Key('audience_invite')), findsOneWidget);
     });
 
-    testWidgets('our own song is still offered the Open Mic', (tester) async {
+    testWidgets('our own song is still offered both', (tester) async {
       await _openDial(
         tester,
         audience: _audience(SongReach.room),
         origin: SongOrigin.ours,
       );
       expect(find.text('Put it on the Open Mic'), findsOneWidget);
+      expect(find.text('It is finished — show it'), findsOneWidget);
       expect(find.text(whyCoversStayHome), findsNothing);
+    });
+
+    testWidgets('an unanswered song is offered both', (tester) async {
+      await _openDial(tester, audience: _audience(SongReach.room));
+      // Null is "nobody has been asked", not "somebody else". Closing the
+      // dial before the question is asked would close it for every song in
+      // the database, all of which are null today.
+      expect(find.text('Put it on the Open Mic'), findsOneWidget);
+      expect(find.text('It is finished — show it'), findsOneWidget);
     });
 
     testWidgets('a cover already up can still come down', (tester) async {
@@ -225,6 +286,22 @@ void main() {
       // The refusal covers the way up only. Somebody looking at a song that
       // should not be up needs the way down more than anybody.
       expect(find.text('Take it off the Open Mic'), findsOneWidget);
+      expect(find.byKey(const Key('audience_show_finished')), findsNothing);
+    });
+
+    testWidgets('a cover already on the showcase can still come down',
+        (tester) async {
+      await _openDial(
+        tester,
+        audience: _audience(SongReach.anyone, onShowcase: true),
+        origin: SongOrigin.cover,
+      );
+      expect(find.text('Take it off the showcase'), findsOneWidget);
+      expect(find.byKey(const Key('audience_open_mic_toggle')), findsNothing);
+      // And "Anyone" is not struck through while the song is sitting in it.
+      // The strike is about a move being closed, and on this row the dial
+      // would otherwise draw the song's own position as unreachable.
+      expect(find.text(whyCoversStayHome), findsNothing);
     });
   });
 

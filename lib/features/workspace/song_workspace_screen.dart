@@ -234,10 +234,9 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       if (!await _saveSongOrigin(project, origin) || !mounted) return;
     }
 
-    if (origin == SongOrigin.cover &&
-        choice == SongAudienceChoice.putOnOpenMic) {
-      // They answered "somebody else" to the question the Open Mic asked, so
-      // the move they came for is the one move that cannot happen. Said in
+    if (origin == SongOrigin.cover && _reachesStrangers(choice)) {
+      // They answered "somebody else" to the question this move asked, so
+      // the move they came for is the one kind that cannot happen. Said in
       // the same sentence the dial uses, and nothing else happens.
       _showMessage(whyCoversStayHome);
       if (mounted) await _loadAudience();
@@ -258,6 +257,23 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     }
     if (mounted) await _loadAudience();
   }
+
+  /// Whether a choice puts the song in front of people the room never chose.
+  ///
+  /// Both public surfaces, not only the Open Mic. `show_song` (0088) sets
+  /// `showcased_at`, and `public_songs` (0096) is granted to anon — so
+  /// showing a finished song makes a page on colabroom.com that anybody can
+  /// open, which is further out than the Open Mic reaches, not milder.
+  ///
+  /// Inviting somebody to one song is not on this list. That is somebody the
+  /// room chose, which is exactly what the sentence promises stays possible.
+  static bool _reachesStrangers(SongAudienceChoice choice) => switch (choice) {
+        SongAudienceChoice.putOnOpenMic => true,
+        SongAudienceChoice.showFinished => true,
+        SongAudienceChoice.invite => false,
+        SongAudienceChoice.takeOffOpenMic => false,
+        SongAudienceChoice.takeOffShowcase => false,
+      };
 
   /// Whether a choice sends the song further out than it is now.
   ///

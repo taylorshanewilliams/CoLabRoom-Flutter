@@ -292,8 +292,9 @@ abstract interface class MusicRepository {
   /// Says whose song it is: ours, public domain, or somebody else's.
   ///
   /// Owner or editor. Marking a song as somebody else's also takes it off
-  /// the Open Mic, because a song the room did not write does not go in
-  /// front of strangers (Every Musician, Same Song, 17 September 2026).
+  /// both public surfaces — the Open Mic and the showcase — because a song
+  /// the room did not write does not go in front of strangers (Every
+  /// Musician, Same Song, 17 September 2026).
   Future<void> setSongOrigin(String projectId, SongOrigin origin);
 
   /// The room a recording lands in when nobody has said where it goes.

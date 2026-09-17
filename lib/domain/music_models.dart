@@ -211,8 +211,8 @@ class SongProject {
   ///
   /// Asked once, the first time the song's audience moves beyond "Only you",
   /// and answerable again from the song's menu. What it decides: a cover
-  /// never goes on the Open Mic, and a cover's text exports carry the
-  /// structure without the words.
+  /// reaches neither public surface — not the Open Mic and not the showcase
+  /// — and a cover's text exports carry the structure without the words.
   final SongOrigin? songOrigin;
 
   SongProject copyWith({

@@ -1159,7 +1159,10 @@ class InMemoryMusicRepository implements MusicRepository {
         if (project.id != projectId) continue;
         _replaceProject(project.copyWith(songOrigin: origin));
         // The same thing 0142's RPC does in the same statement: somebody
-        // else's song comes off the Open Mic when it is named as one.
+        // else's song comes off the Open Mic when it is named as one. It
+        // clears `showcased_at` too, which has no counterpart here — this
+        // repository has never modelled the showcase at all (`showSong` is
+        // a no-op and `songAudience` always reports `onShowcase` false).
         if (origin == SongOrigin.cover) _onOpenMic.remove(projectId);
         return;
       }
