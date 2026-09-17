@@ -4971,7 +4971,13 @@ reset role;
 -- room, and neither can somebody who is not in it at all.
 
 reset role;
+-- Every actor here is made fresh rather than borrowed from earlier in the
+-- file. The obvious second account, 22222222-…, calls delete_my_account in
+-- the block above, so by this point it is gone from profiles and a
+-- room_members row pointing at it cannot be written at all.
 insert into auth.users (id, email, raw_user_meta_data) values
+  ('50a6e142-0000-0000-0000-000000000146', 'bandmate@smoke.test',
+   '{"display_name": "Bandmate"}'),
   ('50a6e142-0000-0000-0000-000000000147', 'onlylooking@smoke.test',
    '{"display_name": "Only Looking"}'),
   -- Never inserted into room_members anywhere. `room_role_for` returns null
@@ -4989,7 +4995,7 @@ values ('50a6e142-0000-0000-0000-000000000142',
 insert into public.room_members (room_id, user_id, display_name, role, color_value) values
   ('50a6e142-0000-0000-0000-000000000142', '11111111-1111-1111-1111-111111111111',
    'The Writer', 'owner', 4294937165),
-  ('50a6e142-0000-0000-0000-000000000142', '22222222-2222-2222-2222-222222222222',
+  ('50a6e142-0000-0000-0000-000000000142', '50a6e142-0000-0000-0000-000000000146',
    'Bandmate', 'editor', 4283215697),
   ('50a6e142-0000-0000-0000-000000000142', '50a6e142-0000-0000-0000-000000000147',
    'Only Looking', 'viewer', 4284000000);
@@ -5122,7 +5128,7 @@ end $$;
 -- catalog is usually the editor, and a question only the owner can answer is
 -- one that stays unanswered.
 reset role;
-set local request.jwt.claims = '{"sub": "22222222-2222-2222-2222-222222222222"}';
+set local request.jwt.claims = '{"sub": "50a6e142-0000-0000-0000-000000000146"}';
 set local role authenticated;
 
 do $$
