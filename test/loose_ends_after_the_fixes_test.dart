@@ -72,19 +72,22 @@ Future<SongProject> _workspace(WidgetTester tester) async {
   return project;
 }
 
-/// A profile whose showcase is already full, answering the way the database
-/// does: 54000, "program limit exceeded", with a message written for whoever
-/// reads the logs rather than for the person holding the phone.
-class _ShowcaseIsFull extends InMemoryMusicRepository {
-  _ShowcaseIsFull() : super.from(InMemoryMusicRepository.seeded());
-
-  @override
-  Future<void> addShowcaseLink({required String url, String title = ''}) async {
-    throw PostgrestException(
-      message: 'A profile can show up to eight links.',
-      code: '54000',
-    );
+/// A profile whose showcase is already full.
+///
+/// Filled through the repository rather than by a subclass that throws,
+/// because the preview build enforces the cap itself now — so the sheet's
+/// sentence is reached the same way a person reaches it, and the same way
+/// migration 0059's trigger raises it: 54000, "program limit exceeded", with
+/// a message written for whoever reads the logs rather than for the person
+/// holding the phone.
+Future<InMemoryMusicRepository> _showcaseIsFull() async {
+  final repository = InMemoryMusicRepository.seeded();
+  final existing = await repository.loadShowcase(repository.currentUserId);
+  for (var i = existing.length; i < 8; i += 1) {
+    await repository.addShowcaseLink(
+        url: 'https://soundcloud.com/taylor/song-$i');
   }
+  return repository;
 }
 
 void main() {
@@ -137,10 +140,28 @@ void main() {
   });
 
   group('a limit says what was full', () {
+    test('the preview build stops at eight links, the way the server does',
+        () async {
+      // Migration 0059 caps a showcase at eight. A preview that quietly took
+      // a ninth would send somebody to test a sentence they never see.
+      final repository = await _showcaseIsFull();
+      expect(
+        () => repository.addShowcaseLink(
+            url: 'https://soundcloud.com/taylor/a-ninth-song'),
+        throwsA(isA<PostgrestException>()
+            .having((e) => e.code, 'code', '54000')),
+      );
+      expect(
+        (await repository.loadShowcase(repository.currentUserId)).length,
+        8,
+        reason: 'the refused link is not quietly kept either',
+      );
+    });
+
     testWidgets('a ninth link is refused about links, not about Rooms',
         (tester) async {
       await _phone(tester);
-      final repository = _ShowcaseIsFull();
+      final repository = await _showcaseIsFull();
       await tester.pumpWidget(MaterialApp(
         theme: CoLabRoomTheme.dark(),
         home: MusicianProfileScreen(
@@ -207,11 +228,17 @@ void main() {
       await tester.ensureVisible(ask);
       await tester.pump(const Duration(milliseconds: 250));
       final box = tester.getRect(ask);
+      final painted = tester.getRect(
+          find.descendant(of: ask, matching: find.byType(DecoratedBox)));
 
       // Two pixels down from the top of the toolbar: inside the 48, outside
       // the pill, and exactly where a thumb aiming at the last pill in a
       // sideways-scrolling row tends to land.
-      await tester.tapAt(Offset(box.center.dx, box.top + 2));
+      final above = box.top + 2;
+      expect(above, lessThan(painted.top),
+          reason: 'the point being tapped has to be off the pill as it is '
+              'drawn, or this passes without the hit area at all');
+      await tester.tapAt(Offset(box.center.dx, above));
       for (var i = 0; i < 5; i += 1) {
         await tester.pump(const Duration(milliseconds: 250));
       }
@@ -246,7 +273,11 @@ void main() {
       // One pixel down from the top of the line, over the close button and
       // three clear of the chip: the button draws 40 pixels of itself and
       // answers for 48.
-      await tester.tapAt(Offset(box.right - 16, box.top + 1));
+      final above = box.top + 1;
+      expect(above, lessThan(painted.top),
+          reason: 'the point being tapped has to be off the chip as it is '
+              'drawn, or this passes without the hit area at all');
+      await tester.tapAt(Offset(box.right - 16, above));
       await tester.pumpAndSettle();
 
       expect(find.text('Stop asking for drums?'), findsOneWidget);

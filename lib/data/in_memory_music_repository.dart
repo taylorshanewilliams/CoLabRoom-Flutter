@@ -1,5 +1,10 @@
 import 'dart:typed_data';
 
+// Only for PostgrestException: where this fake stands in for a refusal the
+// database makes by error code rather than by message, it has to raise the
+// same kind of thing, or the screen reading the code sees something else.
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
+
 import '../domain/activity.dart';
 import '../domain/calls.dart';
 import '../domain/lesson_link.dart';
@@ -822,6 +827,16 @@ class InMemoryMusicRepository implements MusicRepository {
       throw StateError(
         'Links can point to SoundCloud, Spotify, YouTube, Bandcamp, '
         'Apple Music, Vimeo or Audiomack.',
+      );
+    }
+    // The cap from migration 0059's profile_links_capped trigger, raised the
+    // same way the server raises it — 54000 with the server's own wording —
+    // so the sentence the sheet shows for a full showcase can be seen by
+    // hand in a preview build rather than only against real Supabase.
+    if (_showcase.length >= 8) {
+      throw PostgrestException(
+        message: 'A profile can show up to eight links.',
+        code: '54000',
       );
     }
     _showcase.add(ShowcaseLink(
