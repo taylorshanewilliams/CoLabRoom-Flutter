@@ -162,9 +162,13 @@ class _AccountScreenState extends State<AccountScreen> {
             'were born, once, because calls are for people 18 and over for now. '
             // "Nothing is kept for anybody under 13" stopped being true with
             // 0138, which remembers that such an answer was given so it
-            // cannot be changed (audit, 17 September 2026).
-            'Nobody else sees it. For an answer under 13 the month is not kept, '
-            'only that it was given, and calls stay closed on that account.\n\n'
+            // cannot be changed (audit, 17 September 2026). The age and what
+            // follows from it stay out of this page: the FTC's COPPA FAQ D.7
+            // gives, as its example of encouraging children to falsify their
+            // age, "stating that certain features will not be available to
+            // users under age 13" (read on ftc.gov, 17 September 2026).
+            'Nobody else sees it. For some answers the month is not kept, only '
+            'that an answer was given.\n\n'
             'Your code\n\n'
             'Your code opens your name, your picture and what you play, so '
             'somebody you have met can ask to add you. Make a new code and the '
