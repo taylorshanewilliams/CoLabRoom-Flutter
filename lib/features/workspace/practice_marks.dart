@@ -45,6 +45,27 @@ String? practiceWorked(PracticeMark mark) {
 bool worthKeeping(List<PracticePart> parts, String? note) =>
     parts.isNotEmpty || (note ?? '').trim().isNotEmpty;
 
+/// Whether a mark is this person's own practice rather than a lesson they
+/// followed.
+///
+/// A lesson is not the only practice there is: somebody who puts Chorus 2 on
+/// repeat on a Tuesday with nobody waiting on them has practised too, and a
+/// solo session keeps itself with the person as its own leader (Every
+/// Musician, Same Song, 17 September 2026). So the two tell themselves apart
+/// after the round trip through the server, without a column that says which
+/// is which.
+bool isYourOwnPractice(PracticeMark mark, {required String me}) =>
+    me.isNotEmpty && mark.ledBy == me;
+
+/// What the card says above the song's name.
+///
+/// Your own practice says so rather than saying your own name back to you.
+/// Neither wording says when, and there is nothing here to say it with: a
+/// card that read "three days ago" would turn a record of practising into a
+/// record of not practising.
+String practiceFrom(PracticeMark mark, {required String me}) =>
+    isYourOwnPractice(mark, me: me) ? 'Your practice' : 'From ${mark.ledByName}';
+
 /// Adds up, while following, how long the song played in each part at each
 /// speed.
 ///

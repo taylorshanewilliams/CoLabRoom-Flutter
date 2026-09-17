@@ -1,12 +1,17 @@
 import 'package:flutter/foundation.dart';
 
-/// What a followed session leaves behind, as stored (migration 0128).
+/// What a practice session leaves behind, as stored (migration 0128).
 ///
 /// Follow me moves a student's song with the teacher's for an hour. When it
 /// ends, this is what is kept on the follower's own account: the song, who
 /// led, the parts that were worked on and at what speed, and the note the
 /// leader left on the way out. Read by nobody else. The seconds exist only
 /// to put the parts in order; no screen shows them.
+///
+/// Practising on your own leaves the same thing, with the person as their
+/// own leader and no note, because nobody said anything (Every Musician,
+/// Same Song, 17 September 2026). Nothing about a mark says when: not how
+/// long ago, not how long for.
 ///
 /// The rules for building one live beside the other practice rules, in
 /// features/workspace/practice_marks.dart.
@@ -64,7 +69,7 @@ class PracticePart {
   }
 }
 
-/// A followed session, kept.
+/// A practice session, kept.
 @immutable
 class PracticeMark {
   const PracticeMark({
@@ -81,7 +86,13 @@ class PracticeMark {
   /// again updates it rather than adding a second.
   final String id;
   final String projectId;
+
+  /// Who led. This person themselves when they practised on their own --
+  /// see isYourOwnPractice, which is how the card knows.
   final String? ledBy;
+
+  /// What to call them. Not read for your own practice, where the card says
+  /// "Your practice" instead of a name.
   final String ledByName;
   final String? note;
 

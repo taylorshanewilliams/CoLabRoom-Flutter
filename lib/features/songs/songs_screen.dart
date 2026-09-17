@@ -491,7 +491,8 @@ class _SongsScreenState extends State<SongsScreen> {
       ));
     }
 
-    // What a lesson left to practise. One card a song, the latest.
+    // What a lesson left to practise, or what this person last worked on by
+    // themselves. One card a song, the latest.
     final practised = <String>{};
     for (final mark in controller.practiceMarks) {
       if (practised.contains(mark.projectId)) continue;
@@ -501,11 +502,15 @@ class _SongsScreenState extends State<SongsScreen> {
       practised.add(mark.projectId);
       final worked = practiceWorked(mark);
       final note = mark.note;
+      final me = controller.repository.currentUserId;
+      final mine = isYourOwnPractice(mark, me: me);
       items.add(WaitingItem(
         id: 'practice-${mark.id}',
         kind: WaitingKind.practice,
-        who: mark.ledByName,
-        eyebrow: 'From ${mark.ledByName}',
+        // Your own practice draws the repeat icon rather than your own face:
+        // a card about what you did is not a card about somebody.
+        who: mine ? null : mark.ledByName,
+        eyebrow: practiceFrom(mark, me: me),
         line: song.title,
         detail: <String>[
           if (worked != null) worked,

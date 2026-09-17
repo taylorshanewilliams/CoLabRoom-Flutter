@@ -326,6 +326,12 @@ void main() {
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
+      // What the teacher led stays the teacher's, all the way out. Practising
+      // on your own keeps a mark of its own now (Every Musician, Same Song,
+      // 17 September 2026), and an hour of following must not become one.
+      expect(kept, hasLength(2));
+      expect(kept.map((each) => each.ledBy), everyElement('u1'));
+      expect(kept.map((each) => each.ledByName), everyElement('Taylor'));
       mine.dispose();
     });
 

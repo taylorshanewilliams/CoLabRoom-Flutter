@@ -3811,6 +3811,38 @@ begin
   end;
 end $$;
 
+-- Practising on your own (Every Musician, Same Song, 17 September 2026).
+--
+-- A solo session on Perform keeps the same kind of mark with the person as
+-- their own leader, which is how the card knows to say "Your practice"
+-- rather than a name. No migration was needed for it: keep_practice_mark
+-- asks who led, not whether it was somebody else. This is what says so.
+select public.keep_practice_mark(
+  'cccccccc-0128-0000-0000-000000000006',
+  'aaaaaaaa-0000-0000-0000-00000000000a',
+  '11111111-1111-1111-1111-111111111111',
+  'You',
+  null,
+  '[{"start": 3000, "end": 6000, "label": "Chorus 2", "rate": 0.75, "seconds": 95}]'::jsonb
+);
+
+do $$
+declare
+  leader uuid;
+begin
+  select led_by into leader from public.practice_marks
+  where id = 'cccccccc-0128-0000-0000-000000000006';
+  if leader is distinct from '11111111-1111-1111-1111-111111111111'::uuid then
+    raise exception 'practising on your own did not keep you as its leader (got %)', leader;
+  end if;
+  if not exists (
+    select 1 from public.my_practice_marks()
+    where id = 'cccccccc-0128-0000-0000-000000000006'
+  ) then
+    raise exception 'your own practice was not handed back to you';
+  end if;
+end $$;
+
 -- A stranger: not in the room, and the song was not shared with them.
 set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
 
