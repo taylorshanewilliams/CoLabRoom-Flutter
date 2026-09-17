@@ -1,5 +1,6 @@
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
+import 'package:colabroom/features/workspace/continuous_song_editor.dart';
 import 'package:colabroom/features/workspace/song_workspace_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -42,6 +43,29 @@ void main() {
 
   test('words written here: nothing to point at', () {
     expect(wordsLiveOnTheSheet(song(lines: <Contribution>[line]), sheet(transcript: 'the map')), isFalse);
+  });
+
+  test('a line with nothing in it is not words', () {
+    // What Dakota actually looked like in production: one contribution whose
+    // body is a zero-width space, saved on 10 September by a cursor move (the
+    // bug #328 fixed), and a 187-character transcript on the sheet. The
+    // editor drew "Tap anywhere and start writing…" and the line that should
+    // have pointed at the sheet stayed away, because one invisible character
+    // counted as a written song.
+    final blank = Contribution(
+      id: 'c0', projectId: 's1', authorId: 'me', authorName: 'Me',
+      body: blankStoredLine, colorValue: 1, position: 1, createdAt: at,
+    );
+    final spaces = Contribution(
+      id: 'c2', projectId: 's1', authorId: 'me', authorName: 'Me',
+      body: '  ', colorValue: 1, position: 2, createdAt: at,
+    );
+    expect(wordsLiveOnTheSheet(song(lines: <Contribution>[blank]), sheet(transcript: 'the map')), isTrue);
+    expect(wordsLiveOnTheSheet(song(lines: <Contribution>[blank, spaces]), sheet(transcript: 'the map')), isTrue);
+    // One real line among the blanks is a written song again.
+    expect(wordsLiveOnTheSheet(song(lines: <Contribution>[blank, line]), sheet(transcript: 'the map')), isFalse);
+    expect(hasWrittenWords(song(lines: <Contribution>[blank])), isFalse);
+    expect(hasWrittenWords(song(lines: <Contribution>[blank, line])), isTrue);
   });
 
   test('no sheet, or a sheet with no words: a blank page is a blank page', () {
