@@ -4180,14 +4180,18 @@ begin
   if public.my_call_standing() <> 'unknown' then
     raise exception 'an under-13 birth month was kept';
   end if;
-  perform public.set_my_birth_month(1980, 11);
-  if public.may_join_call('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') <> 'Calls are for people in this room.' then
-    raise exception 'somebody outside the room may join its call';
-  end if;
 end $$;
 
 set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
 select public.set_my_birth_month(1985, 3) as joiner_two_standing \gset
+
+do $$
+begin
+  -- An adult, but not in the writer's first room.
+  if public.may_join_call('33333333-3333-3333-3333-333333333333') <> 'Calls are for people in this room.' then
+    raise exception 'somebody outside the room may join its call';
+  end if;
+end $$;
 
 -- The writer starts a call, twice (a dropped connection and a rejoin).
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
