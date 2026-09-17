@@ -12,7 +12,7 @@ import '../workspace/song_workspace_screen.dart';
 import '../../services/user_facing_error.dart';
 import '../../services/song_search.dart';
 
-enum _SetlistMenuAction { print, share }
+enum _SetlistMenuAction { print, share, rename, delete }
 
 class SetlistDetailScreen extends StatefulWidget {
   const SetlistDetailScreen({required this.setlistId, super.key});
@@ -63,7 +63,53 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
       unawaited(controller.reorderSetlistProjects(setlist, updated));
     }
 
+    Future<void> rename() async {
+      final name = await showDialog<String>(
+        context: context,
+        builder: (_) => _RenameSetDialog(initialName: setlist.name),
+      );
+      if (name == null || name.trim().isEmpty || name.trim() == setlist.name) return;
+      try {
+        await controller.renameSetlist(setlist, name);
+      } catch (error) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', stage: 'rename_set', route: 'Setlist'))));
+        }
+      }
+    }
+
+    Future<void> delete() async {
+      final sure = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Delete ${setlist.name}?'),
+          content: const Text('The set goes. The songs in it stay exactly where they are.'),
+          actions: <Widget>[
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep it')),
+            FilledButton(
+              key: const Key('delete_set_confirm'),
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF718B)),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Delete set'),
+            ),
+          ],
+        ),
+      );
+      if (sure != true || !context.mounted) return;
+      final navigator = Navigator.of(context);
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        await controller.deleteSetlist(setlist);
+        navigator.pop();
+        messenger.showSnackBar(SnackBar(content: Text('${setlist.name} is deleted. Its songs are untouched.')));
+      } catch (error) {
+        messenger.showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', stage: 'delete_set', route: 'Setlist'))));
+      }
+    }
+
     Future<void> export(_SetlistMenuAction action) async {
+      if (action == _SetlistMenuAction.rename) return rename();
+      if (action == _SetlistMenuAction.delete) return delete();
       try {
         switch (action) {
           case _SetlistMenuAction.print:
@@ -71,6 +117,9 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
             break;
           case _SetlistMenuAction.share:
             await ProjectExportService.shareSetlist(setlist, projects);
+            break;
+          case _SetlistMenuAction.rename:
+          case _SetlistMenuAction.delete:
             break;
         }
       } catch (error) {
@@ -128,6 +177,25 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.share_rounded),
                   title: Text('Share by text or email'),
+                ),
+              ),
+              PopupMenuDivider(),
+              PopupMenuItem<_SetlistMenuAction>(
+                key: Key('rename_set'),
+                value: _SetlistMenuAction.rename,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.edit_rounded),
+                  title: Text('Rename set'),
+                ),
+              ),
+              PopupMenuItem<_SetlistMenuAction>(
+                key: Key('delete_set'),
+                value: _SetlistMenuAction.delete,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.delete_outline_rounded, color: Color(0xFFFF9AA9)),
+                  title: Text('Delete set', style: TextStyle(color: Color(0xFFFF9AA9))),
                 ),
               ),
             ],
@@ -371,6 +439,52 @@ class _RoomFilterChip extends StatelessWidget {
       onSelected: (_) => onTap(),
       selectedColor: AppColors.raised,
       side: BorderSide(color: selected ? AppColors.cyan : AppColors.line),
+    );
+  }
+}
+
+class _RenameSetDialog extends StatefulWidget {
+  const _RenameSetDialog({required this.initialName});
+
+  final String initialName;
+
+  @override
+  State<_RenameSetDialog> createState() => _RenameSetDialogState();
+}
+
+class _RenameSetDialogState extends State<_RenameSetDialog> {
+  late final TextEditingController _name = TextEditingController(text: widget.initialName);
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Rename set'),
+      content: TextField(
+        key: const Key('rename_set_field'),
+        controller: _name,
+        autofocus: true,
+        textCapitalization: TextCapitalization.sentences,
+        onSubmitted: (value) {
+          if (value.trim().isNotEmpty) Navigator.pop(context, value);
+        },
+      ),
+      actions: <Widget>[
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ListenableBuilder(
+          listenable: _name,
+          builder: (context, _) => FilledButton(
+            key: const Key('rename_set_save'),
+            onPressed: _name.text.trim().isEmpty ? null : () => Navigator.pop(context, _name.text),
+            child: const Text('Save'),
+          ),
+        ),
+      ],
     );
   }
 }
