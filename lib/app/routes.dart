@@ -43,6 +43,11 @@ abstract final class AppRoutes {
   static String heard(String id) => '/heard/$id';
   static String musician(String id) => '/musician/$id';
 
+  /// Somebody's card, opened from the code on their phone (0130). The code
+  /// rather than their id: a code can be changed, and it is what the QR
+  /// carries.
+  static String meet(String code) => '/add/$code';
+
   // -------------------------------------------------------------- places
   static String room(String id) => '/room/$id';
   static String setlist(String id) => '/set/$id';
@@ -52,6 +57,7 @@ abstract final class AppRoutes {
   static const String notifications = '/notifications';
   static const String messages = '/messages';
   static const String people = '/people';
+  static const String yourCode = '/your-code';
   static const String help = '/help';
   static const String whatYouGet = '/what-you-get';
   static const String notificationSettings = '/settings/notifications';
@@ -87,6 +93,10 @@ abstract final class AppRoutes {
         return parts.length < 2
             ? null
             : RouteTarget(RoutePlace.musician, parts[1]);
+      case 'add':
+        return parts.length < 2 ? null : RouteTarget(RoutePlace.meet, parts[1]);
+      case 'your-code':
+        return const RouteTarget(RoutePlace.yourCode);
       case 'room':
         return parts.length < 2 ? null : RouteTarget(RoutePlace.room, parts[1]);
       case 'set':
@@ -131,6 +141,8 @@ enum RoutePlace {
   songHistory,
   heard,
   musician,
+  meet,
+  yourCode,
   room,
   setlist,
   account,

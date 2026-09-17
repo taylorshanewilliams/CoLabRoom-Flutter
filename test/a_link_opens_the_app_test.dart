@@ -115,7 +115,7 @@ void main() {
     });
 
     test('every link the app makes is claimed', () {
-      for (final link in <String>[lessonLink('0123456789ab'), inviteLink('AB12-CD34')]) {
+      for (final link in <String>[lessonLink('0123456789ab'), inviteLink('AB12-CD34'), meetingLink('k7m29xqp')]) {
         final address = Uri.parse(link);
         expect(address.host, IncomingAddresses.host);
         expect(prefixes.any((prefix) => address.path.startsWith(prefix)), isTrue,

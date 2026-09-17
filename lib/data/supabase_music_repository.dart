@@ -2366,6 +2366,31 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<String> myMeetingCode() async => '${await client.rpc<dynamic>('my_meeting_code')}';
+
+  @override
+  Future<String> changeMyMeetingCode() async => '${await client.rpc<dynamic>('change_my_meeting_code')}';
+
+  @override
+  Future<MetPerson> personWithMeetingCode(String code) async {
+    final rows = await client.rpc<dynamic>(
+      'person_with_meeting_code',
+      params: <String, dynamic>{'in_code': code},
+    );
+    final row = (rows as List<dynamic>).single as Map<String, dynamic>;
+    return MetPerson(
+      personId: row['person_id'] as String,
+      displayName: (row['display_name'] as String?) ?? 'Someone',
+      avatarPath: row['avatar_path'] as String?,
+      plays: <String>[
+        for (final part in (row['plays'] as List<dynamic>? ?? const <dynamic>[])) part.toString(),
+      ],
+      standing: standingFrom(row['state'] as String?),
+      askedYou: row['direction'] == 'incoming',
+    );
+  }
+
+  @override
   Future<List<PracticeMark>> myPracticeMarks() async {
     final rows = await client.rpc<dynamic>('my_practice_marks');
     return <PracticeMark>[

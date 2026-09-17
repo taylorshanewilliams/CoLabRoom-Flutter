@@ -35,7 +35,8 @@
                 <data android:scheme="com.colabroom.beta" android:host="login-callback"/>
             </intent-filter>
             <!-- Links to app.colabroom.com open the app when it is installed:
-                 a lesson QR code, an invitation, a song somebody sent. Android
+                 a lesson QR code, somebody's code for meeting in person, an
+                 invitation, a song somebody sent. Android
                  checks https://app.colabroom.com/.well-known/assetlinks.json
                  (web/.well-known in this repo) at install before it trusts
                  this, and the file must name the key the APK is signed with.
@@ -50,6 +51,7 @@
                 <data android:scheme="https" android:host="app.colabroom.com"/>
                 <data android:pathPrefix="/lesson/"/>
                 <data android:pathPrefix="/invite/"/>
+                <data android:pathPrefix="/add/"/>
                 <data android:pathPrefix="/song/"/>
                 <data android:pathPrefix="/room/"/>
                 <data android:pathPrefix="/musician/"/>

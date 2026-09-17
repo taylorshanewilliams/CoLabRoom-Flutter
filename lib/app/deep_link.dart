@@ -7,6 +7,8 @@ import '../features/account/blocked_people_screen.dart';
 import '../features/account/what_you_get.dart';
 import '../features/dev/latency_probe_screen.dart';
 import '../features/help/help_screen.dart';
+import '../features/meeting/add_person_screen.dart';
+import '../features/meeting/your_code_screen.dart';
 import '../features/notifications/notification_settings_screen.dart';
 import '../features/notifications/notifications_screen.dart';
 import '../features/openmic/musician_profile_screen.dart';
@@ -134,6 +136,11 @@ abstract final class DeepLink {
               AppRoutes.musician(id),
               MusicianProfileScreen(profileId: id, repository: repository),
             ),
+      RoutePlace.meet => id == null
+          ? null
+          : page(AppRoutes.meet(id), AddPersonScreen(code: id, repository: repository)),
+      RoutePlace.yourCode =>
+        page(AppRoutes.yourCode, YourCodeScreen(repository: repository)),
       RoutePlace.room =>
         id == null ? null : page(AppRoutes.room(id), RoomDetailScreen(roomId: id)),
       RoutePlace.setlist => id == null
