@@ -48,6 +48,30 @@ void main() {
       );
     });
 
+    test('says which thing was full, and says the Room when nobody said', () {
+      // 54000 is Postgres's one code for every cap, and this database raises
+      // it from two places: a Room with no collaborator colour left, and a
+      // profile that already shows eight links. The ninth link used to be
+      // refused with "That Room is full."
+      final full = PostgrestException(
+        message: 'A profile can show up to eight links.',
+        code: '54000',
+      );
+      expect(describeForUser(full, whenFull: 'You can show up to 8 links.'),
+          'You can show up to 8 links.');
+      expect(describeForUser(full), 'That Room is full.',
+          reason: 'joining a Room is the cap nobody names, so it is the '
+              'sentence a caller that says nothing gets');
+      // And it does not leak into anything else the database refuses.
+      expect(
+        describeForUser(
+          PostgrestException(message: 'no', code: '42501'),
+          whenFull: 'You can show up to 8 links.',
+        ),
+        isNot(contains('8 links')),
+      );
+    });
+
     test('says something useful about a connection that gave up', () {
       expect(describeForUser(TimeoutException('x')), contains('connection'));
     });
@@ -85,6 +109,22 @@ void main() {
       // The screen, which is the fact every report in this app has been
       // missing and the one the triage agent kept asking for.
       expect(reporter.routes.single, 'Inbox');
+    });
+
+    test('carries the sentence for a limit through to the screen', () {
+      expect(
+        reportAndDescribe(
+          PostgrestException(
+            message: 'A profile can show up to eight links.',
+            code: '54000',
+          ),
+          service: 'app',
+          stage: 'add_showcase_link',
+          reporter: _RecordingReporter(),
+          whenFull: 'You can show up to 8 links.',
+        ),
+        'You can show up to 8 links.',
+      );
     });
   });
 }

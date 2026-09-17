@@ -338,13 +338,18 @@ class _AskChip extends StatelessWidget {
   final VoidCallback onOpen;
   final VoidCallback? onClose;
 
+  /// How far in from the chip's right edge the close button reaches: the 40
+  /// pixels the button lays out as, the chip's 4 of padding beside it, and the
+  /// 1 of border outside that.
+  static const double _closeWidth = 45;
+
   @override
   Widget build(BuildContext context) {
     // The two shapes are told apart by colour as well as words, because at a
     // glance down a list of songs "open to ideas" and "needs drums" are
     // different invitations.
     final tint = specific ? AppColors.gold : AppColors.green;
-    return Container(
+    final chip = Container(
       padding: const EdgeInsets.fromLTRB(0, 0, 4, 0),
       decoration: BoxDecoration(
         color: tint.withValues(alpha: 0.10),
@@ -377,6 +382,38 @@ class _AskChip extends StatelessWidget {
             tooltip: 'Stop asking',
             icon: Icon(Icons.close_rounded, size: 14, color: tint),
           ),
+        ],
+      ),
+    );
+
+    // The chip stays the height it is — 40 pixels, set by its close button's
+    // compact density, and a chip the size of a button would read as one —
+    // but 40 is eight short of what a touch wants (audit, 17 September 2026).
+    // So the chip sits in a box 48 tall and the close button's share of that
+    // box runs from the top of it to the bottom, four pixels above the chip
+    // and four below. The row costs nothing: the two buttons beside these
+    // chips are ordinary Material ones, already padded to 48 on a phone, so
+    // the line was 48 tall with the chips centred in it either way.
+    return SizedBox(
+      height: 48,
+      child: Stack(
+        alignment: Alignment.center,
+        children: <Widget>[
+          // Behind the chip, so a tap on the button itself still reaches the
+          // button, with its ripple and its "Stop asking". This catches only
+          // what lands above or below.
+          Positioned(
+            top: 0,
+            bottom: 0,
+            right: 0,
+            width: _closeWidth,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onClose,
+              excludeFromSemantics: true,
+            ),
+          ),
+          chip,
         ],
       ),
     );

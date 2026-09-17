@@ -1670,6 +1670,11 @@ class _AddLinkSheetState extends State<_AddLinkSheet> {
               service: 'app',
               stage: 'add_showcase_link',
               route: 'Profile',
+              // The database caps a showcase at eight links and says so with
+              // the same code a full Room uses, so without this the ninth
+              // link was refused with "That Room is full." (audit,
+              // 17 September 2026).
+              whenFull: 'You can show up to 8 links.',
             );
       if (!mounted) {
         afterClose(problem);
