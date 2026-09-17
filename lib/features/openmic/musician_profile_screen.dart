@@ -1659,17 +1659,25 @@ class _AddLinkSheetState extends State<_AddLinkSheet> {
         afterClose(null);
       }
     } catch (error) {
+      // The database caps a showcase at eight links and says so with the same
+      // code a full Room uses, so without this the ninth link was refused
+      // with "That Room is full." (audit, 17 September 2026). Said on both
+      // paths, not just the reported one: only this sheet knows what was
+      // being added, and if a cap ever counts as a refusal rather than a
+      // fault the wording must not quietly fall back to the Room's.
+      const whenFull = 'You can show up to 8 links.';
       // Worked out, and a real fault reported, before asking whether the
       // sheet is still here: a failure nobody is looking at still happened.
       // A host that is not on the list is an answer, not a fault, and is not
       // worth a report.
       final problem = isRefusal(error)
-          ? describeForUser(error)
+          ? describeForUser(error, whenFull: whenFull)
           : reportAndDescribe(
               error,
               service: 'app',
               stage: 'add_showcase_link',
               route: 'Profile',
+              whenFull: whenFull,
             );
       if (!mounted) {
         afterClose(problem);

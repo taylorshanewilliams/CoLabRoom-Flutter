@@ -178,6 +178,11 @@ class _SongTitleDialogState extends State<_SongTitleDialog> {
           decoration: InputDecoration(
             labelText: 'Song name',
             helperText: 'Saving to ${widget.roomName}',
+            // Wraps. Left to itself a helper is one line with an ellipsis, and
+            // a room called "Wednesday night at the Old Chapel" left this
+            // reading "Saving to Wednesday night at the O…" — the one word
+            // that matters cut off (audit, 17 September 2026).
+            helperMaxLines: 3,
           ),
           onSubmitted: (value) {
             if (value.trim().isNotEmpty) Navigator.pop(context, value);

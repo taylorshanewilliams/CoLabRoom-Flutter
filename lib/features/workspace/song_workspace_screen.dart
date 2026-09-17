@@ -2474,8 +2474,12 @@ class _WorkspaceToolbar extends StatelessWidget {
     ];
     return SizedBox(
       height: 48,
+      // Only the gutters are padding now. The three pixels above each pill and
+      // the five below belong to the pill itself, so they can be tapped rather
+      // than being a dead border around a 33-pixel target (audit,
+      // 17 September 2026).
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 3, 12, 5),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
@@ -2511,7 +2515,7 @@ class _ToolPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = active ? activeColor : AppColors.muted;
-    return DecoratedBox(
+    final pill = DecoratedBox(
       decoration: BoxDecoration(
         boxShadow: active
             ? <BoxShadow>[BoxShadow(color: activeColor.withValues(alpha: 0.16), blurRadius: 18)]
@@ -2541,6 +2545,30 @@ class _ToolPill extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+    // A pill is 33 pixels tall and a thumb wants 48. The pill is not made
+    // bigger — this toolbar is one band across a screen that is mostly the
+    // song, and six taller pills would take the words' room — so the tap
+    // reaches the full height of the toolbar while the pill stays the size it
+    // looks. Material's own Chip does exactly this: paint at the size that
+    // reads right, accept the touch at the size a thumb is (audit,
+    // 17 September 2026).
+    //
+    // The padding here is the three and five the toolbar used to hold, so the
+    // pill sits where it always did.
+    return SizedBox(
+      height: 48,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        // The InkWell inside carries the label and the tap for anyone
+        // listening; this is only the margin around it.
+        excludeFromSemantics: true,
+        child: Padding(
+          padding: const EdgeInsets.only(top: 3, bottom: 5),
+          child: Center(widthFactor: 1, child: pill),
         ),
       ),
     );
@@ -2584,6 +2612,11 @@ class _RenameProjectDialogState extends State<_RenameProjectDialog> {
         },
         decoration: const InputDecoration(
           helperText: 'Song names are unique across your account.',
+          // Wraps, for the same reason the New set dialog's does: a helper is
+          // one line and an ellipsis unless told otherwise, and in a dialog on
+          // a phone this one stopped at "…unique across your acc…" (audit,
+          // 17 September 2026).
+          helperMaxLines: 3,
         ),
       ),
       actions: <Widget>[

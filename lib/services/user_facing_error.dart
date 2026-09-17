@@ -7,6 +7,11 @@ import 'clock_skew.dart';
 import 'error_reporter.dart';
 import 'recent_trouble.dart';
 
+/// The default answer to a limit: joining a Room is where most people meet
+/// one, and it is the only place that hits a cap without having asked for
+/// anything by name.
+const String _roomIsFull = 'That Room is full.';
+
 /// What to put on screen when an action fails, and what to send home about it.
 ///
 /// These two questions have the same answer everywhere and had been answered
@@ -24,7 +29,16 @@ import 'recent_trouble.dart';
 ///
 /// So: the reader gets a sentence about what happened to them, the database
 /// gets the detail, and the detail is no longer the only copy.
-String describeForUser(Object error) {
+///
+/// [whenFull] is the sentence for a limit the database refused to go past.
+/// Postgres has one code for all of them — 54000, "program limit exceeded" —
+/// and this app raises it from more than one place: a Room with no unused
+/// collaborator colour left, and a profile that already shows eight links. The
+/// sentence was written once, for the Room, so somebody adding a ninth link to
+/// their own profile was told "That Room is full." — an answer to a question
+/// they had not asked (audit, 17 September 2026). Only the caller knows what
+/// was being added, so only the caller can say.
+String describeForUser(Object error, {String whenFull = _roomIsFull}) {
   // Errors the app raised on purpose already carry a sentence written for a
   // reader. NameConflict is the app's own "that name is taken".
   if (error is NameConflict) return error.message;
@@ -40,7 +54,7 @@ String describeForUser(Object error) {
         // reader — "That invitation is no longer available."
         return error.message;
       case '54000':
-        return 'That Room is full.';
+        return whenFull;
       case 'PGRST301':
         return 'Your sign-in has expired. Sign out and back in.';
       case 'PGRST303':
@@ -137,6 +151,7 @@ String reportAndDescribe(
   String? projectId,
   String? route,
   ErrorReporter? reporter,
+  String whenFull = _roomIsFull,
 }) {
   unawaited((reporter ?? ErrorReporter()).reportError(
     service: service,
@@ -157,5 +172,5 @@ String reportAndDescribe(
   // they were doing, the exception rides along without them being asked to
   // retype an error message they were shown and dismissed.
   RecentTrouble.remember(error, route: route);
-  return describeForUser(error);
+  return describeForUser(error, whenFull: whenFull);
 }
