@@ -73,3 +73,31 @@ jobs:
       # model key (ANTHROPIC_API_KEY first, OPENAI_API_KEY otherwise).
       - name: Deploy ask-the-song
         run: supabase functions deploy ask-the-song --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+
+      # Calls (0134). The three LiveKit values live in GitHub's secrets, where
+      # Taylor put them, and are copied into Supabase's store because that is
+      # what the function reads. Skipped, not failed, before they exist: every
+      # other function in this file should still deploy on a day calls are not
+      # set up, and call-token answers "not switched on yet" without them.
+      - name: Push call secrets
+        env:
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+        run: |
+          if [ -z "$LIVEKIT_URL" ] || [ -z "$LIVEKIT_API_KEY" ] || [ -z "$LIVEKIT_API_SECRET" ]; then
+            echo "::warning::LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET are not all set in GitHub, so calls stay off."
+            exit 0
+          fi
+          case "$LIVEKIT_URL" in
+            wss://*) ;;
+            *) echo "::error::LIVEKIT_URL should start with wss:// (the project URL LiveKit shows beside the key)."; exit 1 ;;
+          esac
+          supabase secrets set \
+            LIVEKIT_URL="$LIVEKIT_URL" \
+            LIVEKIT_API_KEY="$LIVEKIT_API_KEY" \
+            LIVEKIT_API_SECRET="$LIVEKIT_API_SECRET" \
+            --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+
+      - name: Deploy call-token
+        run: supabase functions deploy call-token --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"

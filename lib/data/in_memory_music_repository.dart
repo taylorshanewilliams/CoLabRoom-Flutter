@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../domain/activity.dart';
+import '../domain/calls.dart';
 import '../domain/lesson_link.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
@@ -716,6 +717,18 @@ class InMemoryMusicRepository implements MusicRepository {
     List<String> plays = const <String>[],
   }) {
     _meetingCodes[code] = (personId: personId, displayName: displayName, plays: plays);
+  }
+
+  CallStanding _callStanding = CallStanding.unknown;
+  final Map<String, List<InCallPerson>> _calls = <String, List<InCallPerson>>{};
+
+  /// What the preview says after a birth month, for tests that need an adult
+  /// or a minor without asking.
+  set callStanding(CallStanding standing) => _callStanding = standing;
+
+  /// Somebody else in a room's call, as their phone's heartbeat would say.
+  void somebodyInCall({required String roomId, required String userId, required String displayName}) {
+    (_calls[roomId] ??= <InCallPerson>[]).add(InCallPerson(userId: userId, displayName: displayName));
   }
 
   /// Somebody asks to connect, the way scanning your code does on their
@@ -1911,6 +1924,58 @@ class InMemoryMusicRepository implements MusicRepository {
   Future<void> closeLessonLink() async {
     _lessonLink = null;
   }
+
+  @override
+  Future<CallStanding> myCallStanding() async => _callStanding;
+
+  @override
+  Future<CallStanding> setMyBirthMonth({required int year, required int month}) async {
+    if (_callStanding != CallStanding.unknown) {
+      throw const NameConflict('Your birth month is already saved. To correct it, send feedback from Account.');
+    }
+    final now = DateTime.now();
+    // The last day of the birth month, the careful side, as 0134 does.
+    final monthEnd = DateTime(year, month + 1, 0);
+    bool reached(int years) => !DateTime(monthEnd.year + years, monthEnd.month, monthEnd.day).isAfter(now);
+    if (!reached(13)) throw const NameConflict('CoLabRoom is for people 13 and over.');
+    _callStanding = reached(18) ? CallStanding.adult : CallStanding.minor;
+    return _callStanding;
+  }
+
+  @override
+  Future<CallTicket> callTicket({required String roomId, required String device}) async {
+    if (!_rooms.any((room) => room.id == roomId)) {
+      throw const CallRefused('Calls are for people in this room.');
+    }
+    return switch (_callStanding) {
+      CallStanding.unknown => throw const CallRefused('Your birth month first.', birthMonthNeeded: true),
+      CallStanding.minor => throw const CallRefused(
+          'Calls are for people 18 and over for now. Calls with a parent or guardian are coming.'),
+      CallStanding.adult => CallTicket(
+          url: 'wss://preview.invalid',
+          token: 'preview',
+          room: 'room-$roomId',
+          identity: '$currentUserId:$device',
+        ),
+    };
+  }
+
+  @override
+  Future<void> hearMeInCall({required String roomId, required String device}) async {
+    final people = _calls[roomId] ??= <InCallPerson>[];
+    if (!people.any((person) => person.userId == currentUserId)) {
+      people.add(InCallPerson(userId: currentUserId, displayName: 'Taylor'));
+    }
+  }
+
+  @override
+  Future<void> leaveCall({required String roomId, required String device}) async {
+    _calls[roomId]?.removeWhere((person) => person.userId == currentUserId);
+  }
+
+  @override
+  Future<List<InCallPerson>> roomCall(String roomId) async =>
+      List<InCallPerson>.of(_calls[roomId] ?? const <InCallPerson>[]);
 
   @override
   Future<String> myMeetingCode() async => _myMeetingCode;

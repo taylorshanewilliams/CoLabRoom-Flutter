@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app/beta_config.dart';
 import '../domain/activity.dart';
+import '../domain/calls.dart';
 import '../domain/lesson_link.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
@@ -2370,6 +2371,74 @@ class SupabaseMusicRepository implements MusicRepository {
 
   @override
   Future<String> changeMyMeetingCode() async => '${await client.rpc<dynamic>('change_my_meeting_code')}';
+
+  @override
+  Future<CallStanding> myCallStanding() async =>
+      callStandingFrom('${await client.rpc<dynamic>('my_call_standing')}');
+
+  @override
+  Future<CallStanding> setMyBirthMonth({required int year, required int month}) async {
+    final standing = await client.rpc<dynamic>(
+      'set_my_birth_month',
+      params: <String, dynamic>{'in_year': year, 'in_month': month},
+    );
+    return callStandingFrom('$standing');
+  }
+
+  @override
+  Future<CallTicket> callTicket({required String roomId, required String device}) async {
+    try {
+      final response = await client.functions.invoke(
+        'call-token',
+        body: <String, dynamic>{'room_id': roomId, 'device': device},
+      );
+      final data = response.data;
+      if (data is! Map || data['token'] == null) {
+        throw const CallRefused('The call could not start just now.');
+      }
+      return CallTicket(
+        url: data['url'] as String,
+        token: data['token'] as String,
+        room: data['room'] as String? ?? '',
+        identity: data['identity'] as String? ?? '',
+      );
+    } on FunctionException catch (error) {
+      final details = error.details;
+      final said = details is Map ? details['error'] as String? : null;
+      if (details is Map && details['reason'] == 'birth_month_needed') {
+        throw CallRefused(said ?? 'Your birth month first.', birthMonthNeeded: true);
+      }
+      throw CallRefused(said ?? 'The call could not start just now.');
+    }
+  }
+
+  @override
+  Future<void> hearMeInCall({required String roomId, required String device}) async {
+    await client.rpc<dynamic>(
+      'hear_me_in_call',
+      params: <String, dynamic>{'in_room': roomId, 'in_device': device},
+    );
+  }
+
+  @override
+  Future<void> leaveCall({required String roomId, required String device}) async {
+    await client.rpc<dynamic>(
+      'leave_call',
+      params: <String, dynamic>{'in_room': roomId, 'in_device': device},
+    );
+  }
+
+  @override
+  Future<List<InCallPerson>> roomCall(String roomId) async {
+    final rows = await client.rpc<dynamic>('room_call', params: <String, dynamic>{'in_room': roomId});
+    return <InCallPerson>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        InCallPerson(
+          userId: (row as Map)['user_id'] as String,
+          displayName: row['display_name'] as String? ?? 'Somebody',
+        ),
+    ];
+  }
 
   @override
   Future<MetPerson> personWithMeetingCode(String code) async {

@@ -97,6 +97,8 @@ jobs:
             # equivalent to mirror.
             plist_set :NSMicrophoneUsageDescription "'CoLabRoom needs the microphone to record song ideas and voice notes.'" string
             plist_set :NSSpeechRecognitionUsageDescription "'CoLabRoom uses speech recognition to turn your voice into lyrics.'" string
+            # Calls in a room (0134). Asked at the first call, not at launch.
+            plist_set :NSCameraUsageDescription "'CoLabRoom uses the camera for video calls with people in your rooms. Calls are never recorded.'" string
             # Without this, a push can be *drawn* by iOS but the app is never
             # woken to see it -- so `onBackgroundMessage` never runs, and the
             # arrival receipt that 0127 exists to collect is never filed. The

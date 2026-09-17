@@ -16,6 +16,7 @@ import '../openmic/report_sheet.dart';
 import '../../app/routes.dart';
 import '../openmic/musician_profile_screen.dart';
 import '../openmic/people_screen.dart';
+import '../rooms/room_detail_screen.dart';
 import '../messages/room_thread_sheet.dart';
 import '../openmic/person_thread_sheet.dart';
 import '../workspace/ask_thread_sheet.dart';
@@ -370,6 +371,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                       RouteSettings(name: AppRoutes.song(id)),
                                   builder: (_) =>
                                       SongWorkspaceScreen(projectId: id),
+                                ),
+                              ));
+                            }
+                            // A call started in a room: the room, where the
+                            // bar at the top says who is in it and has Join.
+                            if (notification.type ==
+                                    NotificationType.callStarted &&
+                                notification.roomId != null) {
+                              unawaited(Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  settings: RouteSettings(
+                                      name: AppRoutes.room(
+                                          notification.roomId!)),
+                                  builder: (_) => RoomDetailScreen(
+                                      roomId: notification.roomId!),
                                 ),
                               ));
                             }
@@ -840,6 +856,8 @@ class _NotificationCard extends StatelessWidget {
         return Icons.person_add_alt_1_rounded;
       case NotificationType.connectionAccepted:
         return Icons.how_to_reg_rounded;
+      case NotificationType.callStarted:
+        return Icons.videocam_rounded;
       case NotificationType.unfamiliar:
         return Icons.notifications_none_rounded;
     }
