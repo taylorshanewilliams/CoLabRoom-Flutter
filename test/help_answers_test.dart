@@ -34,6 +34,20 @@ void main() {
       'what does this cost': 'refund',
       'how do i delete my account': 'delete-account',
       'what is a demo account': 'demo',
+      // Added after the audit of 17 September 2026, which asked "how do I
+      // start a video call" and was told how to record.
+      'how do i start a video call': 'calls',
+      'can we rehearse on a call': 'calls',
+      'how do i add someone i met at a gig': 'your-code',
+      'scan a qr code': 'your-code',
+      'where do i paste an invitation link': 'join-code',
+      'how do i teach a lesson': 'lessons',
+      'how do my students follow along': 'follow',
+      'where is my homework from my teacher': 'practise',
+      'why is my guitar out of tune': 'tuner',
+      'is there a metronome': 'tuner',
+      'how do i mute notifications': 'notifications',
+      'can i use this on my laptop': 'web',
     };
 
     cases.forEach((typed, expected) {
@@ -50,7 +64,7 @@ void main() {
     const unanswerable = <String>[
       // Real questions this app genuinely cannot answer, and must not
       // pretend to. Each one is close enough to a real card to be tempting.
-      'why is my guitar out of tune',
+      'why does my amp hum',
       'can you write me a chorus',
       'what time is the show',
       'asdfghjkl',
