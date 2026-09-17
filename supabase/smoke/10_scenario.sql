@@ -4117,4 +4117,153 @@ where '99999999-9999-9999-9999-999999999999' in (requester_id, addressee_id);
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- ---------------------------------------------------------------------
+-- Calls for adults (0134).
+--
+-- A birth month is said once and never by an under-13. In room aaaa the
+-- writer and Joiner Two are adults and Joiner One is 15: the writer's call
+-- tells Joiner Two once and never tells Joiner One, who cannot be in it.
+-- Somebody outside the room cannot join, and a block hides the caller.
+-- ---------------------------------------------------------------------
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  if public.my_call_standing() <> 'unknown' then
+    raise exception 'somebody never asked has a call standing (%)', public.my_call_standing();
+  end if;
+  if public.may_join_call('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') <> 'birth_month_needed' then
+    raise exception 'a call did not ask for a birth month first';
+  end if;
+  if public.set_my_birth_month(1990, 5) <> 'adult' then
+    raise exception 'somebody born in 1990 is not an adult';
+  end if;
+  begin
+    perform public.set_my_birth_month(2012, 1);
+    raise exception 'a birth month was changed from the app';
+  exception when invalid_parameter_value then null;
+  end;
+  if public.may_join_call('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') <> 'ok' then
+    raise exception 'an adult member cannot join their room''s call';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+
+do $$
+begin
+  if public.set_my_birth_month(extract(year from current_date)::int - 15, 1) <> 'minor' then
+    raise exception 'a 15-year-old is not a minor';
+  end if;
+  if public.may_join_call('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') = 'ok' then
+    raise exception 'a minor may join a call in stage A';
+  end if;
+  begin
+    perform public.hear_me_in_call('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'phone-j1');
+    raise exception 'a minor was put in a call';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+set local request.jwt.claims = '{"sub": "22222222-2222-2222-2222-222222222222"}';
+
+do $$
+begin
+  begin
+    perform public.set_my_birth_month(extract(year from current_date)::int - 5, 1);
+    raise exception 'an under-13 birth month was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  if public.my_call_standing() <> 'unknown' then
+    raise exception 'an under-13 birth month was kept';
+  end if;
+  perform public.set_my_birth_month(1980, 11);
+  if public.may_join_call('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') <> 'Calls are for people in this room.' then
+    raise exception 'somebody outside the room may join its call';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
+select public.set_my_birth_month(1985, 3) as joiner_two_standing \gset
+
+-- The writer starts a call, twice (a dropped connection and a rejoin).
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+select public.hear_me_in_call('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'phone-w');
+select public.hear_me_in_call('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'phone-w');
+
+reset role;
+do $$
+begin
+  if (select count(*) from public.notifications
+      where user_id = '99999999-9999-9999-9999-999999999999'
+        and type = 'call_started'
+        and room_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') <> 1 then
+    raise exception 'an adult in the room was not told exactly once that a call started (%)',
+      (select count(*) from public.notifications
+       where user_id = '99999999-9999-9999-9999-999999999999' and type = 'call_started');
+  end if;
+  if exists (select 1 from public.notifications
+             where user_id = '88888888-8888-8888-8888-888888888888' and type = 'call_started') then
+    raise exception 'a minor was told about a call they cannot join';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  if not exists (select 1 from public.room_call('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+                 where user_id = '11111111-1111-1111-1111-111111111111') then
+    raise exception 'the room does not show who is in its call';
+  end if;
+  if exists (select 1 from public.call_presence) then
+    raise exception 'call presence is readable directly';
+  end if;
+  if public.blocked_with_any(array['11111111-1111-1111-1111-111111111111'::uuid]) then
+    raise exception 'a block is reported where there is none';
+  end if;
+end $$;
+
+reset role;
+insert into public.user_blocks (blocker_id, blocked_id)
+values ('99999999-9999-9999-9999-999999999999', '11111111-1111-1111-1111-111111111111');
+
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.room_call('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')) then
+    raise exception 'somebody blocked still shows in the call';
+  end if;
+  if not public.blocked_with_any(array['11111111-1111-1111-1111-111111111111'::uuid]) then
+    raise exception 'call-token would let somebody into a call with a person they blocked';
+  end if;
+end $$;
+
+reset role;
+delete from public.user_blocks
+where blocker_id = '99999999-9999-9999-9999-999999999999'
+  and blocked_id = '11111111-1111-1111-1111-111111111111';
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+select public.leave_call('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'phone-w');
+
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
+
+do $$
+begin
+  if exists (select 1 from public.room_call('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')) then
+    raise exception 'somebody who left still shows in the call';
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
 commit;
