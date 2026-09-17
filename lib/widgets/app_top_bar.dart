@@ -204,6 +204,7 @@ class AppTopBar extends StatelessWidget {
                         right: -2,
                         top: -2,
                         child: Container(
+                          key: const Key('top_bar_inbox_badge'),
                           padding: const EdgeInsets.symmetric(
                               horizontal: 4, vertical: 1),
                           constraints:
@@ -216,7 +217,7 @@ class AppTopBar extends StatelessWidget {
                             inbox > 9 ? '9+' : '$inbox',
                             textAlign: TextAlign.center,
                             style: const TextStyle(
-                              color: Colors.white,
+                              color: AppColors.badgeLetter,
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
                             ),
@@ -238,15 +239,14 @@ class AppTopBar extends StatelessWidget {
               containedInkWell: true,
               customBorder: const CircleBorder(),
               child: Container(
+                key: const Key('top_bar_face'),
                 width: 44,
                 height: 44,
                 alignment: Alignment.center,
                 clipBehavior: Clip.antiAlias,
                 decoration: const BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: <Color>[AppColors.blue, Color(0xFF124A80)],
-                  ),
+                  gradient: LinearGradient(colors: AppColors.faceGround),
                   boxShadow: <BoxShadow>[
                     BoxShadow(color: Color(0x242B6FFF), blurRadius: 24),
                   ],
@@ -258,8 +258,12 @@ class AppTopBar extends StatelessWidget {
                         width: 44,
                         height: 44,
                       )
+                    // A colour of its own. With none it took the body text
+                    // grey, which is 1.6:1 on this blue.
                     : Text(initials,
-                        style: const TextStyle(fontWeight: FontWeight.w800)),
+                        style: const TextStyle(
+                            color: AppColors.faceLetter,
+                            fontWeight: FontWeight.w800)),
               ),
             ),
           ),

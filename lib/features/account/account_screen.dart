@@ -29,9 +29,16 @@ import '../openmic/musician_profile_screen.dart';
 import '../meeting/your_code_screen.dart';
 
 class AccountScreen extends StatefulWidget {
-  const AccountScreen({this.supabase, super.key});
+  const AccountScreen({
+    this.supabase,
+    this.showDevTools = BetaConfig.devTools,
+    super.key,
+  });
 
   final SupabaseClient? supabase;
+
+  /// Whether the measuring tools are listed. See [BetaConfig.devTools].
+  final bool showDevTools;
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -341,6 +348,7 @@ class _AccountScreenState extends State<AccountScreen> {
                   onTap: user == null || _savingAvatar ? null : () => _changeAvatar(context),
                   customBorder: const CircleBorder(),
                   child: Container(
+                    key: const Key('account_face'),
                     width: 60,
                     height: 60,
                     alignment: Alignment.center,
@@ -351,9 +359,7 @@ class _AccountScreenState extends State<AccountScreen> {
                       // becoming a grey placeholder: with no picture set it
                       // still reads as a person, not as a missing image.
                       gradient: avatar == null
-                          ? const LinearGradient(
-                              colors: <Color>[AppColors.blue, Color(0xFF124A80)],
-                            )
+                          ? const LinearGradient(colors: AppColors.faceGround)
                           : null,
                       image: avatar == null
                           ? null
@@ -368,7 +374,11 @@ class _AccountScreenState extends State<AccountScreen> {
                         : avatar == null
                             ? Text(
                                 initials,
-                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                                style: const TextStyle(
+                                  color: AppColors.faceLetter,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               )
                             : null,
                   ),
@@ -531,11 +541,12 @@ class _AccountScreenState extends State<AccountScreen> {
                   );
                 },
               ),
-              // Debug builds only. A measurement tool, not a feature — it
+              // Developers only. A measurement tool, not a feature — it
               // exists to find out whether overdubbing is possible on real
               // hardware, and a tester who found it would reasonably wonder
-              // what they were supposed to do with it.
-              if (kDebugMode)
+              // what they were supposed to do with it. It was gated on
+              // `kDebugMode`, which is every APK a tester installs.
+              if (widget.showDevTools)
                 _AccountRow(
                   icon: Icons.timer_outlined,
                   label: 'Recording latency (debug)',

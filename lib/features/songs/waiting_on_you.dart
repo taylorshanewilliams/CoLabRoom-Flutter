@@ -401,53 +401,73 @@ class _WaitingOnYouState extends State<WaitingOnYou> {
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(
                       horizontal: WaitingOnYou.gutter),
-                  itemCount: items.length,
+                  itemCount: items.length + (items.length > 1 ? 1 : 0),
                   separatorBuilder: (_, __) =>
                       const SizedBox(width: WaitingOnYou.gap),
-                  itemBuilder: (context, i) => SizedBox(
-                    width: width,
-                    child: _WaitingCard(
-                      item: items[i],
-                      onDismiss: () => _dismiss(items[i]),
-                      dense: dense,
-                    ),
-                  ),
+                  itemBuilder: (context, i) => i == items.length
+                      ? _ClearAll(onPressed: _clearAll)
+                      : SizedBox(
+                          width: width,
+                          child: _WaitingCard(
+                            item: items[i],
+                            onDismiss: () => _dismiss(items[i]),
+                            dense: dense,
+                          ),
+                        ),
                 ),
               );
             },
           ),
         ),
-        // Under the row rather than over it, so the strip opens on the cards
-        // instead of on chrome about the cards.
-        if (items.length > 1)
-          Align(
-            alignment: Alignment.centerRight,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 10, top: 2),
-              child: TextButton(
-                key: const Key('waiting_clear_all'),
-                onPressed: _clearAll,
-                style: TextButton.styleFrom(
-                  foregroundColor: AppColors.muted,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                // Styled on the Text rather than through
-                // `styleFrom(textStyle:)`: ButtonStyleButton picks the
-                // widget's style *or* the theme's — `??`, not a merge — so a
-                // style given there replaces the resolved one and takes the
-                // font family with it.
-                child: const Text(
-                  'Clear all',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                ),
-              ),
-            ),
-          )
-        else
-          const SizedBox(height: 8),
+        const SizedBox(height: 8),
       ],
+    );
+  }
+}
+
+/// Clear all, at the end of the row, as tall as the cards.
+///
+/// It sat under the row, shrink-wrapped to its words: 61x17 on a desk and
+/// 74x22 at 1.3x text, under even the 24-pixel floor in WCAG 2.2 SC 2.5.8
+/// (audit, 17 September 2026). Padding that line out to a 48-pixel touch
+/// made the strip 29 pixels taller, which put it past 40% of a landscape
+/// phone and pushed an empty shelf's last door below the fold, so it moved
+/// instead of growing. After the last card is where a phone's own
+/// notification shade keeps it, and where somebody who has looked through
+/// everything already is. The strip still opens on the cards, not on
+/// chrome about them, and is shorter than it was.
+class _ClearAll extends StatelessWidget {
+  const _ClearAll({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      key: const Key('waiting_clear_all'),
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        foregroundColor: AppColors.muted,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        minimumSize: const Size(64, 48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      ),
+      // Styled on the Text rather than through `styleFrom(textStyle:)`:
+      // ButtonStyleButton picks the widget's style *or* the theme's — `??`,
+      // not a merge — so a style given there replaces the resolved one and
+      // takes the font family with it.
+      child: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(Icons.clear_all_rounded, size: 20),
+          SizedBox(height: 4),
+          Text(
+            'Clear all',
+            maxLines: 1,
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
     );
   }
 }

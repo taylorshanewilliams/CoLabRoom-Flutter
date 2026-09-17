@@ -59,6 +59,15 @@ class PlayerFace extends StatelessWidget {
     final known = person != null && person.isNotEmpty;
     final initials = known ? initialsFor(person) : '';
     final tint = color ?? AppColors.line;
+    // The letters are the tint, unless the tint cannot be read on its own
+    // wash. Measured against that wash over the lightest card in the app,
+    // [AppColors.raised], so it holds on anything darker too. Without a
+    // colour the tint is the divider navy, and the letters were drawn in it
+    // on a circle of it — 1.2:1 on Listen and Blocked people, found while
+    // fixing the audit's contrast findings (17 September 2026).
+    final wash = tint.withValues(alpha: 0.22);
+    final letters =
+        readableOn(tint, Color.alphaBlend(wash, AppColors.raised));
 
     return Semantics(
       // Its own node rather than merged into whatever is around it. A label
@@ -72,7 +81,7 @@ class PlayerFace extends StatelessWidget {
         height: size,
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          color: photo != null ? AppColors.raised : tint.withValues(alpha: 0.22),
+          color: photo != null ? AppColors.raised : wash,
           shape: BoxShape.circle,
           border: Border.all(color: tint.withValues(alpha: 0.55), width: 1),
         ),
@@ -89,7 +98,7 @@ class PlayerFace extends StatelessWidget {
                       : Text(
                           initials,
                           style: TextStyle(
-                            color: tint,
+                            color: letters,
                             fontSize: size * 0.40,
                             fontWeight: FontWeight.w800,
                             height: 1.1,
