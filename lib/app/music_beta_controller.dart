@@ -739,6 +739,16 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     await load();
   }
 
+  Future<void> renameSetlist(Setlist setlist, String name) async {
+    await repository.renameSetlist(setlist, name);
+    await load();
+  }
+
+  Future<void> deleteSetlist(Setlist setlist) async {
+    await repository.deleteSetlist(setlist);
+    await load();
+  }
+
   Future<void> removeProjectFromSetlist(Setlist setlist, String projectId) async {
     await repository.removeProjectFromSetlist(setlist, projectId);
     await load();

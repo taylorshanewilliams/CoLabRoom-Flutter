@@ -128,6 +128,13 @@ abstract interface class MusicRepository {
 
   Future<void> removeProjectFromSetlist(Setlist setlist, String projectId);
 
+  /// A set's new name. Sets could be made and never renamed or thrown away
+  /// (audit, 17 September 2026).
+  Future<void> renameSetlist(Setlist setlist, String name);
+
+  /// Throws a set away. The songs in it are not touched.
+  Future<void> deleteSetlist(Setlist setlist);
+
   /// Persists a new manual song order within [setlist] ([orderedProjectIds]
   /// must contain the same set of ids currently in the setlist).
   Future<void> reorderSetlistProjects(Setlist setlist, List<String> orderedProjectIds);

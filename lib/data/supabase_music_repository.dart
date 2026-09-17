@@ -824,6 +824,24 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> renameSetlist(Setlist setlist, String name) async {
+    final cleaned = NamePolicy.clean(name);
+    NamePolicy.requireUsable(cleaned, label: 'Set name');
+    try {
+      await client.from('setlists').update(<String, dynamic>{'name': cleaned}).eq('id', setlist.id);
+    } on PostgrestException catch (error) {
+      throw _friendlyDatabaseError(error, noun: 'setlist');
+    }
+  }
+
+  @override
+  Future<void> deleteSetlist(Setlist setlist) async {
+    // The songs stay: setlist_projects rows go with the set (on delete
+    // cascade), the projects they point at do not.
+    await client.from('setlists').delete().eq('id', setlist.id);
+  }
+
+  @override
   Future<void> removeProjectFromSetlist(Setlist setlist, String projectId) async {
     await client
         .from('setlist_projects')

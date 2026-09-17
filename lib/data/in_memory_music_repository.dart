@@ -558,6 +558,21 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> renameSetlist(Setlist setlist, String name) async {
+    final cleaned = NamePolicy.clean(name);
+    NamePolicy.requireUsable(cleaned, label: 'Set name');
+    if (_setlists.any((value) => value.id != setlist.id && NamePolicy.same(value.name, cleaned))) {
+      throw const NameConflict('A setlist with that name already exists.');
+    }
+    _replaceSetlist(setlist.copyWith(name: cleaned, updatedAt: DateTime.now()));
+  }
+
+  @override
+  Future<void> deleteSetlist(Setlist setlist) async {
+    _setlists.removeWhere((value) => value.id == setlist.id);
+  }
+
+  @override
   Future<void> removeProjectFromSetlist(Setlist setlist, String projectId) async {
     _replaceSetlist(setlist.copyWith(
       projectIds: setlist.projectIds.where((id) => id != projectId).toList(growable: false),
