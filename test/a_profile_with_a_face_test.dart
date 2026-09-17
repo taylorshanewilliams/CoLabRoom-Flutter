@@ -33,7 +33,7 @@ void main() {
             'common case and has to be worth looking at');
   });
 
-  testWidgets('and their record is a shape as well as a number',
+  testWidgets('and what they play is a shape as well as chips',
       (tester) async {
     // Tall enough for the whole record: Mara has asked to add you, and the
     // answer to that sits above it.
@@ -53,9 +53,12 @@ void main() {
     }
 
     expect(find.byType(PartsSignature), findsOneWidget);
-    // The chips stay. The shape is what you see first and the number is what
-    // you read second; replacing one with the other would lose the count.
-    expect(find.text('vocal · 9'), findsOneWidget);
+    // The chips stay, and the shape above them still leans toward what
+    // somebody plays most. The number beside each part is gone (17 September
+    // 2026): down a list of strangers it reads as a scoreboard, and the person
+    // who joined this week is bottom of it every time.
+    expect(find.text('vocal'), findsOneWidget);
+    expect(find.text('vocal · 9'), findsNothing);
   });
 
   test('a colour belongs to a person and does not wander', () {

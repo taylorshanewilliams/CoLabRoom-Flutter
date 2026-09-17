@@ -1015,9 +1015,23 @@ class _MusicianCard extends StatelessWidget {
                 ],
                 const SizedBox(height: 8),
 
-                // What they have actually played, first and in the app's own colour.
-                // A recording is a fact; the list below it is a hope, and the two
-                // are never merged into one impression.
+                // What they play, in one shape for everybody.
+                //
+                // These chips used to carry a number each ("drums · 12") and
+                // the card ended with "7 songs · 5 people". Read down a list
+                // of strangers, those numbers are a scoreboard: the person
+                // who joined this week is bottom of it every time, which is
+                // the ladder the ordering exists to avoid (Taylor, 17
+                // September 2026: whichever is best for the brand). The parts
+                // are still ordered by what they have recorded most, because
+                // that is a better guess at what they would want to be asked
+                // for — it is just not a figure anybody has to look at.
+                //
+                // A recording is still a fact and a claim is still a hope, so
+                // the two are never merged: what they have played is solid,
+                // what they say they play is outlined. A card with nothing
+                // recorded simply shows the claim, in the same place and the
+                // same shape, instead of a sentence about having nothing.
                 if (top.isNotEmpty)
                   Wrap(
                     spacing: 6,
@@ -1034,7 +1048,7 @@ class _MusicianCard extends StatelessWidget {
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
-                            '${entry.key} · ${entry.value}',
+                            entry.key,
                             style: TextStyle(
                               color:
                                   entry.key == filter
@@ -1047,31 +1061,34 @@ class _MusicianCard extends StatelessWidget {
                         ),
                     ],
                   )
-                else
-                  Text(
-                    musician.plays.isEmpty
-                        ? 'Has not recorded anything here yet'
-                        : 'Says they play ${musician.plays.join(', ')} · '
-                            'nothing recorded here yet',
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 12,
-                    ),
+                else if (musician.plays.isNotEmpty)
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: <Widget>[
+                      for (final part in musician.plays.take(4))
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: AppColors.line),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            part,
+                            style: TextStyle(
+                              color: part == filter
+                                  ? AppColors.cyan
+                                  : AppColors.muted,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-
-                if (musician.hasRecord) ...<Widget>[
-                  const SizedBox(height: 9),
-                  Text(
-                    '${musician.songsPlayedOn} '
-                    '${musician.songsPlayedOn == 1 ? 'song' : 'songs'} · '
-                    '${musician.peopleWorkedWith} '
-                    '${musician.peopleWorkedWith == 1 ? 'person' : 'people'}',
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 11.5,
-                    ),
-                  ),
-                ],
               ],
             ),
           ),

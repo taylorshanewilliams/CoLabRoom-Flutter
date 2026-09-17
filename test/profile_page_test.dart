@@ -84,13 +84,19 @@ void main() {
     // fold — which looks exactly like the section having been deleted.
     expect(await _reveal(tester, find.text('PLAYED HERE')), findsOneWidget);
     expect(find.text('counted, not claimed'), findsOneWidget);
-    // The count is shown per part rather than as a single score, because
-    // "vocal · 9" is a fact somebody can check and a rating is not. Checked
-    // here, while the section is on screen: the range line under it
-    // made the section tall enough that scrolling on to "Also plays" carries
-    // the chips off the top, and an offstage chip is invisible to `find`.
-    expect(find.text('vocal · 9'), findsOneWidget);
-    expect(find.text('7 songs · with 5 people'), findsOneWidget);
+    // The parts are named, and never tallied. "vocal · 9" and "7 songs ·
+    // with 5 people" were both here, on the argument that a number nobody can
+    // inflate beats a rating. True on one page, and wrong across a list: on
+    // the Open Mic those figures sat side by side down the screen, where they
+    // read as a scoreboard with the newest musician at the bottom of it
+    // (17 September 2026). What somebody plays survives; how much of it they
+    // have done does not. Checked while the section is on screen: the range
+    // line under it makes the section tall enough that scrolling on to "Also
+    // plays" carries the chips off the top, and an offstage chip is invisible
+    // to `find`.
+    expect(find.text('vocal'), findsWidgets);
+    expect(find.text('vocal · 9'), findsNothing);
+    expect(find.text('7 songs · with 5 people'), findsNothing);
     expect(await _reveal(tester, find.text('ALSO PLAYS')), findsOneWidget);
     // Two of them now, and that is the point rather than a regression.
     // "Sounds like" has existed on this page since it was written and never
@@ -131,10 +137,13 @@ void main() {
     expect(find.text('Ladder Of Life'), findsOneWidget);
     expect(find.text('linked, not hosted'), findsOneWidget);
 
-    // And it stays out of the record. Two links sit on this profile and the
-    // counted line still names songs and people only — a showcase never adds
-    // to a number, which is the point of keeping the two sections apart.
-    expect(find.text('11 songs · with 6 people'), findsOneWidget);
+    // And it stays out of what they have played. Two links sit on this
+    // profile, and the "Played here" section still names only the parts they
+    // recorded — a showcase link is a claim, and claims live in their own
+    // section, which is the point of keeping the two apart. There is no total
+    // for a link to inflate any more (17 September 2026).
+    expect(find.text('drums'), findsWidgets);
+    expect(find.text('11 songs · with 6 people'), findsNothing);
   });
 
   testWidgets('your own page tells you nobody can see it', (tester) async {

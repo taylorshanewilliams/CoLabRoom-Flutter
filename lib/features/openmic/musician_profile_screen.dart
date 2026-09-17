@@ -1191,7 +1191,11 @@ class _Body extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    '${entry.key} · ${entry.value}',
+                    // The part, not a tally of it. See the note on the Open
+                    // Mic card: a number beside a part turns a page about
+                    // somebody into a record of how much they have done, and
+                    // the shape above already says what they play most.
+                    entry.key,
                     style: const TextStyle(
                       color: AppColors.text,
                       fontSize: 12.5,
@@ -1200,14 +1204,6 @@ class _Body extends StatelessWidget {
                   ),
                 ),
             ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            '${musician.songsPlayedOn} '
-            '${musician.songsPlayedOn == 1 ? 'song' : 'songs'} · '
-            'with ${musician.peopleWorkedWith} '
-            '${musician.peopleWorkedWith == 1 ? 'person' : 'people'}',
-            style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
           ),
         ],
         // Heard, not typed — and it says where the count came from.
