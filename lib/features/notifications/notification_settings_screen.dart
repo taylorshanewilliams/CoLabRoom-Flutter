@@ -339,6 +339,30 @@ class NotificationSettingsScreen extends StatelessWidget {
                   ),
                   const Divider(height: 1),
                   SwitchListTile(
+                    key: const Key('notify_messages'),
+                    title: const Text('Messages'),
+                    subtitle: const Text(
+                        'When somebody messages you, or says something in one of '
+                        'your rooms. It is in Messages either way.'),
+                    value: preferences.messages,
+                    onChanged: (value) => controller.updateNotificationPreferences(
+                      preferences.copyWith(messages: value),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    key: const Key('notify_calls'),
+                    title: const Text('Calls'),
+                    subtitle: const Text(
+                        'When somebody starts a call in one of your rooms. The '
+                        'room still shows who is in it.'),
+                    value: preferences.calls,
+                    onChanged: (value) => controller.updateNotificationPreferences(
+                      preferences.copyWith(calls: value),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  SwitchListTile(
                     title: const Text('New takes'),
                     subtitle: const Text(
                         "When somebody records a part on a song you're in. "
