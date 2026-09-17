@@ -139,6 +139,11 @@ abstract final class CoLabRoomTheme {
       snackBarTheme: const SnackBarThemeData(
         backgroundColor: AppColors.raised,
         contentTextStyle: TextStyle(color: AppColors.text),
+        // Material 3 paints a snackbar's action in the scheme's inversePrimary,
+        // a dark teal for this seed: "Undo" on a declined invitation read at
+        // 2.67:1 on the raised navy (web preview, 17 September 2026). The
+        // action is the one thing somebody has a few seconds to find.
+        actionTextColor: AppColors.cyan,
         behavior: SnackBarBehavior.floating,
       ),
       navigationBarTheme: const NavigationBarThemeData(
