@@ -229,10 +229,20 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
   bool _internalSync = false;
   Future<void>? _activeSave;
 
+  /// The words as they were when the listener last ran.
+  ///
+  /// A TextEditingController tells its listeners about the cursor as well as
+  /// the text, so a tap into the words used to count as an edit. On 17
+  /// September 2026 one tap into a song with no written lines saved a blank
+  /// line into it, on a song four people share. Only a change to the words
+  /// is an edit.
+  String _seenText = '';
+
   @override
   void initState() {
     super.initState();
     widget.controller.syncProject(widget.project, force: true);
+    _seenText = widget.controller.text.text;
     widget.controller.text.addListener(_changed);
   }
 
@@ -274,7 +284,12 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
   }
 
   void _changed() {
-    if (_internalSync) return;
+    final words = widget.controller.text.text;
+    if (_internalSync || words == _seenText) {
+      _seenText = words;
+      return;
+    }
+    _seenText = words;
     _dirty = true;
     _saveFailed = false;
     // An edit is the writer's answer to a stalled save — possibly deleting
@@ -298,6 +313,13 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
     if (!_dirty) return !_saveFailed;
 
     final lines = widget.controller.text.text.split('\n');
+    // Nothing written into a song that has nothing written: typed and then
+    // deleted again. Saving it would store one blank line.
+    if (widget.project.contributions.isEmpty && lines.every((line) => line.trim().isEmpty)) {
+      _dirty = false;
+      widget.controller.markSaved();
+      return true;
+    }
     _dirty = false;
     final completer = Completer<void>();
     _activeSave = completer.future;
@@ -424,7 +446,15 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
           style: style,
           direction: Directionality.of(context),
         );
-        final minHeight = math.max(constraints.maxHeight, metrics.totalHeight + 28).toDouble();
+        // The scroll view pads its content by 5 above and 86 below (room for
+        // the dictation button). Filling the whole viewport *and* padding it
+        // left 91 px to scroll on every song, and the workspace scrolls to
+        // the end: a short song opened with its first lines, the hint and
+        // the voice-note dots all above the top edge -- a black page where
+        // the words should be, on phones and on the web.
+        const verticalPadding = 5.0 + 86.0;
+        final fill = constraints.hasBoundedHeight ? constraints.maxHeight - verticalPadding : 0.0;
+        final minHeight = math.max(fill, metrics.totalHeight + 28).toDouble();
         return Stack(
           children: <Widget>[
             Positioned.fill(
