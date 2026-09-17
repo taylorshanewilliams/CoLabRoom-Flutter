@@ -1616,6 +1616,7 @@ class SupabaseMusicRepository implements MusicRepository {
     required String profileId,
     String? part,
     String note = '',
+    AskTerms terms = AskTerms.play,
   }) async {
     await client.rpc<dynamic>(
       'ask_musician',
@@ -1624,6 +1625,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'target_person': profileId,
         'in_part': part,
         'in_note': note,
+        'in_terms': terms.wireName,
       },
     );
   }
@@ -1654,6 +1656,7 @@ class SupabaseMusicRepository implements MusicRepository {
               '$part',
           ],
           hasSongSheet: row['has_song_sheet'] as bool? ?? false,
+          terms: AskTerms.fromWireName(row['terms'] as String?),
         ),
     ];
   }
@@ -1989,7 +1992,7 @@ class SupabaseMusicRepository implements MusicRepository {
         // The count of what has been said back rides along, so the chip can
         // say "· 2" without a second round trip per ask.
         .select(
-            'id, project_id, asked_by, part, note, created_at, status, ask_replies(count)')
+            'id, project_id, asked_by, part, note, terms, created_at, status, ask_replies(count)')
         .eq('project_id', projectId)
         .eq('status', 'open')
         .order('created_at', ascending: false);
@@ -2003,6 +2006,7 @@ class SupabaseMusicRepository implements MusicRepository {
     required String projectId,
     String? part,
     String note = '',
+    AskTerms terms = AskTerms.play,
   }) async {
     final cleaned = part?.trim();
     final row = await client
@@ -2014,8 +2018,11 @@ class SupabaseMusicRepository implements MusicRepository {
           // ask, and '' would be a specific ask for a part with no name.
           'part': cleaned == null || cleaned.isEmpty ? null : cleaned,
           'note': note.trim(),
+          // Written once. 0145 refuses an update of this column, so the row
+          // that comes back is the last word on what answering meant.
+          'terms': terms.wireName,
         })
-        .select('id, project_id, asked_by, part, note, created_at, status')
+        .select('id, project_id, asked_by, part, note, terms, created_at, status')
         .single();
     return _ask(row);
   }
@@ -2096,6 +2103,7 @@ class SupabaseMusicRepository implements MusicRepository {
       note: row['note'] as String? ?? '',
       closed: (row['status'] as String? ?? 'open') != 'open',
       replyCount: replyCount,
+      terms: AskTerms.fromWireName(row['terms'] as String?),
     );
   }
 

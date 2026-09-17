@@ -1254,6 +1254,7 @@ class InMemoryMusicRepository implements MusicRepository {
     required String profileId,
     String? part,
     String note = '',
+    AskTerms terms = AskTerms.play,
   }) async {}
 
   @override
@@ -2273,6 +2274,7 @@ class InMemoryMusicRepository implements MusicRepository {
     required String projectId,
     String? part,
     String note = '',
+    AskTerms terms = AskTerms.play,
   }) async {
     final cleaned = part?.trim();
     final ask = SongAsk(
@@ -2282,6 +2284,7 @@ class InMemoryMusicRepository implements MusicRepository {
       createdAt: DateTime.now(),
       part: cleaned == null || cleaned.isEmpty ? null : cleaned,
       note: note.trim(),
+      terms: terms,
     );
     _asks.putIfAbsent(projectId, () => <SongAsk>[]).add(ask);
     return ask;

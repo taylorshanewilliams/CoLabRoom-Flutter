@@ -43,6 +43,40 @@ enum SongOrigin {
       };
 }
 
+/// What answering an ask means.
+///
+/// Every Musician, Same Song, 17 September 2026: co-writing fights are two
+/// honest memories of a session nobody wrote down. One person remembers a
+/// favour, the other remembers a co-write, and neither is lying — the
+/// disagreement was made when the ask was sent, because the ask never said
+/// what answering it meant.
+///
+/// [play] is the default and shows nothing anywhere. Nearly every ask in this
+/// app is somebody wanting bass under a chorus, and small print on all of
+/// those would make the normal case read like a contract. [write] is the one
+/// that has to be said out loud, because it is the one that changes what the
+/// person answering walks away with.
+enum AskTerms {
+  play('play'),
+  write('write');
+
+  const AskTerms(this.wireName);
+
+  /// What `project_asks.terms` holds.
+  final String wireName;
+
+  /// Anything the app does not recognise is playing, which is what every ask
+  /// made before the column existed was.
+  static AskTerms fromWireName(String? value) =>
+      value == 'write' ? AskTerms.write : AskTerms.play;
+
+  /// The one line, in one place, so the asker, the room and the person asked
+  /// are all reading the same sentence. Null for [play], which says nothing.
+  String? get notice => this == AskTerms.write
+      ? "Writing on it: if your part is used, you're a writer."
+      : null;
+}
+
 enum ContributionKind { lyric, note, section }
 
 class ContributionDraft {
@@ -542,6 +576,7 @@ class AskForMe {
     this.bpm,
     this.partsOnIt = const <String>[],
     this.hasSongSheet = false,
+    this.terms = AskTerms.play,
   });
 
   final String id;
@@ -574,6 +609,11 @@ class AskForMe {
   final double? bpm;
   final List<String> partsOnIt;
   final bool hasSongSheet;
+
+  /// What answering it means. Settled when the ask was sent, and carried here
+  /// so the person deciding reads it before they record rather than after
+  /// somebody has used what they played.
+  final AskTerms terms;
 
   String get headline => part == null
       ? '$askedByName asked you to play on $songTitle'
@@ -610,6 +650,7 @@ class SongAsk {
     this.note = '',
     this.closed = false,
     this.replyCount = 0,
+    this.terms = AskTerms.play,
   });
 
   final String id;
@@ -630,6 +671,9 @@ class SongAsk {
   /// draws nothing; the chip only grows a number once somebody has spoken.
   final int replyCount;
 
+  /// What answering it means, chosen when the ask was made and fixed there.
+  final AskTerms terms;
+
   /// Whether this ask names what it wants.
   bool get isSpecific => part != null && part!.trim().isNotEmpty;
 
@@ -649,6 +693,10 @@ class SongAsk {
         note: note,
         closed: closed ?? this.closed,
         replyCount: replyCount ?? this.replyCount,
+        // Not a parameter. Terms are settled when the ask is sent and the
+        // database refuses to change them, so nothing in the app should be
+        // able to hand back a copy that says something else.
+        terms: terms,
       );
 }
 

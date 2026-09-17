@@ -8,6 +8,7 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../services/push_registration.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/ask_terms_picker.dart';
 import 'ask_thread_sheet.dart';
 
 /// What this song is asking for, and whether anybody has heard it.
@@ -112,7 +113,7 @@ class _AskBarState extends State<AskBar> {
 
   Future<void> _ask() async {
     if (_busy) return;
-    final choice = await showModalBottomSheet<String?>(
+    final choice = await showModalBottomSheet<_AskChoice?>(
       context: context,
       showDragHandle: true,
       backgroundColor: AppColors.deepNavy,
@@ -133,14 +134,15 @@ class _AskBarState extends State<AskBar> {
       // which is the open ask. A named part comes back as itself.
       await widget.repository.askFor(
         projectId: widget.projectId,
-        part: choice.isEmpty ? null : choice,
+        part: choice.part.isEmpty ? null : choice.part,
+        terms: choice.terms,
       );
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(choice.isEmpty
+        content: Text(choice.part.isEmpty
             ? 'Asked the room what it needs.'
-            : 'Asked the room for $choice.'),
+            : 'Asked the room for ${choice.part}.'),
       ));
       await _offerNotifications();
     } catch (error) {
@@ -258,63 +260,85 @@ class _AskBarState extends State<AskBar> {
     if (asks == null) return const SizedBox.shrink();
 
     final heard = _nods.length;
+    // One line, once, and only when something on this song is being written
+    // on. The sentence is about the terms rather than about a part, so a
+    // second copy of it under a second chip would say nothing new.
+    final writing = asks.any((ask) => ask.terms == AskTerms.write);
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 2, 12, 10),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          for (final ask in asks)
-            _AskChip(
-              key: Key('ask_chip_${ask.id}'),
-              label: ask.replyCount > 0
-                  ? '${ask.label} · ${ask.replyCount}'
-                  : ask.label,
-              specific: ask.isSpecific,
-              onOpen: () => unawaited(_openThread(ask)),
-              onClose: _busy ? null : () => unawaited(_close(ask)),
-            ),
-          // Labelled, always. The failure this app keeps repeating is a good
-          // feature behind a glyph nobody recognises.
-          TextButton.icon(
-            onPressed: _busy ? null : () => unawaited(_ask()),
-            icon: const Icon(Icons.campaign_outlined, size: 17),
-            label: Text(
-              asks.isEmpty ? 'Ask the room' : 'Ask for something else',
-              style:
-                  const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
-            ),
-            style: TextButton.styleFrom(
-              foregroundColor: AppColors.gold,
-              disabledForegroundColor: AppColors.line,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-            ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: <Widget>[
+              for (final ask in asks)
+                _AskChip(
+                  key: Key('ask_chip_${ask.id}'),
+                  label: ask.replyCount > 0
+                      ? '${ask.label} · ${ask.replyCount}'
+                      : ask.label,
+                  specific: ask.isSpecific,
+                  onOpen: () => unawaited(_openThread(ask)),
+                  onClose: _busy ? null : () => unawaited(_close(ask)),
+                ),
+              // Labelled, always. The failure this app keeps repeating is a
+              // good feature behind a glyph nobody recognises.
+              TextButton.icon(
+                onPressed: _busy ? null : () => unawaited(_ask()),
+                icon: const Icon(Icons.campaign_outlined, size: 17),
+                label: Text(
+                  asks.isEmpty ? 'Ask the room' : 'Ask for something else',
+                  style: const TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w700),
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.gold,
+                  disabledForegroundColor: AppColors.line,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _busy ? null : () => unawaited(_toggleNod()),
+                icon: Icon(
+                  _iHaveNodded
+                      ? Icons.hearing_rounded
+                      : Icons.hearing_outlined,
+                  size: 17,
+                ),
+                // A count, not a score: it says somebody listened, and it
+                // stops being interesting long before it becomes a number to
+                // chase.
+                label: Text(
+                  _iHaveNodded
+                      ? (heard > 1 ? 'Heard it · $heard' : 'Heard it')
+                      : (heard > 0 ? '$heard heard it' : 'Heard it'),
+                  style: const TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w700),
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor:
+                      _iHaveNodded ? AppColors.cyan : AppColors.muted,
+                  disabledForegroundColor: AppColors.line,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+              ),
+            ],
           ),
-          TextButton.icon(
-            onPressed: _busy ? null : () => unawaited(_toggleNod()),
-            icon: Icon(
-              _iHaveNodded
-                  ? Icons.hearing_rounded
-                  : Icons.hearing_outlined,
-              size: 17,
+          if (writing) ...<Widget>[
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Text(
+                AskTerms.write.notice!,
+                key: const Key('ask_bar_writing_terms'),
+                style: const TextStyle(
+                    color: AppColors.muted, fontSize: 11.5, height: 1.35),
+              ),
             ),
-            // A count, not a score: it says somebody listened, and it stops
-            // being interesting long before it becomes a number to chase.
-            label: Text(
-              _iHaveNodded
-                  ? (heard > 1 ? 'Heard it · $heard' : 'Heard it')
-                  : (heard > 0 ? '$heard heard it' : 'Heard it'),
-              style:
-                  const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
-            ),
-            style: TextButton.styleFrom(
-              foregroundColor:
-                  _iHaveNodded ? AppColors.cyan : AppColors.muted,
-              disabledForegroundColor: AppColors.line,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-            ),
-          ),
+          ],
         ],
       ),
     );
@@ -383,6 +407,16 @@ class _AskChip extends StatelessWidget {
   }
 }
 
+/// What the sheet hands back: what the song is asking for, and what
+/// answering it means.
+class _AskChoice {
+  const _AskChoice(this.part, this.terms);
+
+  /// Empty for "I don't know what this needs", which is the open ask.
+  final String part;
+  final AskTerms terms;
+}
+
 /// The sheet that asks what you're asking for.
 ///
 /// The open ask is first, biggest, and needs no decision — because "I don't
@@ -390,7 +424,10 @@ class _AskChip extends StatelessWidget {
 /// control that made you name a part before you could ask would turn the
 /// commonest case into homework. The named parts underneath are one tap each
 /// and no typing, for when you do know.
-class _AskSheet extends StatelessWidget {
+///
+/// The terms sit above both, because tapping a part sends the ask: a control
+/// underneath would be one somebody read after the sheet had already closed.
+class _AskSheet extends StatefulWidget {
   const _AskSheet({
     required this.alreadyAsked,
     required this.openAskStanding,
@@ -398,6 +435,15 @@ class _AskSheet extends StatelessWidget {
 
   final Set<String> alreadyAsked;
   final bool openAskStanding;
+
+  @override
+  State<_AskSheet> createState() => _AskSheetState();
+}
+
+class _AskSheetState extends State<_AskSheet> {
+  /// Playing, until somebody says otherwise. Every ask this app has ever made
+  /// is one of these (Every Musician, Same Song, 17 September 2026).
+  AskTerms _terms = AskTerms.play;
 
   /// The one list, and a bug fixed by using it.
   ///
@@ -411,7 +457,7 @@ class _AskSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -425,10 +471,16 @@ class _AskSheet extends StatelessWidget {
                 fontWeight: FontWeight.w800,
               ),
             ),
+            const SizedBox(height: 12),
+            AskTermsPicker(
+              terms: _terms,
+              onChanged: (chosen) => setState(() => _terms = chosen),
+            ),
             const SizedBox(height: 14),
-            if (!openAskStanding)
+            if (!widget.openAskStanding)
               FilledButton(
-                onPressed: () => Navigator.pop(context, ''),
+                onPressed: () =>
+                    Navigator.pop(context, _AskChoice('', _terms)),
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.green,
                   foregroundColor: AppColors.ink,
@@ -470,9 +522,10 @@ class _AskSheet extends StatelessWidget {
               runSpacing: 8,
               children: <Widget>[
                 for (final part in _parts)
-                  if (!alreadyAsked.contains(part.value))
+                  if (!widget.alreadyAsked.contains(part.value))
                     OutlinedButton(
-                      onPressed: () => Navigator.pop(context, part.value),
+                      onPressed: () =>
+                          Navigator.pop(context, _AskChoice(part.value, _terms)),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.gold,
                         side: BorderSide(

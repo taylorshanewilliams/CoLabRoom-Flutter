@@ -5259,6 +5259,142 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- An ask says whether answering means playing or writing (0145).
+--
+-- Every Musician, Same Song, 17 September 2026: co-writing fights are two
+-- honest memories of a session nobody wrote down. The terms are chosen when
+-- the ask is sent, they travel with the brief to the person deciding, and
+-- nothing afterwards can change them — which is the whole of their value.
+--
+-- In a room of its own, with a musician nobody else in this file has met, so
+-- the one-open-ask-per-person index and the blocks earlier in the file are
+-- both out of the way.
+-- ---------------------------------------------------------------------
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('7e1a5000-0000-0000-0000-000000000145', 'the.co.writer@smoke.test',
+   '{"display_name": "The Co-writer"}');
+
+insert into public.rooms (id, account_id, name)
+values ('7e1a5000-0000-0000-0000-00000000014a', :'writer', 'The Writing Room');
+
+insert into public.room_members (room_id, user_id, display_name, role) values
+  ('7e1a5000-0000-0000-0000-00000000014a', :'writer', 'The Writer', 'owner');
+
+insert into public.projects (id, room_id, account_id, title, created_by) values
+  ('7e1a5000-0000-0000-0000-00000000014b', '7e1a5000-0000-0000-0000-00000000014a',
+   :'writer', 'Two Memories', :'writer'),
+  ('7e1a5000-0000-0000-0000-00000000014c', '7e1a5000-0000-0000-0000-00000000014a',
+   :'writer', 'A Favour', :'writer');
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  written uuid;
+  played uuid;
+begin
+  written := public.ask_musician(
+    '7e1a5000-0000-0000-0000-00000000014b',
+    '7e1a5000-0000-0000-0000-000000000145',
+    'topline', 'Second verse is yours if you want it.', 'write');
+
+  if (select terms from public.project_asks where id = written)
+     is distinct from 'write' then
+    raise exception 'the ask did not carry the terms it was sent with (got %)',
+      (select terms from public.project_asks where id = written);
+  end if;
+
+  -- Four arguments is what every client sent before this migration, and what
+  -- the room's own ask bar still means: playing.
+  played := public.ask_musician(
+    '7e1a5000-0000-0000-0000-00000000014c',
+    '7e1a5000-0000-0000-0000-000000000145',
+    'bass', '');
+
+  if (select terms from public.project_asks where id = played)
+     is distinct from 'play' then
+    raise exception 'an ask made without terms was not a playing ask (got %)',
+      (select terms from public.project_asks where id = played);
+  end if;
+
+  -- Two words, and no third one.
+  begin
+    perform public.ask_musician(
+      '7e1a5000-0000-0000-0000-00000000014b',
+      '7e1a5000-0000-0000-0000-000000000145',
+      'keys', '', 'produce');
+    raise exception 'a third kind of terms was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- Settled when it was sent. The asker is exactly who project_asks_close
+  -- (0049) lets update this row through PostgREST, so this is the person the
+  -- trigger exists to refuse.
+  begin
+    update public.project_asks set terms = 'play' where id = written;
+    raise exception 'the terms of an ask were rewritten afterwards';
+  exception when insufficient_privilege then null;
+  end;
+
+  if (select terms from public.project_asks where id = written)
+     is distinct from 'write' then
+    raise exception 'the terms of an ask changed under an update that failed';
+  end if;
+
+  -- Closing one still works, which is the update this trigger sees most: it
+  -- names status and closed_at and never mentions terms.
+  update public.project_asks
+  set status = 'closed', closed_at = now()
+  where id = played;
+
+  if (select status from public.project_asks where id = played)
+     is distinct from 'closed' then
+    raise exception 'the terms trigger refused an ordinary close';
+  end if;
+end $$;
+
+-- The person asked reads it with the rest of the brief, before answering and
+-- before recording anything.
+reset role;
+set local request.jwt.claims = '{"sub": "7e1a5000-0000-0000-0000-000000000145"}';
+set local role authenticated;
+
+do $$
+declare
+  mine record;
+begin
+  select * into mine from public.asks_for_me()
+  where project_id = '7e1a5000-0000-0000-0000-00000000014b';
+
+  if mine.id is null then
+    raise exception 'the co-writer was shown nothing';
+  end if;
+  if mine.terms is distinct from 'write' then
+    raise exception 'the brief did not say what answering means (got %)',
+      mine.terms;
+  end if;
+
+  -- And the person asked cannot change it either. No update policy admits
+  -- them, so this matches nothing rather than being refused -- the check is
+  -- that the row is untouched afterwards.
+  update public.project_asks set terms = 'play'
+  where project_id = '7e1a5000-0000-0000-0000-00000000014b';
+end $$;
+
+reset role;
+do $$
+begin
+  if (select terms from public.project_asks
+        where project_id = '7e1a5000-0000-0000-0000-00000000014b'
+          and part = 'topline') is distinct from 'write' then
+    raise exception 'the person asked rewrote what answering meant';
+  end if;
+end $$;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;
