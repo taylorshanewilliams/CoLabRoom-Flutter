@@ -351,7 +351,11 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
   }
 
   Future<void> _add() async {
-    final result = await showModalBottomSheet<({String url, String title})>(
+    // The sheet adds the link itself and only closes once it has gone in.
+    // It used to hand the link back and close first, so a link the server
+    // would not take was already gone from the field by the time the reason
+    // came back, in a snackbar behind the sheet (audit, 17 September 2026).
+    final added = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -360,23 +364,14 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
         ),
-        child: const _AddLinkSheet(),
+        child: _AddLinkSheet(
+          onAdd: (url, title) =>
+              widget.repository.addShowcaseLink(url: url, title: title),
+        ),
       ),
     );
-    if (result == null || result.url.isEmpty || !mounted) return;
-    try {
-      await widget.repository
-          .addShowcaseLink(url: result.url, title: result.title);
-      await _load();
-    } catch (error) {
-      if (!mounted) return;
-      _say(reportAndDescribe(
-        error,
-        service: 'app',
-        stage: 'add_showcase_link',
-        route: 'Profile',
-      ));
-    }
+    if (added != true || !mounted) return;
+    await _load();
   }
 
   Future<void> _remove(ShowcaseLink link) async {
@@ -1601,7 +1596,10 @@ class _LinkRow extends StatelessWidget {
 }
 
 class _AddLinkSheet extends StatefulWidget {
-  const _AddLinkSheet();
+  const _AddLinkSheet({required this.onAdd});
+
+  /// Puts the link on the profile, or throws with the reason it cannot.
+  final Future<void> Function(String url, String title) onAdd;
 
   @override
   State<_AddLinkSheet> createState() => _AddLinkSheetState();
@@ -1611,11 +1609,47 @@ class _AddLinkSheetState extends State<_AddLinkSheet> {
   final TextEditingController _url = TextEditingController();
   final TextEditingController _title = TextEditingController();
 
+  /// Why the link did not go in, said under the field it is about.
+  String? _problem;
+  bool _busy = false;
+
   @override
   void dispose() {
     _url.dispose();
     _title.dispose();
     super.dispose();
+  }
+
+  /// Adds the link and closes, or stays open with the words still in the
+  /// field and the reason under them, so fixing it is an edit rather than
+  /// starting over.
+  Future<void> _submit() async {
+    final url = _url.text.trim();
+    if (url.isEmpty || _busy) return;
+    setState(() {
+      _busy = true;
+      _problem = null;
+    });
+    try {
+      await widget.onAdd(url, _title.text.trim());
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        // A host that is not on the list is an answer, not a fault, and is
+        // not worth a report.
+        _problem = isRefusal(error)
+            ? describeForUser(error)
+            : reportAndDescribe(
+                error,
+                service: 'app',
+                stage: 'add_showcase_link',
+                route: 'Profile',
+              );
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override
@@ -1647,13 +1681,21 @@ class _AddLinkSheetState extends State<_AddLinkSheet> {
             ),
             const SizedBox(height: 16),
             TextField(
+              key: const Key('link_url_field'),
               controller: _url,
               autofocus: true,
               keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
+              // A reason about the words that were there is not one about
+              // the words that are there now.
+              onChanged: (_) {
+                if (_problem != null) setState(() => _problem = null);
+              },
+              decoration: InputDecoration(
                 labelText: 'Link',
                 hintText: 'https://…',
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
+                errorText: _problem,
+                errorMaxLines: 5,
               ),
             ),
             const SizedBox(height: 12),
@@ -1666,15 +1708,19 @@ class _AddLinkSheetState extends State<_AddLinkSheet> {
               ),
             ),
             const SizedBox(height: 18),
-            FilledButton(
-              onPressed: () => Navigator.pop(
-                context,
-                (url: _url.text.trim(), title: _title.text.trim()),
+            // Waits for a link, like every other dialog here since #331.
+            ListenableBuilder(
+              listenable: _url,
+              builder: (context, _) => FilledButton(
+                key: const Key('link_add_button'),
+                onPressed: _url.text.trim().isEmpty || _busy
+                    ? null
+                    : () => unawaited(_submit()),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                ),
+                child: const Text('Add it'),
               ),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(50),
-              ),
-              child: const Text('Add it'),
             ),
           ],
         ),

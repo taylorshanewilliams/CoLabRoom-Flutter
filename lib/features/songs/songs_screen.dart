@@ -66,6 +66,41 @@ import '../../services/user_facing_error.dart';
 /// and a set are different things.
 enum _SongsView { songs, rooms, sets }
 
+/// How far past its last row every list on this tab scrolls, so that row
+/// can come out from under the gold record button.
+///
+/// The shell floats a 56 px button 16 px above the tab bar, over the bottom
+/// right corner of whatever is in the tab. The lists here ended 30 px from
+/// the bottom, less than the 72 the button takes up, so the last row stayed
+/// partly under it with the list scrolled as far as it goes, and a list too
+/// short to scroll left whatever sat in that corner covered. The audit found
+/// the waveform and chevron of South Of Midnight under it (17 September
+/// 2026). The button's height and both its margins, so the last row ends a
+/// margin clear of it rather than touching.
+const double kClearOfRecordButton = 56 + kFloatingActionButtonMargin * 2;
+
+/// Whether [room] is the Ideas room the record button made for you, with
+/// nothing in it yet.
+///
+/// The button files a recording that has no home in a room called Ideas,
+/// and makes that room the first time it is pressed (`ideas_catalog`, 0066).
+/// Backing out without a sound sweeps the song up but not the room, so one
+/// brushed thumb left "Ideas · just you · Nothing in here yet" on Home for
+/// good (audit, 17 September 2026). Nobody asked for that room, so Home
+/// leaves it out until something lands in it. The room itself stays: the
+/// next recording goes straight back into it.
+///
+/// Recognised by what `ideas_catalog` writes, the name and the 💡, because a
+/// room somebody names Ideas themselves gets the ordinary ♪ and is a place
+/// they chose to make, empty or not. Yours and only yours, because a room
+/// somebody else is in is somewhere two people share.
+bool isUnusedIdeasRoom(MusicRoom room, {required String me}) =>
+    room.projects.isEmpty &&
+    room.name.trim().toLowerCase() == 'ideas' &&
+    room.icon == '💡' &&
+    room.accountId == me &&
+    room.members.every((member) => member.userId == me);
+
 /// Every song the user can reach, in one place.
 ///
 /// Songs are what this app is for, and until now they had no home of their
@@ -863,7 +898,12 @@ class _SongsScreenState extends State<SongsScreen> {
 
   Widget _library(BuildContext context) {
     final controller = BetaScope.of(context);
-    final rooms = controller.rooms;
+    // Without the Ideas room the record button left behind empty. Every
+    // other room shows, empty or not. See isUnusedIdeasRoom.
+    final me = controller.repository.currentUserId;
+    final rooms = controller.rooms
+        .where((room) => !isUnusedIdeasRoom(room, me: me))
+        .toList(growable: false);
     final searching = _query.trim().isNotEmpty;
 
     final showingSongs = _view == _SongsView.songs;
@@ -1053,7 +1093,7 @@ class _SongsScreenState extends State<SongsScreen> {
             SliverFillRemaining(
               hasScrollBody: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(30, 20, 30, 60),
+                padding: const EdgeInsets.fromLTRB(30, 20, 30, kClearOfRecordButton),
                 child: Center(
                   child: Text(
                     searching
@@ -1071,7 +1111,7 @@ class _SongsScreenState extends State<SongsScreen> {
             )
           else
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 30),
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, kClearOfRecordButton),
               sliver: SliverLayoutBuilder(
                 builder: (context, constraints) {
                   final width = constraints.crossAxisExtent;
@@ -1100,23 +1140,42 @@ class _SongsScreenState extends State<SongsScreen> {
             SliverFillRemaining(
               hasScrollBody: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(30, 20, 30, 60),
+                padding: const EdgeInsets.fromLTRB(30, 20, 30, kClearOfRecordButton),
                 child: Center(
-                  child: Text(
-                    searching
-                        ? 'No sets match “${_query.trim()}”.'
-                        : 'No sets yet.\n\nA set is a running order for one occasion — '
-                            'Friday practice, Saturday’s show — built from songs you '
-                            'already have, in whatever order you’ll play them.',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppColors.muted, height: 1.5),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        searching
+                            ? 'No sets match “${_query.trim()}”.'
+                            : 'No sets yet.\n\nA set is a running order for one occasion — '
+                                'Friday practice, Saturday’s show — built from songs you '
+                                'already have, in whatever order you’ll play them.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: AppColors.muted, height: 1.5),
+                      ),
+                      // The way to make one, where it has just been
+                      // described. The only way in was New > Set at the top
+                      // of the tab, so the empty list explained a set and
+                      // left somebody to find the button (audit, 17
+                      // September 2026).
+                      if (!searching) ...<Widget>[
+                        const SizedBox(height: 18),
+                        FilledButton.icon(
+                          key: const Key('sets_empty_new'),
+                          onPressed: () => unawaited(_newSet()),
+                          icon: const Icon(Icons.add_rounded, size: 20),
+                          label: const Text('New set'),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
             )
           else
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 30),
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, kClearOfRecordButton),
               sliver: SliverLayoutBuilder(
                 builder: (context, constraints) {
                   final width = constraints.crossAxisExtent;
@@ -1176,7 +1235,7 @@ class _SongsScreenState extends State<SongsScreen> {
           SliverFillRemaining(
             hasScrollBody: false,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(30, 20, 30, 60),
+              padding: const EdgeInsets.fromLTRB(30, 20, 30, kClearOfRecordButton),
               child: Center(
                 child: searching
                     ? Text(
@@ -1195,7 +1254,7 @@ class _SongsScreenState extends State<SongsScreen> {
         // Grouped: the library as the places it lives in.
         else if (showingSongs && grouped)
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 18, 30),
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, kClearOfRecordButton),
             sliver: SliverList.list(
               children: <Widget>[
                 for (final room in rooms)
@@ -1216,7 +1275,7 @@ class _SongsScreenState extends State<SongsScreen> {
           )
         else if (showingSongs)
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 30),
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, kClearOfRecordButton),
               sliver: SliverList.separated(
                 itemCount: results.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 9),
@@ -1457,6 +1516,10 @@ class _NewSetDialogState extends State<_NewSetDialog> {
             labelText: 'Name this set',
             hintText: 'Friday practice',
             helperText: 'You’ll pick the songs and their order next.',
+            // Wraps. Left to itself a helper is one line with an ellipsis,
+            // and in a dialog on a phone this one read "You’ll pick the
+            // songs and their or…" (audit, 17 September 2026).
+            helperMaxLines: 3,
           ),
           onSubmitted: (value) {
             if (value.trim().isNotEmpty) Navigator.pop(context, value);
