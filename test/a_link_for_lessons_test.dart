@@ -210,6 +210,7 @@ void main() {
         await tester.tap(find.byKey(const Key('inbox_use_code')));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, code);
+        await tester.pump();
         await tester.tap(find.byKey(const Key('join_code_submit')));
         await tester.pumpAndSettle();
       }
@@ -233,6 +234,7 @@ void main() {
       await tester.tap(find.byKey(const Key('inbox_use_code')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'a1b2-c3d4-e5f6');
+      await tester.pump();
       await tester.tap(find.byKey(const Key('join_code_submit')));
       await tester.pumpAndSettle();
       expect(controller.rooms.length, before);
