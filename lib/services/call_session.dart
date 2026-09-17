@@ -42,6 +42,14 @@ abstract class CallSession extends ChangeNotifier {
   /// no gain riding, and a music bitrate. See [captureFor].
   bool get musicMode;
 
+  /// Why this phone is not sending sound, said to the person: no microphone,
+  /// or one the browser or phone has blocked. Null when it works. A call with
+  /// no microphone is still a call -- you can listen and watch.
+  String? get microphoneProblem => null;
+
+  /// The same for the camera. Null when it works.
+  String? get cameraProblem => null;
+
   Future<void> setMic(bool on);
   Future<void> setCamera(bool on);
   Future<void> flipCamera();
@@ -80,6 +88,26 @@ lk.AudioPublishOptions publishFor({required bool music}) => music
     ? const lk.AudioPublishOptions(encoding: lk.AudioEncoding.presetMusicHighQuality, dtx: false)
     : const lk.AudioPublishOptions(encoding: lk.AudioEncoding.presetSpeech);
 
+/// Why a microphone or camera would not start, in words for the person.
+///
+/// Found on 17 September 2026: Taylor's computer has no microphone, the
+/// browser answered `NotFoundError: Requested device not found`, and the
+/// whole call failed. Now the call goes on and the button says why.
+String deviceProblem(Object error, {required String device}) {
+  final said = error.toString();
+  final name = device[0].toUpperCase() + device.substring(1);
+  if (said.contains('NotAllowedError') || said.contains('Permission') || said.contains('denied')) {
+    return '$name is blocked. Allow it for CoLabRoom, then join again.';
+  }
+  if (said.contains('NotFoundError') || said.contains('not found') || said.contains('OverconstrainedError')) {
+    return 'No $device found on this device. You can still listen and watch.';
+  }
+  if (said.contains('NotReadableError')) {
+    return 'Another app is using the $device.';
+  }
+  return 'The $device would not start.';
+}
+
 /// Who a LiveKit identity belongs to: call-token writes `<user id>:<device>`.
 String personOfIdentity(String identity) => identity.split(':').first;
 
@@ -88,6 +116,8 @@ class LiveKitCallSession extends CallSession {
 
   final lk.Room _room;
   bool _musicMode;
+  String? _microphoneProblem;
+  String? _cameraProblem;
   CallState _state = CallState.connecting;
   List<CallPerson> _people = const <CallPerson>[];
   lk.EventsListener<lk.RoomEvent>? _events;
@@ -111,11 +141,17 @@ class LiveKitCallSession extends CallSession {
       rethrow;
     }
     session._state = CallState.connected;
-    await session._publishMicrophone(on: true);
+    // Neither a microphone nor a camera is needed to be in a call: somebody
+    // on a computer with neither can still listen to a lesson and watch it.
+    try {
+      await session._publishMicrophone(on: true);
+    } catch (error) {
+      session._microphoneProblem = deviceProblem(error, device: 'microphone');
+    }
     try {
       await room.localParticipant?.setCameraEnabled(true);
-    } catch (_) {
-      // No camera, or not allowed: the call goes on with sound.
+    } catch (error) {
+      session._cameraProblem = deviceProblem(error, device: 'camera');
     }
     session._refresh();
     return session;
@@ -180,14 +216,26 @@ class LiveKitCallSession extends CallSession {
   bool get musicMode => _musicMode;
 
   @override
+  String? get microphoneProblem => _microphoneProblem;
+
+  @override
+  String? get cameraProblem => _cameraProblem;
+
+  @override
   Future<void> setMic(bool on) async {
+    if (_microphoneProblem != null) return;
     await _room.localParticipant?.setMicrophoneEnabled(on);
     _refresh();
   }
 
   @override
   Future<void> setCamera(bool on) async {
-    await _room.localParticipant?.setCameraEnabled(on);
+    try {
+      await _room.localParticipant?.setCameraEnabled(on);
+      _cameraProblem = null;
+    } catch (error) {
+      _cameraProblem = deviceProblem(error, device: 'camera');
+    }
     _refresh();
   }
 
@@ -209,6 +257,10 @@ class LiveKitCallSession extends CallSession {
   Future<void> setMusicMode(bool on) async {
     if (on == _musicMode) return;
     _musicMode = on;
+    if (_microphoneProblem != null) {
+      notifyListeners();
+      return;
+    }
     await _publishMicrophone(on: micOn);
     _refresh();
   }
