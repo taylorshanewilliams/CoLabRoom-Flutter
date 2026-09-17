@@ -1,4 +1,5 @@
 import '../../domain/song_analysis_models.dart';
+import 'musician_sheet_logic.dart' show noteAsPlayed;
 
 /// The rules of practising a song, kept out of the screen so they can be
 /// tested without a ticker or a player.
@@ -105,8 +106,9 @@ double? tapTempo(List<DateTime> taps) {
   return clampBpm(60000 / middle);
 }
 
-/// The note under each word of a line: what each word is sung on, as a
-/// singer says it, or null for a word the tracker heard nothing in.
+/// The note under each word of a line: what each word is sung on in the key
+/// this person reads the song in, as a singer says it, or null for a word the
+/// tracker heard nothing in.
 ///
 /// A word runs from its own start to the next word's start (the last one
 /// runs to the end of the line), and its note is the one that fills most
@@ -114,12 +116,20 @@ double? tapTempo(List<DateTime> taps) {
 /// word's first instant. Empty when there is no melody or no word timing:
 /// a line that cannot be lit word by word cannot carry notes word by word
 /// either, and a note under the wrong word would be worse than none.
+///
+/// [transpose] is how far this person has moved the song and [key] is the
+/// song's key before that move, both passed on to noteAsPlayed: the names
+/// follow the chords over the words rather than staying in the recording's
+/// key. Asked for rather than defaulted, because a silent zero here is the
+/// bug itself.
 List<String?> notesForWords(
   Melody? melody,
   List<int>? wordStartsMs,
   int lineEndMs,
-  int wordCount,
-) {
+  int wordCount, {
+  required int transpose,
+  String? key,
+}) {
   if (melody == null || melody.isEmpty || wordStartsMs == null) {
     return const <String?>[];
   }
@@ -134,7 +144,7 @@ List<String?> notesForWords(
     if (end <= start) continue;
     final note = melody.noteWithin(start, end);
     if (note != null) {
-      notes[index] = note.label;
+      notes[index] = noteAsPlayed(note.midi, transpose: transpose, key: key);
       anyNote = true;
     }
   }
@@ -146,9 +156,11 @@ List<String?> notesForWords(
 /// [nothing] when nothing is being heard; [noTarget] when the song has no
 /// note at this moment (a breath, an instrumental bar); otherwise whether
 /// the sung note is the song's, below it, or above it. An octave away
-/// counts as on it: a singer whose voice sits an octave from the
-/// recording's is singing the same note where their voice lives, and
-/// telling them to go up an octave would be wrong twice.
+/// counts as on it: a singer whose voice sits an octave from the note asked
+/// for is singing the same note where their voice lives, and telling them to
+/// go up an octave would be wrong twice. [targetMidi] is the note as this
+/// person reads it -- the caller has already moved it by their transpose --
+/// so a moved song is compared against its own chart, not the recording.
 enum Singing { nothing, noTarget, onIt, low, high }
 
 Singing singingVerdict(int? heardMidi, int? targetMidi) {

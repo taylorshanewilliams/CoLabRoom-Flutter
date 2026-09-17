@@ -52,7 +52,7 @@ void main() {
 
     test('the line gets one per word, the last word running to the line end', () {
       expect(
-        notesForWords(melody, line.wordStartsMs, line.endMs, 4),
+        notesForWords(melody, line.wordStartsMs, line.endMs, 4, transpose: 0),
         <String?>['G4', 'A4', 'A4', 'B4'],
       );
     });
@@ -60,16 +60,28 @@ void main() {
     test('a word with no voice in it is a blank among notes', () {
       final gappy = Melody(notes: <MelodyNote>[_note(1060, 1480, 67), _note(2260, 2900, 71)]);
       expect(
-        notesForWords(gappy, line.wordStartsMs, line.endMs, 4),
+        notesForWords(gappy, line.wordStartsMs, line.endMs, 4, transpose: 0),
         <String?>['G4', null, null, 'B4'],
       );
     });
 
     test('no melody, no word timing, or a mismatch means no notes at all', () {
-      expect(notesForWords(null, line.wordStartsMs, line.endMs, 4), isEmpty);
-      expect(notesForWords(melody, null, line.endMs, 4), isEmpty);
-      expect(notesForWords(melody, const <int>[1000, 1500], line.endMs, 4), isEmpty);
-      expect(notesForWords(const Melody(notes: <MelodyNote>[]), line.wordStartsMs, line.endMs, 4), isEmpty);
+      expect(notesForWords(null, line.wordStartsMs, line.endMs, 4, transpose: 0), isEmpty);
+      expect(notesForWords(melody, null, line.endMs, 4, transpose: 0), isEmpty);
+      expect(
+        notesForWords(melody, const <int>[1000, 1500], line.endMs, 4, transpose: 0),
+        isEmpty,
+      );
+      expect(
+        notesForWords(
+          const Melody(notes: <MelodyNote>[]),
+          line.wordStartsMs,
+          line.endMs,
+          4,
+          transpose: 0,
+        ),
+        isEmpty,
+      );
     });
   });
 

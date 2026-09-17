@@ -83,8 +83,9 @@ class MusicianChordLyricLine extends StatelessWidget {
   ///
   /// With it, and with word timing on the line, each word carries the note
   /// it is sung on underneath -- G4, A4, A4, B4 -- the way the chords sit
-  /// above. Only ever set on the active line in Perform: a page of notes
-  /// under every word is a score, and this is a sheet.
+  /// above, and in the same key as them: the names move with [transpose].
+  /// Only ever set on the active line in Perform: a page of notes under
+  /// every word is a score, and this is a sheet.
   final Melody? melody;
 
   /// Where the song is, for the line being sung.
@@ -121,7 +122,14 @@ class MusicianChordLyricLine extends StatelessWidget {
         ? wordAt(line.wordStartsMs, elapsedMs, words.length)
         : null;
     final notes = liveMode && active
-        ? notesForWords(melody, line.wordStartsMs, line.endMs, words.length)
+        ? notesForWords(
+            melody,
+            line.wordStartsMs,
+            line.endMs,
+            words.length,
+            transpose: transpose,
+            key: musicalKey,
+          )
         : const <String?>[];
     return Padding(
       padding: EdgeInsets.symmetric(vertical: liveMode ? 3 : 4),

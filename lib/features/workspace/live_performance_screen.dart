@@ -14,6 +14,7 @@ import '../../domain/practice_mark.dart';
 import '../../domain/song_analysis_models.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../services/music_reference.dart' show noteInKey;
 import '../../services/pitch.dart';
 import '../../services/pitch_listener.dart';
 import '../../services/play_along.dart';
@@ -1329,12 +1330,25 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     // Nor does a sheet with its chords turned off: somebody reading only the
     // words has said they do not want the harmony, and a key over bare
     // lyrics is a label for nothing (review, 17 September 2026).
+    //
+    // The badge deliberately follows the chord row and not the note names
+    // under the words, which are keyed too and are drawn whenever a line is
+    // being sung. Naming the key would mean a badge appearing and vanishing
+    // under the title as synced mode starts and stops, which is worse than
+    // an unnamed key -- and the transpose is this person's own saved choice,
+    // so it is not news to them. Taylor's call if it should say it anyway.
     final playedKey = songKey == null ||
             songKey.isEmpty ||
             _source != LiveLyricSource.songSheet ||
             !_showChords
         ? null
         : keyAsPlayed(songKey, _transpose);
+    // The key the chords and the note names are spelled by: the song's own
+    // key before the move, which is what chordAsPlayed and noteAsPlayed both
+    // take. Not playedKey above -- that one is the badge under the title, and
+    // it is absent when there is no chord row to label, while a note under a
+    // word is still spelled by the key the singer is in.
+    final spellingKey = songKey == null || songKey.isEmpty ? null : songKey;
     // If a layout-affecting input changed since the last measurement, the
     // line offsets used by synced-scroll need to be recaptured post-frame.
     // Chords on or off is one: it adds or removes a row over every line, and
@@ -1421,7 +1435,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                             compact: landscape,
                             showChords: _showChords,
                             transpose: _transpose,
-                            musicalKey: widget.analysis?.reference?.musicalKey,
+                            musicalKey: spellingKey,
                             active: _mode == LiveScrollMode.synced &&
                                 _lineKey(i) == _activeLineKey,
                             elapsedMs: _mode == LiveScrollMode.synced &&
@@ -1499,6 +1513,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         onRate: _setRate,
                         onSeek: _onSeek,
                         melody: _melody,
+                        // Sing along compares against the tune in the key
+                        // this person reads the song in, not the recording's.
+                        transpose: _transpose,
+                        musicalKey: spellingKey,
                         singing: _singing,
                         onSing: _toggleSinging,
                         heard: _singing ? _ear?.reading.value : null,
@@ -1959,6 +1977,8 @@ class _LiveControls extends StatelessWidget {
     required this.onRate,
     required this.onSeek,
     this.melody,
+    required this.transpose,
+    this.musicalKey,
     this.singing = false,
     this.onSing,
     this.heard,
@@ -1984,6 +2004,12 @@ class _LiveControls extends StatelessWidget {
   /// The tune, when the recording has one; whether the singer is singing
   /// along; what the ear hears; and why it could not open, if it could not.
   final Melody? melody;
+
+  /// How far this person has moved the song, and the song's key before the
+  /// move: the tune is asked for in the key they are reading in.
+  final int transpose;
+  final String? musicalKey;
+
   final bool singing;
   final VoidCallback? onSing;
   final PitchReading? heard;
@@ -2147,6 +2173,8 @@ class _LiveControls extends StatelessWidget {
                 _YouAndTheSong(
                   heard: heard,
                   target: melody?.noteAt(elapsed.inMilliseconds),
+                  transpose: transpose,
+                  musicalKey: musicalKey,
                   error: singError,
                 ),
               ],
@@ -2238,21 +2266,42 @@ class _LiveControls extends StatelessWidget {
 /// The singer's note beside the song's, and one word about the distance.
 ///
 /// Two notes, the same size, because neither is the answer key: the song's
-/// is where the recording went, the singer's is where they are, and a
-/// voice an octave from the recording's is on the note (see singingVerdict).
+/// is where the recording went as this person reads it, the singer's is
+/// where they are, and a voice an octave from that note is on it (see
+/// singingVerdict).
 /// Green when they agree, gold with a direction when they do not, and the
 /// hint spells out the one thing that makes this honest without headphones:
 /// the microphone hears the song too.
+///
+/// The song's note is asked for where this person is playing it, not where it
+/// was recorded: somebody who moved the song down two to fit their voice was
+/// told to sing the recording's pitch, two semitones from every chord in
+/// front of them. Both notes are spelled by the key that lands in, so the
+/// same pitch cannot read B♭ on one side of the row and A♯ on the other.
 class _YouAndTheSong extends StatelessWidget {
-  const _YouAndTheSong({required this.heard, required this.target, this.error});
+  const _YouAndTheSong({
+    required this.heard,
+    required this.target,
+    required this.transpose,
+    this.musicalKey,
+    this.error,
+  });
 
   final PitchReading? heard;
   final MelodyNote? target;
+
+  /// Semitones this person has moved the song, and the song's key before the
+  /// move.
+  final int transpose;
+  final String? musicalKey;
   final String? error;
 
   @override
   Widget build(BuildContext context) {
-    final verdict = singingVerdict(heard?.midi, target?.midi);
+    final targetMidi = target == null ? null : target!.midi + transpose;
+    final readingKey =
+        musicalKey == null ? null : keyAsPlayed(musicalKey!, transpose);
+    final verdict = singingVerdict(heard?.midi, targetMidi);
     final accent = switch (verdict) {
       Singing.onIt => AppColors.green,
       Singing.low || Singing.high => AppColors.gold,
@@ -2272,7 +2321,7 @@ class _YouAndTheSong extends StatelessWidget {
               const Text('You', style: TextStyle(color: AppColors.muted, fontSize: 10.5, fontWeight: FontWeight.w700)),
               const SizedBox(width: 6),
               Text(
-                heard?.label ?? '—',
+                heard == null ? '—' : noteInKey(heard!.midi, readingKey),
                 key: const Key('live_you_note'),
                 style: noteStyle.copyWith(color: heard == null ? AppColors.muted : accent),
               ),
@@ -2282,7 +2331,7 @@ class _YouAndTheSong extends StatelessWidget {
               const Text('Song', style: TextStyle(color: AppColors.muted, fontSize: 10.5, fontWeight: FontWeight.w700)),
               const SizedBox(width: 6),
               Text(
-                target?.label ?? '—',
+                targetMidi == null ? '—' : noteInKey(targetMidi, readingKey),
                 key: const Key('live_song_note'),
                 style: noteStyle.copyWith(color: target == null ? AppColors.muted : AppColors.gold),
               ),
