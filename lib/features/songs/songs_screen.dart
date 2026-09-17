@@ -88,7 +88,8 @@ const double kClearOfRecordButton = 56 + kFloatingActionButtonMargin * 2;
 /// brushed thumb left "Ideas · just you · Nothing in here yet" on Home for
 /// good (audit, 17 September 2026). Nobody asked for that room, so Home
 /// leaves it out until something lands in it. The room itself stays: the
-/// next recording goes straight back into it.
+/// next recording goes straight back into it. It keeps its name too, so a
+/// new room called Ideas opens this one rather than saying the name is taken.
 ///
 /// Recognised by what `ideas_catalog` writes, the name and the 💡, because a
 /// room somebody names Ideas themselves gets the ordinary ♪ and is a place
@@ -786,7 +787,15 @@ class _SongsScreenState extends State<SongsScreen> {
   /// round.
   Future<void> _newRoom() async {
     final controller = BetaScope.of(context, listen: false);
-    final room = await showCreateRoomDialog(context, controller);
+    final me = controller.repository.currentUserId;
+    final room = await showCreateRoomDialog(
+      context,
+      controller,
+      // The empty Ideas room this tab leaves out still holds the name Ideas.
+      unseen: controller.rooms
+          .where((room) => isUnusedIdeasRoom(room, me: me))
+          .toList(growable: false),
+    );
     if (room == null || !mounted) return;
     _openRoom(room);
   }

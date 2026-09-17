@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:colabroom/app/beta_scope.dart';
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/domain/music_models.dart';
+import 'package:colabroom/domain/name_policy.dart';
 import 'package:colabroom/features/lessons/lesson_link_screen.dart';
 import 'package:colabroom/features/openmic/musician_profile_screen.dart';
 import 'package:colabroom/features/openmic/open_mic_screen.dart';
+import 'package:colabroom/features/rooms/room_detail_screen.dart';
 import 'package:colabroom/features/songs/songs_screen.dart';
 import 'package:colabroom/services/set_aside.dart';
 import 'package:colabroom/widgets/app_surface.dart';
@@ -69,6 +73,19 @@ Future<void> _home(WidgetTester tester, MusicBetaController controller) async {
     ),
   ));
   await tester.pump(const Duration(milliseconds: 300));
+}
+
+/// Links that go in when the test says so, as they do on a slow connection.
+class _SlowLinks extends InMemoryMusicRepository {
+  _SlowLinks() : super.from(InMemoryMusicRepository.seeded());
+
+  final Completer<void> landing = Completer<void>();
+
+  @override
+  Future<void> addShowcaseLink({required String url, String title = ''}) async {
+    await landing.future;
+    await super.addShowcaseLink(url: url, title: title);
+  }
 }
 
 /// Whether the helper under a field can wrap, and did not have to be cut
@@ -169,6 +186,44 @@ void main() {
       expect(find.text('Ideas'), findsWidgets,
           reason: 'with a song in it, it is a place like any other');
       expect(find.text('Hummed on the bus'), findsWidgets);
+    });
+
+    testWidgets('a new room called Ideas opens the one left out, rather than '
+        'being told the name is taken', (tester) async {
+      await _phone(tester);
+      final controller = await _controller();
+      final idea = await controller.startIdea();
+      await controller.repository.discardIfUntouched(idea.id);
+      await controller.load();
+      final ideas = controller.rooms.singleWhere((room) => room.name == 'Ideas');
+      await _home(tester, controller);
+
+      await tester.tap(find.byKey(const Key('songs_new_button')));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const Key('songs_new_room')));
+      await _arrive(tester);
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(TextField),
+        ),
+        'ideas',
+      );
+      await tester.pump();
+      await tester.tap(find.text('Create room'));
+      await _arrive(tester);
+
+      expect(find.byType(SnackBar), findsNothing,
+          reason: 'room names are unique per account, and the room holding '
+              'this one is nowhere on Home to be found');
+      expect(
+        tester.widget<RoomDetailScreen>(find.byType(RoomDetailScreen)).roomId,
+        ideas.id,
+      );
+      expect(
+        controller.rooms.where((room) => NamePolicy.same(room.name, 'Ideas')),
+        hasLength(1),
+      );
     });
 
     test('only the one the app made, only while it is empty and yours alone',
@@ -305,9 +360,10 @@ void main() {
   });
 
   group('linking something you made', () {
-    Future<InMemoryMusicRepository> openSheet(WidgetTester tester) async {
+    Future<InMemoryMusicRepository> openSheet(WidgetTester tester,
+        [InMemoryMusicRepository? given]) async {
       await _phone(tester, size: const Size(390, 844));
-      final repository = InMemoryMusicRepository.seeded();
+      final repository = given ?? InMemoryMusicRepository.seeded();
       await tester.pumpWidget(MaterialApp(
         theme: CoLabRoomTheme.dark(),
         home: MusicianProfileScreen(
@@ -377,6 +433,58 @@ void main() {
       expect(
           (await repository.loadShowcase(repository.currentUserId)).length,
           before + 1);
+    });
+
+    /// Types a link, taps Add it, and swipes the sheet away while the link
+    /// is still on its way.
+    Future<void> addThenSwipeAway(WidgetTester tester) async {
+      await tester.enterText(find.byKey(const Key('link_url_field')),
+          'https://soundcloud.com/taylor/slow-song');
+      await tester.enterText(
+          find.widgetWithText(TextField, 'What to call it (optional)'),
+          'Slow song');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('link_add_button')));
+      await tester.pump();
+      await tester.fling(
+          find.text('Link something you made'), const Offset(0, 600), 2000);
+      await _arrive(tester);
+      await _arrive(tester);
+      expect(find.text('Link something you made'), findsNothing,
+          reason: 'swiped away before the link went in');
+    }
+
+    testWidgets('a link that goes in after its sheet was swiped away still '
+        'shows up', (tester) async {
+      final repository = _SlowLinks();
+      await openSheet(tester, repository);
+      await addThenSwipeAway(tester);
+      expect(find.text('Slow song'), findsNothing);
+
+      repository.landing.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Slow song'), findsOneWidget,
+          reason: 'it went in, so the page shows it, rather than leaving '
+              'somebody to add it a second time');
+    });
+
+    testWidgets('a link that fails after its sheet was swiped away still '
+        'says so', (tester) async {
+      final repository = _SlowLinks();
+      await openSheet(tester, repository);
+      await addThenSwipeAway(tester);
+
+      repository.landing.completeError(TimeoutException('insert'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byType(SnackBar), findsOneWidget,
+          reason: 'with the sheet gone there is no field to say it under, '
+              'and saying nothing is how failures go unseen');
+      expect(find.textContaining('That took too long'), findsOneWidget);
+      expect(find.text('Slow song'), findsNothing);
     });
   });
 }

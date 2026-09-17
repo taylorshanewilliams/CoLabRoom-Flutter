@@ -367,11 +367,27 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
         child: _AddLinkSheet(
           onAdd: (url, title) =>
               widget.repository.addShowcaseLink(url: url, title: title),
+          onSettledAfterClose: _addSettledAfterClose,
         ),
       ),
     );
     if (added != true || !mounted) return;
     await _load();
+  }
+
+  /// An add the sheet started and was swiped away before it finished.
+  ///
+  /// Closing the sheet does not call the insert back. The link can still go
+  /// in with nothing on this page reloading to show it, so it gets added a
+  /// second time; or it fails with nobody left to say so. So the page picks
+  /// up whichever one happened (review, 17 September 2026).
+  void _addSettledAfterClose(String? problem) {
+    if (!mounted) return;
+    if (problem == null) {
+      unawaited(_load());
+    } else {
+      _say(problem);
+    }
   }
 
   Future<void> _remove(ShowcaseLink link) async {
@@ -1596,10 +1612,17 @@ class _LinkRow extends StatelessWidget {
 }
 
 class _AddLinkSheet extends StatefulWidget {
-  const _AddLinkSheet({required this.onAdd});
+  const _AddLinkSheet({
+    required this.onAdd,
+    required this.onSettledAfterClose,
+  });
 
   /// Puts the link on the profile, or throws with the reason it cannot.
   final Future<void> Function(String url, String title) onAdd;
+
+  /// Told how an add ended when the sheet was closed before it did: null if
+  /// the link went in, otherwise the reason it did not.
+  final void Function(String? problem) onSettledAfterClose;
 
   @override
   State<_AddLinkSheet> createState() => _AddLinkSheetState();
@@ -1630,23 +1653,33 @@ class _AddLinkSheetState extends State<_AddLinkSheet> {
       _busy = true;
       _problem = null;
     });
+    // Held before the wait, because the sheet can be swiped away during it.
+    final afterClose = widget.onSettledAfterClose;
     try {
       await widget.onAdd(url, _title.text.trim());
-      if (mounted) Navigator.pop(context, true);
+      if (mounted) {
+        Navigator.pop(context, true);
+      } else {
+        afterClose(null);
+      }
     } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        // A host that is not on the list is an answer, not a fault, and is
-        // not worth a report.
-        _problem = isRefusal(error)
-            ? describeForUser(error)
-            : reportAndDescribe(
-                error,
-                service: 'app',
-                stage: 'add_showcase_link',
-                route: 'Profile',
-              );
-      });
+      // Worked out, and a real fault reported, before asking whether the
+      // sheet is still here: a failure nobody is looking at still happened.
+      // A host that is not on the list is an answer, not a fault, and is not
+      // worth a report.
+      final problem = isRefusal(error)
+          ? describeForUser(error)
+          : reportAndDescribe(
+              error,
+              service: 'app',
+              stage: 'add_showcase_link',
+              route: 'Profile',
+            );
+      if (!mounted) {
+        afterClose(problem);
+        return;
+      }
+      setState(() => _problem = problem);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
