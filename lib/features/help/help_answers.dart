@@ -43,7 +43,8 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
         'choosing where it lives. You can do both afterwards, once there is '
         'something worth filing.\n\n'
         'To add a recording to a song you already have, open it and press '
-        'Record on the toolbar.',
+        'Record on the toolbar. Once the song has a recording, the same button '
+        'says New take.',
     keywords: <String>[
       'record', 'recording', 'microphone', 'mic', 'capture', 'sing', 'play',
       'new', 'start', 'idea',
@@ -52,8 +53,9 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
   HelpAnswer(
     id: 'take',
     question: 'How do I add a take to a song?',
-    answer: 'Open the song and press Record on the toolbar. That adds a new '
-        'take alongside the ones already there.\n\n'
+    answer: 'Open the song and press New take on the toolbar (Record, if '
+        'the song has no recording yet). That adds a take alongside the ones '
+        'already there.\n\n'
         'A take stays private to you until you share it. Press Takes to see '
         'all of them and share the one you want the room to hear — nothing '
         'you have not shared is ever audible to anybody, including on the '
@@ -152,8 +154,8 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
     answer: 'A room is who can see a set of songs — your band, a side '
         'project, or just the songs you write on your own. Every song lives '
         'in one, and the room decides who hears it.\n\n'
-        'Make one from Your music: press New song and create a room without '
-        'leaving the flow, or open the rooms list and press New room.',
+        'Make one from Your music: press New, then Room. Or press New, then '
+        'Song, and make the room on the way.',
     keywords: <String>[
       'room', 'rooms', 'band', 'group', 'folder', 'catalog', 'organise',
       'organize', 'make', 'create', 'new',
@@ -194,9 +196,10 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
         'make. "Guitarist" does not say whether you play metal or jazz; this '
         'does.\n\n'
         'Nobody is ranked by it. It moves you sideways towards people in the '
-        'same corner, never up or down past anybody. Set it from your '
-        'profile, under the tuning icon. Five words at most — fewer and '
-        'sharper works better than listing everything.',
+        'same corner, never up or down past anybody. Set it in Account → Your '
+        'Open Mic profile → Open Mic settings (the sliders in the corner). Five '
+        'words at most — fewer and sharper works better than listing '
+        'everything.',
     keywords: <String>[
       'sounds', 'like', 'genre', 'style', 'taste', 'tags', 'profile',
       'describe', 'match', 'matching',
@@ -205,9 +208,9 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
   HelpAnswer(
     id: 'discoverable',
     question: 'How do I show up in the Open Mic, or stop showing up?',
-    answer: 'Your profile, under the tuning icon in the corner. It is off '
-        'until you turn it on — nobody appears in the Open Mic without '
-        'choosing to.\n\n'
+    answer: 'Account → Your Open Mic profile → Open Mic settings (the sliders '
+        'in the corner), then List me in Open Mic. It is off until you turn it '
+        'on — nobody appears in the Open Mic without choosing to.\n\n'
         'The same place decides who can see your city: nobody, only people '
         'you have made something with, or anybody browsing.',
     keywords: <String>[
@@ -218,7 +221,8 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
   HelpAnswer(
     id: 'sets',
     question: 'How do I make a set list?',
-    answer: 'In Your music, switch from Songs to Sets and press New set.\n\n'
+    answer: 'In Your music, press New, then Set. Your sets are under Sets, '
+        'beside Songs and Rooms.\n\n'
         'A set is a running order for one occasion — Friday practice, '
         "Saturday's show — built from songs you already have, in whatever "
         'order you will play them.',
@@ -243,9 +247,10 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
   HelpAnswer(
     id: 'report',
     question: 'Somebody posted something they should not have.',
-    answer: 'Report it. There is a flag on a song\'s public page, on a '
-        'person\'s profile under the More menu, and on a room under the same '
-        'menu.\n\n'
+    answer: 'Report it. There is a flag on a song\'s public page; on a '
+        'person\'s profile, Report is under the ⋮ menu in the corner; on a '
+        'room, Report this room is under its ⋮ menu; and in a call, press on '
+        'the person.\n\n'
         'You can also block somebody from their profile — you stop seeing '
         'each other completely, in both directions, and they are not told.\n\n'
         'Somebody reads every report.',
@@ -315,6 +320,122 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
     keywords: <String>[
       'take', 'back', 'delete', 'unsend', 'remove', 'edit', 'message',
       'undo', 'sent',
+    ],
+  ),
+  // The cards below were missing until the audit of 17 September 2026:
+  // "how do I start a video call" was answered with how to record, because
+  // "start" is on the record card and nothing mentioned a call.
+  HelpAnswer(
+    id: 'calls',
+    question: 'How do I call my room?',
+    answer: 'Open the room and press Call the room. Everybody in the room '
+        'is told, and joins from the room page, where it says who is already '
+        'in.\n\n'
+        'Calls are for people 18 and over for now: the first time, you say the '
+        'month and year you were born, once. Calls are never recorded. No '
+        'microphone or camera? You can still join, listen and watch. Playing '
+        'together? Press Music mode, which stops the phone cleaning up the '
+        'sound as if it were speech.',
+    keywords: <String>[
+      'call', 'calls', 'video', 'facetime', 'zoom', 'camera', 'ring',
+      'remote', 'webcam', 'rehearse',
+    ],
+  ),
+  HelpAnswer(
+    id: 'your-code',
+    question: 'How do I add somebody I just met?',
+    answer: 'Show them your code: Account → Your code, for meeting people, or '
+        'the pencil on Messages. Their phone camera opens your card and they '
+        'ask to add you; scan theirs back, or press Add back, and you are '
+        'connected.\n\n'
+        'Camera will not scan? Type their code (it looks like k7m2-9xqp) under '
+        'Your code, or into Join with a code in the inbox.',
+    keywords: <String>[
+      'scan', 'qr', 'meet', 'met', 'gig', 'concert', 'connect', 'add',
+      'friend',
+    ],
+  ),
+  HelpAnswer(
+    id: 'join-code',
+    question: 'Somebody gave me a code or a link. Where does it go?',
+    answer: 'Open the link and it takes you there. To type or paste it '
+        'instead: the bell, then the key in the corner — Join with a code. It '
+        'takes an invitation, a teacher\'s lesson code, or somebody\'s own '
+        'code.',
+    keywords: <String>[
+      'code', 'link', 'paste', 'invitation', 'joining',
+    ],
+  ),
+  HelpAnswer(
+    id: 'lessons',
+    question: 'How do I teach lessons in CoLabRoom?',
+    answer: 'Messages → the pencil → Teach: a lesson link. You get one link and '
+        'one QR code, which prints as a poster. Every student who opens it '
+        'gets their own room with you, private to the two of you.\n\n'
+        'In a lesson, open the song, press Perform, then Lead: your student '
+        'presses Follow and their sheet moves with yours. What you worked on, '
+        'and at what speed, waits on their Home afterwards, under Practise.',
+    keywords: <String>[
+      'teach', 'teacher', 'lesson', 'lessons', 'student', 'students',
+      'pupil', 'tutor', 'poster',
+    ],
+  ),
+  HelpAnswer(
+    id: 'follow',
+    question: 'How do we all see the same place in a song?',
+    answer: 'Open the song on each phone and press Perform. One of you presses '
+        'Lead; everybody else sees "… is leading this song" and presses '
+        'Follow. The place in the song, the part on repeat and the speed then '
+        'move for everybody together.',
+    keywords: <String>[
+      'follow', 'lead', 'leading', 'together', 'same', 'sync', 'scroll',
+      'perform', 'along',
+    ],
+  ),
+  HelpAnswer(
+    id: 'practise',
+    question: 'Where is the practice my teacher left?',
+    answer: 'On Home, in the cards at the top: "From …" with the song, the '
+        'parts and the speed, and Practise. It opens the song at those parts, '
+        'at that speed. Close the card when you are done with it.',
+    keywords: <String>[
+      'practise', 'practice', 'homework', 'speed', 'slow', 'slower',
+      'repeat', 'loop', 'teacher', 'left',
+    ],
+  ),
+  HelpAnswer(
+    id: 'tuner',
+    question: 'Is there a tuner or a metronome?',
+    answer: 'Both, where you record: press Record (or New take) on a song and '
+        'they are under the big microphone. Takes also has a metronome switch '
+        'at the song\'s tempo.',
+    keywords: <String>[
+      'tuner', 'tune', 'tuning', 'metronome', 'click', 'beat',
+    ],
+  ),
+  HelpAnswer(
+    id: 'notifications',
+    question: 'How do I stop notifications, or get them?',
+    answer: 'Account → Notifications. Each kind has its own switch: invites, '
+        'answers to your invites, being asked, messages, calls and new takes. '
+        'Turning one off stops the announcement, not the thing: a message is '
+        'still in Messages.\n\n'
+        'Nothing arriving on your phone at all? The same screen says whether '
+        'this phone can be reached, and what to change if not.',
+    keywords: <String>[
+      'notifications', 'notify', 'alerts', 'push', 'buzz', 'mute', 'quiet',
+      'silence', 'annoying',
+    ],
+  ),
+  HelpAnswer(
+    id: 'web',
+    question: 'Can I use CoLabRoom on a computer?',
+    answer: 'Yes: app.colabroom.com, signed in with the same account. Your '
+        'rooms, songs, messages and calls are all there, and on a big screen '
+        'the song sits beside the list.',
+    keywords: <String>[
+      'computer', 'laptop', 'desktop', 'browser', 'web', 'website', 'pc',
+      'mac', 'windows', 'chrome',
     ],
   ),
   HelpAnswer(
