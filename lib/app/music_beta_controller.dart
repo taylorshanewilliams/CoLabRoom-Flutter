@@ -98,6 +98,20 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// leaves the inbox and comes back before it is sent.
   final Set<String> _declinesHeld = <String>{};
 
+  /// Declines that have gone out, kept out of the lists for as long as this
+  /// controller lives.
+  ///
+  /// Sending reloads, but a reload already running when the decline goes out
+  /// makes that reload a no-op and can finish with the invitation still in
+  /// it. Letting go of the hold alone then brought a closed card back with a
+  /// live No thanks that could only fail (review of the audit fixes, 17
+  /// September 2026). Keeping the id costs nothing: a closed invitation is
+  /// never reopened, and inviting somebody again makes a new one.
+  final Set<String> _declinesSent = <String>{};
+
+  bool _answeredNo(String inviteId) =>
+      _declinesHeld.contains(inviteId) || _declinesSent.contains(inviteId);
+
   bool _disposed = false;
 
   /// Takes an invitation out of every list while its decline can be undone.
@@ -124,6 +138,8 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     if (_disposed || !_declinesHeld.contains(inviteId)) return;
     try {
       await send();
+      // Before the hold goes, so the card is never back for a frame.
+      _declinesSent.add(inviteId);
     } finally {
       releaseDecline(inviteId);
     }
@@ -131,7 +147,7 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
 
   List<MusicRoom> get rooms => List<MusicRoom>.unmodifiable(_rooms);
   List<BetaInvite> get invites => List<BetaInvite>.unmodifiable(
-      _invites.where((invite) => !_declinesHeld.contains(invite.id)));
+      _invites.where((invite) => !_answeredNo(invite.id)));
 
   /// Somebody asking you by name to play on one of their songs. Kept beside
   /// invitations because it is the same kind of thing to a person — a request
@@ -142,8 +158,8 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// Somebody inviting you into a whole room of theirs, by name rather
   /// than by emailing you a code.
   List<RoomInviteForMe> get roomInvitesForMe =>
-      List<RoomInviteForMe>.unmodifiable(_roomInvitesForMe
-          .where((invite) => !_declinesHeld.contains(invite.id)));
+      List<RoomInviteForMe>.unmodifiable(
+          _roomInvitesForMe.where((invite) => !_answeredNo(invite.id)));
 
   /// A slice of what is going on outside your own rooms.
   ///

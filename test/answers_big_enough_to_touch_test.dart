@@ -11,15 +11,20 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// "Clear all" under the strip on Home was shrink-wrapped to its text, 61x17
 /// on a desk and 74x22 at 1.3x text, under even the 24-pixel floor in WCAG
-/// 2.2 SC 2.5.8 (audit, 17 September 2026). It now ends the row instead, as
-/// tall as the cards. Join and No thanks on an invitation are padded to 48
-/// on a phone, but Material trims that to 40 on a desk. Both are checked on a
+/// 2.2 SC 2.5.8 (audit, 17 September 2026). It is at least 24 now and still
+/// in sight under the row; the full 48 costs a layout rule, and which one is
+/// Taylor's call. Join and No thanks on an invitation are padded to 48 on a
+/// phone, but Material trims that to 40 on a desk. Both are checked on a
 /// phone and on a desk, because the desk is where the web build is used.
 final _phoneAndDesk = TargetPlatformVariant(
     <TargetPlatform>{TargetPlatform.android, TargetPlatform.windows});
 
-Future<void> _pump(WidgetTester tester, Widget home) async {
-  tester.view.physicalSize = const Size(1280, 1400);
+Future<void> _pump(
+  WidgetTester tester,
+  Widget home, {
+  Size size = const Size(1280, 1400),
+}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
 
@@ -35,7 +40,8 @@ Future<void> _pump(WidgetTester tester, Widget home) async {
 }
 
 void main() {
-  testWidgets('Clear all is touched at 48 pixels tall', (tester) async {
+  testWidgets('Clear all is touched at 24 pixels tall, in sight',
+      (tester) async {
     WaitingItem item(String id) => WaitingItem(
           id: id,
           kind: WaitingKind.unfinished,
@@ -51,18 +57,34 @@ void main() {
           ),
         );
 
-    await _pump(tester, strip(<WaitingItem>[item('a')]));
-    final alone = tester.getSize(find.byKey(const Key('waiting_on_you'))).height;
+    for (final size in <Size>[const Size(390, 844), const Size(1280, 1400)]) {
+      await _pump(tester, strip(<WaitingItem>[item('a')]), size: size);
+      final alone =
+          tester.getSize(find.byKey(const Key('waiting_on_you'))).height;
 
-    await _pump(tester, strip(<WaitingItem>[item('a'), item('b')]));
-    final touch = tester.getSize(find.byKey(const Key('waiting_clear_all')));
-    expect(touch.height, greaterThanOrEqualTo(48));
-    expect(touch.width, greaterThanOrEqualTo(48));
+      await _pump(
+        tester,
+        strip(<WaitingItem>[
+          for (final id in <String>['a', 'b', 'c', 'd', 'e']) item(id),
+        ]),
+        size: size,
+      );
+      final touch = tester.getRect(find.byKey(const Key('waiting_clear_all')));
+      expect(touch.height, greaterThanOrEqualTo(24), reason: '$size');
+      expect(touch.width, greaterThanOrEqualTo(48), reason: '$size');
 
-    // And the strip is no taller for having it. A 48-pixel line under the
-    // row cost 29 pixels a phone in landscape did not have.
-    expect(tester.getSize(find.byKey(const Key('waiting_on_you'))).height,
-        alone);
+      // Where it was: under the row and on screen with five cards in it,
+      // not at the far end of a row that has to be scrolled to find it.
+      final row = tester.getRect(find.byKey(const Key('waiting_row')));
+      expect(touch.top, greaterThanOrEqualTo(row.bottom), reason: '$size');
+      expect(touch.right, lessThanOrEqualTo(size.width), reason: '$size');
+
+      // The strip ends in the 24-pixel line instead of its 8 pixels of
+      // space, and is no taller than that.
+      expect(tester.getSize(find.byKey(const Key('waiting_on_you'))).height,
+          lessThanOrEqualTo(alone - 8 + 24),
+          reason: '$size');
+    }
   }, variant: _phoneAndDesk);
 
   testWidgets('Join and No thanks are touched at 48 pixels tall',

@@ -1,7 +1,9 @@
 import 'package:colabroom/app/beta_config.dart';
 import 'package:colabroom/app/beta_scope.dart';
 import 'package:colabroom/app/colabroom_theme.dart';
+import 'package:colabroom/app/deep_link.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
+import 'package:colabroom/app/routes.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/features/account/account_screen.dart';
 import 'package:flutter/material.dart';
@@ -47,5 +49,32 @@ void main() {
     await _account(tester, const AccountScreen(showDevTools: true));
 
     expect(find.textContaining('Recording latency'), findsOneWidget);
+  });
+
+  // Hiding the row alone left the tool one remembered link away (review of
+  // the audit fixes, 17 September 2026).
+  test('its address opens the app, not the tool, without the switch', () {
+    final repository = InMemoryMusicRepository.seeded();
+
+    expect(
+      DeepLink.routeFor(AppRoutes.latency, repository: repository),
+      isNull,
+      reason: 'a link arriving while the app is open pushes nothing',
+    );
+    expect(
+      DeepLink.stackFor(
+        path: AppRoutes.latency,
+        shell: (tab) => SizedBox(key: ValueKey<int>(tab)),
+        repository: repository,
+      ).length,
+      1,
+      reason: 'a cold start on the address is just the app',
+    );
+    expect(
+      DeepLink.routeFor(AppRoutes.latency,
+          repository: repository, devTools: true),
+      isNotNull,
+      reason: 'a developer still gets there',
+    );
   });
 }

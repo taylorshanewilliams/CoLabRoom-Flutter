@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:colabroom/app/beta_scope.dart';
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
+import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/features/notifications/notifications_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,15 +21,46 @@ import 'package:flutter_test/flutter_test.dart';
 const _coded = 'invite-1';
 const _byName = 'preview-room-invite-1';
 
+/// The decline refused, the way a dropped connection refuses it.
+class _DeclineFails extends InMemoryMusicRepository {
+  _DeclineFails() : super.from(InMemoryMusicRepository.seeded());
+
+  @override
+  Future<void> declineInvite(BetaInvite invite) async {
+    throw StateError('offline');
+  }
+}
+
+/// A reload that can be held open, so one is still running when the decline
+/// is sent. It reads the invitations first and hands them over only when let
+/// go, which is how a real reload started a moment earlier returns a list
+/// from before the decline.
+class _SlowReload extends InMemoryMusicRepository {
+  _SlowReload() : super.from(InMemoryMusicRepository.seeded());
+
+  /// Holds the next read of the invitations, and only that one.
+  Completer<void>? gate;
+
+  @override
+  Future<List<BetaInvite>> loadInvites() async {
+    final before = await super.loadInvites();
+    final held = gate;
+    gate = null;
+    if (held != null) await held.future;
+    return before;
+  }
+}
+
 Future<(MusicBetaController, InMemoryMusicRepository)> _open(
   WidgetTester tester, {
   bool behindHome = false,
+  InMemoryMusicRepository? repository,
 }) async {
   tester.view.physicalSize = const Size(390, 1400);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
 
-  final repository = InMemoryMusicRepository.seeded();
+  repository ??= InMemoryMusicRepository.seeded();
   final controller = MusicBetaController(repository);
   await controller.load();
   addTearDown(controller.dispose);
@@ -168,5 +202,88 @@ void main() {
 
     await _letUndoGo(tester);
     expect(await _stillOpen(repository), isEmpty);
+  });
+
+  // Four seconds is enough to tap Undo, not to reach it with TalkBack or
+  // VoiceOver: the message is read first, then a swipe and a double tap
+  // (review of the audit fixes, 17 September 2026).
+  testWidgets('a screen reader gets longer than four seconds to reach Undo',
+      (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(accessibleNavigation: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    final (controller, repository) = await _open(tester);
+
+    await tester.tap(find.byKey(const Key('invite_decline_$_coded')));
+    await tester.pump();
+    await _letUndoGo(tester);
+
+    expect(await _stillOpen(repository), contains(_coded),
+        reason: 'six seconds in, Jess has not been told');
+    expect(find.byKey(const Key('inbox_undo_$_coded')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('inbox_undo_$_coded')));
+    await _letUndoGo(tester);
+    expect(controller.invites.map((i) => i.id), contains(_coded));
+    expect(await _stillOpen(repository), contains(_coded));
+  });
+
+  testWidgets('and it is still sent when they leave it', (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(accessibleNavigation: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    final (_, repository) = await _open(tester);
+
+    await tester.tap(find.byKey(const Key('invite_decline_$_coded')));
+    await tester.pump();
+    for (var i = 0; i < 8; i += 1) {
+      await tester.pump(const Duration(seconds: 5));
+    }
+
+    expect(await _stillOpen(repository), isNot(contains(_coded)));
+  });
+
+  testWidgets('a decline that fails to send brings the card back',
+      (tester) async {
+    final (controller, repository) =
+        await _open(tester, repository: _DeclineFails());
+
+    await tester.tap(find.byKey(const Key('invite_decline_$_coded')));
+    await tester.pump();
+    await _letUndoGo(tester);
+
+    expect(await _stillOpen(repository), contains(_coded));
+    expect(controller.invites.map((i) => i.id), contains(_coded),
+        reason: 'an invitation still open must still be answerable');
+    expect(find.byKey(const Key('invite_decline_$_coded')), findsOneWidget);
+  });
+
+  // A reload already running when the decline goes out swallows the one the
+  // decline asks for, and finishes with the invitation still in its list
+  // (review of the audit fixes, 17 September 2026).
+  testWidgets('a reload that started before the send does not bring it back',
+      (tester) async {
+    final slow = _SlowReload();
+    final (controller, repository) = await _open(tester, repository: slow);
+
+    await tester.tap(find.byKey(const Key('invite_decline_$_coded')));
+    await tester.pump();
+
+    final gate = slow.gate = Completer<void>();
+    unawaited(controller.load());
+    await tester.pump();
+    expect(controller.loading, isTrue);
+
+    await _letUndoGo(tester);
+    expect(await _stillOpen(repository), isNot(contains(_coded)));
+
+    gate.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(controller.loading, isFalse);
+    expect(controller.invites.map((i) => i.id), isNot(contains(_coded)));
+    expect(find.byKey(const Key('invite_decline_$_coded')), findsNothing,
+        reason: 'a No thanks on a closed invitation can only fail');
   });
 }

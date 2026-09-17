@@ -17,6 +17,7 @@ import '../features/rooms/room_detail_screen.dart';
 import '../features/rooms/setlist_detail_screen.dart';
 import '../features/workspace/song_workspace_screen.dart';
 import '../services/incoming_addresses.dart';
+import 'beta_config.dart';
 import 'routes.dart';
 
 /// Turning an address back into the place it names.
@@ -53,6 +54,7 @@ abstract final class DeepLink {
     required Widget Function(int tab) shell,
     required MusicRepository repository,
     SupabaseClient? supabase,
+    bool devTools = BetaConfig.devTools,
   }) {
     final target = AppRoutes.match(path);
     final tab = target?.place == RoutePlace.openMic ||
@@ -66,7 +68,8 @@ abstract final class DeepLink {
       ),
     ];
 
-    final on = _routeFor(target, repository: repository, supabase: supabase);
+    final on = _routeFor(target,
+        repository: repository, supabase: supabase, devTools: devTools);
     if (on != null) routes.add(on);
     return routes;
   }
@@ -79,8 +82,10 @@ abstract final class DeepLink {
     String path, {
     required MusicRepository repository,
     SupabaseClient? supabase,
+    bool devTools = BetaConfig.devTools,
   }) =>
-      _routeFor(AppRoutes.match(path), repository: repository, supabase: supabase);
+      _routeFor(AppRoutes.match(path),
+          repository: repository, supabase: supabase, devTools: devTools);
 
   /// Whether an address is one of the two tabs rather than a screen on top.
   static bool isATab(String path) {
@@ -101,6 +106,7 @@ abstract final class DeepLink {
     RouteTarget? target, {
     required MusicRepository repository,
     SupabaseClient? supabase,
+    required bool devTools,
   }) {
     if (target == null) return null;
     final id = target.id;
@@ -156,8 +162,13 @@ abstract final class DeepLink {
           AppRoutes.notificationSettings, const NotificationSettingsScreen()),
       RoutePlace.blocked => page(
           AppRoutes.blocked, BlockedPeopleScreen(repository: repository)),
-      RoutePlace.latency =>
-        page(AppRoutes.latency, const LatencyProbeScreen()),
+      // Behind the same switch as the row on Account. Hiding only the row
+      // left the tool one remembered link away on every tester's phone
+      // (review of the audit fixes, 17 September 2026); without the switch
+      // the address opens the app, like any address that names nothing.
+      RoutePlace.latency => devTools
+          ? page(AppRoutes.latency, const LatencyProbeScreen())
+          : null,
     };
   }
 }

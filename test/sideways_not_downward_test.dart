@@ -182,18 +182,6 @@ void main() {
     final cleared = <String>[];
     await _show(tester, _five(cleared: cleared));
 
-    // At the end of the row, after the last card, since it needed a
-    // 48-pixel touch and the strip had no height to give it (audit, 17
-    // September 2026).
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('waiting_clear_all')),
-      200,
-      scrollable: find
-          .descendant(
-              of: find.byKey(const Key('waiting_row')),
-              matching: find.byType(Scrollable))
-          .first,
-    );
     await tester.tap(find.byKey(const Key('waiting_clear_all')));
     await tester.pump();
 

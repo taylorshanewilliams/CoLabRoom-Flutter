@@ -98,6 +98,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // An action makes a snackbar stay up until it is dismissed, and this
       // one has to go on its own for the answer to be sent.
       persist: false,
+      // Four seconds is plenty to see Undo and tap it, and not enough with
+      // TalkBack or VoiceOver: the message is read out first, then it takes
+      // a swipe to Undo and a double tap. `persist: false` also switches off
+      // what used to keep a snackbar with an action up until they got to it,
+      // so without this the decline went before they could reach Undo
+      // (review of the audit fixes, 17 September 2026). Thirty seconds is the
+      // middle of what Android's own "Time to take action" setting offers,
+      // and the answer still goes during the same visit.
+      duration: MediaQuery.accessibleNavigationOf(context)
+          ? const Duration(seconds: 30)
+          : const Duration(seconds: 4),
       action: SnackBarAction(
         key: Key('inbox_undo_$inviteId'),
         label: 'Undo',
