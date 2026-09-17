@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app/beta_config.dart';
@@ -16,6 +18,39 @@ import 'services/push_registration.dart';
 import 'services/set_aside.dart';
 import 'services/incoming_addresses.dart';
 
+/// Turns the semantics tree on before the first frame, on the web only.
+///
+/// Flutter's web build collects nothing for a screen reader until something
+/// asks it to: "For performance reasons, Flutter's web accessibility is not
+/// on by default. To turn on accessibility, the user needs to press an
+/// invisible button with `aria-label=\"Enable accessibility\"`." — Flutter,
+/// *Web accessibility*, docs.flutter.dev/ui/accessibility/web-accessibility
+/// (Flutter 3.47). That button is the whole story on the desk: nobody has
+/// ever found it, so the signed-in web app has been a blank rectangle to
+/// VoiceOver and to NVDA since the day it shipped. The same page gives this
+/// call as the alternative, and it is the one the app makes.
+///
+/// The cost is the reason it is not the default, and it is real: with a
+/// handle outstanding the framework builds the semantics tree every frame and
+/// the engine mirrors it into the DOM, on every device that opens the site
+/// rather than only the ones that need it. It is the right trade here —
+/// schools and universities have to meet WCAG 2.1 AA, and an app whose
+/// accessibility depends on somebody finding a hidden button does not. Every
+/// Musician, Same Song, 17 September 2026.
+///
+/// The handle is never disposed: disposing it turns semantics back off, and
+/// the whole point is that it stays on for the life of the tab. Returns null
+/// everywhere but the web, where the platform asks for semantics itself the
+/// moment a screen reader is running.
+///
+/// [onWeb] exists so the web branch can be tested at all — every test in this
+/// repo runs on the VM, where `kIsWeb` is false and the interesting half of
+/// this function is unreachable.
+SemanticsHandle? enableWebSemantics({bool onWeb = kIsWeb}) {
+  if (!onWeb) return null;
+  return SemanticsBinding.instance.ensureSemantics();
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Before anything else that can fail. A build error reaches
@@ -23,6 +58,12 @@ Future<void> main() async {
   // while this is what makes it countable.
   CrashReporter.install();
   ErrorWidget.builder = (details) => _CrashScreen(details: details);
+  // After the crash reporter and before runApp: the semantics call is a
+  // platform call like any other, and if a browser engine ever throws on it
+  // the launch should be counted and shown rather than lost. The first frame
+  // has not been asked for yet, which is all this needs. See
+  // enableWebSemantics.
+  enableWebSemantics();
   // Before runApp, so it is asked about a pushed address before the
   // framework is: the browser's forward button, or a link opening the app.
   IncomingAddresses.install();

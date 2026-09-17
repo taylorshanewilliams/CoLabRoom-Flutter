@@ -94,6 +94,42 @@ void main() {
     });
   });
 
+  group('saying where the needle is', () {
+    test('the four answers, either way off', () {
+      expect(needleReading(null), 'No note yet.');
+      expect(needleReading(0), 'In tune.');
+      expect(needleReading(-4), 'In tune.');
+      expect(needleReading(-11), 'A little flat.');
+      expect(needleReading(9), 'A little sharp.');
+      expect(needleReading(-24), 'Quite flat.');
+      expect(needleReading(30), 'Quite sharp.');
+      expect(needleReading(-48), 'Very flat.');
+      expect(needleReading(44), 'Very sharp.');
+    });
+
+    test('a ringing string is not a new sentence twenty times a second', () {
+      // The reason the words are bands rather than a number. A plucked string
+      // publishes about twenty-one readings a second and drifts through
+      // several cents while it decays; a live region announces every time its
+      // words change, so reading the number would interrupt itself before it
+      // could finish saying it.
+      final saidWhileItDecays = <String>{
+        for (final cents in <double>[-14.3, -13.1, -12.6, -11.9, -10.2, -9.4, -8.8])
+          needleReading(cents),
+      };
+      expect(saidWhileItDecays, <String>{'A little flat.'});
+    });
+
+    test('the bands meet where inTune does, so words and colour agree', () {
+      expect(needleReading(5), 'In tune.');
+      expect(needleReading(5.1), 'A little sharp.');
+      // The needle turns green on the same reading it says "In tune." about.
+      final justSharp = readPitch(441)!;
+      expect(justSharp.inTune, isTrue);
+      expect(needleReading(justSharp.cents), 'In tune.');
+    });
+  });
+
   testWidgets('fed an A, the sheet says A and in tune', (tester) async {
     final controller = StreamController<Uint8List>();
     await tester.pumpWidget(MaterialApp(

@@ -17,6 +17,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 enum Severity {
@@ -311,6 +312,148 @@ List<Finding> auditLabels(WidgetTester tester) {
     ));
   });
   return findings;
+}
+
+// --------------------------------------------------- what a painting says
+
+/// Paintings a screen reader is told nothing about.
+///
+/// WCAG 2.1 SC 1.1.1 (Non-text Content, A): anything that is not text and
+/// carries meaning needs a text alternative, and anything that is pure
+/// decoration has to be marked so an assistive technology can skip it. A
+/// `CustomPaint` is neither by default — it contributes no semantics
+/// whatsoever, so a chord diagram, a tuner needle and a waveform are all, to
+/// VoiceOver and TalkBack, the same blank rectangle. Nothing throws and
+/// nothing looks wrong, which is why this class of defect survives review.
+///
+/// **Only this app's own painters are judged.** The framework paints too —
+/// Scrollbar and CircularProgressIndicator are both a `CustomPaint` — and
+/// reporting those would be the harness blaming the app for Flutter's
+/// choices, which is the fastest way to teach people to ignore a report.
+/// Which painters belong to the app is read off `lib/` rather than kept as a
+/// list here, so a painter written next week is covered on the day it is
+/// written by somebody who has never heard of this file.
+///
+/// A painting passes by being **named** or by being **declared decoration**,
+/// and it has to be one of the two: silence is the thing being measured. The
+/// walk up the tree stops at the first ancestor that settles it, which is the
+/// same question a screen reader answers — land here, and is anything said? —
+/// and is why it is not capped at some number of ancestors. A painting inside
+/// a labelled card is therefore credited to the card, which is true, and is
+/// the one place this rule is deliberately generous.
+List<Finding> auditPaintedMeaning(
+  WidgetTester tester, {
+  Set<String>? painters,
+}) {
+  final owned = painters ?? appPainters();
+  final findings = <Finding>[];
+  final seen = <String>{};
+
+  for (final element in find.byType(CustomPaint).evaluate()) {
+    final paint = element.widget as CustomPaint;
+    final mine = <String>[
+      for (final painter in <CustomPainter?>[paint.painter, paint.foregroundPainter])
+        if (painter != null && owned.contains(painter.runtimeType.toString()))
+          painter.runtimeType.toString(),
+    ];
+    if (mine.isEmpty) continue;
+    // A painter can carry its own semantics rather than being wrapped in
+    // them, which is the right answer for a drawing with several meaningful
+    // parts, and counts.
+    if (paint.painter?.semanticsBuilder != null ||
+        paint.foregroundPainter?.semanticsBuilder != null) {
+      continue;
+    }
+    if (_namedOrExcluded(element)) continue;
+
+    final box = element.renderObject;
+    final size = box is RenderBox && box.hasSize ? box.size : Size.zero;
+    final key = '${mine.join('+')}|${size.width.round()}x${size.height.round()}';
+    if (!seen.add(key)) continue;
+
+    findings.add(Finding(
+      rule: 'A painting that says nothing',
+      standard: 'WCAG 2.1 SC 1.1.1 (A)',
+      detail: '${mine.join(' and ')} draws '
+          '${size.width.round()}x${size.height.round()} with no semantics '
+          'label, and is not declared decoration',
+      severity: Severity.fails,
+    ));
+  }
+  return findings;
+}
+
+/// Whether anything above [element] either names it or declares it decoration.
+///
+/// Read off the widget tree rather than the render tree because `Semantics`
+/// and `ExcludeSemantics` carry what they were asked for in public fields,
+/// while their render objects keep it private — and because this is the same
+/// tree the walk in `the_app_test.dart` already matches labels in.
+bool _namedOrExcluded(Element element) {
+  var settled = false;
+  element.visitAncestorElements((ancestor) {
+    final widget = ancestor.widget;
+    if (widget is ExcludeSemantics) {
+      if (!widget.excluding) return true;
+      settled = true;
+      return false;
+    }
+    if (widget is Semantics) {
+      final properties = widget.properties;
+      final named = <String?>[
+        properties.label,
+        properties.tooltip,
+        properties.value,
+      ].any((text) => (text ?? '').trim().isNotEmpty);
+      if (!named) return true;
+      settled = true;
+      return false;
+    }
+    return true;
+  });
+  return settled;
+}
+
+Set<String>? _appPainters;
+
+/// Every `CustomPainter` this app declares, read off its own source.
+///
+/// Kept here rather than in a hand-written list because a hand-written list
+/// is a thing that goes stale silently: the painter added in six months is
+/// exactly the one nobody thinks to add to it, and a rule that quietly stops
+/// covering new work is worse than no rule.
+///
+/// `lib/` is found relative to wherever the process was started, so this is
+/// only right when the harness is run from the package root. See
+/// [paintersUnder] for what happens when it is not.
+Set<String> appPainters() => _appPainters ??= paintersUnder(Directory('lib'));
+
+/// Every `CustomPainter` declared under [source].
+///
+/// Throws rather than returning nothing when there is no source to read, which
+/// is the stale-list argument one step further on: a run from the wrong
+/// directory -- a tools package, a subdirectory, a future harness that moves
+/// -- would otherwise judge no painters at all and report a clean sheet
+/// forever. A rule that cannot find what it judges has to fail, not pass.
+Set<String> paintersUnder(Directory source) {
+  final names = <String>{};
+  final declaration = RegExp(r'class\s+(\w+)\s+extends\s+CustomPainter\b');
+  if (source.existsSync()) {
+    for (final entity in source.listSync(recursive: true)) {
+      if (entity is! File || !entity.path.endsWith('.dart')) continue;
+      for (final match in declaration.allMatches(entity.readAsStringSync())) {
+        names.add(match.group(1)!);
+      }
+    }
+  }
+  if (names.isEmpty) {
+    throw StateError(
+      'No CustomPainter declared under ${source.absolute.path}. Run this from '
+      'the package root, where lib/ is: the painted-meaning rule judges the '
+      'app by its own source, and cannot report on source it cannot read.',
+    );
+  }
+  return names;
 }
 
 void _walkSemantics(

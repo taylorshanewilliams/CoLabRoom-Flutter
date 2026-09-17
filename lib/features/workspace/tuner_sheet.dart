@@ -206,6 +206,33 @@ class _TunerSheetState extends State<TunerSheet> {
   }
 }
 
+/// Where the needle is, in words, in the four answers a tuner actually has.
+///
+/// Every Musician, Same Song, 17 September 2026: a tuner whose only answer is
+/// a line on a track is a tuner nobody using a screen reader can tune with.
+/// Said as a live region, because the interesting thing about this one is
+/// that it keeps changing while the string is still ringing.
+///
+/// Coarse on purpose. PitchListener publishes a new median every hop -- 2048
+/// frames at 44100 Hz, about twenty-one readings a second -- and a live
+/// region announces every time its words change. Reading the exact cents
+/// would interrupt itself twenty times a second and never finish a phrase,
+/// which is worse than silence: you could not hear the string decaying under
+/// it, let alone anything else on the sheet. Bands mean a ringing string
+/// produces a handful of announcements, each of which gets said. The exact
+/// number is still on screen for anyone who lands on it.
+String needleReading(double? cents) {
+  if (cents == null) return 'No note yet.';
+  final off = cents.abs();
+  // The same five cents PitchReading.inTune uses, so the words and the green
+  // the needle turns never disagree.
+  if (off <= 5) return 'In tune.';
+  final way = cents < 0 ? 'flat' : 'sharp';
+  if (off <= 15) return 'A little $way.';
+  if (off <= 35) return 'Quite $way.';
+  return 'Very $way.';
+}
+
 /// Flat on the left, sharp on the right, a tick in the middle where the
 /// note is. The needle is drawn, not animated to, because a tuner that
 /// glides is a tuner that lies for a quarter of a second.
@@ -217,11 +244,15 @@ class _Needle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 44,
-      child: CustomPaint(
-        painter: _NeedlePainter(cents: cents, accent: accent),
-        child: const SizedBox.expand(),
+    return Semantics(
+      label: needleReading(cents),
+      liveRegion: true,
+      child: SizedBox(
+        height: 44,
+        child: CustomPaint(
+          painter: _NeedlePainter(cents: cents, accent: accent),
+          child: const SizedBox.expand(),
+        ),
       ),
     );
   }
