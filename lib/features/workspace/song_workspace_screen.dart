@@ -1590,6 +1590,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                       projectId: widget.projectId,
                       repository: controller.repository,
                     ),
+                  if (panel == null && !keyboardOpen && wordsLiveOnTheSheet(project, _analysisBundle))
+                    _WordsOnTheSheet(onOpen: () => unawaited(_openAnalysis(project))),
                   const Divider(height: 1),
                   Expanded(child: middle),
                 ],
@@ -1623,6 +1625,49 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         // captures, which is the actual distinction.
         child: Icon(
           _listening ? Icons.stop_rounded : Icons.record_voice_over_rounded,
+        ),
+      ),
+    );
+  }
+}
+
+/// Whether a song's words are on its song sheet rather than written here.
+///
+/// A song made from a recording keeps what was sung on its sheet, and its
+/// own writing space is empty. On a phone it opened to "Tap anywhere and start
+/// writing…" -- a blank page for a song with words, right after Home said
+/// somebody "changed the words" (audit, 17 September 2026, Dakota).
+bool wordsLiveOnTheSheet(SongProject project, SongAnalysisBundle? bundle) =>
+    project.contributions.isEmpty && (bundle?.reference?.hasTranscript ?? false);
+
+/// One line above an empty writing space: where the words are.
+class _WordsOnTheSheet extends StatelessWidget {
+  const _WordsOnTheSheet({required this.onOpen});
+
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      key: const Key('words_on_the_sheet'),
+      color: AppColors.gold.withValues(alpha: 0.08),
+      child: InkWell(
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+          child: Row(
+            children: <Widget>[
+              const Icon(Icons.article_outlined, size: 17, color: AppColors.gold),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'The words are on the song sheet',
+                  style: TextStyle(color: AppColors.text, fontSize: 13, fontWeight: FontWeight.w700),
+                ),
+              ),
+              TextButton(onPressed: onOpen, child: const Text('Open')),
+            ],
+          ),
         ),
       ),
     );
