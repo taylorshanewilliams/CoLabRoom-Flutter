@@ -1153,6 +1153,23 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> setSongOrigin(String projectId, SongOrigin origin) async {
+    for (final room in _rooms) {
+      for (final project in room.projects) {
+        if (project.id != projectId) continue;
+        _replaceProject(project.copyWith(songOrigin: origin));
+        // The same thing 0142's RPC does in the same statement: somebody
+        // else's song comes off the Open Mic when it is named as one. It
+        // clears `showcased_at` too, which has no counterpart here — this
+        // repository has never modelled the showcase at all (`showSong` is
+        // a no-op and `songAudience` always reports `onShowcase` false).
+        if (origin == SongOrigin.cover) _onOpenMic.remove(projectId);
+        return;
+      }
+    }
+  }
+
+  @override
   Future<MusicRoom> ideasRoom() async {
     for (final room in _rooms) {
       if (room.name.trim().toLowerCase() == 'ideas') return room;

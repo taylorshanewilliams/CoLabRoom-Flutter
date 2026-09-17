@@ -6,6 +6,43 @@ enum RoomRole { owner, editor, commenter, viewer }
 
 enum SongStatus { active, completed }
 
+/// Whose song this is.
+///
+/// Every Musician, Same Song, 17 September 2026 calls this one of the two
+/// gates: almost everything the plan wants for schools, worship teams and
+/// cover bands is safe on a song the room wrote and is not safe on a song
+/// somebody else wrote, and without an answer the app has to treat every
+/// song as if it were the second kind.
+///
+/// Null — no value at all — is the honest fourth state and means nobody has
+/// been asked yet, which is true of every song until its audience moves
+/// beyond "Only you". A default of [ours] would be a claim the app made on
+/// somebody's behalf.
+///
+/// No legal claim is made or recorded. These are three plain answers to a
+/// plain question, used to decide what this app does with a song's words and
+/// where it will let the song go.
+enum SongOrigin {
+  ours('ours'),
+  publicDomain('public_domain'),
+  cover('cover');
+
+  const SongOrigin(this.wireName);
+
+  /// What `projects.song_origin` holds. Spelled out rather than taken from
+  /// [name], because `publicDomain` and `public_domain` are not the same
+  /// string and a silent mismatch here would read as "never asked".
+  final String wireName;
+
+  static SongOrigin? fromWireName(String? value) => switch (value) {
+        'ours' => SongOrigin.ours,
+        'public_domain' => SongOrigin.publicDomain,
+        'cover' => SongOrigin.cover,
+        // Including null, which is the state the question exists to leave.
+        _ => null,
+      };
+}
+
 enum ContributionKind { lyric, note, section }
 
 class ContributionDraft {
@@ -125,6 +162,7 @@ class SongProject {
     this.hasAudioReference = false,
     this.analysisState,
     this.createdBy,
+    this.songOrigin,
   });
 
   final String id;
@@ -169,6 +207,14 @@ class SongProject {
   /// the tile treats as "nobody in particular" rather than guessing.
   final String? createdBy;
 
+  /// Whose song it is, or null because nobody has been asked yet.
+  ///
+  /// Asked once, the first time the song's audience moves beyond "Only you",
+  /// and answerable again from the song's menu. What it decides: a cover
+  /// reaches neither public surface — not the Open Mic and not the showcase
+  /// — and a cover's text exports carry the structure without the words.
+  final SongOrigin? songOrigin;
+
   SongProject copyWith({
     String? roomId,
     String? title,
@@ -181,6 +227,7 @@ class SongProject {
     bool? hasAudioReference,
     SongAnalysisState? analysisState,
     String? createdBy,
+    SongOrigin? songOrigin,
   }) {
     return SongProject(
       id: id,
@@ -197,6 +244,8 @@ class SongProject {
       hasAudioReference: hasAudioReference ?? this.hasAudioReference,
       analysisState: analysisState ?? this.analysisState,
       createdBy: createdBy ?? this.createdBy,
+      // No clearing sentinel: an answer can be changed but never unasked.
+      songOrigin: songOrigin ?? this.songOrigin,
     );
   }
 }

@@ -84,7 +84,13 @@ insert into smoke_covered (name) values
   ('moment_notes_announce'),
   -- 0141. The scenario pins on a draft, shares that take, and asserts the
   -- note stayed its author's alone -- which is this trigger's whole job.
-  ('moment_notes_freeze_audience');
+  ('moment_notes_freeze_audience'),
+  -- 0142. The scenario tries to put somebody else's song on the Open Mic and
+  -- on the showcase with a plain update, the way 0005's policy allows, and
+  -- asserts both were refused. That is the trigger's whole reason for
+  -- existing: the two functions refuse a cover as well, so if this stopped
+  -- firing every other assertion in that block would still pass.
+  ('projects_no_cover_in_public');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario

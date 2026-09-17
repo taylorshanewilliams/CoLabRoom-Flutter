@@ -172,7 +172,7 @@ class SupabaseMusicRepository implements MusicRepository {
         .select(
           'id, account_id, name, icon, created_at, updated_at, sort_order, logo_path, '
           'room_members(user_id, display_name, role, color_value, profiles(avatar_path)), '
-          'projects(id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, '
+          'projects(id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, '
           'project_audio_references(project_id, analysis_state), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at)))',
@@ -893,7 +893,7 @@ class SupabaseMusicRepository implements MusicRepository {
     final row = await client
         .from('projects')
         .select(
-          'id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, '
+          'id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, '
           'project_audio_references(project_id, analysis_state), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at))',
@@ -1465,6 +1465,17 @@ class SupabaseMusicRepository implements MusicRepository {
     await client.rpc<dynamic>(
       'take_off_open_mic',
       params: <String, dynamic>{'target_project': projectId},
+    );
+  }
+
+  @override
+  Future<void> setSongOrigin(String projectId, SongOrigin origin) async {
+    await client.rpc<dynamic>(
+      'set_song_origin',
+      params: <String, dynamic>{
+        'target_project': projectId,
+        'in_origin': origin.wireName,
+      },
     );
   }
 
@@ -2889,6 +2900,10 @@ class SupabaseMusicRepository implements MusicRepository {
       // this query.
       hasAudioReference: row['project_audio_references'] != null,
       analysisState: _analysisState(row['project_audio_references']),
+      // An unrecognised answer reads as null — nobody asked — rather than
+      // throwing: 0142's check constraint can gain a value in a migration
+      // that ships before the app that knows about it.
+      songOrigin: SongOrigin.fromWireName(row['song_origin'] as String?),
     );
   }
 
@@ -2977,6 +2992,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'updated_at': project.updatedAt.toIso8601String(),
         'contributions': project.contributions.map(_contributionJson).toList(growable: false),
         'cover_image_path': project.coverImagePath,
+        'song_origin': project.songOrigin?.wireName,
         'project_audio_references': project.hasAudioReference
             ? <String, dynamic>{'analysis_state': project.analysisState?.name}
             : null,

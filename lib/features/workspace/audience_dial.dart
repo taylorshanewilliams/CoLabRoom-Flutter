@@ -132,6 +132,19 @@ class AudienceDial extends StatelessWidget {
       };
 }
 
+/// Why the top of the dial is closed on somebody else's song.
+///
+/// One short sentence, said once, where the move would have been. Every
+/// Musician, Same Song, 17 September 2026: a song the room did not write
+/// never goes in front of people the room never chose.
+///
+/// The sentence is about both public surfaces, because there are two — the
+/// Open Mic and the showcase — and the showcase is the wider one, a page on
+/// colabroom.com anybody can open. A promise this broad has to hold for
+/// every way out of the room or it is not a promise.
+const String whyCoversStayHome =
+    'Songs by somebody else stay with the people you choose.';
+
 /// The dial opened up: the whole gradient, with where this song sits on it.
 ///
 /// Shows all four positions rather than only the current one, because the
@@ -142,7 +155,18 @@ Future<SongAudienceChoice?> showAudienceSheet(
   BuildContext context, {
   required SongAudience audience,
   required String songTitle,
+  SongOrigin? origin,
 }) {
+  final isCover = origin == SongOrigin.cover;
+  // Somebody else's song can still come *down* from either public surface,
+  // so the refusal only ever covers the way up. Whichever way it got up
+  // there, the person looking at it needs the way down more than anybody.
+  final openMicMove = !isCover || audience.onOpenMic;
+  final showcaseMove = !isCover || audience.onShowcase;
+  // Struck through only when neither way up is open. A cover that is
+  // somehow already public is *at* "Anyone", and drawing that position as
+  // unreachable while the song sits in it is the dial contradicting itself.
+  final closedAtTheTop = !openMicMove && !showcaseMove;
   return showModalBottomSheet<SongAudienceChoice>(
     context: context,
     showDragHandle: true,
@@ -192,9 +216,15 @@ Future<SongAudienceChoice?> showAudienceSheet(
             _Step(
               reach: SongReach.anyone,
               here: audience.reach == SongReach.anyone,
+              // The reason stands where the description was, rather than
+              // beside it. One sentence about why the step is closed is
+              // worth more than two about what it would have done.
+              available: !closedAtTheTop,
               title: 'Anyone',
-              body: 'On the Open Mic. Only the takes your room has already '
-                  'heard become audible — never a private one.',
+              body: closedAtTheTop
+                  ? whyCoversStayHome
+                  : 'On the Open Mic. Only the takes your room has already '
+                      'heard become audible — never a private one.',
             ),
 
             if (audience.listeners.isNotEmpty) ...<Widget>[
@@ -240,70 +270,84 @@ Future<SongAudienceChoice?> showAudienceSheet(
             // The one move that changes the answer, named for what it does
             // in each direction. It used to say "Put it on the Open Mic"
             // whether or not it already was.
-            FilledButton.icon(
-              key: const Key('audience_open_mic_toggle'),
-              onPressed: () => Navigator.pop(
-                sheetContext,
-                audience.onOpenMic
-                    ? SongAudienceChoice.takeOffOpenMic
-                    : SongAudienceChoice.putOnOpenMic,
+            //
+            // Gone entirely on somebody else's song, rather than present and
+            // dead: a button that cannot work is a thing to press twice and
+            // then wonder about, and the step above has already said why.
+            if (openMicMove) ...<Widget>[
+              FilledButton.icon(
+                key: const Key('audience_open_mic_toggle'),
+                onPressed: () => Navigator.pop(
+                  sheetContext,
+                  audience.onOpenMic
+                      ? SongAudienceChoice.takeOffOpenMic
+                      : SongAudienceChoice.putOnOpenMic,
+                ),
+                icon: Icon(
+                  audience.onOpenMic
+                      ? Icons.public_off_rounded
+                      : Icons.public_rounded,
+                  size: 18,
+                ),
+                label: Text(
+                  audience.onOpenMic
+                      ? 'Take it off the Open Mic'
+                      : 'Put it on the Open Mic',
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w800),
+                ),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  backgroundColor:
+                      audience.onOpenMic ? AppColors.raised : AppColors.gold,
+                  foregroundColor:
+                      audience.onOpenMic ? AppColors.text : AppColors.ink,
+                ),
               ),
-              icon: Icon(
-                audience.onOpenMic
-                    ? Icons.public_off_rounded
-                    : Icons.public_rounded,
-                size: 18,
-              ),
-              label: Text(
-                audience.onOpenMic
-                    ? 'Take it off the Open Mic'
-                    : 'Put it on the Open Mic',
-                style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w800),
-              ),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-                backgroundColor:
-                    audience.onOpenMic ? AppColors.raised : AppColors.gold,
-                foregroundColor:
-                    audience.onOpenMic ? AppColors.text : AppColors.ink,
-              ),
-            ),
-            const SizedBox(height: 8),
+              const SizedBox(height: 8),
+            ],
             // Finishing lives here because "who can hear this" is exactly the
             // question it answers: a finished song shown on the showcase is
             // a different audience from one asking for help on the Open Mic,
             // and putting it anywhere else would make it look like a filing
             // status rather than a reach.
-            OutlinedButton.icon(
-              key: const Key('audience_show_finished'),
-              onPressed: () => Navigator.pop(
-                sheetContext,
-                audience.onShowcase
-                    ? SongAudienceChoice.takeOffShowcase
-                    : SongAudienceChoice.showFinished,
+            //
+            // Gone on somebody else's song for the same reason the Open Mic
+            // toggle is, and it matters more here: this button publishes
+            // further than that one does. It sat eleven lines under a
+            // sentence promising the song stayed with the people you choose.
+            if (showcaseMove) ...<Widget>[
+              OutlinedButton.icon(
+                key: const Key('audience_show_finished'),
+                onPressed: () => Navigator.pop(
+                  sheetContext,
+                  audience.onShowcase
+                      ? SongAudienceChoice.takeOffShowcase
+                      : SongAudienceChoice.showFinished,
+                ),
+                icon: Icon(
+                  audience.onShowcase
+                      ? Icons.remove_circle_outline_rounded
+                      : Icons.workspace_premium_outlined,
+                  size: 18,
+                ),
+                // A one-way door is a door nobody walks through — the same
+                // reason the Open Mic toggle had to say which direction it
+                // goes. This shipped without a way back for exactly one day.
+                label: Text(
+                  audience.onShowcase
+                      ? 'Take it off the showcase'
+                      : 'It is finished — show it',
+                ),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(46),
+                  foregroundColor: AppColors.gold,
+                  side:
+                      BorderSide(color: AppColors.gold.withValues(alpha: 0.45)),
+                ),
               ),
-              icon: Icon(
-                audience.onShowcase
-                    ? Icons.remove_circle_outline_rounded
-                    : Icons.workspace_premium_outlined,
-                size: 18,
-              ),
-              // A one-way door is a door nobody walks through — the same
-              // reason the Open Mic toggle had to say which direction it
-              // goes. This shipped without a way back for exactly one day.
-              label: Text(
-                audience.onShowcase
-                    ? 'Take it off the showcase'
-                    : 'It is finished — show it',
-              ),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(46),
-                foregroundColor: AppColors.gold,
-                side: BorderSide(color: AppColors.gold.withValues(alpha: 0.45)),
-              ),
-            ),
-            const SizedBox(height: 8),
+              const SizedBox(height: 8),
+            ],
             OutlinedButton.icon(
               key: const Key('audience_invite'),
               onPressed: () =>
@@ -350,6 +394,7 @@ class _Step extends StatelessWidget {
     required this.here,
     required this.title,
     required this.body,
+    this.available = true,
   });
 
   final SongReach reach;
@@ -357,9 +402,14 @@ class _Step extends StatelessWidget {
   final String title;
   final String body;
 
+  /// Whether this song can reach this far at all. False draws the step in
+  /// the muted tone with a line through its name, so the gradient still
+  /// shows its whole length and the closed end is unmistakable.
+  final bool available;
+
   @override
   Widget build(BuildContext context) {
-    final tone = AudienceDial._toneFor(reach);
+    final tone = available ? AudienceDial._toneFor(reach) : AppColors.muted;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Container(
@@ -375,7 +425,7 @@ class _Step extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Icon(
-              AudienceDial._iconFor(reach),
+              available ? AudienceDial._iconFor(reach) : Icons.public_off_rounded,
               size: 17,
               color: here ? tone : AppColors.muted,
             ),
@@ -392,6 +442,9 @@ class _Step extends StatelessWidget {
                       color: here ? AppColors.text : AppColors.muted,
                       fontSize: 13.5,
                       fontWeight: here ? FontWeight.w800 : FontWeight.w600,
+                      decoration:
+                          available ? null : TextDecoration.lineThrough,
+                      decorationColor: AppColors.muted,
                     ),
                   ),
                   const SizedBox(height: 2),
