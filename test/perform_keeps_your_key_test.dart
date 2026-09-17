@@ -1,5 +1,7 @@
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
+import 'package:colabroom/domain/tonight_models.dart';
+import 'package:colabroom/features/songs/tonight.dart';
 import 'package:colabroom/features/workspace/chord_chart_view.dart';
 import 'package:colabroom/features/workspace/live_performance_screen.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
@@ -25,6 +27,17 @@ void main() {
       expect(chordAsPlayed('G/B', transpose: 2, key: 'G'), 'A/C#');
       expect(transposeChord('Am7/G', 2), 'Bm7/A');
       expect(transposeChord('Bb/D', 2), 'C/E');
+    });
+
+    test('a note spelled E#, B#, Cb or Fb moves like any other', () {
+      // The bass was looked up in a smaller table than the rest of the app
+      // uses, so E# stayed put while its root moved (review, 17 September
+      // 2026).
+      expect(transposeChord('C#/E#', 2), 'D#/G');
+      expect(chordAsPlayed('C#/E#', transpose: 2, key: 'C#'), 'Eb/G');
+      expect(transposeChord('G/B#', -1), 'F#/B');
+      expect(transposeChord('Cb', 1), 'C');
+      expect(transposeChord('Fbmaj7/Cb', 2), 'F#maj7/C#');
     });
 
     test('down two from D is C, and the bass lands on E', () {
@@ -92,6 +105,79 @@ void main() {
         isEmpty,
       );
     });
+
+    test('Home reads the kept keys back, and hears a new one', () async {
+      SongTransposeStore.resetForTesting();
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'song_transpose_song-a': 4,
+        'song_transpose_song-b': 30,
+        // Another store's number for another song, which is not a key.
+        'song_level_song-c': 2,
+      });
+      expect(SongTransposeStore.held('song-a'), 0,
+          reason: 'nothing is known before the read');
+
+      await SongTransposeStore.warm();
+      expect(SongTransposeStore.held('song-a'), 4);
+      expect(SongTransposeStore.held('song-b'), SongTransposeStore.limit);
+      expect(SongTransposeStore.held('song-c'), 0);
+
+      var heard = 0;
+      void listener() => heard++;
+      SongTransposeStore.changes.addListener(listener);
+      addTearDown(() => SongTransposeStore.changes.removeListener(listener));
+      await SongTransposeStore.save('song-c', -2);
+      expect(SongTransposeStore.held('song-c'), -2);
+      expect(heard, 1);
+      await SongTransposeStore.save('song-c', -2);
+      expect(heard, 1, reason: 'the same key again is not a change');
+      SongTransposeStore.resetForTesting();
+    });
+
+    test('Tonight names its chord in the key the sheet opens in', () {
+      const song = TonightSong(
+        projectId: 'song-1',
+        title: 'Divide',
+        key: 'D major',
+        chords: <String>['D:maj', 'G:maj', 'A:maj', 'Bm'],
+      );
+      TonightCard move(int transpose) => composeTonightCards(
+            today: DateTime(2026, 9, 16),
+            releases: const <ReleaseNote>[],
+            song: song,
+            prompt: null,
+            seen: (_) => false,
+            songTranspose: transpose,
+          ).single;
+
+      expect(move(0).title, 'Try Em on Divide');
+      expect(move(0).body, contains('D major'));
+
+      // Kept at +2, the sheet opens in E, where the same move is F#m.
+      expect(move(2).title, 'Try F#m on Divide');
+      expect(move(2).body, contains('is in E major'));
+      expect(move(2).body, isNot(contains('Em ')));
+      // Closing it closes the move, whatever key it was read in.
+      expect(move(2).id, move(0).id);
+
+      // Up one is E-flat, and the card spells it that way.
+      const flat = TonightSong(
+        projectId: 'song-2',
+        title: 'Lowlight',
+        key: 'D major',
+        chords: <String>['D', 'Em', 'F#m', 'A', 'Bm'],
+      );
+      final card = composeTonightCards(
+        today: DateTime(2026, 9, 16),
+        releases: const <ReleaseNote>[],
+        song: flat,
+        prompt: null,
+        seen: (_) => false,
+        songTranspose: 1,
+      ).single;
+      expect(card.title, 'Try Ab on Lowlight');
+      expect(card.body, contains('is in Eb major'));
+    });
   });
 
   testWidgets('Perform opens a transposed song in the key it was left in',
@@ -124,6 +210,16 @@ void main() {
     expect(find.text('F/A'), findsOneWidget);
     expect(find.text('G/B'), findsNothing);
     expect(find.text('Key of G'), findsNothing);
+
+    // Chords off is words only, so the key goes with them, and comes back
+    // with them (review, 17 September 2026).
+    await tester.tap(find.byKey(const Key('live_toggle_chords')));
+    await tester.pump();
+    expect(find.text('Bb/D'), findsNothing);
+    expect(find.byKey(const Key('live_key')), findsNothing);
+    await tester.tap(find.byKey(const Key('live_toggle_chords')));
+    await tester.pump();
+    expect(find.text('Key of Bb'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();

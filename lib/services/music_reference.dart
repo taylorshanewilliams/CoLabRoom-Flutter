@@ -86,6 +86,14 @@ bool samePitch(String a, String b) {
   return pa != null && pa == pb;
 }
 
+/// The pitch class of a note name, 0 for C up to 11 for B, or null when
+/// [note] is not exactly a note name.
+///
+/// Public so there is one table. transposeChord kept a smaller copy without
+/// E#, B#, Cb and Fb, so "C#/E#" moved its root and left its bass behind
+/// (review, 17 September 2026).
+int? pitchOf(String note) => _pitchValues[note];
+
 String noteName(int pitch, {required bool flats}) {
   final index = (pitch % 12 + 12) % 12;
   return flats ? _flatNames[index] : _sharpNames[index];

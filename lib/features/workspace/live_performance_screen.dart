@@ -1326,14 +1326,21 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final lines = _lines;
     final songKey = widget.analysis?.reference?.musicalKey?.trim();
     // The typed words have no chords over them, so no key to be in either.
+    // Nor does a sheet with its chords turned off: somebody reading only the
+    // words has said they do not want the harmony, and a key over bare
+    // lyrics is a label for nothing (review, 17 September 2026).
     final playedKey = songKey == null ||
             songKey.isEmpty ||
-            _source != LiveLyricSource.songSheet
+            _source != LiveLyricSource.songSheet ||
+            !_showChords
         ? null
         : keyAsPlayed(songKey, _transpose);
     // If a layout-affecting input changed since the last measurement, the
     // line offsets used by synced-scroll need to be recaptured post-frame.
-    final layoutKey = '$landscape:${_fontScale.toStringAsFixed(2)}:${lines.length}';
+    // Chords on or off is one: it adds or removes a row over every line, and
+    // the key under the title with them.
+    final layoutKey =
+        '$landscape:${_fontScale.toStringAsFixed(2)}:${lines.length}:$_showChords';
     if (layoutKey != _lastLayoutKey) {
       _lastLayoutKey = layoutKey;
       _markOffsetsDirty();

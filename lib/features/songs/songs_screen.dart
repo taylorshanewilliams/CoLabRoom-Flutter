@@ -39,6 +39,7 @@ import '../rooms/setlist_detail_screen.dart';
 import '../workspace/song_workspace_screen.dart';
 import '../../services/song_search.dart';
 import '../workspace/song_analysis_screen.dart';
+import '../workspace/song_transpose_store.dart';
 import 'song_sheet_queue.dart';
 import '../../services/user_facing_error.dart';
 
@@ -172,6 +173,9 @@ class _SongsScreenState extends State<SongsScreen> {
     unawaited(PlayLater.load().then((_) {
       if (mounted) setState(() {});
     }));
+    // The keys songs are kept in on this phone, for the Tonight card. The
+    // strip listens for them, so there is nothing to redraw here.
+    unawaited(SongTransposeStore.warm());
   }
 
   @override
@@ -414,10 +418,11 @@ class _SongsScreenState extends State<SongsScreen> {
     // Closing one closes exactly that one, and nothing steps out from
     // behind it: Taylor wants them "all being there scrollable ... without
     // anything being buried".
+    final tonightSong = controller.tonight.song;
     final tonightCards = composeTonightCards(
       today: DateTime.now(),
       releases: controller.releases,
-      song: controller.tonight.song,
+      song: tonightSong,
       prompt: controller.tonight.prompt,
       firsts: firstsFor(
         me: controller.repository.currentUserId,
@@ -425,6 +430,11 @@ class _SongsScreenState extends State<SongsScreen> {
         threads: controller.threads,
       ),
       seen: (id) => SetAside.has(SetAside.tonight, id),
+      // The key the song's sheet opens in on this phone, so the chord the
+      // card suggests is the one the sheet will show.
+      songTranspose: tonightSong == null
+          ? 0
+          : SongTransposeStore.held(tonightSong.projectId),
     );
     for (final tonight in tonightCards) {
       items.add(WaitingItem(
@@ -923,7 +933,16 @@ class _SongsScreenState extends State<SongsScreen> {
             // from each side would clip the card that is peeking, which is
             // the one thing telling you the row goes sideways.
             padding: const EdgeInsets.only(top: 10),
-            sliver: SliverToBoxAdapter(child: WaitingOnYou(items: _waiting())),
+            // Redrawn when a song's kept key changes: on a desk the song is
+            // open beside this strip, and its transpose buttons change the
+            // chord the Tonight card names.
+            sliver: SliverToBoxAdapter(
+              child: ValueListenableBuilder<int>(
+                valueListenable: SongTransposeStore.changes,
+                builder: (_, revision, child) =>
+                    WaitingOnYou(items: _waiting()),
+              ),
+            ),
           ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(18, 6, 18, 10),

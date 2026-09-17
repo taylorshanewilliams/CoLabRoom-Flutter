@@ -1,6 +1,6 @@
 import '../../domain/tonight_models.dart';
+import '../workspace/musician_sheet_logic.dart' show chordAsPlayed, keyAsPlayed;
 import 'firsts.dart';
-import '../../services/chord_names.dart';
 import '../../services/music_reference.dart';
 
 /// Something new every time you come back.
@@ -81,6 +81,7 @@ TonightCard? composeTonight({
   required TonightPrompt? prompt,
   required bool Function(String id) seen,
   List<First> firsts = const <First>[],
+  int songTranspose = 0,
 }) {
   final cards = composeTonightCards(
     today: today,
@@ -89,6 +90,7 @@ TonightCard? composeTonight({
     prompt: prompt,
     seen: seen,
     firsts: firsts,
+    songTranspose: songTranspose,
   );
   return cards.isEmpty ? null : cards.first;
 }
@@ -103,6 +105,10 @@ TonightCard? composeTonight({
 ///
 /// [seen] is what the person has closed -- release shas, song-and-chord
 /// ids, prompt ids -- so nothing comes back once it has been dismissed.
+///
+/// [songTranspose] is how far this person has moved [song] on this device
+/// (SongTransposeStore), so the chord move is named in the key its sheet
+/// opens in.
 List<TonightCard> composeTonightCards({
   required DateTime today,
   required List<ReleaseNote> releases,
@@ -110,6 +116,7 @@ List<TonightCard> composeTonightCards({
   required TonightPrompt? prompt,
   required bool Function(String id) seen,
   List<First> firsts = const <First>[],
+  int songTranspose = 0,
 }) {
   final cards = <TonightCard>[];
   // 1. What changed, once per release, for a week.
@@ -152,15 +159,22 @@ List<TonightCard> composeTonightCards({
     if (chord != null) {
       final id = 'move-${song.projectId}-$chord';
       if (!seen(id)) {
-        final key = keyReference(song.key);
-        final written = chordDisplay(chord);
+        // Named in the key the sheet opens in, and spelled the way that key
+        // writes it, through the same call the sheet uses. Once a transpose
+        // was remembered, a song kept at +2 in G was offered Em on Home and
+        // opened in A, where the move is F#m (review, 17 September 2026).
+        // Which chord is untouched does not change with the key, and the id
+        // keeps the song's own chord, so closing the card holds in any key.
+        final played = keyAsPlayed(song.key, songTranspose);
+        final written =
+            chordAsPlayed(chord, transpose: songTranspose, key: song.key);
         cards.add(TonightCard(
           kind: TonightKind.chordMove,
           id: id,
           title: 'Try $written on ${song.title}',
-          body: '${song.title} is in ${key?.display ?? song.key} and has never '
-              'touched $written. Put it on the line before the chorus and '
-              'hear what it does.',
+          body: '${song.title} is in ${keyReference(played)?.display ?? played} '
+              'and has never touched $written. Put it on the line before the '
+              'chorus and hear what it does.',
           cta: 'Open ${song.title}',
           projectId: song.projectId,
         ));
