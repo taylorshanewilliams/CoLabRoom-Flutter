@@ -5393,6 +5393,38 @@ begin
           and part = 'topline') is distinct from 'write' then
     raise exception 'the person asked rewrote what answering meant';
   end if;
+
+  -- What the ask says first. This row is the push on the phone and the line
+  -- drawn in the inbox's Activity list under the ask's own card, and it is
+  -- the one surface the sentence cannot be scrolled into view on. A write ask
+  -- that announced itself as playing would be the contradiction arriving
+  -- first and loudest.
+  if not exists (
+    select 1 from public.notifications
+    where type = 'song_ask'
+      and user_id = '7e1a5000-0000-0000-0000-000000000145'
+      and project_id = '7e1a5000-0000-0000-0000-00000000014b'
+      and title = 'The Writer asked you to write on topline'
+  ) then
+    raise exception 'a write ask announced itself as something else (got %)',
+      (select title from public.notifications
+       where type = 'song_ask'
+         and project_id = '7e1a5000-0000-0000-0000-00000000014b');
+  end if;
+
+  -- And playing still says exactly what it said before this migration.
+  if not exists (
+    select 1 from public.notifications
+    where type = 'song_ask'
+      and user_id = '7e1a5000-0000-0000-0000-000000000145'
+      and project_id = '7e1a5000-0000-0000-0000-00000000014c'
+      and title = 'The Writer asked you to play bass'
+  ) then
+    raise exception 'a playing ask stopped saying what it always said (got %)',
+      (select title from public.notifications
+       where type = 'song_ask'
+         and project_id = '7e1a5000-0000-0000-0000-00000000014c');
+  end if;
 end $$;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';

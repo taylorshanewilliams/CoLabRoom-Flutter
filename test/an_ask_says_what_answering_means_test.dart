@@ -73,6 +73,33 @@ class _Asking extends InMemoryMusicRepository {
   }
 }
 
+/// A song asking for two different things on two different terms.
+///
+/// This is allowed: 0049 forbids only two open asks for the same part, so a
+/// song can want bass played and a topline written at the same time.
+class _AskingTwoWays extends InMemoryMusicRepository {
+  _AskingTwoWays() : super.from(InMemoryMusicRepository.seeded());
+
+  @override
+  Future<List<SongAsk>> loadAsks(String projectId) async => <SongAsk>[
+        SongAsk(
+          id: 'play',
+          projectId: projectId,
+          askedBy: currentUserId,
+          createdAt: DateTime(2026, 9, 17),
+          part: 'bass',
+        ),
+        SongAsk(
+          id: 'write',
+          projectId: projectId,
+          askedBy: currentUserId,
+          createdAt: DateTime(2026, 9, 17),
+          part: 'a topline',
+          terms: AskTerms.write,
+        ),
+      ];
+}
+
 Future<void> _openInbox(WidgetTester tester, AskTerms terms) async {
   tester.view.physicalSize = const Size(390, 1400);
   tester.view.devicePixelRatio = 1.0;
@@ -153,13 +180,41 @@ void main() {
       (tester) async {
     await _openSongBar(tester, AskTerms.play);
     expect(find.text('needs bass'), findsOneWidget);
+    expect(find.byKey(const Key('ask_chip_writing_ask-1')), findsNothing);
     expect(find.byKey(const Key('ask_bar_writing_terms')), findsNothing);
   });
 
   testWidgets('the song says it too when it is a writing ask', (tester) async {
     await _openSongBar(tester, AskTerms.write);
     expect(find.text('needs bass'), findsOneWidget);
+    expect(find.byKey(const Key('ask_chip_writing_ask-1')), findsOneWidget);
     expect(find.byKey(const Key('ask_bar_writing_terms')), findsOneWidget);
+    expect(find.text(_theLine), findsOneWidget);
+  });
+
+  testWidgets('a song asking two ways says which ask the writing one is',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: CoLabRoomTheme.dark(),
+      home: Scaffold(
+        body:
+            AskBar(projectId: 'preview-project-1', repository: _AskingTwoWays()),
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    // The sentence is said once, but it cannot be read as covering the bass.
+    // Somebody who records bass here must not walk away believing they are a
+    // writer on the song -- that is the argument this slice exists to
+    // prevent, and the bar is where it would be made.
+    expect(find.text('needs bass'), findsOneWidget);
+    expect(find.text('needs a topline'), findsOneWidget);
+    expect(find.byKey(const Key('ask_chip_writing_write')), findsOneWidget);
+    expect(find.byKey(const Key('ask_chip_writing_play')), findsNothing);
     expect(find.text(_theLine), findsOneWidget);
   });
 

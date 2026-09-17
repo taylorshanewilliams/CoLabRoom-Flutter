@@ -260,9 +260,13 @@ class _AskBarState extends State<AskBar> {
     if (asks == null) return const SizedBox.shrink();
 
     final heard = _nods.length;
-    // One line, once, and only when something on this song is being written
-    // on. The sentence is about the terms rather than about a part, so a
-    // second copy of it under a second chip would say nothing new.
+    // The sentence is about the terms rather than about a part, so it is said
+    // once under the row rather than copied under every chip. What it must
+    // never do is point at the wrong ask: a song can hold an open ask for
+    // bass and another for a topline at the same time (0049 forbids only two
+    // open asks for the same part), and one line under both would tell the
+    // bass player they are a writer. So the writing chips name themselves,
+    // and the line underneath says what that word costs.
     final writing = asks.any((ask) => ask.terms == AskTerms.write);
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 2, 12, 10),
@@ -281,6 +285,8 @@ class _AskBarState extends State<AskBar> {
                       ? '${ask.label} · ${ask.replyCount}'
                       : ask.label,
                   specific: ask.isSpecific,
+                  writing: ask.terms == AskTerms.write,
+                  writingKey: Key('ask_chip_writing_${ask.id}'),
                   onOpen: () => unawaited(_openThread(ask)),
                   onClose: _busy ? null : () => unawaited(_close(ask)),
                 ),
@@ -349,6 +355,8 @@ class _AskChip extends StatelessWidget {
   const _AskChip({
     required this.label,
     required this.specific,
+    required this.writing,
+    required this.writingKey,
     required this.onOpen,
     required this.onClose,
     super.key,
@@ -356,6 +364,16 @@ class _AskChip extends StatelessWidget {
 
   final String label;
   final bool specific;
+
+  /// Whether answering this one means writing on the song.
+  ///
+  /// The chip says so itself rather than leaving it to the line under the
+  /// row. A song can be asking for bass to play and a topline to write on at
+  /// the same time, and a single sentence under both chips would be read as
+  /// covering both — which is the two-honest-memories argument this slice
+  /// exists to prevent, made by the surface that reports it.
+  final bool writing;
+  final Key writingKey;
 
   /// The thread. The chip used to be a label with an X on it; now the label
   /// is the way in to what people have said about the ask.
@@ -378,17 +396,49 @@ class _AskChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          InkWell(
-            onTap: onOpen,
-            borderRadius: BorderRadius.circular(20),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 5, 4, 5),
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: tint,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
+          // Flexible, so a chip too wide for a narrow phone gives way instead
+          // of overflowing: "needs a topline · writing" is already 0.25px too
+          // wide for a 390pt screen.
+          Flexible(
+            child: InkWell(
+              onTap: onOpen,
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 5, 4, 5),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    // The part gives way and the terms never do. If something
+                    // has to be cut it is the name of the instrument, which
+                    // the thread behind the chip repeats; cutting "writing"
+                    // would hide the one word that changes what answering
+                    // this ask is worth.
+                    Flexible(
+                      child: Text(
+                        label,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: tint,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    // A plain word in the same phrase, not a badge on top of
+                    // one: it names the terms this ask was sent under, so the
+                    // sentence under the row can only be read as belonging to
+                    // the chips that say the word.
+                    if (writing)
+                      Text(
+                        ' · writing',
+                        key: writingKey,
+                        style: TextStyle(
+                          color: tint,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),

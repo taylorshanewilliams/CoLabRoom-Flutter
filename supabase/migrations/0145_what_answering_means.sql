@@ -151,11 +151,24 @@ begin
   select display_name into asker_name
   from public.profiles where id = auth.uid();
 
+  -- The push is the first thing said about this ask and the one surface the
+  -- sentence cannot be scrolled into view on, so the title cannot say "play"
+  -- about a write ask. This row is also drawn in the inbox's Activity list
+  -- underneath the ask's own card, where "asked you to play" sitting below
+  -- "if your part is used, you're a writer" is the contradiction in one
+  -- screen. The playing wording is 0063's, untouched, including its "on a
+  -- song" for an ask that never named a part.
   perform private.notify_user(
     target_person,
     'song_ask',
-    coalesce(asker_name, 'Somebody') || ' asked you to play ' ||
-      coalesce(cleaned_part, 'on a song'),
+    case
+      when cleaned_terms = 'write' then
+        coalesce(asker_name, 'Somebody') || ' asked you to write on ' ||
+          coalesce(cleaned_part, 'a song')
+      else
+        coalesce(asker_name, 'Somebody') || ' asked you to play ' ||
+          coalesce(cleaned_part, 'on a song')
+    end,
     coalesce(song.title, 'A song') ||
       case
         when nullif(trim(coalesce(in_note, '')), '') is null then ''
