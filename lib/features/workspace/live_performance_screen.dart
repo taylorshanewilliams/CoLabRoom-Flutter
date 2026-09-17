@@ -26,6 +26,7 @@ import 'musician_sheet_line.dart';
 import 'musician_sheet_logic.dart';
 import 'practice_marks.dart';
 import 'practice_rules.dart';
+import 'song_transpose_store.dart';
 
 enum LiveScrollMode { off, synced, slow, medium, fast, timed }
 
@@ -140,6 +141,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   bool _playing = false;
   bool _controlsVisible = true;
   bool _showChords = true;
+
+  /// The key this person plays the song in, as they left it on the sheet.
+  ///
+  /// Perform drew every chord with a transpose of zero, so a song moved down
+  /// two to fit somebody's voice went on stage in its original key (audit,
+  /// 17 September 2026). Read from this device and never from Follow me: a
+  /// leader moves where the song is, not what key a follower reads it in.
+  int _transpose = 0;
   double _fontScale = 1;
   Duration _songDuration = const Duration(minutes: 3, seconds: 30);
   Duration _elapsed = Duration.zero;
@@ -295,6 +304,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final reference = widget.analysis?.reference;
     if (reference != null) unawaited(_prepareAudio(reference));
     unawaited(_loadCountdownPrefs());
+    unawaited(_loadTranspose());
 
     final together = widget.together;
     if (together != null) {
@@ -571,6 +581,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _countdownEnabled = enabled;
       _countdownSeconds = seconds;
     });
+  }
+
+  Future<void> _loadTranspose() async {
+    final kept = await SongTransposeStore.load(widget.project.id);
+    if (!mounted || kept == _transpose) return;
+    setState(() => _transpose = kept);
+    // A chord name changes width when it moves ("G" to "Bb"), which can move
+    // where a line wraps and so where the synced scroll thinks it is.
+    _markOffsetsDirty();
   }
 
   /// Loads the analyzed reference recording so "synced" mode can play the
@@ -1305,9 +1324,23 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final lyricSize = baseSize * _fontScale;
     final sidePadding = landscape ? media.size.width * 0.12 : 24.0;
     final lines = _lines;
+    final songKey = widget.analysis?.reference?.musicalKey?.trim();
+    // The typed words have no chords over them, so no key to be in either.
+    // Nor does a sheet with its chords turned off: somebody reading only the
+    // words has said they do not want the harmony, and a key over bare
+    // lyrics is a label for nothing (review, 17 September 2026).
+    final playedKey = songKey == null ||
+            songKey.isEmpty ||
+            _source != LiveLyricSource.songSheet ||
+            !_showChords
+        ? null
+        : keyAsPlayed(songKey, _transpose);
     // If a layout-affecting input changed since the last measurement, the
     // line offsets used by synced-scroll need to be recaptured post-frame.
-    final layoutKey = '$landscape:${_fontScale.toStringAsFixed(2)}:${lines.length}';
+    // Chords on or off is one: it adds or removes a row over every line, and
+    // the key under the title with them.
+    final layoutKey =
+        '$landscape:${_fontScale.toStringAsFixed(2)}:${lines.length}:$_showChords';
     if (layoutKey != _lastLayoutKey) {
       _lastLayoutKey = layoutKey;
       _markOffsetsDirty();
@@ -1355,6 +1388,24 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                             letterSpacing: 1.1,
                           ),
                         ),
+                        // The key the chords below are in, under the title
+                        // where a chart prints it. Transposed, it is the one
+                        // thing a band needs to hear before the count-in,
+                        // and it differs from the recording's.
+                        if (playedKey != null) ...<Widget>[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Key of $playedKey',
+                            key: const Key('live_key'),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: AppColors.muted.withValues(alpha: 0.62),
+                              fontSize: lyricSize * 0.42,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+                        ],
                         SizedBox(height: landscape ? 22 : 34),
                         for (var i = 0; i < lines.length; i++)
                           _PerformanceLine(
@@ -1369,6 +1420,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                             fontSize: lyricSize,
                             compact: landscape,
                             showChords: _showChords,
+                            transpose: _transpose,
                             musicalKey: widget.analysis?.reference?.musicalKey,
                             active: _mode == LiveScrollMode.synced &&
                                 _lineKey(i) == _activeLineKey,
@@ -1501,6 +1553,7 @@ class _PerformanceLine extends StatelessWidget {
     required this.fontSize,
     required this.compact,
     required this.showChords,
+    required this.transpose,
     this.active = false,
     this.elapsedMs,
     this.melody,
@@ -1508,8 +1561,12 @@ class _PerformanceLine extends StatelessWidget {
     super.key,
   });
 
-  /// For spelling chords the way the key writes them.
+  /// For spelling chords the way the key writes them: the song's key before
+  /// [transpose] moves it.
   final String? musicalKey;
+
+  /// Semitones this person has moved the song on this device.
+  final int transpose;
 
   final MusicianSheetLine line;
   final Color dotColor;
@@ -1596,7 +1653,7 @@ class _PerformanceLine extends StatelessWidget {
           Expanded(
             child: MusicianChordLyricLine(
               line: line,
-              transpose: 0,
+              transpose: transpose,
               musicalKey: musicalKey,
               fontScale: fontSize / 13.0,
               showChords: showChords,

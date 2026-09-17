@@ -8,6 +8,7 @@ import 'package:colabroom/features/workspace/chord_chart_view.dart';
 import 'package:colabroom/features/workspace/chord_editor_sheet.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/musician_song_sheet.dart';
+import 'package:colabroom/features/workspace/song_transpose_store.dart';
 import 'package:colabroom/services/chord_chart.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:flutter/material.dart';
@@ -42,7 +43,14 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
 
   late SongAnalysisBundle _bundle;
   SongSheetView _view = SongSheetView.sheet;
+
+  /// The key this person plays the song in, kept on this device (see
+  /// SongTransposeStore).
   int _transpose = 0;
+
+  /// Whether a transpose button was pressed before the kept key arrived, so
+  /// a slow read cannot undo the press.
+  bool _transposeTouched = false;
   double _fontScale = 1;
   bool _showChords = true;
   bool _editingChords = false;
@@ -72,6 +80,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   void initState() {
     super.initState();
     _bundle = widget.bundle;
+    unawaited(_loadTranspose());
   }
 
   @override
@@ -81,13 +90,44 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       _bundle = widget.bundle;
       _chartRows = null;
     }
+    if (oldWidget.project.id != widget.project.id) {
+      _transpose = 0;
+      _transposeTouched = false;
+      unawaited(_loadTranspose());
+    }
   }
+
+  Future<void> _loadTranspose() async {
+    final projectId = widget.project.id;
+    final kept = await SongTransposeStore.load(projectId);
+    if (!mounted || _transposeTouched || widget.project.id != projectId) return;
+    if (kept != _transpose) setState(() => _transpose = kept);
+  }
+
+  void _shiftTranspose(int delta) {
+    final next = (_transpose + delta)
+        .clamp(-SongTransposeStore.limit, SongTransposeStore.limit)
+        .toInt();
+    setState(() {
+      _transposeTouched = true;
+      _transpose = next;
+    });
+    unawaited(SongTransposeStore.save(widget.project.id, next));
+  }
+
+  /// The transpose the page is drawn with.
+  ///
+  /// Correcting chords shows them in the song's own key, because a chord
+  /// typed into the editor is saved as written and has to be read against
+  /// what is stored. It used to do that by setting the transpose back to
+  /// zero, which was harmless while nothing remembered it. Now it is only
+  /// set aside for the edit, and your key comes back with Done.
+  int get _shownTranspose => _editingChords ? 0 : _transpose;
 
   void _toggleChordEditing() {
     setState(() {
       _editingChords = !_editingChords;
       _showChords = true;
-      if (_editingChords) _transpose = 0;
     });
   }
 
@@ -346,11 +386,12 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final transposeLabel = _transpose == 0
+    final transpose = _shownTranspose;
+    final transposeLabel = transpose == 0
         ? 'Original key'
-        : _transpose > 0
-            ? '+$_transpose semitones'
-            : '$_transpose semitones';
+        : transpose > 0
+            ? '+$transpose semitones'
+            : '$transpose semitones';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -367,12 +408,8 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
                 children: <Widget>[
                   IconButton(
                     tooltip: 'Transpose down',
-                    onPressed: _editingChords
-                        ? null
-                        : () => setState(() {
-                              _transpose =
-                                  (_transpose - 1).clamp(-11, 11).toInt();
-                            }),
+                    onPressed:
+                        _editingChords ? null : () => _shiftTranspose(-1),
                     icon: const Icon(Icons.remove_rounded, size: 18),
                   ),
                   Expanded(
@@ -388,12 +425,8 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
                   ),
                   IconButton(
                     tooltip: 'Transpose up',
-                    onPressed: _editingChords
-                        ? null
-                        : () => setState(() {
-                              _transpose =
-                                  (_transpose + 1).clamp(-11, 11).toInt();
-                            }),
+                    onPressed:
+                        _editingChords ? null : () => _shiftTranspose(1),
                     icon: const Icon(Icons.add_rounded, size: 18),
                   ),
                   const SizedBox(width: 4),
@@ -561,7 +594,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
         if (_view == SongSheetView.chart)
           ChordChartView(
             rows: _chart,
-            transpose: _transpose,
+            transpose: transpose,
             fontScale: _fontScale,
             // The song, so a tapped chord can say where it sits in it rather
             // than only what it is.
@@ -575,7 +608,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             title: widget.project.title,
             lines: buildMusicianSheetLines(widget.project, _bundle, ignoreWorkspaceLyrics: true),
             musicalKey: _bundle.reference?.musicalKey,
-            transpose: _transpose,
+            transpose: transpose,
             fontScale: _fontScale,
             showChords: _showChords,
             editableChords: _editingChords && !_savingChord,
