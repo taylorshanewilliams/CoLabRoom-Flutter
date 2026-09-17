@@ -88,6 +88,12 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
   /// The notes you have left. Only ever read on your own page.
   List<StandingWant> _wants = const <StandingWant>[];
 
+  /// Where the two of you stand: null when neither has asked. Only shown once
+  /// it is known, so a page that cannot find out offers nothing wrong.
+  Connection? _connection;
+  bool _connectionKnown = false;
+  bool _connecting = false;
+
   bool get _isMe => widget.repository.currentUserId == widget.profileId;
 
   @override
@@ -145,6 +151,8 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
       }
       String? shared;
       var canMessage = false;
+      Connection? connection;
+      var connectionKnown = false;
       if (!_isMe) {
         // Only ever a nice surprise, never a filter. Null is the normal answer
         // and is not worth putting an error on the page for.
@@ -160,6 +168,12 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
         } catch (_) {
           canMessage = false;
         }
+        try {
+          connection = _standingWith(await widget.repository.listConnections());
+          connectionKnown = true;
+        } catch (_) {
+          connectionKnown = false;
+        }
       }
       if (!mounted) return;
       setState(() {
@@ -170,6 +184,8 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
         _noticed = noticed;
         _sharedCity = shared;
         _canMessage = canMessage;
+        _connection = connection;
+        _connectionKnown = connectionKnown;
         _wants = wants;
         _error = null;
       });
@@ -184,6 +200,44 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
           route: 'Profile',
         );
       });
+    }
+  }
+
+  Connection? _standingWith(List<Connection> all) {
+    for (final each in all) {
+      if (each.personId == widget.profileId) return each;
+    }
+    return null;
+  }
+
+  /// Asking, or answering: then the page says where you stand now, and
+  /// whether you can message them.
+  Future<void> _changeStanding(Future<void> Function() change, String stage) async {
+    if (_connecting) return;
+    setState(() => _connecting = true);
+    try {
+      await change();
+      final all = await widget.repository.listConnections();
+      var canMessage = _canMessage;
+      try {
+        canMessage = await widget.repository.canMessage(widget.profileId);
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _connection = _standingWith(all);
+        _canMessage = canMessage;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: Text(isRefusal(error)
+              ? describeForUser(error)
+              : reportAndDescribe(error, service: 'app', stage: stage, route: 'Profile')),
+        ));
+    } finally {
+      if (mounted) setState(() => _connecting = false);
     }
   }
 
@@ -697,6 +751,21 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
                     _isMe ? null : () => unawaited(_startSomething()),
                 onInvite:
                     (_isMe || !_ownsARoom) ? null : () => unawaited(_invite()),
+                whereYouStand: (_isMe || !_connectionKnown)
+                    ? null
+                    : _WhereYouStand(
+                        name: musician.displayName,
+                        connection: _connection,
+                        busy: _connecting,
+                        onAdd: () => unawaited(_changeStanding(
+                          () => widget.repository.requestConnection(widget.profileId),
+                          'profile.add',
+                        )),
+                        onAnswer: (accept) => unawaited(_changeStanding(
+                          () => widget.repository.respondToConnection(widget.profileId, accept: accept),
+                          'profile.answer',
+                        )),
+                      ),
               ),
       ),
     );
@@ -727,7 +796,11 @@ class _Body extends StatelessWidget {
     required this.onMessage,
     required this.onInvite,
     required this.onStartSomething,
+    this.whereYouStand,
   });
+
+  /// Add, Add back, Asked or One of your people. Null on your own page.
+  final Widget? whereYouStand;
 
   final Musician musician;
 
@@ -966,6 +1039,10 @@ class _Body extends StatelessWidget {
             error!,
             style: const TextStyle(color: AppColors.orange, fontSize: 12.5),
           ),
+        ],
+        if (whereYouStand != null) ...<Widget>[
+          const SizedBox(height: 18),
+          whereYouStand!,
         ],
         if (onStartSomething != null) ...<Widget>[
           const SizedBox(height: 18),
@@ -2138,6 +2215,115 @@ class _BioDialogState extends State<_BioDialog> {
         FilledButton(
           onPressed: () => Navigator.pop(context, _text.text),
           child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Where the two of you stand, on their page.
+///
+/// Home says "Wants to connect · Mara · See who", and See who opened Mara's
+/// page -- which had no way to answer her, no sign she had asked, and no way
+/// to add anybody at all (audit, 17 September 2026). A request could only be
+/// answered from Your people or from Your code. The answer belongs where the
+/// question is shown.
+class _WhereYouStand extends StatelessWidget {
+  const _WhereYouStand({
+    required this.name,
+    required this.connection,
+    required this.busy,
+    required this.onAdd,
+    required this.onAnswer,
+  });
+
+  final String name;
+
+  /// Null when neither of you has asked.
+  final Connection? connection;
+  final bool busy;
+  final VoidCallback onAdd;
+  final ValueChanged<bool> onAnswer;
+
+  @override
+  Widget build(BuildContext context) {
+    final standing = connection;
+    if (standing == null) {
+      return OutlinedButton.icon(
+        key: const Key('profile_add_person'),
+        onPressed: busy ? null : onAdd,
+        icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+        label: Text('Add $name', style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(44),
+          foregroundColor: AppColors.green,
+          side: BorderSide(color: AppColors.green.withValues(alpha: 0.45)),
+        ),
+      );
+    }
+    if (!standing.accepted && standing.incoming) {
+      return Container(
+        key: const Key('profile_wants_to_add_you'),
+        padding: const EdgeInsets.fromLTRB(14, 12, 10, 8),
+        decoration: BoxDecoration(
+          color: AppColors.green.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.green.withValues(alpha: 0.35)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              '$name wants to add you',
+              style: const TextStyle(color: AppColors.text, fontSize: 14.5, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              'Add them back and you can message each other.',
+              style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.35),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: <Widget>[
+                FilledButton(
+                  key: const Key('profile_add_back'),
+                  onPressed: busy ? null : () => onAnswer(true),
+                  style: FilledButton.styleFrom(backgroundColor: AppColors.green, foregroundColor: AppColors.ink),
+                  child: const Text('Add back'),
+                ),
+                TextButton(
+                  key: const Key('profile_not_now'),
+                  onPressed: busy ? null : () => onAnswer(false),
+                  style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+                  child: const Text('Not now'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+    final waiting = !standing.accepted;
+    return Row(
+      key: Key(waiting ? 'profile_asked' : 'profile_connected'),
+      children: <Widget>[
+        Icon(
+          waiting ? Icons.hourglass_top_rounded : Icons.how_to_reg_rounded,
+          size: 17,
+          color: waiting ? AppColors.muted : AppColors.green,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            waiting ? 'Asked. Waiting for $name to say yes.' : 'One of your people',
+            style: TextStyle(
+              color: waiting ? AppColors.muted : AppColors.text,
+              fontSize: 13,
+              fontWeight: waiting ? FontWeight.w500 : FontWeight.w700,
+            ),
+          ),
         ),
       ],
     );

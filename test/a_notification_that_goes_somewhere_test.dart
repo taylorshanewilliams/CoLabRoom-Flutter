@@ -33,7 +33,10 @@ class _WithSongNews extends InMemoryMusicRepository {
           title: 'Somebody asked you to play bass',
           body: 'A song',
           createdAt: DateTime.now().subtract(const Duration(minutes: 9)),
-          projectId: 'song-1',
+          // The song of the ask waiting in the inbox, which is not yours yet.
+          // An ask's card that says "Mara is in" is about a song you already
+          // have, and that one does open it (answer_them_where_they_are_test).
+          projectId: 'preview-project-1',
         ),
       ];
 }
@@ -91,7 +94,7 @@ void main() {
     await tester.tap(find.text('Somebody asked you to play bass'));
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(routes.pushed.where((name) => name == '/song/song-1'), isEmpty,
+    expect(routes.pushed.where((name) => name != null && name.startsWith('/song/')), isEmpty,
         reason: 'the person asked cannot open the song until they say yes');
   });
 }

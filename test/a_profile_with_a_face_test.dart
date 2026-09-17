@@ -35,7 +35,9 @@ void main() {
 
   testWidgets('and their record is a shape as well as a number',
       (tester) async {
-    tester.view.physicalSize = const Size(390, 900);
+    // Tall enough for the whole record: Mara has asked to add you, and the
+    // answer to that sits above it.
+    tester.view.physicalSize = const Size(390, 1300);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 

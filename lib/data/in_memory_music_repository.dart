@@ -1553,6 +1553,9 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<bool> requestConnection(String personId) async {
     final at = _connections.indexWhere((c) => c.personId == personId);
+    // Asking again while waiting changes nothing, as on the server; only a
+    // request from them turns into a connection.
+    if (at >= 0 && !_connections[at].accepted && !_connections[at].incoming) return false;
     if (at >= 0) {
       // They had already asked. Two people who have each pressed the button
       // are connected, the same as on the server.

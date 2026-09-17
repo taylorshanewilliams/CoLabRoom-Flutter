@@ -44,6 +44,20 @@ String? inviteCodeFrom(Uri address) {
   return _shape.hasMatch(code) ? code : null;
 }
 
+/// An invitation in whatever somebody pasted into "Join with a code": the
+/// link it arrived as, or the code on its own. Null for anything else.
+///
+/// Invitations have travelled as links since 16 September 2026, and the box
+/// sent a pasted link to the server whole, which refused it as "not valid".
+String? inviteCodeFromText(String text) {
+  final trimmed = text.trim();
+  if (trimmed.contains('/invite/') || trimmed.contains('invite=')) {
+    final address = Uri.tryParse(trimmed);
+    return address == null ? null : inviteCodeFrom(address);
+  }
+  return _shape.hasMatch(trimmed) ? trimmed : null;
+}
+
 /// A teacher's lesson link (0129): whoever opens it gets their own room
 /// with the teacher. The same web app as an invitation, a different door,
 /// so the shell can tell "join this room" from "make me one".

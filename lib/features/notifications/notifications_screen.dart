@@ -14,6 +14,7 @@ import '../../domain/musical_roles.dart';
 import '../../widgets/play_button.dart';
 import '../openmic/report_sheet.dart';
 import '../../app/routes.dart';
+import '../meeting/add_person_screen.dart';
 import '../openmic/musician_profile_screen.dart';
 import '../openmic/people_screen.dart';
 import '../rooms/room_detail_screen.dart';
@@ -39,13 +40,18 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _busy = false;
 
-  Future<void> _run(Future<void> Function() action, String success) async {
+  /// [open] is where the thing that was just said yes to now lives. "X is in
+  /// Your music now" with nothing to press left somebody to go and find it.
+  Future<void> _run(Future<void> Function() action, String success, {VoidCallback? open}) async {
     if (_busy) return;
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
       await action();
-      messenger.showSnackBar(SnackBar(content: Text(success)));
+      messenger.showSnackBar(SnackBar(
+        content: Text(success),
+        action: open == null ? null : SnackBarAction(label: 'Open', onPressed: open),
+      ));
     } catch (error) {
       // Was `Text(error.toString())`, which is how a musician standing in a
       // room came to be shown a Postgres unique-constraint violation. The
@@ -73,7 +79,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       context: context,
       builder: (_) => const _JoinCodeDialog(),
     );
-    if (code == null || !mounted) return;
+    if (code == null || code.trim().isEmpty || !mounted) return;
     // A teacher's lesson code or link makes a room rather than joining one.
     final lesson = lessonCodeFromText(code);
     if (lesson != null) {
@@ -85,10 +91,37 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       );
       return;
     }
+    // Somebody's own code, or the link their QR code holds: this is the box
+    // people reach for, and it said "That invite code is not valid."
+    final person = meetingCodeFromText(code);
+    if (person != null) {
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+        settings: RouteSettings(name: AppRoutes.meet(person)),
+        builder: (_) => AddPersonScreen(code: person, repository: controller.repository),
+      ));
+      return;
+    }
     await _run(
-      () => controller.acceptInvite(code: code),
-      'Joined. You can open it from Songs.',
+      () => controller.acceptInvite(code: inviteCodeFromText(code) ?? code.trim()),
+      'Joined. It is under Your music.',
     );
+  }
+
+  void _openSong(String projectId) {
+    // From a snackbar, which can outlive this screen.
+    if (!mounted) return;
+    unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+      settings: RouteSettings(name: AppRoutes.song(projectId)),
+      builder: (_) => SongWorkspaceScreen(projectId: projectId),
+    )));
+  }
+
+  void _openRoom(String roomId) {
+    if (!mounted) return;
+    unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+      settings: RouteSettings(name: AppRoutes.room(roomId)),
+      builder: (_) => RoomDetailScreen(roomId: roomId),
+    )));
   }
 
   /// Saying a song is wrong, from the card it arrived on.
@@ -217,6 +250,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         onAccept: () => _run(
                           () => controller.answerAsk(ask, accept: true),
                           '${ask.songTitle} is in Your music now.',
+                          open: () => _openSong(ask.projectId),
                         ),
                         onDecline: () => _run(
                           () => controller.answerAsk(ask, accept: false),
@@ -254,6 +288,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           () => controller.answerRoomInvite(invite,
                               accept: true),
                           '${invite.roomName} is in Your music now.',
+                          open: () => _openRoom(invite.roomId),
                         ),
                         onDecline: () => _run(
                           () => controller.answerRoomInvite(invite,
@@ -282,6 +317,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           invite.isProjectScoped
                               ? 'Song joined. Find it in Your music.'
                               : 'Room joined. Its songs are in Your music.',
+                          open: () => invite.projectId != null
+                              ? _openSong(invite.projectId!)
+                              : _openRoom(invite.roomId),
                         ),
                         onDecline: () => _run(
                           () => controller.declineInvite(invite),
@@ -316,7 +354,32 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             // arrives as an accepted invitation with the
                             // new room on it: the card opens that room's
                             // thread, where the lesson starts.
-                            if (notification.type ==
+                            // Somebody said yes to a song you asked them
+                            // onto: the song. It used to open nothing -- the
+                            // one song_ask card in production ("Taylor is
+                            // in") went nowhere.
+                            // An ask still waiting on you stays with its own
+                            // card, where it is answered.
+                            if (notification.type == NotificationType.songAsk &&
+                                notification.projectId != null &&
+                                controller.projectById(notification.projectId!) != null &&
+                                !asks.any((ask) => ask.projectId == notification.projectId)) {
+                              _openSong(notification.projectId!);
+                            }
+                            // An invitation you have already taken: the room.
+                            // The card above does the answering while it is
+                            // open.
+                            if (notification.type == NotificationType.inviteReceived &&
+                                notification.roomId != null &&
+                                controller.roomById(notification.roomId!) != null) {
+                              _openRoom(notification.roomId!);
+                            }
+                            // Accepted onto one song: that song.
+                            if (notification.type == NotificationType.inviteAccepted &&
+                                notification.projectId != null &&
+                                controller.projectById(notification.projectId!) != null) {
+                              _openSong(notification.projectId!);
+                            } else if (notification.type ==
                                     NotificationType.inviteAccepted &&
                                 notification.roomId != null) {
                               final room = controller.roomById(notification.roomId!);
@@ -963,23 +1026,31 @@ class _JoinCodeDialogState extends State<_JoinCodeDialog> {
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 440),
         child: TextField(
+          key: const Key('join_code_field'),
           controller: _code,
           autofocus: true,
           autocorrect: false,
           decoration: const InputDecoration(
-            labelText: 'Invite or lesson code',
-            helperMaxLines: 2,
-            helperText: 'A code somebody sent you, or a teacher\'s lesson code or link.',
+            labelText: 'Code or link',
+            helperMaxLines: 3,
+            helperText: 'An invitation, a teacher\'s lesson code, or somebody\'s own code from their QR.',
           ),
-          onSubmitted: (value) => Navigator.pop(context, value),
+          onSubmitted: (value) {
+            if (value.trim().isNotEmpty) Navigator.pop(context, value);
+          },
         ),
       ),
       actions: <Widget>[
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
-          key: const Key('join_code_submit'),
-          onPressed: () => Navigator.pop(context, _code.text),
-          child: const Text('Join'),
+        // Waits for a code. With nothing typed it used to close the box and
+        // say the code was not valid.
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _code,
+          builder: (context, value, _) => FilledButton(
+            key: const Key('join_code_submit'),
+            onPressed: value.text.trim().isEmpty ? null : () => Navigator.pop(context, value.text),
+            child: const Text('Join'),
+          ),
         ),
       ],
     );
