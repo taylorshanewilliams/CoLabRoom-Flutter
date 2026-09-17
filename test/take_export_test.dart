@@ -190,15 +190,17 @@ void main() {
     test('a take that comes in at 1.5 s carries the silence in front of it',
         () {
       // The one thing a DAW cannot put back. Dropped at bar 1, the file has
-      // to already know it was played a bar and a half in.
+      // to already know it was played a bar and a half in. Read back out of
+      // the wav rather than checked before it is written, because the wav is
+      // what leaves here.
       final take = _take(id: 'late', startMs: 1500);
       final samples = Float64List.fromList(List<double>.filled(4410, 0.4));
-      final aligned = TakeExport.alignedToSongStart(take, samples);
+      final aligned = LatencyProbe.fromWav(TakeExport.alignedWav(take, samples));
 
       expect(aligned.length, 66150 + 4410);
       expect(aligned[0], 0);
       expect(aligned[66149], 0);
-      expect(aligned[66150], closeTo(0.4, 1e-9));
+      expect(aligned[66150], closeTo(0.4, 1e-4));
     });
 
     test('the latency trim comes off the front at the same time', () {
@@ -206,7 +208,7 @@ void main() {
       // that silence: both numbers, applied the way the mixer applies them.
       final take = _take(id: 'late', startMs: 1000, offsetMs: 100);
       final samples = Float64List.fromList(List<double>.filled(8820, 0.4));
-      final aligned = TakeExport.alignedToSongStart(take, samples);
+      final aligned = LatencyProbe.fromWav(TakeExport.alignedWav(take, samples));
 
       expect(aligned.length, 44100 + 8820 - 4410);
     });
@@ -214,7 +216,10 @@ void main() {
     test('a trim longer than the take leaves nothing rather than crashing', () {
       final take = _take(id: 'short', offsetMs: 500);
       final samples = Float64List.fromList(List<double>.filled(441, 0.4));
-      expect(TakeExport.alignedToSongStart(take, samples).length, 0);
+      expect(
+        LatencyProbe.fromWav(TakeExport.alignedWav(take, samples)).length,
+        0,
+      );
     });
   });
 
@@ -233,6 +238,13 @@ void main() {
     test('a device name is still a device name with .wav after it', () {
       expect(TakeExport.safeFileName('con'), '_con');
       expect(TakeExport.safeFileName('LPT1'), '_LPT1');
+      // Windows reads the stem in front of the first dot, so "aux.2.wav" is
+      // the auxiliary device and the one file in the zip that will not
+      // extract, with nothing to say why.
+      expect(TakeExport.safeFileName('aux.2'), '_aux.2');
+      expect(TakeExport.safeFileName('nul.take'), '_nul.take');
+      // And a name that merely starts with those letters is a name.
+      expect(TakeExport.safeFileName('console'), 'console');
     });
 
     test('a name made entirely of forbidden characters still gets one', () {
@@ -303,6 +315,10 @@ void main() {
             enabled: false,
           ),
         ],
+        fileNames: const <String, String>{
+          'a': 'Mountains - Rhythm.wav',
+          'b': 'Mountains - Lead (Dylan).wav',
+        },
         songTitle: 'Mountains',
       );
 
@@ -313,12 +329,112 @@ void main() {
       expect(notes, contains('muted in the last mix'));
     });
 
+    test('a take with no audio in the pack says so rather than shifting the '
+        'names below it', () {
+      // The numbers this used to lead with were counted down the list, and
+      // the list holds takes the pack could not include. From the first gap
+      // on, every number pointed at somebody else's file.
+      final notes = TakeExport.describeSession(
+        takes: <Take>[
+          _take(id: 'a', part: TakePart.vocal, performer: 'Kate'),
+          _take(id: 'gone', part: TakePart.vocal, performer: 'Kate'),
+          _take(id: 'c', part: TakePart.vocal, performer: 'Kate', gain: 0.45),
+        ],
+        fileNames: const <String, String>{
+          'a': 'Tonight - Vocal (Kate).wav',
+          'c': 'Tonight - Vocal (Kate) 2.wav',
+        },
+        songTitle: 'Tonight',
+      );
+
+      expect(notes, contains('Tonight - Vocal (Kate).wav'));
+      expect(notes, contains('Tonight - Vocal (Kate) 2.wav'));
+      expect(notes, contains('no audio to put in this pack'));
+      // The one at 45% is the one named second in the zip, and the note has
+      // to put them on the same line.
+      final lines = const LineSplitter().convert(notes);
+      final at = lines.indexOf('Tonight - Vocal (Kate) 2.wav');
+      expect(at, greaterThan(0));
+      expect(lines[at + 1], contains('volume 45%'));
+    });
+
     test('an untitled sketch does not invent a title', () {
       final notes = TakeExport.describeSession(
         takes: <Take>[_take(id: 'a')],
+        fileNames: const <String, String>{'a': 'a.wav'},
         songTitle: '  ',
       );
       expect(notes, startsWith('CoLabRoom layers'));
+    });
+
+    test('the pack says which file each take became', () async {
+      final takes = <Take>[
+        _take(id: 'a', part: TakePart.bass, performer: 'Taylor'),
+        _take(id: 'gone', part: TakePart.lead),
+      ];
+      await _writeAudio(takes.first, 0.3);
+
+      final out = await TakeExport.layerArchive(
+        takes: takes,
+        outputPath: '${_tmp.path}/layers.zip',
+        songTitle: 'Tonight',
+      );
+      final archive = ZipDecoder().decodeBytes(await out!.readAsBytes());
+      final notes = utf8.decode(
+        archive.files.firstWhere((file) => file.name == 'mix-notes.txt').content,
+      );
+
+      expect(notes, contains('Tonight - Bass (Taylor).wav'));
+      expect(notes, contains('no audio to put in this pack'));
+    });
+  });
+
+  group('one tempo or none, never two', () {
+    test('a tempo no song runs at is left out of the names and the notes',
+        () async {
+      // A half-time artefact of 8 bpm is not a tempo. The map refuses it and
+      // falls back, so quoting the raw number anywhere would put two answers
+      // in one zip.
+      final take = _take(id: 'a', part: TakePart.keys);
+      await _writeAudio(take, 0.2);
+
+      final out = await TakeExport.layerArchive(
+        takes: <Take>[take],
+        outputPath: '${_tmp.path}/layers.zip',
+        songTitle: 'Tonight',
+        bpm: 8,
+      );
+      final archive = ZipDecoder().decodeBytes(await out!.readAsBytes());
+      final names = archive.files.map((file) => file.name).toList();
+      final readme = utf8.decode(
+        archive.files.firstWhere((file) => file.name == 'README.txt').content,
+      );
+
+      expect(names, contains('Tonight - Keys.wav'));
+      expect(names, isNot(contains(TakeExport.tempoFileName)));
+      expect(readme, isNot(contains('bpm')));
+    });
+
+    test('a tempo measured from the bars is the one the names carry', () async {
+      // No analysis tempo at all, but four bars of exactly two seconds. The
+      // MIDI file and the file names have to agree, so both come from the map.
+      final take = _take(id: 'a', part: TakePart.drums);
+      await _writeAudio(take, 0.2);
+
+      final out = await TakeExport.layerArchive(
+        takes: <Take>[take],
+        outputPath: '${_tmp.path}/layers.zip',
+        songTitle: 'Tonight',
+        downbeatsMs: const <int>[0, 2000, 4000, 6000],
+      );
+      final archive = ZipDecoder().decodeBytes(await out!.readAsBytes());
+      final names = archive.files.map((file) => file.name).toList();
+      final readme = utf8.decode(
+        archive.files.firstWhere((file) => file.name == 'README.txt').content,
+      );
+
+      expect(names, contains('Tonight - Drums - 120bpm.wav'));
+      expect(readme, contains('120 bpm'));
     });
   });
 }

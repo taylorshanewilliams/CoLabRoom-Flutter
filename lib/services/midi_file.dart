@@ -229,6 +229,15 @@ class SongTempoMap {
     return middle <= 0 ? 1 : middle;
   }
 
+  /// Whether [bpm] is a tempo a song could actually be at.
+  ///
+  /// Public so that everything quoting the tempo — a file name, a README —
+  /// agrees with the map about whether there is one. A half-time artefact of
+  /// 8 bpm is not a tempo, and a pack that named it in one place and wrote
+  /// 120 in another would be telling a band two different things about the
+  /// same song.
+  static bool isMusicalTempo(double? bpm) => _microsFor(bpm) != null;
+
   /// Null rather than a guess when the bpm is missing or outside what a song
   /// can be, so the caller falls back to what it measured.
   static int? _microsFor(double? bpm) {

@@ -68,80 +68,107 @@ class TakeExport {
     int? beatsPerBar,
   }) async {
     if (takes.isEmpty) return null;
-    final archive = Archive();
-    final used = <String>{};
-    var added = 0;
 
-    for (final take in takes) {
-      if (!await File(take.path).exists()) continue;
-      // Decoded to wav on the way out rather than copied as-is.
-      //
-      // Layers are stored as AAC to save space, and an export exists to be
-      // opened somewhere else — a DAW, another phone, in ten years. Wav is
-      // the format that will still open, and this is the one moment where
-      // size matters less than certainty.
-      final samples = await Multitrack.samplesFor(take);
-      if (samples.isEmpty) continue;
-      final bytes = LatencyProbe.toWav(
-        alignedToSongStart(take, samples),
-        rate: Multitrack.rate,
-      );
-      final name = _unique(
-        used,
-        takeFileName(
+    // The tempo is settled before a single byte is written, because the file
+    // names carry it and the README quotes it, and two numbers disagreeing
+    // inside one zip is worse than neither being there. [SongTempoMap] is the
+    // one thing that decides what the tempo is — including whether the
+    // analysis's answer is a tempo a song could be at — and everything below
+    // quotes it rather than the raw argument.
+    final map = (SongTempoMap.isMusicalTempo(bpm) || downbeatsMs.length >= 2)
+        ? SongTempoMap.forSong(
+            bpm: bpm,
+            downbeatsMs: downbeatsMs,
+            beatsPerBar: beatsPerBar,
+          )
+        : null;
+
+    // Written into the zip take by take rather than gathered up and zipped at
+    // the end.
+    //
+    // Each wav now runs from the top of the song, so a harmony punched in
+    // over the last chorus is a file the length of the whole song. Holding
+    // every one of those in an [Archive] and then building the zip beside
+    // them is a hundred megabytes and more for a band with a few overdubs,
+    // and a phone with 2 GB answers that by killing the app mid-export.
+    // Streaming keeps one wav in memory at a time.
+    final output = OutputFileStream(outputPath);
+    final encoder = ZipEncoder()..startEncode(output);
+    final used = <String>{};
+    // Which take ended up as which file, so mix-notes.txt can name the file
+    // rather than count down the list — see [describeSession].
+    final fileNames = <String, String>{};
+
+    try {
+      for (final take in takes) {
+        if (!await File(take.path).exists()) continue;
+        // Decoded to wav on the way out rather than copied as-is.
+        //
+        // Layers are stored as AAC to save space, and an export exists to be
+        // opened somewhere else — a DAW, another phone, in ten years. Wav is
+        // the format that will still open, and this is the one moment where
+        // size matters less than certainty.
+        final samples = await Multitrack.samplesFor(take);
+        if (samples.isEmpty) continue;
+        final bytes = alignedWav(take, samples);
+        final name = '${_unique(used, takeFileName(
           take: take,
           songTitle: songTitle,
-          bpm: bpm,
+          bpm: map?.statedBpm,
           musicalKey: musicalKey,
+        ))}.wav';
+        encoder.add(ArchiveFile(name, bytes.length, bytes));
+        fileNames[take.id] = name;
+      }
+      if (fileNames.isEmpty) {
+        await _abandon(output, outputPath);
+        return null;
+      }
+
+      if (map != null) {
+        final midi = writeTempoMapMidi(
+          map: map,
+          trackName: songTitle,
+          markers: <MidiMarker>[
+            for (final section in sections)
+              MidiMarker(atMs: section.startMs, text: section.displayLabel),
+          ],
+        );
+        encoder.add(ArchiveFile(tempoFileName, midi.length, midi));
+      }
+
+      _addText(
+        encoder,
+        'README.txt',
+        importNotes(
+          songTitle: songTitle,
+          bpm: map?.statedBpm,
+          musicalKey: musicalKey,
+          hasTempoFile: map != null,
         ),
       );
-      archive.addFile(ArchiveFile('$name.wav', bytes.length, bytes));
-      added += 1;
-    }
-    if (added == 0) return null;
-
-    final hasTempo =
-        (bpm != null && bpm.isFinite && bpm > 0) || downbeatsMs.length >= 2;
-    if (hasTempo) {
-      final map = SongTempoMap.forSong(
-        bpm: bpm,
-        downbeatsMs: downbeatsMs,
-        beatsPerBar: beatsPerBar,
+      _addText(
+        encoder,
+        'mix-notes.txt',
+        describeSession(
+          takes: takes,
+          fileNames: fileNames,
+          songTitle: songTitle,
+        ),
       );
-      final midi = writeTempoMapMidi(
-        map: map,
-        trackName: songTitle,
-        markers: <MidiMarker>[
-          for (final section in sections)
-            MidiMarker(atMs: section.startMs, text: section.displayLabel),
-        ],
-      );
-      archive.addFile(ArchiveFile(tempoFileName, midi.length, midi));
+
+      encoder.endEncode();
+      await output.close();
+      return File(outputPath);
+    } catch (_) {
+      // A half-written zip is worse than none: it opens, and what is missing
+      // from it is whatever the export had not reached yet.
+      await _abandon(output, outputPath);
+      rethrow;
     }
-
-    _addText(
-      archive,
-      'README.txt',
-      importNotes(
-        songTitle: songTitle,
-        bpm: bpm,
-        musicalKey: musicalKey,
-        hasTempoFile: hasTempo,
-      ),
-    );
-    _addText(
-      archive,
-      'mix-notes.txt',
-      describeSession(takes: takes, songTitle: songTitle),
-    );
-
-    final encoded = ZipEncoder().encode(archive);
-    final out = File(outputPath);
-    await out.writeAsBytes(encoded, flush: true);
-    return out;
   }
 
-  /// One take's samples, moved to where the take sits in the song.
+  /// One take as a wav, moved to where the take sits in the song.
   ///
   /// The same two numbers the mixer works from, applied the same way, because
   /// an export that lines up differently from the app's own mix is worse than
@@ -151,17 +178,21 @@ class TakeExport {
   /// both and every file in the pack shares one zero, so dropping them all at
   /// bar 1 puts them where they were played.
   ///
+  /// The silence is never built as samples — the wav writer puts it straight
+  /// into the file's own bytes — because a late overdub's worth of zeros as
+  /// doubles is tens of megabytes of nothing.
+  ///
   /// Gain is deliberately not applied. A DAW has faders; what it cannot
   /// recover is timing. The levels are written down in mix-notes.txt instead.
-  static Float64List alignedToSongStart(Take take, Float64List samples) {
+  static Uint8List alignedWav(Take take, Float64List samples) {
     final trim = math.max(0, (take.offsetMs * Multitrack.rate / 1000).round());
     final pad = math.max(0, (take.startMs * Multitrack.rate / 1000).round());
-    final kept = math.max(0, samples.length - trim);
-    final out = Float64List(pad + kept);
-    for (var i = 0; i < kept; i += 1) {
-      out[pad + i] = samples[trim + i];
-    }
-    return out;
+    return LatencyProbe.toWav(
+      samples,
+      rate: Multitrack.rate,
+      leadingSilence: pad,
+      from: trim,
+    );
   }
 
   /// "Tonight - Bass (Taylor) - 92bpm - D.wav" — the name without its
@@ -236,6 +267,10 @@ class TakeExport {
   /// A few lines and the tempo, because it is read once, standing up, with a
   /// DAW already open. Everything else is in mix-notes.txt for whoever wants
   /// it.
+  ///
+  /// [bpm] is the tempo the MIDI file was written at, not the analysis's raw
+  /// answer, so the number somebody types by hand and the number the file sets
+  /// cannot be two different tempos.
   static String importNotes({
     String? songTitle,
     double? bpm,
@@ -272,13 +307,20 @@ class TakeExport {
 
   /// The plain-text note that rides along with the layers.
   ///
-  /// Everything needed to rebuild the mix somewhere else: the order, who
-  /// played what, the volume each layer sat at, and how much was trimmed off
-  /// its front for latency. Without the trims the layers do not line up when
-  /// imported, which would make the export technically complete and
-  /// practically useless.
+  /// Everything needed to rebuild the mix somewhere else: who played what, the
+  /// volume each layer sat at, and how much was trimmed off its front for
+  /// latency. Without the trims the layers do not line up when imported, which
+  /// would make the export technically complete and practically useless.
+  ///
+  /// [fileNames] maps a take's id to the name it was written under, and is
+  /// what each entry is headed with. It used to be a number counted down the
+  /// list, which was a promise the pack could not keep: a take whose audio has
+  /// been cleaned up under it is still described here but has no wav, so from
+  /// that point on the numbers pointed at the wrong file. A take missing from
+  /// [fileNames] is one that did not make it in, and says so.
   static String describeSession({
     required List<Take> takes,
+    required Map<String, String> fileNames,
     String? songTitle,
   }) {
     final buffer = StringBuffer();
@@ -295,11 +337,12 @@ class TakeExport {
     buffer.writeln('silence in front of it.');
     buffer.writeln();
 
-    var index = 1;
     for (final take in takes) {
-      final number = index.toString().padLeft(2, '0');
-      buffer.writeln('$number  ${TakeNaming.describe(take)}');
+      final file = fileNames[take.id];
+      buffer.writeln(file ??
+          '${TakeNaming.describe(take)} — no audio to put in this pack');
       final details = <String>[
+        if (file != null) TakeNaming.describe(take),
         'volume ${(take.gain * 100).round()}%',
         if (take.offsetMs > 0) 'trimmed ${take.offsetMs} ms from the start',
         if (take.startMs > 0) 'comes in at ${_seconds(take.startMs)}',
@@ -307,7 +350,6 @@ class TakeExport {
         if (take.performer != null) 'played by ${take.performer}',
       ];
       buffer.writeln('    ${details.join(' · ')}');
-      index += 1;
     }
     return buffer.toString();
   }
@@ -336,12 +378,19 @@ class TakeExport {
     return name;
   }
 
-  static void _addText(Archive archive, String name, String body) {
+  static void _addText(ZipEncoder encoder, String name, String body) {
     // utf8 rather than code units: an em dash is a code unit above 255 and a
     // "·" is a byte that only means itself in latin-1, and a text file in a
     // zip is read as utf8 by everything that opens it.
     final bytes = utf8.encode(body);
-    archive.addFile(ArchiveFile(name, bytes.length, bytes));
+    encoder.add(ArchiveFile(name, bytes.length, bytes));
+  }
+
+  /// Close the stream and leave nothing behind.
+  static Future<void> _abandon(OutputFileStream output, String path) async {
+    await output.close();
+    final partial = File(path);
+    if (await partial.exists()) await partial.delete();
   }
 
   static String _seconds(int ms) {
@@ -349,6 +398,11 @@ class TakeExport {
     return '${value.toStringAsFixed(value >= 10 ? 0 : 1)} s';
   }
 
-  static final RegExp _reservedOnWindows =
-      RegExp(r'^(con|prn|aux|nul|com[1-9]|lpt[1-9])$', caseSensitive: false);
+  /// Windows reads the stem in front of the first dot, so "nul.2" is still the
+  /// null device once ".wav" is on the end of it — the extension never makes a
+  /// device name into a file name.
+  static final RegExp _reservedOnWindows = RegExp(
+    r'^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$',
+    caseSensitive: false,
+  );
 }
