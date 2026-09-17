@@ -7,15 +7,25 @@ import '../../domain/name_policy.dart';
 import '../../widgets/app_surface.dart';
 import '../../services/user_facing_error.dart';
 
+/// Asks for a name and makes a room with it.
+///
+/// [unseen] is rooms the calling screen leaves out of its list. Room names
+/// are unique per account, so one of those still holds its name, and making
+/// a room called that would be refused as taken by a room the person cannot
+/// find anywhere. They get that room instead (review, 17 September 2026).
 Future<MusicRoom?> showCreateRoomDialog(
   BuildContext context,
-  MusicBetaController controller,
-) async {
+  MusicBetaController controller, {
+  Iterable<MusicRoom> unseen = const <MusicRoom>[],
+}) async {
   final draft = await showDialog<_RoomDraft>(
     context: context,
     builder: (_) => const _CreateRoomDialog(),
   );
   if (draft == null) return null;
+  for (final room in unseen) {
+    if (NamePolicy.same(room.name, draft.name)) return room;
+  }
   try {
     return await controller.createRoom(name: draft.name, icon: draft.icon);
   } catch (error) {

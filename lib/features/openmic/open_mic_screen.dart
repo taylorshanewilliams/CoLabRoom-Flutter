@@ -492,19 +492,27 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
             ];
 
             if (tight) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    'Open Mic',
-                    style: Theme.of(context).textTheme.displaySmall,
-                  ),
-                  const SizedBox(height: 6),
-                  // Wrap rather than Row: at 1.3x text on a 360px phone the
-                  // two labelled buttons do not fit each other either, and a
-                  // Row here just moves the overflow down a line.
-                  Wrap(spacing: 6, runSpacing: 6, children: actions),
-                ],
+              // The full width, said outright. The screen's own Column
+              // centres what it holds, so a Column only as wide as its two
+              // buttons was centred with them, and the title sat some 45 px
+              // in from the gutter Your music uses on every phone narrower
+              // than 416 (audit, 17 September 2026).
+              return SizedBox(
+                width: constraints.maxWidth,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'Open Mic',
+                      style: Theme.of(context).textTheme.displaySmall,
+                    ),
+                    const SizedBox(height: 6),
+                    // Wrap rather than Row: at 1.3x text on a 360px phone the
+                    // two labelled buttons do not fit each other either, and a
+                    // Row here just moves the overflow down a line.
+                    Wrap(spacing: 6, runSpacing: 6, children: actions),
+                  ],
+                ),
               );
             }
             return Row(

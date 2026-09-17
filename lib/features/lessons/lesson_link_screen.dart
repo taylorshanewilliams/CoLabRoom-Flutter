@@ -181,6 +181,10 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
             labelText: 'What you teach',
             hintText: 'Guitar lessons',
             helperText: 'Each student\'s room is called this, with their name.',
+            // Wraps rather than stopping at an ellipsis, which a helper does
+            // by default and which cut this sentence off on a phone (audit,
+            // 17 September 2026).
+            helperMaxLines: 3,
             border: OutlineInputBorder(),
           ),
           onSubmitted: (_) => unawaited(_make()),
