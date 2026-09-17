@@ -294,8 +294,26 @@ class LatencyProbe {
 
   /// 16-bit mono PCM in a RIFF wrapper — what `audioplayers` will play from a
   /// file, written without a dependency.
-  static Uint8List toWav(Float64List samples, {int rate = sampleRate}) {
-    final data = ByteData(44 + samples.length * 2);
+  ///
+  /// [leadingSilence] frames of nothing go in front, and [from] skips that
+  /// many samples off the front of [samples]. Both exist so a take can be
+  /// moved to where it sits in the song without first building the moved
+  /// version of it: an overdub punched in three minutes into a song is three
+  /// minutes of zeros followed by the playing, and holding those zeros as
+  /// doubles costs eight bytes a sample — seventy-odd megabytes, on a phone,
+  /// for silence. Written straight into the buffer the file is made of, they
+  /// cost nothing: a `ByteData` starts out zero.
+  static Uint8List toWav(
+    Float64List samples, {
+    int rate = sampleRate,
+    int leadingSilence = 0,
+    int from = 0,
+  }) {
+    final lead = math.max(0, leadingSilence);
+    final start = from <= 0 ? 0 : math.min(from, samples.length);
+    final kept = samples.length - start;
+    final frames = lead + kept;
+    final data = ByteData(44 + frames * 2);
     void ascii(int offset, String tag) {
       for (var i = 0; i < tag.length; i += 1) {
         data.setUint8(offset + i, tag.codeUnitAt(i));
@@ -303,7 +321,7 @@ class LatencyProbe {
     }
 
     ascii(0, 'RIFF');
-    data.setUint32(4, 36 + samples.length * 2, Endian.little);
+    data.setUint32(4, 36 + frames * 2, Endian.little);
     ascii(8, 'WAVE');
     ascii(12, 'fmt ');
     data.setUint32(16, 16, Endian.little);
@@ -314,10 +332,10 @@ class LatencyProbe {
     data.setUint16(32, 2, Endian.little); // block align
     data.setUint16(34, 16, Endian.little);
     ascii(36, 'data');
-    data.setUint32(40, samples.length * 2, Endian.little);
-    for (var i = 0; i < samples.length; i += 1) {
-      final clamped = samples[i].clamp(-1.0, 1.0);
-      data.setInt16(44 + i * 2, (clamped * 32767).round(), Endian.little);
+    data.setUint32(40, frames * 2, Endian.little);
+    for (var i = 0; i < kept; i += 1) {
+      final clamped = samples[start + i].clamp(-1.0, 1.0);
+      data.setInt16(44 + (lead + i) * 2, (clamped * 32767).round(), Endian.little);
     }
     return data.buffer.asUint8List();
   }

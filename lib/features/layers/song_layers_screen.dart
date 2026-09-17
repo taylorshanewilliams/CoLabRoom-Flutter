@@ -1378,6 +1378,18 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   Future<void> _export() async {
     final takes = _takes;
     if (takes.isEmpty || _busy) return;
+    // A platform limit, not a fault, and so not routed through _error.
+    //
+    // Both shapes of export decode audio and write a file, and a browser has
+    // neither: getApplicationDocumentsDirectory is a MissingPluginException
+    // there, which arrived as "something went wrong" and was reported as a
+    // fault. Putting a sentence in _error instead would draw it in the red
+    // box under "Tell us what you were doing", which attaches whatever last
+    // genuinely broke this session — problem_report.dart already names that
+    // as a defect. So this sits with the other things a browser cannot do:
+    // the Save button is off here and the note at the top of the screen says
+    // why. This is the floor under that.
+    if (kIsWeb) return;
     final choice = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -1399,8 +1411,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
               leading: const Icon(Icons.folder_zip_outlined, color: AppColors.cyan),
               title: const Text('Every take, separately'),
               subtitle: const Text(
-                'One file each, plus the volumes and timing written down — '
-                'for opening in a DAW. Yours to keep.',
+                'One file each, lined up and at tempo, for opening in a DAW. '
+                'Yours to keep.',
               ),
               onTap: () => Navigator.pop(sheetContext, 'layers'),
             ),
@@ -1423,6 +1435,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
               takes: takes,
               outputPath: '${root.path}/export_$stamp.zip',
               songTitle: widget.songTitle,
+              // The analysis's own tempo, not the click's. _tempo is whatever
+              // somebody dialled in to play against; what a DAW needs is what
+              // the recording actually runs at.
+              bpm: _reference?.bpm,
+              musicalKey: _reference?.musicalKey,
+              sections: _reference?.structureSections ??
+                  const <StructureSection>[],
+              downbeatsMs: _reference?.downbeatsMs ?? const <int>[],
+              beatsPerBar: _reference?.beatsPerBar,
             );
       if (file == null) return;
       await SharePlus.instance.share(
@@ -1505,7 +1526,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           Padding(
             padding: const EdgeInsets.only(right: 4),
             child: TextButton.icon(
-              onPressed: !hasSomethingToHear || _busy
+              // Off in a browser, where the files are put together on the
+              // device and there is nowhere to put them. The note below says
+              // so, in the same place it says what else needs the app.
+              onPressed: !hasSomethingToHear || _busy || kIsWeb
                   ? null
                   : () => unawaited(_export()),
               icon: const Icon(Icons.ios_share_rounded, size: 18),
@@ -1596,11 +1620,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                     // What a browser cannot do, said before somebody presses
                     // a fader and wonders why nothing moved.
                     //
-                    // Mixing every take into one track, the click and punching
-                    // in all work by writing a WAV to disk and playing that.
-                    // There is no disk here. Playing one thing at a time does
-                    // work, and that is worth having -- it is how you hear
-                    // what somebody sent you without reaching for a phone.
+                    // Mixing every take into one track, the click, punching in
+                    // and saving a copy all work by writing a WAV to disk and
+                    // playing or packing that. There is no disk here. Playing
+                    // one thing at a time does work, and that is worth having
+                    // -- it is how you hear what somebody sent you without
+                    // reaching for a phone.
                     if (kIsWeb) ...<Widget>[
                       Container(
                         key: const Key('takes_web_note'),
@@ -1612,8 +1637,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                         ),
                         child: const Text(
                           'In a browser you can play the song and hear each '
-                          'take on its own. Mixing them together, the click '
-                          'and recording a new take need the app.',
+                          'take on its own. Mixing them together, the click, '
+                          'recording a new take and saving a copy need the '
+                          'app.',
                           style: TextStyle(
                               color: AppColors.cyan, fontSize: 12, height: 1.45),
                         ),
