@@ -492,17 +492,19 @@ class _SongsScreenState extends State<SongsScreen> {
     }
 
     // What a lesson left to practise, or what this person last worked on by
-    // themselves. One card a song, the latest.
+    // themselves. One card a song, the latest — except that words outlast
+    // work; see _cardMark.
     final practised = <String>{};
-    for (final mark in controller.practiceMarks) {
-      if (practised.contains(mark.projectId)) continue;
-      if (SetAside.has(SetAside.practice, mark.id)) continue;
-      final song = _songById(controller, mark.projectId);
+    final me = controller.meOrNobody;
+    for (final newest in controller.practiceMarks) {
+      if (practised.contains(newest.projectId)) continue;
+      if (SetAside.has(SetAside.practice, newest.id)) continue;
+      final song = _songById(controller, newest.projectId);
       if (song == null) continue;
-      practised.add(mark.projectId);
+      practised.add(newest.projectId);
+      final mark = _cardMark(controller, newest);
       final worked = practiceWorked(mark);
       final note = mark.note;
-      final me = controller.repository.currentUserId;
       final mine = isYourOwnPractice(mark, me: me);
       items.add(WaitingItem(
         id: 'practice-${mark.id}',
@@ -750,6 +752,29 @@ class _SongsScreenState extends State<SongsScreen> {
     }
   }
 
+  /// Which of a song's practice marks its one card is built from.
+  ///
+  /// Newest wins, except that words outlast work. Practising alone keeps a
+  /// mark with no note on it — nobody said anything — and the minutes most
+  /// likely to be spent practising alone are the ones straight after a
+  /// lesson, on the screen that is already open. Newest-wins alone would
+  /// therefore take "keep it slow until the change is clean" off Home at the
+  /// exact moment the student did what they were told to do, and the teacher
+  /// would have said it to nobody. So a mark that carries words is shown
+  /// ahead of a wordless newer one on the same song (Every Musician, Same
+  /// Song, 17 September 2026). Nothing of the person's own work is lost by
+  /// it: the part and the speed the card offers back are the ones to
+  /// practise either way, and the mark itself is still kept.
+  PracticeMark _cardMark(MusicBetaController controller, PracticeMark newest) {
+    if ((newest.note ?? '').trim().isNotEmpty) return newest;
+    for (final mark in controller.practiceMarks) {
+      if (mark.projectId != newest.projectId) continue;
+      if (SetAside.has(SetAside.practice, mark.id)) continue;
+      if ((mark.note ?? '').trim().isNotEmpty) return mark;
+    }
+    return newest;
+  }
+
   SongProject? _songById(MusicBetaController controller, String projectId) {
     for (final room in controller.rooms) {
       for (final project in room.projects) {
@@ -761,7 +786,16 @@ class _SongsScreenState extends State<SongsScreen> {
 
   /// Straight to the part and the speed the lesson worked on, with the
   /// song not yet playing: the student decides when to start.
+  ///
+  /// And what is done here is kept, like any other practice. The card whose
+  /// only verb is Practise would be a strange door to walk through and leave
+  /// no trace, when the same half hour opened from the song leaves one
+  /// (Every Musician, Same Song, 17 September 2026).
   Future<void> _practise(SongProject song, PracticeMark mark) async {
+    // Held before the push rather than looked up on the way back: this screen
+    // can be rebuilt away while Perform is open.
+    final controller = BetaScope.of(context, listen: false);
+    final me = controller.meOrNobody;
     SongAnalysisBundle? bundle;
     try {
       bundle = await SongAnalysisService().load(song.id);
@@ -777,6 +811,9 @@ class _SongsScreenState extends State<SongsScreen> {
           project: song,
           analysis: bundle,
           practise: mark.lead,
+          me: me,
+          ownMarkId: ownPracticeMarkId(controller.practiceMarks, projectId: song.id, me: me),
+          keepPractice: (worked) => unawaited(controller.keepPracticeMark(worked)),
         ),
         fullscreenDialog: true,
       ),

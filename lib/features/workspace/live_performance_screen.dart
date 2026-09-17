@@ -80,14 +80,20 @@ class LivePerformanceScreen extends StatefulWidget {
     this.together,
     this.me = '',
     this.keepPractice,
+    this.ownMarkId,
     this.practise,
     super.key,
   });
 
-  /// Where what a followed session leaves behind goes: the part worked on,
-  /// the speed, and the leader's note. Null keeps nothing, which is every
-  /// screen that is not the song itself.
+  /// Where what a session leaves behind goes: the part worked on, the speed,
+  /// and the leader's note when there was a leader. Null keeps nothing, which
+  /// is a preview or a test that is not asking for it.
   final void Function(PracticeMark mark)? keepPractice;
+
+  /// The mark this person's own practice on this song is already kept under,
+  /// so tonight's session updates it instead of adding another. Null starts a
+  /// new one. See ownPracticeMarkId in practice_marks.dart.
+  final String? ownMarkId;
 
   /// Opened from a practice mark on Home: already on this part, at this
   /// speed, waiting for Start.
@@ -213,9 +219,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// Same Song, 17 September 2026). The rules are the same ones — a part on
   /// repeat or a slower speed, long enough to be more than passing through —
   /// and what is kept is kept on the way out, with this person as their own
-  /// leader. Named up front, like the lesson's, so one visit is one mark.
+  /// leader. Named up front, like the lesson's, so one visit is one mark --
+  /// and named with [LivePerformanceScreen.ownMarkId] when this song already
+  /// has one of these, so a habit is one mark kept up to date rather than a
+  /// fortnight of rows.
   final PracticeLog _own = PracticeLog();
-  final String _ownMarkId = newPracticeMarkId();
+  late final String _ownMarkId = widget.ownMarkId ?? newPracticeMarkId();
 
   /// The clock the solo log is kept on: one tick is one [kPerformTick].
   ///
@@ -235,8 +244,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// is exactly what this screen is doing this instant, which is what the log
   /// reads.
   void _logOwnPractice() {
-    // Perform opened from somewhere that is not the song itself keeps
-    // nothing, the way it always did.
+    // Nowhere to put it: a preview, or a test that did not ask.
     if (widget.keepPractice == null) return;
     _ownAtMs += kPerformTick.inMilliseconds;
     if (widget.together?.following ?? false) {

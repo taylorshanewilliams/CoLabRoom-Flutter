@@ -20,6 +20,7 @@ import 'continuous_song_editor.dart';
 import 'live_performance_screen.dart';
 import 'lyric_review_screen.dart';
 import 'musician_sheet_logic.dart';
+import 'practice_marks.dart';
 import 'reference_recorder_sheet.dart';
 import 'song_sheet_panel.dart';
 import 'stem_player_panel.dart';
@@ -352,11 +353,27 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     }
   }
 
+  /// Perform, from the sheet. What gets worked on here is kept like anywhere
+  /// else it is worked on: the door a person came through is not something
+  /// their practice should depend on (Every Musician, Same Song,
+  /// 17 September 2026).
   Future<void> _openLive() async {
+    final controller = BetaScope.of(context, listen: false);
+    final me = controller.meOrNobody;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         settings: RouteSettings(name: AppRoutes.songLive(widget.project.id)),
-        builder: (_) => LivePerformanceScreen(project: widget.project, analysis: _bundle),
+        builder: (_) => LivePerformanceScreen(
+          project: widget.project,
+          analysis: _bundle,
+          me: me,
+          ownMarkId: ownPracticeMarkId(
+            controller.practiceMarks,
+            projectId: widget.project.id,
+            me: me,
+          ),
+          keepPractice: (worked) => unawaited(controller.keepPracticeMark(worked)),
+        ),
         fullscreenDialog: true,
       ),
     );

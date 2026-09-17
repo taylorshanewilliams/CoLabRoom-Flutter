@@ -4,12 +4,14 @@ import '../../domain/practice_mark.dart';
 import '../../services/follow_me.dart';
 import 'practice_rules.dart';
 
-/// Building what a followed session leaves behind (see domain/practice_mark).
+/// Building what a practice session leaves behind (see domain/practice_mark).
 ///
 /// The lesson is one hour of a student's week and the practising is the
 /// other hundred and sixty-seven. So when following ends, the parts that
 /// were worked on and the speed they were worked at are kept, and Home
-/// offers them back with one verb: Practise.
+/// offers them back with one verb: Practise. A session with nobody leading
+/// leaves the same thing, with the person as their own leader — most of that
+/// hundred and sixty-seven has nobody else in it.
 
 /// How long a part has to have played before it counts as worked on.
 ///
@@ -65,6 +67,29 @@ bool isYourOwnPractice(PracticeMark mark, {required String me}) =>
 /// record of not practising.
 String practiceFrom(PracticeMark mark, {required String me}) =>
     isYourOwnPractice(mark, me: me) ? 'Your practice' : 'From ${mark.ledByName}';
+
+/// The name a solo session on this song keeps its mark under: the one this
+/// person's own practice on it already has, or a new one.
+///
+/// 0128 names marks on the phone so that saving again updates the same row
+/// rather than adding another. A followed lesson is a rare enough thing that
+/// a row a session was never a problem; practising alone is meant to be a
+/// Tuesday habit, and a row a visit would fill a person's fortnight with one
+/// song and push everything else — including a teacher's note — off Home,
+/// which reads back only the twenty newest. So your own practice on a song is
+/// one mark, brought up to date (Every Musician, Same Song, 17 September
+/// 2026). A lesson's mark is never the one returned: it belongs to whoever
+/// led it.
+String ownPracticeMarkId(
+  Iterable<PracticeMark> kept, {
+  required String projectId,
+  required String me,
+}) {
+  for (final mark in kept) {
+    if (mark.projectId == projectId && isYourOwnPractice(mark, me: me)) return mark.id;
+  }
+  return newPracticeMarkId();
+}
 
 /// Adds up, while following, how long the song played in each part at each
 /// speed.

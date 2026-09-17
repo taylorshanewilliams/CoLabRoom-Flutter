@@ -81,6 +81,7 @@ void main() {
     WidgetTester tester, {
     PracticePart? practise,
     Duration playing = const Duration(seconds: 25),
+    String? ownMarkId,
   }) async {
     final kept = <PracticeMark>[];
     await tester.pumpWidget(MaterialApp(
@@ -90,6 +91,7 @@ void main() {
         analysis: bundle,
         me: 'u2',
         practise: practise,
+        ownMarkId: ownMarkId,
         keepPractice: kept.add,
       ),
     ));
@@ -151,6 +153,64 @@ void main() {
         playing: const Duration(seconds: 8),
       );
       expect(kept, isEmpty);
+    });
+
+    testWidgets('a song practised again keeps the same mark, not another', (tester) async {
+      await sized(tester);
+      const chorus = PracticePart(
+        label: 'Chorus',
+        rate: 0.75,
+        seconds: 60,
+        startMs: 3000,
+        endMs: 6000,
+      );
+      // Tuesday, and then Wednesday on the mark Tuesday left. A row a session
+      // would fill a fortnight with one song and push every other song's card
+      // -- and any teacher's note -- off Home, which reads back twenty.
+      final tuesday = await alone(tester, practise: chorus);
+      final wednesday = await alone(tester, practise: chorus, ownMarkId: tuesday.single.id);
+      expect(wednesday.single.id, tuesday.single.id);
+    });
+
+    test('your own practice on a song is one mark, and a lesson is not it', () {
+      final marks = <PracticeMark>[
+        PracticeMark(
+          id: 'lesson',
+          projectId: 'song-alone',
+          ledBy: 'u1',
+          ledByName: 'Taylor',
+          note: 'Keep it slow until the change is clean',
+          parts: const <PracticePart>[],
+          updatedAt: day,
+        ),
+        PracticeMark(
+          id: 'mine',
+          projectId: 'song-alone',
+          ledBy: 'u2',
+          ledByName: 'You',
+          parts: const <PracticePart>[],
+          updatedAt: day,
+        ),
+        PracticeMark(
+          id: 'another-song',
+          projectId: 'song-else',
+          ledBy: 'u2',
+          ledByName: 'You',
+          parts: const <PracticePart>[],
+          updatedAt: day,
+        ),
+      ];
+      expect(ownPracticeMarkId(marks, projectId: 'song-alone', me: 'u2'), 'mine');
+      expect(
+        ownPracticeMarkId(marks, projectId: 'song-new', me: 'u2'),
+        isNot(anyOf('mine', 'lesson', 'another-song')),
+        reason: 'a song never practised alone starts a mark of its own',
+      );
+      expect(
+        ownPracticeMarkId(marks, projectId: 'song-alone', me: 'u3'),
+        isNot('mine'),
+        reason: "somebody else's mark is not yours to write over",
+      );
     });
   });
 
@@ -236,6 +296,71 @@ void main() {
       final perform = tester.widget<LivePerformanceScreen>(find.byType(LivePerformanceScreen));
       expect(perform.practise?.label, 'Chorus 2');
       expect(perform.practise?.rate, 0.75);
+
+      // And the half hour that follows is kept, like any other. The card
+      // whose only verb is Practise was the one door into Perform that left
+      // no trace of what was done behind it.
+      expect(perform.keepPractice, isNotNull);
+      expect(perform.me, repository.currentUserId);
+      expect(perform.ownMarkId, 'mark-alone',
+          reason: 'tonight goes on the mark this song already has');
+    });
+
+    testWidgets('practising alone does not take the teacher off Home', (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final repository = InMemoryMusicRepository.seeded();
+      final controller = MusicBetaController(repository);
+      await controller.load();
+      addTearDown(controller.dispose);
+      final song = controller.rooms.expand((room) => room.projects).first;
+      await controller.keepPracticeMark(PracticeMark(
+        id: 'mark-lesson',
+        projectId: song.id,
+        ledBy: 'u1',
+        ledByName: 'Taylor',
+        note: 'Keep it slow until the change is clean',
+        parts: const <PracticePart>[
+          PracticePart(label: 'Chorus 2', rate: 0.75, seconds: 90, startMs: 3000, endMs: 6000),
+        ],
+        updatedAt: day,
+      ));
+      // The most likely minutes to practise alone are the ones straight after
+      // the lesson, on the screen already open. Newest wins would take the
+      // teacher's sentence off Home the moment the student did what it said.
+      await controller.keepPracticeMark(PracticeMark(
+        id: 'mark-alone',
+        projectId: song.id,
+        ledBy: repository.currentUserId,
+        ledByName: 'You',
+        parts: const <PracticePart>[
+          PracticePart(label: 'Chorus 2', rate: 0.75, seconds: 40, startMs: 3000, endMs: 6000),
+        ],
+        updatedAt: day.add(const Duration(minutes: 30)),
+      ));
+
+      tester.view.physicalSize = const Size(390, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(BetaScope(
+        controller: controller,
+        child: MaterialApp(
+          theme: CoLabRoomTheme.dark(),
+          home: Scaffold(
+            body: SongsScreen(
+              displayName: 'Jess',
+              onOpenAccount: () {},
+              onOpenNotifications: () {},
+            ),
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.textContaining('Keep it slow until the change is clean'), findsOneWidget);
+      expect(find.text('From Taylor'), findsOneWidget);
+      expect(find.text('Your practice'), findsNothing,
+          reason: 'one card a song, and the one with words on it is the card');
+      expect(find.byKey(const Key('waiting_card_practice-mark-alone')), findsNothing);
     });
   });
 }

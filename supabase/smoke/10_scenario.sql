@@ -3843,6 +3843,41 @@ begin
   end if;
 end $$;
 
+-- And the next evening on the same song goes on the same mark. Practising
+-- alone is meant to be a habit, and a row a session would fill the fortnight
+-- with one song -- Home reads back the twenty newest -- and push every other
+-- song's card, a teacher's words with them. The phone hands back the name it
+-- used last time; this is the server keeping its side of that.
+select public.keep_practice_mark(
+  'cccccccc-0128-0000-0000-000000000006',
+  'aaaaaaaa-0000-0000-0000-00000000000a',
+  '11111111-1111-1111-1111-111111111111',
+  'You',
+  null,
+  '[{"start": 0, "end": 3000, "label": "Verse 1", "rate": 0.5, "seconds": 210}]'::jsonb
+);
+
+do $$
+declare
+  mine record;
+begin
+  if (select count(*) from public.practice_marks
+      where project_id = 'aaaaaaaa-0000-0000-0000-00000000000a'
+        and profile_id = '11111111-1111-1111-1111-111111111111'
+        and led_by = '11111111-1111-1111-1111-111111111111') <> 1 then
+    raise exception 'practising the same song again made a second mark of your own (got %)',
+      (select count(*) from public.practice_marks
+       where project_id = 'aaaaaaaa-0000-0000-0000-00000000000a'
+         and profile_id = '11111111-1111-1111-1111-111111111111'
+         and led_by = '11111111-1111-1111-1111-111111111111');
+  end if;
+  select * into mine from public.my_practice_marks()
+  where id = 'cccccccc-0128-0000-0000-000000000006';
+  if mine.parts -> 0 ->> 'label' is distinct from 'Verse 1' then
+    raise exception 'the next evening did not replace what was worked on (got %)', mine.parts;
+  end if;
+end $$;
+
 -- A stranger: not in the room, and the song was not shared with them.
 set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
 
