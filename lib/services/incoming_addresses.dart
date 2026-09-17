@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
+import 'package:app_links/app_links.dart';
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb, visibleForTesting;
 import 'package:flutter/widgets.dart';
 
 /// An address arriving from outside the app: the browser's forward button on
@@ -36,6 +37,16 @@ import 'package:flutter/widgets.dart';
 /// comes back to a running app. That one is not ours — supabase_flutter
 /// reads it on its own channel — and it is swallowed without reaching the
 /// shell.
+///
+/// **iPhones, the same day.** A Universal Link reaches a Flutter app the same
+/// way in principle, but on a cold start the engine gives the app three
+/// seconds to draw its first frame and otherwise hands the link back to
+/// Safari -- and this app waits on Supabase and Firebase before its first
+/// frame. So on iOS the engine's own deep linking is switched off
+/// (`FlutterDeepLinkingEnabled` false, set in build-ios-testflight.yml) and
+/// links arrive instead through app_links, which keeps the launch link until
+/// somebody asks for it and has no deadline. They go through [arrive] exactly
+/// as a pushed address does.
 class IncomingAddresses with WidgetsBindingObserver {
   /// Public so a test can drive one directly. Production has exactly one,
   /// made by [install].
@@ -45,6 +56,7 @@ class IncomingAddresses with WidgetsBindingObserver {
   static const host = 'app.colabroom.com';
 
   static IncomingAddresses? _installed;
+  static StreamSubscription<Uri>? _links;
   static void Function(Uri address)? _open;
   static Uri? _waiting;
   static bool _arrivalTaken = false;
@@ -55,11 +67,13 @@ class IncomingAddresses with WidgetsBindingObserver {
   /// order they were added and stops at the first that says it handled the
   /// push. `WidgetsApp` adds itself when it mounts, so anything added before
   /// `runApp` is asked before it.
-  static void install() {
+  static void install({Stream<Uri>? links}) {
     if (_installed != null) return;
     final observer = IncomingAddresses();
     _installed = observer;
     WidgetsBinding.instance.addObserver(observer);
+    final phoneLinks = links ?? (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS ? AppLinks().uriLinkStream : null);
+    _links = phoneLinks?.listen(arrive, onError: (Object _) {});
   }
 
   /// Whether an address is one of this app's to open.
@@ -103,24 +117,33 @@ class IncomingAddresses with WidgetsBindingObserver {
 
   @visibleForTesting
   static void reset() {
+    if (_installed case final observer?) WidgetsBinding.instance.removeObserver(observer);
+    _installed = null;
+    unawaited(_links?.cancel());
+    _links = null;
     _open = null;
     _waiting = null;
     _arrivalTaken = false;
   }
 
+  /// An address from outside: opened now if a shell is there to open it,
+  /// kept for the next shell if not, and ignored if it is not ours.
+  static void arrive(Uri address) {
+    if (!isOurs(address)) return;
+    final open = _open;
+    if (open == null) {
+      _waiting = address;
+    } else {
+      open(address);
+    }
+  }
+
   @override
   Future<bool> didPushRouteInformation(RouteInformation routeInformation) async {
-    final address = routeInformation.uri;
-    if (isOurs(address)) {
-      final open = _open;
-      if (open == null) {
-        _waiting = address;
-      } else {
-        open(address);
-      }
-    }
+    arrive(routeInformation.uri);
     // Handled either way. False would pass the address on to the framework,
-    // which is the crash this exists to stop.
+    // which is the crash this exists to stop -- and on an iPhone it would
+    // send a Universal Link back to Safari.
     return true;
   }
 }

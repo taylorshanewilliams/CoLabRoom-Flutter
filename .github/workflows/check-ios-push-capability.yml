@@ -1,4 +1,4 @@
-name: Ask Apple whether push is enabled
+name: Ask Apple what the App ID allows (push, links)
 
 # Does the signed provisioning profile carry push, and does the App ID even
 # allow it?
@@ -112,6 +112,7 @@ jobs:
 
           # None means "could not read", which is not the same as "absent".
           push_capability = None
+          links_capability = None
           for row in rows:
               attrs = row.get("attributes", {})
               print(f"App ID {attrs.get('identifier')}  "
@@ -128,9 +129,15 @@ jobs:
               print("  capabilities: " + (", ".join(names) if names else "(none listed)"))
               got = "PUSH_NOTIFICATIONS" in names
               push_capability = got if push_capability is None else (push_capability or got)
+              # Universal Links (16 Sep 2026): without this capability no
+              # profile can carry associated domains, and every scanned
+              # app.colabroom.com code opens Safari on an iPhone.
+              links = "ASSOCIATED_DOMAINS" in names
+              links_capability = links if links_capability is None else (links_capability or links)
 
           print()
           active_with_push = None
+          active_with_links = None
           profiles = get("/v1/profiles?limit=200")
           for row in ((profiles or {}).get("data") or []):
               attrs = row.get("attributes", {})
@@ -148,13 +155,31 @@ jobs:
               if not content:
                   print("  aps-environment: profile content not returned")
                   continue
-              aps = aps_in(base64.b64decode(content))
+              profile_bytes = base64.b64decode(content)
+              aps = aps_in(profile_bytes)
               print(f"  aps-environment: {aps if aps else 'ABSENT'}")
+              has_links = b"com.apple.developer.associated-domains" in profile_bytes
+              print(f"  associated-domains: {'present' if has_links else 'ABSENT'}")
               if state == "ACTIVE":
                   active_with_push = bool(aps)
+                  active_with_links = has_links
 
           print()
           print("=" * 60)
+          print("Universal Links: App ID capability "
+                + {True: "ON", False: "OFF", None: "unreadable"}[links_capability]
+                + ", active profile "
+                + {True: "carries associated domains", False: "does NOT carry associated domains",
+                   None: "not read"}[active_with_links])
+          if links_capability is False:
+              print("::warning::Switch on Associated Domains for com.colabroom.beta "
+                    "in the developer portal, then run build-ios-testflight.yml "
+                    "once with new_signing_profile.")
+          elif links_capability and active_with_links is False:
+              print("::warning::The capability is on but the stored profile "
+                    "predates it: run build-ios-testflight.yml once with "
+                    "new_signing_profile.")
+          print()
           if active_with_push is False:
               print("::error::The active provisioning profile carries NO "
                     "aps-environment. That is why the phone gets no APNs "

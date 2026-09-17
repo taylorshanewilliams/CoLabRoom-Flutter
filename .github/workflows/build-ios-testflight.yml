@@ -7,6 +7,14 @@ name: Build iOS and upload to TestFlight
 # Android uses).
 on:
   workflow_dispatch:
+    inputs:
+      new_signing_profile:
+        description: >-
+          Make a fresh provisioning profile. Once, after a capability is
+          switched on for the App ID (Associated Domains, 16 Sep 2026):
+          match otherwise reuses the stored profile, which predates it.
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -24,6 +32,7 @@ jobs:
       MATCH_GIT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       MATCH_GIT_REPOSITORY: ${{ github.repository }}
       GITHUB_RUN_NUMBER: ${{ github.run_number }}
+      NEW_SIGNING_PROFILE: ${{ inputs.new_signing_profile }}
       # `xcodebuild -showBuildSettings` against this workspace takes about
       # forty-five seconds, and fastlane waits three, four times, before
       # giving up. That is what failed the 10 September build: signing had
@@ -121,6 +130,13 @@ jobs:
             # App Store Connect otherwise shows for every single upload.
             plist_set :ITSAppUsesNonExemptEncryption false bool
 
+            # Universal Links reach the app through app_links, not the
+            # engine. The engine's own handling waits three seconds for the
+            # first frame on a cold start and then sends the link back to
+            # Safari; this app waits on Supabase and Firebase before its first
+            # frame. See lib/services/incoming_addresses.dart.
+            plist_set :FlutterDeepLinkingEnabled false bool
+
             # flutter create only ships Flutter's generic placeholder app
             # icon — the real one (assets/icon/launcher_icon.svg, the same
             # source the Android build rasterizes via
@@ -174,6 +190,10 @@ jobs:
                 echo '<dict>'
                 echo '  <key>aps-environment</key>'
                 echo '  <string>production</string>'
+                echo '  <key>com.apple.developer.associated-domains</key>'
+                echo '  <array>'
+                echo '    <string>applinks:app.colabroom.com</string>'
+                echo '  </array>'
                 echo '</dict>'
                 echo '</plist>'
               } > ios/Runner/Runner.entitlements
@@ -406,7 +426,8 @@ jobs:
                 storage_mode: "git",
                 git_url: "https://x-access-token:#{ENV['MATCH_GIT_TOKEN']}@github.com/#{ENV['MATCH_GIT_REPOSITORY']}.git",
                 git_branch: "ios-signing-certs",
-                readonly: false
+                readonly: false,
+                force: ENV["NEW_SIGNING_PROFILE"] == "true"
               )
 
               # Apple rejects re-uploading a build number it's already seen,
@@ -495,11 +516,22 @@ jobs:
           PROFILE_APS=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$WORK/profile.plist" 2>/dev/null || true)
           SIGNED_APS=$(grep -A1 "aps-environment" "$WORK/signed.plist" 2>/dev/null | tr -d ' \t\n' || true)
 
+          echo "--- universal links ---"
+          PROFILE_LINKS=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.associated-domains" "$WORK/profile.plist" 2>/dev/null || true)
+          echo "profile associated-domains: ${PROFILE_LINKS:-ABSENT}"
+          grep -q "applinks:app.colabroom.com" "$WORK/signed.plist" 2>/dev/null             && SIGNED_LINKS=yes || SIGNED_LINKS=no
+          echo "signed with applinks:app.colabroom.com: $SIGNED_LINKS"
+          /usr/libexec/PlistBuddy -c "Print :FlutterDeepLinkingEnabled" "$APP/Info.plist" 2>/dev/null             | sed 's/^/FlutterDeepLinkingEnabled: /' || echo "FlutterDeepLinkingEnabled: (unset, so true)"
+
           echo "--- background modes ---"
           /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist" 2>/dev/null \
             || echo "(none -- a push cannot wake the app, so no receipt can be filed)"
 
           echo
+          if [ -z "$PROFILE_LINKS" ] || [ "$SIGNED_LINKS" != yes ]; then
+            echo "::error::This build cannot open app.colabroom.com links: the provisioning profile or the signed app has no associated domains. Switch on Associated Domains for the App ID com.colabroom.beta in the developer portal, then run this workflow once with new_signing_profile ticked. The build above is on TestFlight, and on it every scanned code opens Safari."
+            LINKS_BROKEN=1
+          fi
           if [ -z "$PROFILE_APS" ]; then
             echo "::error::The provisioning profile carries no aps-environment. This is why the phone gets no APNs token: iOS refuses registerForRemoteNotifications for a build whose profile does not allow push, however the entitlements file reads. Enable Push Notifications on the App ID com.colabroom.beta, then have match regenerate the profile (force: true once, or delete it from the ios-signing-certs branch). The build above is on TestFlight and will still not receive notifications."
             exit 1
@@ -510,6 +542,7 @@ jobs:
             *development*) echo "::warning::Signed for the APNs sandbox while this workflow only makes TestFlight builds; a production push would reach nothing." ;;
             *) echo "::warning::Could not read the signed aps-environment; the profile allows push, so registration should work." ;;
           esac
+          if [ -n "${LINKS_BROKEN:-}" ]; then exit 1; fi
 
 # ---------------------------------------------------------------------------
 # After this succeeds: the build shows up under App Store Connect ->

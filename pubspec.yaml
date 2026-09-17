@@ -9,6 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # How a link reaches the app on an iPhone (see IncomingAddresses). Already
+  # in every build as supabase_flutter's own dependency; named here because
+  # this code now uses it directly. Pinned to the version already resolved.
+  app_links: 7.2.1
   audioplayers: ^6.8.1
   barcode: ^2.2.9
   archive: ^4.0.9
