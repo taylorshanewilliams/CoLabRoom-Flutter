@@ -20,9 +20,13 @@ import 'package:livekit_client/livekit_client.dart' as lk;
 /// and block inside the call, nothing recorded. 13-17 come next, through a
 /// parent or guardian.
 class _FakeCall extends CallSession {
-  _FakeCall(this._people);
+  _FakeCall(this._people, {this.noMicrophone});
 
   final List<CallPerson> _people;
+  final String? noMicrophone;
+
+  @override
+  String? get microphoneProblem => noMicrophone;
   bool _mic = true;
   bool _camera = true;
   bool _music = false;
@@ -109,6 +113,16 @@ void main() {
       expect(voice.echoCancellation, isTrue);
       expect(voice.noiseSuppression, isTrue);
       expect(publishFor(music: false).encoding, lk.AudioEncoding.presetSpeech);
+    });
+
+    test('a device that will not start is said plainly', () {
+      // Taylor's computer, 17 Sep 2026: no microphone at all.
+      expect(deviceProblem('Unable to getUserMedia: NotFoundError: Requested device not found', device: 'microphone'),
+          'No microphone found on this device. You can still listen and watch.');
+      expect(deviceProblem('NotAllowedError: Permission denied', device: 'camera'),
+          'Camera is blocked. Allow it for CoLabRoom, then join again.');
+      expect(deviceProblem('NotReadableError: Could not start video source', device: 'camera'),
+          'Another app is using the camera.');
     });
 
     test('an identity says whose phone it is', () {
@@ -299,6 +313,36 @@ void main() {
       expect((await repository.peopleIBlocked()).map((person) => person.id), contains('preview-jess'));
       expect(call.left, isTrue);
       expect(find.byType(CallScreen), findsNothing);
+    });
+
+    testWidgets('no microphone is still a call: you listen, and the button says why', (tester) async {
+      final repository = InMemoryMusicRepository.seeded()..callStanding = CallStanding.adult;
+      final controller = MusicBetaController(repository);
+      await controller.load();
+      final roomId = controller.rooms.first.id;
+      controller.dispose();
+      const problem = 'No microphone found on this device. You can still listen and watch.';
+      await _boot(
+        tester,
+        repository,
+        CallScreen(
+          roomId: roomId,
+          roomName: 'Band',
+          repository: repository,
+          join: (_) async => _FakeCall(<CallPerson>[_you, _jess], noMicrophone: problem),
+        ),
+      );
+
+      expect(find.byType(CallScreen), findsOneWidget);
+      expect(find.byKey(const Key('call_problem')), findsNothing, reason: 'the call went on');
+      expect(find.text('No mic'), findsOneWidget);
+      expect(find.text(problem), findsOneWidget, reason: 'said once when joining');
+
+      ScaffoldMessenger.of(tester.element(find.byType(CallScreen))).clearSnackBars();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('call_mic')));
+      await tester.pump();
+      expect(find.text(problem), findsOneWidget, reason: 'and again when the button is pressed');
     });
 
     testWidgets('a call that will not let somebody in says why', (tester) async {

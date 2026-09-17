@@ -64,6 +64,8 @@ class _CallScreenState extends State<CallScreen> {
       }
       session.addListener(_changed);
       setState(() => _session = session);
+      final problem = session.microphoneProblem ?? session.cameraProblem;
+      if (problem != null) _say(problem);
       unawaited(_hearMe());
       _hear = Timer.periodic(widget.hearEvery, (_) => unawaited(_hearMe()));
     } on CallRefused catch (refused) {
@@ -108,6 +110,13 @@ class _CallScreenState extends State<CallScreen> {
     _leaving = true;
     await _session?.leave();
     if (mounted) Navigator.of(context).maybePop();
+  }
+
+  void _say(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _musicMode(CallSession session) async {
@@ -404,18 +413,37 @@ class _CallScreenState extends State<CallScreen> {
         spacing: 10,
         runSpacing: 8,
         children: <Widget>[
-          round(
-            key: const Key('call_mic'),
-            icon: session.micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
-            label: session.micOn ? 'Mute' : 'Unmute',
-            onPressed: () => unawaited(session.setMic(!session.micOn)),
-          ),
-          round(
-            key: const Key('call_camera'),
-            icon: session.cameraOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,
-            label: session.cameraOn ? 'Camera off' : 'Camera on',
-            onPressed: () => unawaited(session.setCamera(!session.cameraOn)),
-          ),
+          if (session.microphoneProblem case final problem?)
+            round(
+              key: const Key('call_mic'),
+              icon: Icons.mic_off_rounded,
+              label: 'No mic',
+              onPressed: () => _say(problem),
+            )
+          else
+            round(
+              key: const Key('call_mic'),
+              icon: session.micOn ? Icons.mic_rounded : Icons.mic_off_rounded,
+              label: session.micOn ? 'Mute' : 'Unmute',
+              onPressed: () => unawaited(session.setMic(!session.micOn)),
+            ),
+          if (session.cameraProblem case final problem? when !session.cameraOn)
+            round(
+              key: const Key('call_camera'),
+              icon: Icons.videocam_off_rounded,
+              label: 'No camera',
+              onPressed: () {
+                _say(problem);
+                unawaited(session.setCamera(true));
+              },
+            )
+          else
+            round(
+              key: const Key('call_camera'),
+              icon: session.cameraOn ? Icons.videocam_rounded : Icons.videocam_off_rounded,
+              label: session.cameraOn ? 'Camera off' : 'Camera on',
+              onPressed: () => unawaited(session.setCamera(!session.cameraOn)),
+            ),
           round(
             key: const Key('call_flip'),
             icon: Icons.cameraswitch_rounded,
