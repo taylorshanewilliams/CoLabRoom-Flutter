@@ -611,8 +611,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     return AppColors.orange;
   }
 
-  /// Saves the flowing document's [lines] into [project]'s contributions,
-  /// one contribution per line, each keeping its writer.
+  /// Saves the flowing document's [lines] into the song's contributions, one
+  /// contribution per line, each keeping its writer.
   ///
   /// The lines are diffed against what the editor was shown (see
   /// line_reconciliation.dart). A line whose words did not change keeps its
@@ -628,8 +628,16 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   /// every later line's words under the wrong person's name and colour, next
   /// to the wrong voice notes, and deleting a line deleted the last one
   /// (audit, 17 September 2026).
-  Future<void> _saveDocument(SongProject project, List<String> lines) async {
+  Future<void> _saveDocument(SongProject built, List<String> lines) async {
     final controller = BetaScope.of(context);
+    // The song as the controller holds it now, not [built], the copy this
+    // callback closed over when the editor was last built. A writer who keeps
+    // typing through a save gets the next save straight after it, before any
+    // frame rebuilds the editor, and that copy is from before the save: it
+    // lacks the line the save just added, so the order check below read the
+    // writer's own new line as somebody else's and refused every save after
+    // it (review, 17 September 2026).
+    final project = controller.projectById(widget.projectId) ?? built;
     final repository = controller.repository;
     final contributions = project.contributions;
     final room = controller.roomForProject(project.id);

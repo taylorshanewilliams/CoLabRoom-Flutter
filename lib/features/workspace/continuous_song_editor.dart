@@ -423,12 +423,18 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
   /// Mirrors the states _BulletRailPainter draws, because a label that
   /// disagrees with the dot is worse than no label — someone acting on it
   /// records over a take they were told was empty.
-  String _voiceRailLabel(int index, List<Contribution?> owners) {
+  String _voiceRailLabel(int index, List<Contribution?> owners, List<String> words) {
     final contribution = index < owners.length ? owners[index] : null;
     // The line's own words, so the rail is navigable rather than a column of
     // identical "line 7"s. Truncated: a screen reader reads the whole label
     // before the action at the end of it.
-    final body = contribution?.body.trim() ?? '';
+    //
+    // The words on screen, not the saved row's. A new line anywhere in the
+    // song has no row until its save lands, and read from the row it was
+    // announced as "empty line" with its words right there; a blank line's
+    // row holds the invisible stored-blank marker, which was read out as if
+    // it were words (review, 17 September 2026).
+    final body = index < words.length ? words[index].trim() : '';
     final excerpt = body.isEmpty
         ? 'empty line'
         : (body.length > 40 ? '${body.substring(0, 40)}…' : body);
@@ -493,6 +499,7 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
     _LineMetrics metrics,
     double railWidth,
     List<Contribution?> owners,
+    List<String> words,
   ) {
     final lineHeight = metrics.heights[index];
     final height = math.max(_minimumTarget, lineHeight).toDouble();
@@ -507,7 +514,7 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
       height: height,
       child: Semantics(
         button: true,
-        label: _voiceRailLabel(index, owners),
+        label: _voiceRailLabel(index, owners, words),
         onTap: () => unawaited(_voiceTap(index)),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -548,6 +555,7 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
           direction: Directionality.of(context),
         );
         final owners = widget.controller.ownersIn(widget.project);
+        final words = widget.controller.text.text.split('\n');
         // The scroll view pads its content by 5 above and 86 below (room for
         // the dictation button). Filling the whole viewport *and* padding it
         // left 91 px to scroll on every song, and the workspace scrolls to
@@ -608,7 +616,7 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
                                 ),
                               ),
                               for (var index = 0; index < metrics.heights.length; index += 1)
-                                _railTarget(index, metrics, railWidth, owners),
+                                _railTarget(index, metrics, railWidth, owners, words),
                             ],
                           ),
                         ),
