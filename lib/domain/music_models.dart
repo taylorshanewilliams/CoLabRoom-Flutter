@@ -1313,6 +1313,11 @@ enum NotificationType {
   /// Open Mic -- migration 0115. The newcomer is the actor, so the inbox
   /// can open their page.
   wantMatched,
+  /// Somebody asked to add you -- usually by scanning your code (0130) --
+  /// migration 0132. The asker is the actor.
+  connectionRequest,
+  /// Somebody you asked added you back, migration 0132. They are the actor.
+  connectionAccepted,
   /// A type this build has not met. Shown with the title and body the
   /// server wrote, opens nothing, and — the point — never refuses to load
   /// the app. Every type is unknown to some build in the field.
@@ -1333,6 +1338,8 @@ NotificationType notificationTypeFromSql(String value) => switch (value) {
       'song_ask' => NotificationType.songAsk,
       'direct_message' => NotificationType.directMessage,
       'want_matched' => NotificationType.wantMatched,
+      'connection_request' => NotificationType.connectionRequest,
+      'connection_accepted' => NotificationType.connectionAccepted,
       _ => NotificationType.unfamiliar,
     };
 
