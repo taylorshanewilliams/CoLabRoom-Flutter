@@ -109,6 +109,14 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _leave() async {
     _leaving = true;
     await _session?.leave();
+    // Said before the screen closes: the room looks again the moment it is
+    // back, and on 17 Sep it looked first and said "you are in this call on
+    // another device" about the call just left.
+    try {
+      await widget.repository.leaveCall(roomId: widget.roomId, device: callDevice);
+    } catch (_) {
+      // dispose says it again; a stale row fades on its own in 45 seconds.
+    }
     if (mounted) Navigator.of(context).maybePop();
   }
 
