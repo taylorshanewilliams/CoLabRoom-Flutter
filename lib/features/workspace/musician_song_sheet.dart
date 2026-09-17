@@ -2,7 +2,6 @@ import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_line.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:flutter/material.dart';
-import '../../services/music_reference.dart';
 
 /// A "physical paper" chord+lyric sheet — chords sit directly above the word
 /// they land on. Deliberately takes already-built [lines] rather than a
@@ -135,7 +134,7 @@ class MusicianSongSheet extends StatelessWidget {
                       behavior: HitTestBehavior.opaque,
                       onTap: () => showKeyReference(
                         context,
-                        spellInKey(transposeChord(key, transpose), transposeChord(key, transpose)),
+                        keyAsPlayed(key, transpose),
                       ),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -161,7 +160,7 @@ class MusicianSongSheet extends StatelessWidget {
                             // reason: a badge reads as a label, and nobody
                             // taps a label.
                             Text(
-                              spellInKey(transposeChord(key, transpose), transposeChord(key, transpose)),
+                              keyAsPlayed(key, transpose),
                               style: TextStyle(
                                 color: const Color(0xFF244A37),
                                 fontSize: 15,

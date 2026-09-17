@@ -4,6 +4,8 @@ import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/continuous_song_editor.dart';
 import 'package:colabroom/services/chord_beat_grid.dart';
+import 'package:colabroom/services/chord_names.dart';
+import 'package:colabroom/services/music_reference.dart';
 
 class MusicianSheetLine {
   const MusicianSheetLine({
@@ -390,48 +392,69 @@ int chordStartForWordIndex({
   return lineStartMs + ((lineEndMs - lineStartMs) * ratio).round();
 }
 
+/// A chord moved by [semitones]: the root, and the bass under it.
+///
+/// It used to move only the root, so "G/B" up two came out "A/B" -- a
+/// different chord with the wrong note in the bass player's hand (audit, 17
+/// September 2026). Only a bass written as a note moves. Harte notation from
+/// the analysis writes the bass as a degree of the chord ("G:maj/3" is G over
+/// its third), and a degree counts from the root, so moving the root has
+/// already moved it; moving "3" as well would move it twice. "C6/9" is a
+/// quality with a slash in it, not a bass, and stays as written for the same
+/// reason.
+///
+/// Names come out sharp. Spelling them the way the new key writes them needs
+/// the key, which is what [chordAsPlayed] is for.
 String transposeChord(String chord, int semitones) {
   if (semitones % 12 == 0) return chord;
-  final match = RegExp(r'^([A-G])([#b]?)(.*)$').firstMatch(chord.trim());
+  final match = RegExp(r'^([A-G][#b]?)(.*)$').firstMatch(chord.trim());
   if (match == null) return chord;
-  const names = <String>[
-    'C',
-    'C#',
-    'D',
-    'D#',
-    'E',
-    'F',
-    'F#',
-    'G',
-    'G#',
-    'A',
-    'A#',
-    'B',
-  ];
-  const pitch = <String, int>{
-    'C': 0,
-    'C#': 1,
-    'Db': 1,
-    'D': 2,
-    'D#': 3,
-    'Eb': 3,
-    'E': 4,
-    'F': 5,
-    'F#': 6,
-    'Gb': 6,
-    'G': 7,
-    'G#': 8,
-    'Ab': 8,
-    'A': 9,
-    'A#': 10,
-    'Bb': 10,
-    'B': 11,
-  };
-  final root = '${match.group(1)}${match.group(2)}';
-  final value = pitch[root];
-  if (value == null) return chord;
-  final normalized = ((value + semitones) % 12 + 12) % 12;
-  return '${names[normalized]}${match.group(3) ?? ''}';
+  final root = _moveNote(match.group(1)!, semitones);
+  if (root == null) return chord;
+  var rest = match.group(2)!;
+  final slash = rest.lastIndexOf('/');
+  if (slash >= 0) {
+    final bass = _moveNote(rest.substring(slash + 1), semitones);
+    if (bass != null) rest = '${rest.substring(0, slash + 1)}$bass';
+  }
+  return '$root$rest';
+}
+
+/// A chord as it is read off the page: moved into the key somebody is
+/// playing in, written the way a musician writes it rather than in Harte,
+/// and spelled the way that key spells it -- Bb/D in B-flat, not A#/D.
+///
+/// [key] is the song's key before transposing. The sheet, the chart and
+/// Perform all draw their chords through this one call, so the same chord
+/// cannot read differently on two of them.
+String chordAsPlayed(String chord, {required int transpose, String? key}) =>
+    spellInKey(
+      chordDisplay(transposeChord(chord, transpose)),
+      key == null ? null : transposeChord(key, transpose),
+    );
+
+/// The song's key, moved and spelled the same way as its chords.
+String keyAsPlayed(String key, int transpose) {
+  final moved = transposeChord(key, transpose);
+  return spellInKey(moved, moved);
+}
+
+const List<String> _sharpNoteNames = <String>[
+  'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B',
+];
+
+const Map<String, int> _notePitches = <String, int>{
+  'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3, 'E': 4, 'F': 5,
+  'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8, 'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10,
+  'B': 11,
+};
+
+/// A note name moved by [semitones], or null when [note] is not a note name
+/// at all -- a degree, a quality, anything else after a slash.
+String? _moveNote(String note, int semitones) {
+  final pitch = _notePitches[note];
+  if (pitch == null) return null;
+  return _sharpNoteNames[((pitch + semitones) % 12 + 12) % 12];
 }
 
 final RegExp _plainSectionPattern = RegExp(

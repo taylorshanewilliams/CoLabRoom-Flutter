@@ -3,9 +3,7 @@ import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/practice_rules.dart';
-import 'package:colabroom/services/chord_names.dart';
 import 'package:flutter/material.dart';
-import '../../services/music_reference.dart';
 
 typedef MusicianChordTap = void Function(
   MusicianSheetLine line,
@@ -278,15 +276,11 @@ class _ChordWord extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // chordDisplay spells the label the way it goes on paper: ChordMini
-    // stores Harte notation, so without this the sheet reads "C:maj".
-    final chordText =
-        chord == null
-            ? ''
-            : spellInKey(
-                chordDisplay(transposeChord(chord!.chord, transpose)),
-                musicalKey == null ? null : transposeChord(musicalKey!, transpose),
-              );
+    // Written the way it goes on paper (ChordMini stores Harte, so without
+    // this the sheet reads "C:maj"), in the key being played.
+    final chordText = chord == null
+        ? ''
+        : chordAsPlayed(chord!.chord, transpose: transpose, key: musicalKey);
     final chordWidget = chord == null
         ? const SizedBox.shrink()
         : InkWell(

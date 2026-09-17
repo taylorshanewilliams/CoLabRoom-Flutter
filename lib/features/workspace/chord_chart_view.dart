@@ -1,13 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../services/set_aside.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../services/chord_chart.dart';
-import '../../services/chord_names.dart';
 import 'music_reference_sheets.dart';
-import 'musician_sheet_logic.dart' show transposeChord;
-import '../../services/music_reference.dart';
+import 'musician_sheet_logic.dart' show chordAsPlayed, keyAsPlayed;
 
 /// The song as bars.
 ///
@@ -274,10 +274,10 @@ class _BarCell extends StatelessWidget {
     // the bar isn't in four, which happens more than people expect.
     final byBeat = <int, String>{};
     for (final chord in bar.chords) {
-      final key = song.musicalKey;
-      byBeat[chord.beat] = spellInKey(
-        chordDisplay(transposeChord(chord.chord, transpose)),
-        key == null ? null : transposeChord(key, transpose),
+      byBeat[chord.beat] = chordAsPlayed(
+        chord.chord,
+        transpose: transpose,
+        key: song.musicalKey,
       );
     }
     return Container(
@@ -297,6 +297,7 @@ class _BarCell extends StatelessWidget {
             Expanded(
               child: _BeatSlot(
                   chord: byBeat[beat] ?? '',
+                  transpose: transpose,
                   fontScale: fontScale,
                   song: song),
             ),
@@ -315,11 +316,14 @@ class _BarCell extends StatelessWidget {
 class _BeatSlot extends StatelessWidget {
   const _BeatSlot({
     required this.chord,
+    required this.transpose,
     required this.fontScale,
     required this.song,
   });
 
+  /// Already transposed and spelled -- what is printed in the bar.
   final String chord;
+  final int transpose;
   final double fontScale;
   final _SongContext song;
 
@@ -345,13 +349,23 @@ class _BeatSlot extends StatelessWidget {
     if (chord.isEmpty) return text;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => showChordReference(
-        context,
-        chord,
-        keyLabel: song.musicalKey,
-        used: song.used,
-        roles: song.roles,
-      ),
+      // Asked in the key the chart is being read in. The chord in the bar is
+      // transposed, and it was being placed against the song's original key
+      // and chords: at +2 in G, the A printed on the chart was called the II
+      // of G when it is the I of the key being played.
+      onTap: () {
+        final key = song.musicalKey;
+        unawaited(showChordReference(
+          context,
+          chord,
+          keyLabel: key == null ? null : keyAsPlayed(key, transpose),
+          used: <String>[
+            for (final used in song.used)
+              chordAsPlayed(used, transpose: transpose, key: key),
+          ],
+          roles: song.roles,
+        ));
+      },
       child: text,
     );
   }
