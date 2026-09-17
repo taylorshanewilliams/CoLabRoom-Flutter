@@ -2,6 +2,18 @@ import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatf
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+/// Whether this device types on a keyboard.
+///
+/// Shared, because the rule is one rule: a key binding belongs on a desk and
+/// a phone's own keyboard is left alone. Enter sends here, and N pins a note
+/// at the playhead on the Takes screen (0141).
+bool get typesOnAKeyboard =>
+    kIsWeb ||
+    switch (defaultTargetPlatform) {
+      TargetPlatform.windows || TargetPlatform.macOS || TargetPlatform.linux => true,
+      _ => false,
+    };
+
 /// Enter sends, where there is a keyboard.
 ///
 /// Every box for saying something in this app is several lines tall, so it
@@ -19,16 +31,9 @@ class SendOnEnter extends StatelessWidget {
   /// Whether this device types on a keyboard. A test passes it.
   final bool? onKeyboard;
 
-  static bool get _keyboard =>
-      kIsWeb ||
-      switch (defaultTargetPlatform) {
-        TargetPlatform.windows || TargetPlatform.macOS || TargetPlatform.linux => true,
-        _ => false,
-      };
-
   @override
   Widget build(BuildContext context) {
-    if (!(onKeyboard ?? _keyboard)) return child;
+    if (!(onKeyboard ?? typesOnAKeyboard)) return child;
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         const SingleActivator(LogicalKeyboardKey.enter): onSend,

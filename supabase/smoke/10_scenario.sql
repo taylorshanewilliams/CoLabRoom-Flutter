@@ -4659,6 +4659,222 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Notes at a moment (0141).
+--
+-- Every Musician, Same Song, 17 September 2026. A note is readable and
+-- writable by exactly the people who can hear the recording it is pinned to,
+-- which under 0057 means an unshared take is a room of one: nobody else can
+-- pin on it and nobody else can read what its recorder pinned on it. The
+-- recording's player is told, once, and never about their own note.
+--
+-- In a room of its own, with its own two-person membership, because the
+-- bandmate has left room 3333 by this point in the file.
+-- ---------------------------------------------------------------------
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('5011e500-0000-0000-0000-000000000141', 'the.student@smoke.test',
+   '{"display_name": "The Student"}');
+
+insert into public.rooms (id, account_id, name)
+values ('5011e500-0000-0000-0000-00000000014a', :'writer', 'The Lesson Room');
+
+insert into public.room_members (room_id, user_id, display_name, role) values
+  ('5011e500-0000-0000-0000-00000000014a', :'writer', 'The Writer', 'owner'),
+  ('5011e500-0000-0000-0000-00000000014a', '5011e500-0000-0000-0000-000000000141',
+   'The Student', 'editor');
+
+insert into public.projects (id, room_id, account_id, title, created_by)
+values ('5011e500-0000-0000-0000-00000000014b', '5011e500-0000-0000-0000-00000000014a',
+        :'writer', 'Caro mio ben', :'writer');
+
+-- One take sent, one still the student's own.
+insert into public.song_layers
+  (id, project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values
+  ('5011e500-0000-0000-0000-00000000014c', '5011e500-0000-0000-0000-00000000014b',
+   '5011e500-0000-0000-0000-000000000141',
+   '5011e500-0000-0000-0000-00000000014a/5011e500-0000-0000-0000-00000000014b/layers/sent.m4a',
+   'Sent', 'vocal', 132000, now()),
+  ('5011e500-0000-0000-0000-00000000014d', '5011e500-0000-0000-0000-00000000014b',
+   '5011e500-0000-0000-0000-000000000141',
+   '5011e500-0000-0000-0000-00000000014a/5011e500-0000-0000-0000-00000000014b/layers/draft.m4a',
+   'Draft', 'vocal', 9000, null);
+
+-- The student pins one on their own draft, which is the row nobody else may
+-- ever read, and one on the song's own recording, which the writer made.
+set local request.jwt.claims = '{"sub": "5011e500-0000-0000-0000-000000000141", "email": "the.student@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  insert into public.moment_notes (project_id, layer_id, at_ms, body)
+  values ('5011e500-0000-0000-0000-00000000014b',
+          '5011e500-0000-0000-0000-00000000014d', 4000,
+          'the bridge fell apart here');
+  -- A null layer is the song's own recording, which the room can hear.
+  insert into public.moment_notes (project_id, layer_id, at_ms, end_ms, body)
+  values ('5011e500-0000-0000-0000-00000000014b', null, 21000, 27000,
+          'is this the piano or me');
+end $$;
+
+-- The teacher pins at 1:48 on the take that was sent to them.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  pinned uuid;
+begin
+  insert into public.moment_notes (project_id, layer_id, at_ms, body)
+  values ('5011e500-0000-0000-0000-00000000014b',
+          '5011e500-0000-0000-0000-00000000014c', 108000,
+          'breathe before mio')
+  returning id into pinned;
+
+  if not exists (select 1 from public.moment_notes where id = pinned) then
+    raise exception 'a note pinned on a shared take was not readable by its author';
+  end if;
+
+  -- The heart of it. A draft is heard by one person, so it is written on and
+  -- read by one person -- even by the owner of the room it is in.
+  begin
+    insert into public.moment_notes (project_id, layer_id, at_ms, body)
+    values ('5011e500-0000-0000-0000-00000000014b',
+            '5011e500-0000-0000-0000-00000000014d', 1000, 'not mine to say');
+    raise exception 'a note was pinned on somebody else''s unshared take';
+  exception when insufficient_privilege then null;
+  end;
+
+  if exists (
+    select 1 from public.moment_notes
+    where layer_id = '5011e500-0000-0000-0000-00000000014d'
+  ) then
+    raise exception 'a note on somebody else''s unshared take was readable';
+  end if;
+
+  -- The note on the song's own recording is the room's to read.
+  if not exists (
+    select 1 from public.moment_notes
+    where project_id = '5011e500-0000-0000-0000-00000000014b' and layer_id is null
+  ) then
+    raise exception 'a note on the song''s own recording was not readable by the room';
+  end if;
+
+  -- A note cannot be filed against a song its recording is not on.
+  begin
+    insert into public.moment_notes (project_id, layer_id, at_ms, body)
+    values ('44444444-4444-4444-4444-444444444444',
+            '5011e500-0000-0000-0000-00000000014c', 1000, 'wrong song');
+    raise exception 'a note was filed against a song its take is not on';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Somebody who is in neither the room nor the song.
+reset role;
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (
+    select 1 from public.moment_notes
+    where project_id = '5011e500-0000-0000-0000-00000000014b'
+  ) then
+    raise exception 'a non-member could read the notes on a song';
+  end if;
+
+  begin
+    insert into public.moment_notes (project_id, layer_id, at_ms, body)
+    values ('5011e500-0000-0000-0000-00000000014b',
+            '5011e500-0000-0000-0000-00000000014c', 1000, 'who asked me');
+    raise exception 'a non-member pinned a note on a song';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Who was told.
+reset role;
+do $$
+begin
+  if not exists (
+    select 1 from public.notifications
+    where user_id = '5011e500-0000-0000-0000-000000000141'
+      and type = 'moment_note'
+      and title = 'The Writer left a note at 1:48'
+      and project_id = '5011e500-0000-0000-0000-00000000014b'
+  ) then
+    raise exception 'the person who played the take was not told about the note';
+  end if;
+
+  -- The song's own recording belongs to whoever started the song.
+  if not exists (
+    select 1 from public.notifications
+    where user_id = '11111111-1111-1111-1111-111111111111'
+      and type = 'moment_note'
+      and title = 'The Student left a note at 0:21'
+  ) then
+    raise exception 'a note on the song''s own recording told nobody';
+  end if;
+
+  -- Nobody is told about their own note, including the one the student left
+  -- on their own draft.
+  if exists (
+    select 1 from public.notifications
+    where user_id = '5011e500-0000-0000-0000-000000000141'
+      and type = 'moment_note'
+      and actor_id = '5011e500-0000-0000-0000-000000000141'
+  ) then
+    raise exception 'somebody was told about their own note';
+  end if;
+end $$;
+
+-- The author takes their words back, and nobody else can.
+set local request.jwt.claims = '{"sub": "5011e500-0000-0000-0000-000000000141", "email": "the.student@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.delete_moment_note(
+    (select id from public.moment_notes
+     where layer_id = '5011e500-0000-0000-0000-00000000014c'));
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  mine uuid;
+begin
+  select id into mine from public.moment_notes
+  where layer_id = '5011e500-0000-0000-0000-00000000014c';
+  if mine is null then
+    raise exception 'somebody else deleted a note that was not theirs';
+  end if;
+
+  perform public.delete_moment_note(mine);
+  if exists (select 1 from public.moment_notes where id = mine) then
+    raise exception 'an author could not take their own note back';
+  end if;
+end $$;
+
+reset role;
+do $$
+begin
+  if not exists (
+    select 1 from public.moment_notes
+    where layer_id = '5011e500-0000-0000-0000-00000000014c'
+      and deleted_at is not null
+  ) then
+    raise exception 'deleting a note did not leave a soft-deleted row';
+  end if;
+end $$;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;

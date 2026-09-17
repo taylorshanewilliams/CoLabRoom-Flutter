@@ -407,6 +407,21 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
     ],
   ),
   HelpAnswer(
+    id: 'moment-note',
+    question: 'How do I say something about one part of a recording?',
+    answer: 'Open the song, press Takes and play it. Under the buttons is '
+        '"Note at 1:48" — the clock is wherever the playhead is, so stop on '
+        'the part you mean and press it. On a laptop, N does the same.\n\n'
+        'The note shows as a mark on that recording and in the list '
+        'underneath. Tapping it plays from three seconds before and goes '
+        'round until you press stop. Only whoever played that take is told, '
+        'and you can take your own notes back.',
+    keywords: <String>[
+      'note', 'notes', 'moment', 'pin', 'pinned', 'comment', 'feedback',
+      'timestamp', 'playhead', 'mark',
+    ],
+  ),
+  HelpAnswer(
     id: 'tuner',
     question: 'Is there a tuner or a metronome?',
     answer: 'Both, where you record: press Record (or New take) on a song and '

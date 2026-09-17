@@ -8,6 +8,7 @@ import '../app/beta_config.dart';
 import '../domain/activity.dart';
 import '../domain/calls.dart';
 import '../domain/lesson_link.dart';
+import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
@@ -2543,6 +2544,77 @@ class SupabaseMusicRepository implements MusicRepository {
         ],
         updatedAt: DateTime.tryParse('${row['updated_at']}')?.toLocal() ?? DateTime.now(),
       );
+
+  static const String _momentNoteColumns =
+      'id, project_id, layer_id, at_ms, end_ms, body, author_id, created_at, '
+      'author:profiles!moment_notes_author_id_fkey(display_name)';
+
+  @override
+  Future<List<MomentNote>> loadMomentNotes(String projectId) async {
+    // No filter on deleted_at: the read policy already hides a note somebody
+    // took back, and a second copy of that rule here is one more place for
+    // the two to disagree.
+    final rows = await client
+        .from('moment_notes')
+        .select(_momentNoteColumns)
+        .eq('project_id', projectId)
+        .order('at_ms', ascending: true);
+    return <MomentNote>[
+      for (final row in rows as List<dynamic>)
+        _momentNote(Map<String, dynamic>.from(row as Map)),
+    ];
+  }
+
+  @override
+  Future<MomentNote> addMomentNote({
+    required String projectId,
+    required int atMs,
+    required String body,
+    String? layerId,
+    int? endMs,
+  }) async {
+    final row = await client
+        .from('moment_notes')
+        .insert(<String, dynamic>{
+          'project_id': projectId,
+          'layer_id': layerId,
+          'at_ms': atMs < 0 ? 0 : atMs,
+          if (endMs != null) 'end_ms': endMs,
+          'body': body.trim(),
+          'author_id': _userId,
+        })
+        .select(_momentNoteColumns)
+        .single();
+    return _momentNote(row);
+  }
+
+  @override
+  Future<void> deleteMomentNote(MomentNote note) async {
+    // A function rather than a delete: the row is kept and stamped, so the
+    // words can never come back and nothing has to guess whether a missing
+    // note was deleted or never existed.
+    await client.rpc<void>(
+      'delete_moment_note',
+      params: <String, dynamic>{'target_note': note.id},
+    );
+  }
+
+  MomentNote _momentNote(Map<String, dynamic> row) {
+    final author = row['author'];
+    return MomentNote(
+      id: row['id'] as String,
+      projectId: row['project_id'] as String,
+      layerId: row['layer_id'] as String?,
+      atMs: (row['at_ms'] as num?)?.toInt() ?? 0,
+      endMs: (row['end_ms'] as num?)?.toInt(),
+      body: row['body'] as String? ?? '',
+      authorId: row['author_id'] as String? ?? '',
+      authorName:
+          author is Map ? author['display_name'] as String? : null,
+      createdAt:
+          DateTime.tryParse('${row['created_at']}')?.toLocal() ?? DateTime.now(),
+    );
+  }
 
   @override
   Future<List<WantAround>> wantsAround() async {

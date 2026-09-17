@@ -1321,6 +1321,10 @@ enum NotificationType {
   /// Somebody started a call in a room you are in, migration 0134. The room
   /// rides on the notification, so the card opens it -- where Join is.
   callStarted,
+  /// Somebody left a note at a moment of a recording of yours, migration
+  /// 0141. The song rides on the notification, so the card opens its takes
+  /// at the note.
+  momentNote,
   /// A type this build has not met. Shown with the title and body the
   /// server wrote, opens nothing, and — the point — never refuses to load
   /// the app. Every type is unknown to some build in the field.
@@ -1344,6 +1348,7 @@ NotificationType notificationTypeFromSql(String value) => switch (value) {
       'connection_request' => NotificationType.connectionRequest,
       'connection_accepted' => NotificationType.connectionAccepted,
       'call_started' => NotificationType.callStarted,
+      'moment_note' => NotificationType.momentNote,
       _ => NotificationType.unfamiliar,
     };
 
