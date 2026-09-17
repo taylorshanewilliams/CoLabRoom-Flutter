@@ -34,6 +34,45 @@ const Map<String, int> _pitchValues = <String, int>{
   'B': 11, 'Cb': 11,
 };
 
+/// Whether a key is written with flats.
+///
+/// F, B♭, E♭, A♭ and D♭ major; D, G, C, F and B♭ minor. Decided by
+/// pitch, not by how the key arrived: the analyser names every key with
+/// sharps, so "A# major" is B♭ major and was shown to a band as "A# major"
+/// with A# and D# chords (audit, 17 September 2026, South Of Midnight). The
+/// six-accidental keys stay sharp (F♯ major, D♯ minor), which is how they are
+/// usually written.
+bool keyUsesFlats(String? key) {
+  final match = key == null ? null : RegExp(r'^([A-G][#b]?)\s*(.*)$').firstMatch(key.trim());
+  if (match == null) return false;
+  final pitch = _pitchValues[match.group(1)!];
+  if (pitch == null) return false;
+  final rest = match.group(2)!.toLowerCase();
+  final minor = rest.startsWith('min') || rest == 'm' || rest.startsWith('aeolian');
+  return minor ? const <int>{2, 7, 0, 5, 10}.contains(pitch) : const <int>{5, 10, 3, 8, 1}.contains(pitch);
+}
+
+/// A chord or a key written the way its key writes it: B♭ rather than A♯ in
+/// a flat key.
+///
+/// Only sharps are respelled, so a name somebody wrote with flats stays as
+/// they wrote it. A minor key keeps its raised seventh sharp -- the C♯ of an
+/// A7 in D minor is a C♯ -- because that is the one sharp a flat minor key
+/// really has.
+String spellInKey(String written, String? key) {
+  if (!keyUsesFlats(key)) return written;
+  final tonic = RegExp(r'^([A-G][#b]?)').firstMatch(key!.trim())?.group(1);
+  final tonicPitch = tonic == null ? null : _pitchValues[tonic];
+  final rest = key.trim().substring(tonic?.length ?? 0).trim().toLowerCase();
+  final minor = rest.startsWith('min') || rest == 'm' || rest.startsWith('aeolian');
+  final leadingTone = minor && tonicPitch != null ? (tonicPitch + 11) % 12 : null;
+  return written.replaceAllMapped(RegExp(r'([A-G])#'), (match) {
+    final pitch = _pitchValues['${match.group(1)}#'];
+    if (pitch == null || pitch == leadingTone) return match.group(0)!;
+    return _flatNames[pitch];
+  });
+}
+
 /// Spelling follows the name you were given. A song in Eb should not be told
 /// its fifth is A#, and a song in F# should not be told its root is Gb.
 /// Whether two note names are the same pitch.

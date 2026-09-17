@@ -1369,6 +1369,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                             fontSize: lyricSize,
                             compact: landscape,
                             showChords: _showChords,
+                            musicalKey: widget.analysis?.reference?.musicalKey,
                             active: _mode == LiveScrollMode.synced &&
                                 _lineKey(i) == _activeLineKey,
                             elapsedMs: _mode == LiveScrollMode.synced &&
@@ -1503,8 +1504,12 @@ class _PerformanceLine extends StatelessWidget {
     this.active = false,
     this.elapsedMs,
     this.melody,
+    this.musicalKey,
     super.key,
   });
+
+  /// For spelling chords the way the key writes them.
+  final String? musicalKey;
 
   final MusicianSheetLine line;
   final Color dotColor;
@@ -1592,6 +1597,7 @@ class _PerformanceLine extends StatelessWidget {
             child: MusicianChordLyricLine(
               line: line,
               transpose: 0,
+              musicalKey: musicalKey,
               fontScale: fontSize / 13.0,
               showChords: showChords,
               liveMode: true,

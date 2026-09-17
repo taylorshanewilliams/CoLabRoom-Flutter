@@ -23,6 +23,7 @@ import '../workspace/song_workspace_screen.dart';
 import 'the_app_noticed.dart';
 import '../../app/beta_scope.dart';
 import '../../widgets/profile_face.dart';
+import '../../domain/sounds.dart';
 
 /// Somebody's own room.
 ///
@@ -1738,19 +1739,9 @@ class _PresenceSheetState extends State<_PresenceSheet> {
     ),
   ];
 
-  /// Somewhere to start, not the whole world.
-  ///
-  /// Deliberately wide and deliberately not a fixed vocabulary: the field
-  /// takes whatever somebody types, and a closed list would be wrong for most
-  /// of the planet before it was wrong for anybody else. These are the
-  /// starting points that save typing, spread across traditions rather than
-  /// ranked by any of them.
-  static const List<String> _suggestions = <String>[
-    'singer-songwriter', 'folk', 'rock', 'indie', 'pop', 'punk', 'metal',
-    'blues', 'jazz', 'soul', 'r&b', 'hip hop', 'country', 'americana',
-    'bluegrass', 'gospel', 'worship', 'electronic', 'ambient', 'house',
-    'reggae', 'afrobeats', 'latin', 'k-pop', 'classical', 'experimental',
-  ];
+  /// Somewhere to start, not the whole world: see [soundStarters], shared
+  /// with the tour so both spell a sound the same way.
+  static const List<String> _suggestions = soundStarters;
 
   static const int _maxSounds = 5;
 
@@ -1796,9 +1787,9 @@ class _PresenceSheetState extends State<_PresenceSheet> {
   }
 
   void _addOwnWords() {
-    final typed = _ownWords.text.trim().toLowerCase();
+    final typed = soundWord(_ownWords.text);
     if (typed.isEmpty || typed.length > 40) return;
-    if (_soundsLike.length >= _maxSounds) return;
+    if (_soundsLike.length >= _maxSounds || _soundsLike.contains(typed)) return;
     setState(() {
       _soundsLike.add(typed);
       _ownWords.clear();

@@ -646,6 +646,18 @@ class _SongsScreenState extends State<SongsScreen> {
             final id = card.projectId;
             if (id != null) _openProjectById(id);
           case FirstGo.record:
+            // "Sing Midnight Signal once" is about Midnight Signal. It went to
+            // the Record button, which starts a new idea, so the take landed
+            // in "Idea 2" and the song it named still had no sheet (audit,
+            // 17 September 2026).
+            final named = card.projectId == null ? null : _songById(controller, card.projectId!);
+            if (named != null) {
+              await Navigator.of(context).push(MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'Song sheet'),
+                builder: (_) => SongAnalysisScreen(project: named, autoRecord: true),
+              ));
+              break;
+            }
             final record = widget.onRecord;
             if (record != null) {
               record();
