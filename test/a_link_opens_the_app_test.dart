@@ -6,6 +6,7 @@ import 'package:colabroom/app/deep_link.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/app/workspace_shell.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
+import 'package:colabroom/domain/calls.dart';
 import 'package:colabroom/features/rooms/room_detail_screen.dart';
 import 'package:colabroom/features/shell/join_from_address.dart';
 import 'package:colabroom/services/incoming_addresses.dart';
@@ -214,7 +215,11 @@ void main() {
     testWidgets('a lesson QR code that starts the app opens the lesson room', (tester) async {
       tester.platformDispatcher.defaultRouteNameTestValue = lessonLink('0123456789ab');
       addTearDown(tester.platformDispatcher.clearDefaultRouteNameTestValue);
+      // An adult: lesson links are for people 18 and over since 0139, and
+      // what happens for everybody else is in
+      // lesson_links_are_for_adults_test.dart.
       final repository = InMemoryMusicRepository.seeded()
+        ..callStanding = CallStanding.adult
         ..offerLesson(code: '0123456789ab', title: 'Guitar lessons', teacherName: 'Maria');
 
       final controller = await boot(tester, repository);
@@ -226,6 +231,7 @@ void main() {
 
     testWidgets('one scanned while the app is open does the same', (tester) async {
       final repository = InMemoryMusicRepository.seeded()
+        ..callStanding = CallStanding.adult
         ..offerLesson(code: '0123456789ab', title: 'Guitar lessons', teacherName: 'Maria');
       final controller = await boot(tester, repository);
       final before = controller.rooms.length;

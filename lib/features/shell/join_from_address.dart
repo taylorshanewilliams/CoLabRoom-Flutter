@@ -4,6 +4,7 @@ import '../../app/beta_scope.dart';
 import '../../app/routes.dart';
 import '../../services/invite_link.dart';
 import '../../services/user_facing_error.dart';
+import '../lessons/with_birth_month.dart';
 import '../rooms/room_detail_screen.dart';
 
 /// Whether an address is a way into a room: an invitation, or a teacher's
@@ -69,7 +70,13 @@ Future<void> _joinLesson(
   final controller = BetaScope.of(context, listen: false);
   final messenger = ScaffoldMessenger.of(context);
   try {
-    final room = await controller.joinLessonLink(code);
+    // Lesson links are for people 18 and over for now (0139), so the server
+    // may want a birth month before it opens one.
+    final room = await withBirthMonth(
+      () => controller.joinLessonLink(code),
+      context: context,
+      repository: controller.repository,
+    );
     if (!context.mounted) return;
     onJoined?.call();
     messenger.showSnackBar(SnackBar(
@@ -83,6 +90,9 @@ Future<void> _joinLesson(
         builder: (_) => RoomDetailScreen(roomId: room.id),
       ));
     }
+  } on NothingSaidAboutAge {
+    // The birth month question was closed. Nothing was joined, and nothing
+    // is said about it.
   } catch (error) {
     if (!context.mounted) return;
     messenger.showSnackBar(SnackBar(

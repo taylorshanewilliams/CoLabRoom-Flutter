@@ -10,6 +10,7 @@ import '../../services/invite_link.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/qr_code.dart';
 import 'lesson_poster.dart';
+import 'with_birth_month.dart';
 import '../../services/copy_text.dart';
 
 /// A teacher's lesson link: one QR code, and a room of their own with the
@@ -72,8 +73,17 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final link = await widget.repository.openLessonLink(_title.text);
+      // Both ends of a lesson link are adults for now (0139), so the server
+      // may want a birth month before it makes one.
+      final link = await withBirthMonth(
+        () => widget.repository.openLessonLink(_title.text),
+        context: context,
+        repository: widget.repository,
+      );
       if (mounted) setState(() => _link = link);
+    } on NothingSaidAboutAge {
+      // The birth month question was closed. No link was made, and there is
+      // nothing to say about it.
     } catch (error) {
       _say(reportAndDescribe(error, service: 'app', stage: 'lesson_link.open', route: 'Lesson link'));
     } finally {
@@ -170,6 +180,15 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
           'sheet, Follow me, and what you worked on last time.',
           style: TextStyle(color: AppColors.muted, fontSize: 14, height: 1.45),
         ),
+        const SizedBox(height: 12),
+        // Said before the link exists, because it decides whether a teacher
+        // wants one at all (Every Musician, Same Song, 17 September 2026:
+        // adult students first, until there is a guardian step).
+        const Text(
+          lessonLinksAreForStudents18AndOver,
+          key: Key('lesson_adults'),
+          style: TextStyle(color: AppColors.muted, fontSize: 13.5, height: 1.45),
+        ),
         const SizedBox(height: 22),
         TextField(
           key: const Key('lesson_title'),
@@ -217,7 +236,14 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
       ),
       const SizedBox(height: 4),
       Text(joined, key: const Key('lesson_joined'), style: const TextStyle(color: AppColors.muted, fontSize: 13)),
-      const SizedBox(height: 22),
+      const SizedBox(height: 10),
+      // And again beside the code itself, which is the thing being shared.
+      const Text(
+        lessonLinksAreForStudents18AndOver,
+        key: Key('lesson_adults'),
+        style: TextStyle(color: AppColors.muted, fontSize: 13, height: 1.4),
+      ),
+      const SizedBox(height: 18),
       Center(
         child: QrCode(
           key: const Key('lesson_qr'),

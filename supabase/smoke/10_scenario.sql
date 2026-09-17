@@ -3857,6 +3857,18 @@ set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}'
 -- ---------------------------------------------------------------------
 
 reset role;
+
+-- Both ends of a lesson link are adults since 0139, and both accounts here
+-- are needed as they are by "Calls for adults (0134)" further down -- the
+-- writer has never been asked for a birth month there, and Joiner One
+-- answers as a 15-year-old. So they are adults for the length of this block
+-- and cleared at the end of it, the way the connection rows above are. The
+-- age rule itself is checked in its own block, with the cast this scenario
+-- has by then.
+insert into private.birth_months (person_id, born) values
+  ('11111111-1111-1111-1111-111111111111', date '1990-05-01'),
+  ('88888888-8888-8888-8888-888888888888', date '1992-08-01');
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 set local role authenticated;
 
@@ -3969,7 +3981,13 @@ begin
   begin
     perform public.join_lesson_link(current_setting('smoke.lesson_code'));
     raise exception 'a lesson link that was turned off still made a room';
-  exception when invalid_parameter_value then null;
+  exception when invalid_parameter_value then
+    -- Said for the right reason: Joiner Two has not been asked for a birth
+    -- month yet, and since 0139 that refusal shares this error code. A link
+    -- that was turned off is off for everybody, whatever their age.
+    if sqlerrm not like '%turned off%' then
+      raise exception 'a lesson link that was turned off was refused for the wrong reason (%)', sqlerrm;
+    end if;
   end;
 end $$;
 
@@ -3981,6 +3999,11 @@ begin
     raise exception 'turning the link off removed a lesson room';
   end if;
 end $$;
+
+-- The two accounts go back to what the blocks below need them to be.
+delete from private.birth_months
+where person_id in ('11111111-1111-1111-1111-111111111111',
+                    '88888888-8888-8888-8888-888888888888');
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
@@ -4521,6 +4544,118 @@ begin
              where user_id = 'a9e00013-0000-0000-0000-000000000138'
                and type = 'call_started') then
     raise exception 'somebody calls are closed to was told about a call';
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Lesson links are for adults, for now (0139).
+--
+-- Every Musician, Same Song, 17 September 2026: adult students first, and
+-- lesson links for people 18 and over until there is a guardian step. By
+-- here this scenario has exactly the cast that needs: the writer and Joiner
+-- Two are adults, Joiner One answered as a 15-year-old, Met At A Gig has
+-- never been asked, and Said Under Thirteen is closed to all of it.
+--
+-- The adult joins; the other three are turned away, each in the words meant
+-- for them. The one the app acts on rather than shows -- ask for a birth
+-- month -- is checked by its hint, because that is what the app reads.
+-- ---------------------------------------------------------------------
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+select public.open_lesson_link('Lessons for grown-ups') as adult_lesson_code \gset
+select set_config('smoke.adult_lesson_code', :'adult_lesson_code', true);
+
+-- An adult opens it and gets their room.
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
+
+do $$
+begin
+  if public.join_lesson_link(current_setting('smoke.adult_lesson_code')) is null then
+    raise exception 'an adult could not join a lesson link';
+  end if;
+end $$;
+
+-- A 15-year-old is told plainly, and cannot hang one on a wall either.
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+
+do $$
+begin
+  begin
+    perform public.join_lesson_link(current_setting('smoke.adult_lesson_code'));
+    raise exception 'a 15-year-old joined a lesson link';
+  exception when invalid_parameter_value then
+    if sqlerrm <> 'Lesson links are for people 18 and over for now.' then
+      raise exception 'a 15-year-old was turned away for another reason (%)', sqlerrm;
+    end if;
+  end;
+
+  begin
+    perform public.open_lesson_link('Lessons from a 15-year-old');
+    raise exception 'a 15-year-old made a lesson link';
+  exception when invalid_parameter_value then
+    if sqlerrm <> 'Lesson links are for people 18 and over for now.' then
+      raise exception 'a 15-year-old was refused a link of their own for another reason (%)', sqlerrm;
+    end if;
+  end;
+end $$;
+
+-- Nobody has asked Met At A Gig anything. The hint is what the app reads, so
+-- it is what this checks: a reworded sentence must not stop the question
+-- being asked.
+set local request.jwt.claims = '{"sub": "c0ec7000-0000-0000-0000-000000000137", "email": "metatagig@smoke.test"}';
+
+do $$
+declare
+  said text;
+begin
+  begin
+    perform public.join_lesson_link(current_setting('smoke.adult_lesson_code'));
+    raise exception 'an account with no birth month joined a lesson link';
+  exception when invalid_parameter_value then
+    get stacked diagnostics said = pg_exception_hint;
+    if said is distinct from 'lesson_birth_month' then
+      raise exception 'the app was not told to ask for a birth month (hint %, said %)', said, sqlerrm;
+    end if;
+  end;
+
+  begin
+    perform public.open_lesson_link('Lessons from somebody unasked');
+    raise exception 'an account with no birth month made a lesson link';
+  exception when invalid_parameter_value then
+    get stacked diagnostics said = pg_exception_hint;
+    if said is distinct from 'lesson_birth_month' then
+      raise exception 'a teacher was not asked for a birth month (hint %, said %)', said, sqlerrm;
+    end if;
+  end;
+end $$;
+
+-- And the account that answered under 13, in 0138's words: one sentence,
+-- with no age in it for a second try to be aimed at.
+set local request.jwt.claims = '{"sub": "a9e00013-0000-0000-0000-000000000138", "email": "said.under.thirteen@smoke.test"}';
+
+do $$
+begin
+  begin
+    perform public.join_lesson_link(current_setting('smoke.adult_lesson_code'));
+    raise exception 'an account that answered under 13 joined a lesson link';
+  exception when invalid_parameter_value then
+    if sqlerrm <> 'Lesson links are not available on this account.' then
+      raise exception 'a refused account was told something else (%)', sqlerrm;
+    end if;
+  end;
+end $$;
+
+reset role;
+
+do $$
+begin
+  if (select count(*) from public.lesson_rooms r
+      join public.lesson_links l on l.id = r.link_id
+      where l.code = current_setting('smoke.adult_lesson_code')) <> 1 then
+    raise exception 'a lesson link for adults made a room for somebody it turned away';
   end if;
 end $$;
 
