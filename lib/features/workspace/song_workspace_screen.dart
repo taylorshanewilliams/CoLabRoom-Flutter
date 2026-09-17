@@ -1720,8 +1720,24 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
 /// own writing space is empty. On a phone it opened to "Tap anywhere and start
 /// writing…" -- a blank page for a song with words, right after Home said
 /// somebody "changed the words" (audit, 17 September 2026, Dakota).
+///
+/// "Empty" has to mean what the editor means by it. A line with nothing in it
+/// is stored as a zero-width space, because the row cannot be blank, and a
+/// cursor move used to be enough to save one — the bug #328 fixed. Dakota
+/// carried exactly one such line from 10 September, and South Of Midnight one
+/// from the audit itself. `isEmpty` said the song had words, the editor said
+/// it had none, and the line that would have pointed at the song sheet never
+/// drew: the one song it was written for was the one song it skipped. So a
+/// song whose every line is blank counts as unwritten, exactly as
+/// `ContinuousSongEditor` already treats it.
 bool wordsLiveOnTheSheet(SongProject project, SongAnalysisBundle? bundle) =>
-    project.contributions.isEmpty && (bundle?.reference?.hasTranscript ?? false);
+    !hasWrittenWords(project) && (bundle?.reference?.hasTranscript ?? false);
+
+/// Whether anything has actually been written in a song's own words.
+///
+/// Blank lines do not count, however they are stored.
+bool hasWrittenWords(SongProject project) => project.contributions
+    .any((line) => displayContributionBody(line.body).trim().isNotEmpty);
 
 /// One line above an empty writing space: where the words are.
 class _WordsOnTheSheet extends StatelessWidget {
