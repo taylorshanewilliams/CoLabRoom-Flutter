@@ -327,18 +327,18 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
             children: <Widget>[
               ListTile(
                 leading: const Icon(Icons.edit_rounded),
-                title: const Text('Rename Song'),
+                title: const Text('Rename song'),
                 onTap: () => Navigator.pop(context, 'rename'),
               ),
               ListTile(
                 leading: const Icon(Icons.image_outlined),
-                title: Text(project.coverImagePath == null ? 'Set Song Cover' : 'Replace Song Cover'),
+                title: Text(project.coverImagePath == null ? 'Set song cover' : 'Replace song cover'),
                 onTap: () => Navigator.pop(context, 'set_cover'),
               ),
               if (project.coverImagePath != null)
                 ListTile(
                   leading: const Icon(Icons.hide_image_outlined, color: AppColors.muted),
-                  title: const Text('Remove Song Cover'),
+                  title: const Text('Remove song cover'),
                   onTap: () => Navigator.pop(context, 'remove_cover'),
                 ),
               ListTile(
@@ -348,18 +348,18 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                       : Icons.check_circle_outline_rounded,
                 ),
                 title: Text(
-                  project.status == SongStatus.completed ? 'Mark In Progress' : 'Mark Complete',
+                  project.status == SongStatus.completed ? 'Mark in progress' : 'Mark complete',
                 ),
                 onTap: () => Navigator.pop(context, 'toggle_status'),
               ),
               ListTile(
                 leading: const Icon(Icons.check_box_outlined),
-                title: const Text('Select Multiple'),
+                title: const Text('Select several'),
                 onTap: () => Navigator.pop(context, 'select'),
               ),
               ListTile(
                 leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFF9AA9)),
-                title: const Text('Delete Song'),
+                title: const Text('Delete song'),
                 onTap: () => Navigator.pop(context, 'delete'),
               ),
             ],

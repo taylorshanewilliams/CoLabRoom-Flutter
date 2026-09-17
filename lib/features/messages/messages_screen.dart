@@ -327,7 +327,7 @@ class _ThreadRow extends StatelessWidget {
     final lastAt = thread.lastAt;
     final line = thread.lastBody == null
         ? (thread.kind == ThreadKind.room
-            ? '${thread.memberCount} in the room'
+            ? (thread.memberCount <= 1 ? 'Just you so far' : '${thread.memberCount} in the room')
             : 'Nothing said yet')
         : thread.lastAuthorId == controller.repository.currentUserId
             ? 'You: ${thread.lastBody}'

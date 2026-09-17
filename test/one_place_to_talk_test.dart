@@ -61,7 +61,7 @@ void main() {
 
       // A room nobody has spoken in sits under its own label.
       expect(find.text('YOUR ROOMS · NOTHING SAID YET'), findsOneWidget);
-      expect(find.text('1 in the room'), findsOneWidget);
+      expect(find.text('Just you so far'), findsOneWidget);
     });
 
     testWidgets('a room without a picture wears its initials, never an emoji',

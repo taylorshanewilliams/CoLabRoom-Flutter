@@ -198,13 +198,30 @@ class _ListenScreenState extends State<ListenScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // The way out is drawn whatever is on screen. It used to sit over the
+    // tracks only, so loading and "Nothing to listen to yet" -- every account
+    // while the Open Mic is empty -- had no way back but the system's (audit,
+    // 17 September 2026).
+    final close = Positioned(
+      top: 4,
+      left: 4,
+      child: IconButton(
+        key: const Key('listen_close'),
+        tooltip: 'Back',
+        onPressed: () => Navigator.of(context).maybePop(),
+        icon: const Icon(Icons.close_rounded, color: AppColors.muted),
+      ),
+    );
     return Scaffold(
       backgroundColor: AppColors.ink,
       body: SafeArea(
         child: _loading
-            ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
+            ? Stack(children: <Widget>[
+                const Center(child: CircularProgressIndicator(color: AppColors.gold)),
+                close,
+              ])
             : _tracks.isEmpty
-                ? _NothingUp(error: _error)
+                ? Stack(children: <Widget>[_NothingUp(error: _error), close])
                 : Stack(
                     children: <Widget>[
                       PageView.builder(
@@ -223,16 +240,7 @@ class _ListenScreenState extends State<ListenScreen> {
                           onReport: () => unawaited(_report(_tracks[i])),
                         ),
                       ),
-                      Positioned(
-                        top: 4,
-                        left: 4,
-                        child: IconButton(
-                          tooltip: 'Back',
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close_rounded,
-                              color: AppColors.muted),
-                        ),
-                      ),
+                      close,
                       // Where you are in the session, not in the song. It
                       // says the room has an end, which is the honest thing
                       // to say when there are eight songs in it.

@@ -9,6 +9,8 @@ import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/player_face.dart';
+import '../../app/routes.dart';
+import '../openmic/musician_profile_screen.dart';
 
 /// Who is actually in this room.
 ///
@@ -186,6 +188,18 @@ class _RoomMembersScreenState extends State<RoomMembersScreen> {
                 member: member,
                 isOwner: member.userId == room.accountId,
                 isMe: member.userId == me,
+                // Their page. A list of the people in a room that opened
+                // nothing left no way to see who somebody is, or to write to
+                // them (audit, 17 September 2026).
+                onOpen: member.userId == me
+                    ? null
+                    : () => unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+                          settings: RouteSettings(name: AppRoutes.musician(member.userId)),
+                          builder: (_) => MusicianProfileScreen(
+                            profileId: member.userId,
+                            repository: controller.repository,
+                          ),
+                        ))),
                 // Owners remove anybody but themselves; everybody else can
                 // only remove themselves, which is how leaving works.
                 onRemove: member.userId == room.accountId
@@ -227,12 +241,14 @@ class _MemberRow extends StatelessWidget {
     required this.isOwner,
     required this.isMe,
     required this.onRemove,
+    this.onOpen,
   });
 
   final RoomMember member;
   final bool isOwner;
   final bool isMe;
   final VoidCallback? onRemove;
+  final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -245,7 +261,10 @@ class _MemberRow extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           side: const BorderSide(color: AppColors.line),
         ),
-        child: Padding(
+        child: InkWell(
+          key: Key('member_${member.userId}'),
+          onTap: onOpen,
+          child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
           child: Row(
             children: <Widget>[
@@ -298,6 +317,7 @@ class _MemberRow extends StatelessWidget {
                   ),
                 ),
             ],
+          ),
           ),
         ),
       ),

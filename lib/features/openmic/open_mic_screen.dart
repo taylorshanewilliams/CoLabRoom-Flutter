@@ -992,7 +992,7 @@ class _MusicianCard extends StatelessWidget {
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          'Both into ${musician.sharedSounds.join(', ')}',
+                          '${isYou ? 'Into' : 'Both into'} ${musician.sharedSounds.join(', ')}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
