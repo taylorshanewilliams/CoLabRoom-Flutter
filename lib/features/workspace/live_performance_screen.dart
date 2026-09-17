@@ -52,6 +52,10 @@ enum LiveLyricSource { workspace, songSheet }
 /// of it ahead.
 const double kSingingLineFraction = 0.38;
 
+/// How often Perform looks at itself: where the song is, and — below — what
+/// is being practised.
+const Duration kPerformTick = Duration(milliseconds: 50);
+
 /// The scroll offset that puts the line at [lineOffset] on the anchor.
 ///
 /// Clamped, because the first lines of a song cannot be pushed below the top
@@ -76,14 +80,20 @@ class LivePerformanceScreen extends StatefulWidget {
     this.together,
     this.me = '',
     this.keepPractice,
+    this.ownMarkId,
     this.practise,
     super.key,
   });
 
-  /// Where what a followed session leaves behind goes: the part worked on,
-  /// the speed, and the leader's note. Null keeps nothing, which is every
-  /// screen that is not the song itself.
+  /// Where what a session leaves behind goes: the part worked on, the speed,
+  /// and the leader's note when there was a leader. Null keeps nothing, which
+  /// is a preview or a test that is not asking for it.
   final void Function(PracticeMark mark)? keepPractice;
+
+  /// The mark this person's own practice on this song is already kept under,
+  /// so tonight's session updates it instead of adding another. Null starts a
+  /// new one. See ownPracticeMarkId in practice_marks.dart.
+  final String? ownMarkId;
 
   /// Opened from a practice mark on Home: already on this part, at this
   /// speed, waiting for Start.
@@ -199,6 +209,51 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     return sent + (DateTime.now().millisecondsSinceEpoch - local);
   }
 
+  /// What this person has practised on their own, and the mark it will be
+  /// kept as.
+  ///
+  /// A lesson is not the only practice there is. Somebody who opens Perform
+  /// on a Tuesday with nobody waiting on them, puts Chorus 2 on repeat and
+  /// slows it to three quarters has practised, and until now the app kept
+  /// nothing of it: only a followed session left a mark (Every Musician,
+  /// Same Song, 17 September 2026). The rules are the same ones — a part on
+  /// repeat or a slower speed, long enough to be more than passing through —
+  /// and what is kept is kept on the way out, with this person as their own
+  /// leader. Named up front, like the lesson's, so one visit is one mark --
+  /// and named with [LivePerformanceScreen.ownMarkId] when this song already
+  /// has one of these, so a habit is one mark kept up to date rather than a
+  /// fortnight of rows.
+  final PracticeLog _own = PracticeLog();
+  late final String _ownMarkId = widget.ownMarkId ?? newPracticeMarkId();
+
+  /// The clock the solo log is kept on: one tick is one [kPerformTick].
+  ///
+  /// Counted rather than read off the wall, because under load the ticker is
+  /// the honest measure of how much of this screen actually ran, and because
+  /// nothing anywhere says how long anybody played for — this is a threshold
+  /// to cross, not a number to show. A test can drive it, which a stopwatch
+  /// on DateTime.now() could not.
+  int _ownAtMs = 0;
+
+  /// Credits the tick just past to whatever this phone was doing, when the
+  /// song was this phone's to move.
+  ///
+  /// Following, the song belongs to the leader and what the lesson leaves is
+  /// built from their own states in [_applyFollow]; leading or alone, it is
+  /// being moved here, so it is this person's own practice. [_followStateNow]
+  /// is exactly what this screen is doing this instant, which is what the log
+  /// reads.
+  void _logOwnPractice() {
+    // Nowhere to put it: a preview, or a test that did not ask.
+    if (widget.keepPractice == null) return;
+    _ownAtMs += kPerformTick.inMilliseconds;
+    if (widget.together?.following ?? false) {
+      _own.pause(_ownAtMs);
+      return;
+    }
+    _own.heard(_followStateNow(), _ownAtMs);
+  }
+
   /// Practising: one part on repeat, and the recording slowed.
   ///
   /// Both belong to synced mode, the one where the song is the clock. A loop
@@ -300,7 +355,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       final durationMs = track?.durationMs ?? lastLineEnd;
       if (durationMs > 0) _songDuration = Duration(milliseconds: durationMs);
     }
-    _ticker = Timer.periodic(const Duration(milliseconds: 50), (_) => _tick());
+    _ticker = Timer.periodic(kPerformTick, (_) => _tick());
     _armControlHide();
     final reference = widget.analysis?.reference;
     if (reference != null) unawaited(_prepareAudio(reference));
@@ -535,6 +590,27 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     );
   }
 
+  /// What this person has practised on their own so far, as a mark of their
+  /// own, or null when nothing was put on repeat or slowed for long enough.
+  PracticeMark? _ownMark() {
+    // Signed out there is nobody to keep it for, and a mark whose leader is
+    // not known could not be told from a lesson's on the card.
+    if (widget.keepPractice == null || widget.me.isEmpty) return null;
+    final parts = _own.parts(_partLabel);
+    // No note: practising alone, nobody said anything.
+    if (!worthKeeping(parts, null)) return null;
+    return PracticeMark(
+      id: _ownMarkId,
+      projectId: widget.project.id,
+      ledBy: widget.me,
+      // Never read back — the card says "Your practice" rather than a name —
+      // but the mark is not allowed a blank one.
+      ledByName: 'You',
+      parts: parts,
+      updatedAt: DateTime.now(),
+    );
+  }
+
   /// A part named the way its chip is.
   String _partLabel(int? startMs, int? endMs) {
     if (startMs == null || endMs == null) return 'The whole song';
@@ -666,28 +742,32 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
 
   @override
   void dispose() {
+    // Closing the song keeps what was worked on, quietly: the ending the
+    // session sends after this screen is gone has nobody left to hear it, and
+    // a solo session has nothing to announce the end of at all. Both marks
+    // are built now and handed over after the frame -- Home listens to where
+    // they go.
     final together = widget.together;
+    PracticeMark? closing;
     if (together != null) {
       together.removeListener(_togetherChanged);
-      // Closing the song while following keeps what was worked on, quietly:
-      // the ending the session sends after this screen is gone has nobody
-      // left to hear it. Built now, handed over after the frame with the
-      // rest -- Home listens to where it goes.
-      PracticeMark? closing;
       if (together.following) {
         _practice.pause(_practiceNow());
         closing = _practiceMark();
       }
-      final keep = widget.keepPractice;
-      // After this frame: the song underneath listens to the session, and
-      // telling it anything while this screen is being taken down would ask
-      // a locked tree to rebuild.
-      scheduleMicrotask(() {
-        if (closing != null) keep?.call(closing);
-        together.stopLeading();
-        together.unfollow();
-      });
     }
+    _own.pause(_ownAtMs);
+    final ownClosing = _ownMark();
+    final keep = widget.keepPractice;
+    // After this frame: the song underneath listens to the session, and
+    // telling it anything while this screen is being taken down would ask
+    // a locked tree to rebuild.
+    scheduleMicrotask(() {
+      if (closing != null) keep?.call(closing);
+      if (ownClosing != null) keep?.call(ownClosing);
+      together?.stopLeading();
+      together?.unfollow();
+    });
     unawaited(_followSub?.cancel());
     unawaited(_noteSub?.cancel());
     unawaited(_endSub?.cancel());
@@ -787,6 +867,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     // Leading: offered every tick, sent only when it says something new.
     final together = widget.together;
     if (together != null && together.leading) together.publish(_followStateNow());
+    // Before the returns below: a tick where nothing is playing is what ends
+    // a stretch of practice, and it has to be seen for that.
+    _logOwnPractice();
     if (!_playing || !_scroll.hasClients) {
       _lastTick = null;
       return;

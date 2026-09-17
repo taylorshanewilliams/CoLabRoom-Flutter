@@ -4,12 +4,14 @@ import '../../domain/practice_mark.dart';
 import '../../services/follow_me.dart';
 import 'practice_rules.dart';
 
-/// Building what a followed session leaves behind (see domain/practice_mark).
+/// Building what a practice session leaves behind (see domain/practice_mark).
 ///
 /// The lesson is one hour of a student's week and the practising is the
 /// other hundred and sixty-seven. So when following ends, the parts that
 /// were worked on and the speed they were worked at are kept, and Home
-/// offers them back with one verb: Practise.
+/// offers them back with one verb: Practise. A session with nobody leading
+/// leaves the same thing, with the person as their own leader — most of that
+/// hundred and sixty-seven has nobody else in it.
 
 /// How long a part has to have played before it counts as worked on.
 ///
@@ -44,6 +46,50 @@ String? practiceWorked(PracticeMark mark) {
 /// something said.
 bool worthKeeping(List<PracticePart> parts, String? note) =>
     parts.isNotEmpty || (note ?? '').trim().isNotEmpty;
+
+/// Whether a mark is this person's own practice rather than a lesson they
+/// followed.
+///
+/// A lesson is not the only practice there is: somebody who puts Chorus 2 on
+/// repeat on a Tuesday with nobody waiting on them has practised too, and a
+/// solo session keeps itself with the person as its own leader (Every
+/// Musician, Same Song, 17 September 2026). So the two tell themselves apart
+/// after the round trip through the server, without a column that says which
+/// is which.
+bool isYourOwnPractice(PracticeMark mark, {required String me}) =>
+    me.isNotEmpty && mark.ledBy == me;
+
+/// What the card says above the song's name.
+///
+/// Your own practice says so rather than saying your own name back to you.
+/// Neither wording says when, and there is nothing here to say it with: a
+/// card that read "three days ago" would turn a record of practising into a
+/// record of not practising.
+String practiceFrom(PracticeMark mark, {required String me}) =>
+    isYourOwnPractice(mark, me: me) ? 'Your practice' : 'From ${mark.ledByName}';
+
+/// The name a solo session on this song keeps its mark under: the one this
+/// person's own practice on it already has, or a new one.
+///
+/// 0128 names marks on the phone so that saving again updates the same row
+/// rather than adding another. A followed lesson is a rare enough thing that
+/// a row a session was never a problem; practising alone is meant to be a
+/// Tuesday habit, and a row a visit would fill a person's fortnight with one
+/// song and push everything else — including a teacher's note — off Home,
+/// which reads back only the twenty newest. So your own practice on a song is
+/// one mark, brought up to date (Every Musician, Same Song, 17 September
+/// 2026). A lesson's mark is never the one returned: it belongs to whoever
+/// led it.
+String ownPracticeMarkId(
+  Iterable<PracticeMark> kept, {
+  required String projectId,
+  required String me,
+}) {
+  for (final mark in kept) {
+    if (mark.projectId == projectId && isYourOwnPractice(mark, me: me)) return mark.id;
+  }
+  return newPracticeMarkId();
+}
 
 /// Adds up, while following, how long the song played in each part at each
 /// speed.

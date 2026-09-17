@@ -197,13 +197,30 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
 
   List<PracticeMark> _practiceMarks = const <PracticeMark>[];
 
-  /// What followed sessions left to practise, newest first. See
+  /// What a lesson, or this person's own practice, left to practise, newest
+  /// first. A mark led by this person is their own work on the song rather
+  /// than somebody else's — see isYourOwnPractice in
   /// features/workspace/practice_marks.dart.
   List<PracticeMark> get practiceMarks => List<PracticeMark>.unmodifiable(_practiceMarks);
 
-  /// Keeps what a followed session worked on, and shows it on Home at once
-  /// rather than at the next reload. A save that fails is reported, and the
-  /// card stays for this session: the student still has it tonight.
+  /// Who is looking, or empty when there is nobody to ask.
+  ///
+  /// The repository throws rather than answering once a session has gone, and
+  /// none of the screens that want to know who you are should fall over
+  /// because of it: not knowing simply means a mark cannot be told from a
+  /// lesson's, so none is kept.
+  String get meOrNobody {
+    try {
+      return repository.currentUserId;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Keeps what a session worked on — a lesson that was followed, or this
+  /// person's own practice — and shows it on Home at once rather than at the
+  /// next reload. A save that fails is reported, and the card stays for this
+  /// session: the student still has it tonight.
   Future<void> keepPracticeMark(PracticeMark mark) async {
     final previous = _practiceMarks.where((kept) => kept.id == mark.id).firstOrNull;
     final shown = PracticeMark(

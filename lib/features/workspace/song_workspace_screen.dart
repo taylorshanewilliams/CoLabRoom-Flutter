@@ -37,6 +37,7 @@ import 'cowork_panel.dart';
 import 'follow_me_bar.dart';
 import 'live_performance_screen.dart';
 import 'lyric_import_flow.dart';
+import 'practice_marks.dart';
 import '../layers/song_layers_screen.dart';
 import 'song_analysis_screen.dart';
 import 'tell_about_song_sheet.dart';
@@ -842,6 +843,9 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     // Held now rather than looked up when a mark arrives: the last one can
     // arrive while this screen is being closed underneath Perform.
     final controller = BetaScope.of(context, listen: false);
+    // The same answer the card compares a mark's leader against, so your own
+    // practice on a song is recognised as yours when it comes back.
+    final me = controller.meOrNobody;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         settings: RouteSettings(name: AppRoutes.songLive(project.id)),
@@ -849,7 +853,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           project: project,
           analysis: bundle,
           together: _together,
-          me: currentUserIdOrNull() ?? '',
+          me: me,
+          ownMarkId: ownPracticeMarkId(controller.practiceMarks, projectId: project.id, me: me),
           keepPractice: (mark) => unawaited(controller.keepPracticeMark(mark)),
         ),
         fullscreenDialog: true,
