@@ -12,6 +12,7 @@ import '../../services/song_search.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/bloom_tap.dart';
 import '../../widgets/music_tiles.dart';
+import '../calls/room_call_bar.dart';
 import '../messages/room_thread_sheet.dart';
 import '../openmic/report_sheet.dart';
 import '../songs/new_song_flow.dart';
@@ -777,6 +778,20 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+          // The room's call (0134): a button when it is quiet, who is in it
+          // when it is not. Above the songs, because a lesson starts with the
+          // call and then opens the song.
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 6),
+            sliver: SliverToBoxAdapter(
+              child: RoomCallBar(
+                roomId: room.id,
+                roomName: room.name,
+                repository: controller.repository,
+                me: controller.repository.currentUserId,
               ),
             ),
           ),

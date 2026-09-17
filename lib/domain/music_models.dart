@@ -1318,6 +1318,9 @@ enum NotificationType {
   connectionRequest,
   /// Somebody you asked added you back, migration 0132. They are the actor.
   connectionAccepted,
+  /// Somebody started a call in a room you are in, migration 0134. The room
+  /// rides on the notification, so the card opens it -- where Join is.
+  callStarted,
   /// A type this build has not met. Shown with the title and body the
   /// server wrote, opens nothing, and — the point — never refuses to load
   /// the app. Every type is unknown to some build in the field.
@@ -1340,6 +1343,7 @@ NotificationType notificationTypeFromSql(String value) => switch (value) {
       'want_matched' => NotificationType.wantMatched,
       'connection_request' => NotificationType.connectionRequest,
       'connection_accepted' => NotificationType.connectionAccepted,
+      'call_started' => NotificationType.callStarted,
       _ => NotificationType.unfamiliar,
     };
 

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../domain/activity.dart';
+import '../domain/calls.dart';
 import '../domain/lesson_link.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
@@ -627,6 +628,26 @@ abstract interface class MusicRepository {
   /// Whose meeting code this is, typed however it was typed. Adds nobody:
   /// adding is [requestConnection].
   Future<MetPerson> personWithMeetingCode(String code);
+
+  /// Where you stand for calls (0134): never asked, adult, or under 18.
+  Future<CallStanding> myCallStanding();
+
+  /// Your birth month, said once. Refused under 13, and refused a second
+  /// time: correcting it goes through a person.
+  Future<CallStanding> setMyBirthMonth({required int year, required int month});
+
+  /// A ticket into this room's call. Throws [CallRefused] with the reason
+  /// said to the person, or with [CallRefused.birthMonthNeeded].
+  Future<CallTicket> callTicket({required String roomId, required String device});
+
+  /// I am in this room's call. Every twenty seconds while in it; the first
+  /// in a quiet room tells the rest of the room.
+  Future<void> hearMeInCall({required String roomId, required String device});
+
+  Future<void> leaveCall({required String roomId, required String device});
+
+  /// Who is in this room's call right now.
+  Future<List<InCallPerson>> roomCall(String roomId);
 
   /// Keeps what a followed session worked on. Keeping a mark with the same
   /// id again updates it; a note already kept is not lost to a later save
