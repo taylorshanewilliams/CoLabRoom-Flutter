@@ -636,11 +636,13 @@ abstract interface class MusicRepository {
   /// adding is [requestConnection].
   Future<MetPerson> personWithMeetingCode(String code);
 
-  /// Where you stand for calls (0134): never asked, adult, or under 18.
+  /// Where you stand for calls (0134): never asked, adult, under 18, or
+  /// refused after an under-13 answer (0138).
   Future<CallStanding> myCallStanding();
 
-  /// Your birth month, said once. Refused under 13, and refused a second
-  /// time: correcting it goes through a person.
+  /// Your birth month, said once. Under 13 is not an error: it answers
+  /// [CallStanding.refused] and is remembered without the month (0138). Any
+  /// later answer is refused: correcting one goes through a person.
   Future<CallStanding> setMyBirthMonth({required int year, required int month});
 
   /// A ticket into this room's call. Throws [CallRefused] with the reason
