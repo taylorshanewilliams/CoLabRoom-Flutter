@@ -12,7 +12,8 @@ import 'call_screen.dart';
 /// Into a room's call, from wherever the button is.
 ///
 /// Birth month first if it has never been asked; a clear no, with the reason
-/// and what is coming, for somebody under 18; otherwise the call.
+/// and what is coming, for somebody under 18; one plain sentence, and never
+/// the question again, after an under-13 answer (0138); otherwise the call.
 Future<void> openRoomCall(
   BuildContext context, {
   required String roomId,
@@ -34,6 +35,26 @@ Future<void> openRoomCall(
   if (standing == CallStanding.unknown) {
     standing = await askBirthMonth(context, repository) ?? CallStanding.unknown;
     if (standing == CallStanding.unknown || !context.mounted) return;
+  }
+  if (standing == CallStanding.refused) {
+    // The same sentence straight after the answer and on every tap after it.
+    // No picker and no age in the words, so there is nothing to try again
+    // (audit, 17 September 2026; the FTC's COPPA FAQ, D.7 and H.3).
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.raised,
+        content: const Text(callsClosedOnThisAccount, key: Key('call_closed')),
+        actions: <Widget>[
+          FilledButton(
+            key: const Key('call_closed_ok'),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    return;
   }
   if (standing == CallStanding.minor) {
     await showDialog<void>(

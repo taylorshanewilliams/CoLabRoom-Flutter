@@ -185,16 +185,8 @@ void main() {
           reason: 'the phone says it is in the call, which is how the room shows Join');
     });
 
-    testWidgets('under 13 is refused and not kept', (tester) async {
-      final (repository, _) = await room(tester);
-      await tester.tap(find.byKey(const Key('room_call_start')));
-      await tester.pumpAndSettle();
-      await chooseBirth(tester, year: DateTime.now().year - 6, month: 1);
-
-      expect(find.text('CoLabRoom is for people 13 and over.'), findsOneWidget);
-      expect(await repository.myCallStanding(), CallStanding.unknown);
-      expect(find.byType(CallScreen), findsNothing);
-    });
+    // Under 13 used to be an error beside a picker still open for an older
+    // year. What happens now is in an_under_13_answer_stays_test.dart (0138).
 
     testWidgets('a teenager is told why, and what is coming, instead of a call', (tester) async {
       await room(tester, standing: CallStanding.minor);

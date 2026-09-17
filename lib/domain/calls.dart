@@ -13,13 +13,24 @@ enum CallStanding {
 
   /// Under 18. Calls come with the guardian stage.
   minor,
+
+  /// Answered under 13 (0138). Calls stay closed and the question is never
+  /// asked again on this account, because an answer that can be changed is
+  /// an invitation to pick an older year (audit, 17 September 2026).
+  refused,
 }
 
 CallStanding callStandingFrom(String? raw) => switch (raw) {
       'adult' => CallStanding.adult,
       'minor' => CallStanding.minor,
+      'refused' => CallStanding.refused,
       _ => CallStanding.unknown,
     };
+
+/// All that is said to somebody calls are closed to, here and by the server
+/// (0138). No age in it: the FTC's COPPA FAQ (D.7, H.3) warns against
+/// telling children the age that would have let them in.
+const String callsClosedOnThisAccount = 'Calls are not available on this account.';
 
 /// A ticket into one room's call, from call-token.
 class CallTicket {

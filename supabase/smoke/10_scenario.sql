@@ -4236,19 +4236,9 @@ begin
   end;
 end $$;
 
-set local request.jwt.claims = '{"sub": "22222222-2222-2222-2222-222222222222"}';
-
-do $$
-begin
-  begin
-    perform public.set_my_birth_month(extract(year from current_date)::int - 5, 1);
-    raise exception 'an under-13 birth month was accepted';
-  exception when invalid_parameter_value then null;
-  end;
-  if public.my_call_standing() <> 'unknown' then
-    raise exception 'an under-13 birth month was kept';
-  end if;
-end $$;
+-- An under-13 answer is no longer an error, and is remembered: see "An age
+-- answer stays (0138)" below, which uses an account of its own so the
+-- bandmate here stays somebody never asked.
 
 set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
 select public.set_my_birth_month(1985, 3) as joiner_two_standing \gset
@@ -4393,5 +4383,116 @@ begin
   delete from public.connections
   where requester_id = 'c0ec7000-0000-0000-0000-000000000137';
 end $$;
+
+-- ---------------------------------------------------------------------
+-- An age answer stays (0138).
+--
+-- The audit of 17 September 2026 (CO1): an under-13 answer left the picker
+-- open for an older year. Now the answer is remembered without the month, a
+-- second answer as an adult is refused, the standing reads 'refused', calls
+-- stay closed, and a call in their room does not tell them. In a room of its
+-- own with the writer and Joiner Two, so the call below is the room's first.
+-- ---------------------------------------------------------------------
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('a9e00013-0000-0000-0000-000000000138', 'said.under.thirteen@smoke.test',
+   '{"display_name": "Said Under Thirteen"}');
+
+insert into public.rooms (id, account_id, name)
+values ('a9e00013-0000-0000-0000-00000000013a', '11111111-1111-1111-1111-111111111111', 'The Age Room');
+
+insert into public.room_members (room_id, user_id, display_name, role) values
+  ('a9e00013-0000-0000-0000-00000000013a', '11111111-1111-1111-1111-111111111111', 'The Writer', 'owner'),
+  ('a9e00013-0000-0000-0000-00000000013a', '99999999-9999-9999-9999-999999999999', 'Joiner Two', 'editor'),
+  ('a9e00013-0000-0000-0000-00000000013a', 'a9e00013-0000-0000-0000-000000000138', 'Said Under Thirteen', 'editor');
+
+set local request.jwt.claims = '{"sub": "a9e00013-0000-0000-0000-000000000138", "email": "said.under.thirteen@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  if public.my_call_standing() is distinct from 'unknown' then
+    raise exception 'somebody never asked has a call standing (%)', public.my_call_standing();
+  end if;
+  if public.set_my_birth_month(extract(year from current_date)::int - 9, 1) is distinct from 'refused' then
+    raise exception 'an under-13 answer was not refused';
+  end if;
+  if public.my_call_standing() is distinct from 'refused' then
+    raise exception 'an under-13 answer was not remembered (%)', public.my_call_standing();
+  end if;
+
+  -- The second try the audit found: an older year.
+  begin
+    perform public.set_my_birth_month(1990, 5);
+    raise exception 'an adult answer was taken after an under-13 one';
+  exception when invalid_parameter_value then null;
+  end;
+  if public.my_call_standing() is distinct from 'refused' then
+    raise exception 'a second answer changed a refused standing (%)', public.my_call_standing();
+  end if;
+
+  if public.may_join_call('a9e00013-0000-0000-0000-00000000013a')
+     is distinct from 'Calls are not available on this account.' then
+    raise exception 'a refused account was let in, or asked for a birth month again (%)',
+      public.may_join_call('a9e00013-0000-0000-0000-00000000013a');
+  end if;
+  begin
+    perform public.hear_me_in_call('a9e00013-0000-0000-0000-00000000013a', 'phone-u13');
+    raise exception 'a refused account was put in a call';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- Refused outright or read as empty: either way the app cannot read it.
+  begin
+    if exists (select 1 from private.age_refusals) then
+      raise exception 'the record of an under-13 answer is readable from the app';
+    end if;
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
+do $$
+begin
+  if exists (select 1 from private.birth_months
+             where person_id = 'a9e00013-0000-0000-0000-000000000138') then
+    raise exception 'an under-13 birth month was kept';
+  end if;
+  if not exists (select 1 from private.age_refusals
+                 where person_id = 'a9e00013-0000-0000-0000-000000000138') then
+    raise exception 'an under-13 answer left nothing to remember it by';
+  end if;
+  -- Nowhere to keep a month even by mistake.
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'private' and table_name = 'age_refusals'
+               and column_name not in ('person_id', 'refused_at')) then
+    raise exception 'the record of an under-13 answer has room for more than when';
+  end if;
+end $$;
+
+-- The writer calls the room. Joiner Two is told; the refused account is not.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+select public.hear_me_in_call('a9e00013-0000-0000-0000-00000000013a', 'phone-w-age');
+select public.leave_call('a9e00013-0000-0000-0000-00000000013a', 'phone-w-age');
+
+reset role;
+do $$
+begin
+  if not exists (select 1 from public.notifications
+                 where user_id = '99999999-9999-9999-9999-999999999999'
+                   and type = 'call_started'
+                   and room_id = 'a9e00013-0000-0000-0000-00000000013a') then
+    raise exception 'an adult in the room was not told a call started';
+  end if;
+  if exists (select 1 from public.notifications
+             where user_id = 'a9e00013-0000-0000-0000-000000000138'
+               and type = 'call_started') then
+    raise exception 'somebody calls are closed to was told about a call';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;

@@ -1948,6 +1948,10 @@ class InMemoryMusicRepository implements MusicRepository {
 
   @override
   Future<CallStanding> setMyBirthMonth({required int year, required int month}) async {
+    // As 0138: after an under-13 answer there is no second one.
+    if (_callStanding == CallStanding.refused) {
+      throw const NameConflict(callsClosedOnThisAccount);
+    }
     if (_callStanding != CallStanding.unknown) {
       throw const NameConflict('Your birth month is already saved. To correct it, send feedback from Account.');
     }
@@ -1955,7 +1959,7 @@ class InMemoryMusicRepository implements MusicRepository {
     // The last day of the birth month, the careful side, as 0134 does.
     final monthEnd = DateTime(year, month + 1, 0);
     bool reached(int years) => !DateTime(monthEnd.year + years, monthEnd.month, monthEnd.day).isAfter(now);
-    if (!reached(13)) throw const NameConflict('CoLabRoom is for people 13 and over.');
+    if (!reached(13)) return _callStanding = CallStanding.refused;
     _callStanding = reached(18) ? CallStanding.adult : CallStanding.minor;
     return _callStanding;
   }
@@ -1969,6 +1973,7 @@ class InMemoryMusicRepository implements MusicRepository {
       CallStanding.unknown => throw const CallRefused('Your birth month first.', birthMonthNeeded: true),
       CallStanding.minor => throw const CallRefused(
           'Calls are for people 18 and over for now. Calls with a parent or guardian are coming.'),
+      CallStanding.refused => throw const CallRefused(callsClosedOnThisAccount),
       CallStanding.adult => CallTicket(
           url: 'wss://preview.invalid',
           token: 'preview',

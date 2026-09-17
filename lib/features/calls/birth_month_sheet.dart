@@ -14,7 +14,11 @@ import '../../services/user_facing_error.dart';
 /// turns 18 without asking again. The words say why it is asked and who sees
 /// it, because a birth date asked for with no reason reads as data collection.
 ///
-/// Returns the standing it saved, or null if the person closed it.
+/// Returns the standing it saved, or null if the person closed it. An
+/// under-13 answer closes it with [CallStanding.refused] rather than an error
+/// beside a picker still open for an older year (audit, 17 September 2026):
+/// the caller says so, and the server never lets the question be asked again
+/// on that account (0138).
 Future<CallStanding?> askBirthMonth(BuildContext context, MusicRepository repository) {
   return showModalBottomSheet<CallStanding>(
     context: context,
@@ -58,6 +62,14 @@ class _BirthMonthSheetState extends State<_BirthMonthSheet> {
       Navigator.of(context).pop(standing);
     } catch (error) {
       if (!mounted) return;
+      // Refused because this account already answered under 13, on another
+      // phone or on an app from before 0138: close rather than leave the
+      // picker open for a try that can never be taken.
+      if (isRefusal(error) && await _refusedAlready()) {
+        if (mounted) Navigator.of(context).pop(CallStanding.refused);
+        return;
+      }
+      if (!mounted) return;
       setState(() {
         _problem = isRefusal(error)
             ? describeForUser(error)
@@ -65,6 +77,15 @@ class _BirthMonthSheetState extends State<_BirthMonthSheet> {
       });
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<bool> _refusedAlready() async {
+    try {
+      return await widget.repository.myCallStanding() == CallStanding.refused;
+    } catch (_) {
+      // The refusal is still said in the sheet.
+      return false;
     }
   }
 

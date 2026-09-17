@@ -160,7 +160,11 @@ class _AccountScreenState extends State<AccountScreen> {
             'the room can show who is in it; it stops showing you within a minute '
             'of leaving. Before your first call you say the month and year you '
             'were born, once, because calls are for people 18 and over for now. '
-            'Nobody else sees it, and nothing is kept for anybody under 13.\n\n'
+            // "Nothing is kept for anybody under 13" stopped being true with
+            // 0138, which remembers that such an answer was given so it
+            // cannot be changed (audit, 17 September 2026).
+            'Nobody else sees it. For an answer under 13 the month is not kept, '
+            'only that it was given, and calls stay closed on that account.\n\n'
             'Your code\n\n'
             'Your code opens your name, your picture and what you play, so '
             'somebody you have met can ask to add you. Make a new code and the '
