@@ -33,6 +33,7 @@ import 'layer_console.dart';
 import 'moment_notes.dart';
 import 'song_level_store.dart';
 import 'layer_group.dart';
+import 'sending_a_take.dart';
 import 'take_lane.dart';
 import 'take_prompt.dart';
 import 'timeline_ruler.dart';
@@ -185,6 +186,16 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// updates do not fight the drag.
   bool _scrubbing = false;
   String? _referenceNote;
+
+  /// The teacher this song's takes go to, when this is a lesson room and you
+  /// are the student. Null in every band room, and null for the teacher.
+  ///
+  /// Every Musician, Same Song, 17 September 2026: a lesson room holds two
+  /// people (0129) and a take is private until it is shared (0057), so
+  /// sharing here is already a hand-in to one person. All that was missing
+  /// was saying so.
+  String? _sendTo;
+
   final Set<TakeGroup> _collapsed = <TakeGroup>{};
   int _offsetMs = 0;
   String? _performer;
@@ -228,7 +239,34 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       if (mounted) setState(() => _span = duration);
     });
     unawaited(_loadSongLevel());
+    unawaited(_loadWhoHearsIt());
     unawaited(_load());
+  }
+
+  /// Works out whether sharing here means telling a room or handing work to
+  /// one teacher.
+  ///
+  /// Its own load rather than part of [_load], and never awaited by it: the
+  /// takes must not wait on this, and a lesson room that cannot be checked
+  /// simply says "Share", which is the band wording and is never wrong —
+  /// only less specific.
+  Future<void> _loadWhoHearsIt() async {
+    final controller = BetaScope.maybeOf(context, listen: false);
+    final repository = controller?.repository;
+    if (controller == null || repository == null) return;
+    try {
+      final lessonRoom = await repository.isLessonRoom(widget.roomId);
+      if (!mounted) return;
+      final teacher = teacherToSendTo(
+        lessonRoom: lessonRoom,
+        room: controller.roomById(widget.roomId),
+        me: _me,
+      );
+      if (teacher != _sendTo) setState(() => _sendTo = teacher);
+    } catch (_) {
+      // Silent on purpose. Nothing here is worth a sentence on the takes
+      // screen: the button keeps the wording it already had.
+    }
   }
 
   Future<void> _loadSongLevel() async {
@@ -1930,6 +1968,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       onShare: layer != null && mine && !layer.isShared
           ? () => unawaited(_share(layer))
           : null,
+      shareLabel: shareLabelFor(_sendTo),
       onAdjust: layer != null
           ? (mine ? () => unawaited(_showLevels(layer, take)) : null)
           // The song itself. Not a take and not anybody's to re-balance for
@@ -2101,36 +2140,14 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     }
   }
 
-  /// Lets the room hear a take that was until now only yours.
+  /// Lets the room hear a take that was until now only yours — or, in a
+  /// lesson room, sends it to the one person who is there.
   ///
-  /// Confirmed, briefly, because it is the one action on this screen that
-  /// other people find out about. Everything else here — recording again,
-  /// muting, adjusting, deleting — happens in private, and an action that
-  /// crosses that line should ask once rather than surprise somebody who
-  /// mis-tapped while scrolling.
+  /// The asking itself lives in sending_a_take.dart, so both wordings can be
+  /// read in a test.
   Future<void> _share(SharedLayer layer) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.raised,
-        title: const Text('Let the room hear this?'),
-        content: const Text(
-          'Everybody in the room gets told, and it plays for them from now '
-          'on. You can take it back afterwards.',
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Not yet'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Share it'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
+    final confirmed = await confirmSharing(context, teacher: _sendTo);
+    if (!confirmed || !mounted) return;
 
     setState(() => _busy = true);
     try {

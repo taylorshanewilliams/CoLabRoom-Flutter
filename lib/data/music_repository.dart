@@ -646,6 +646,19 @@ abstract interface class MusicRepository {
   /// time and the same room every time after. Returns the room's id.
   Future<String> joinLessonLink(String code);
 
+  /// Whether this room was made by opening a teacher's lesson link (0129) --
+  /// the teacher and one student, and nobody else.
+  ///
+  /// Every Musician, Same Song, 17 September 2026: a hand-in already works by
+  /// construction, because a take is private until it is shared and sharing
+  /// in a two-person room tells exactly one person. All that is missing is
+  /// the words, and this is the question those words hang on.
+  ///
+  /// False for every band room, and false for somebody who is not in the
+  /// lesson: `lesson_rooms` shows a row only to the student it belongs to
+  /// and to the teacher whose link made it.
+  Future<bool> isLessonRoom(String roomId);
+
   /// Your code for meeting in person (0130), made the first time you ask.
   Future<String> myMeetingCode();
 

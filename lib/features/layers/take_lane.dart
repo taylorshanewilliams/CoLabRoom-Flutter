@@ -36,6 +36,7 @@ class TakeLane extends StatelessWidget {
     this.onDelete,
     this.onAdjust,
     this.onShare,
+    this.shareLabel = 'Share',
     this.subtitle,
     this.noteMarks = const <double>[],
     this.focusedMark,
@@ -53,6 +54,11 @@ class TakeLane extends StatelessWidget {
   /// button on it is one nobody else can hear yet, and a lane without one has
   /// either been shared or belongs to somebody else.
   final VoidCallback? onShare;
+
+  /// What that button says. "Share" in a band room, and "Send to Ms. Rivera"
+  /// in a lesson room, where sharing reaches exactly one person — see
+  /// sending_a_take.dart, and Every Musician, Same Song, 17 September 2026.
+  final String shareLabel;
 
   final List<double> wave;
 
@@ -209,27 +215,6 @@ class TakeLane extends StatelessWidget {
                         ),
                       ),
                     ),
-                    // Said in the lane rather than only in a menu. Somebody
-                    // deciding whether to record again needs to know at a
-                    // glance that nobody has heard the last one — the whole
-                    // value of a private take is knowing it is private.
-                    if (onShare != null)
-                      TextButton(
-                        onPressed: onShare,
-                        style: TextButton.styleFrom(
-                          foregroundColor: AppColors.cyan,
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          minimumSize: const Size(0, 26),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: const Text(
-                          'Share',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
                   ],
                 ),
               ],
@@ -237,22 +222,82 @@ class TakeLane extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: Semantics(
-              label: _whenItPlays,
-              image: true,
-              child: CustomPaint(
-                size: Size.infinite,
-                painter: _WavePainter(
-                  wave: wave,
-                  tint: live ? tint : AppColors.line,
-                  played: playedFraction,
-                  starts: startsFraction.clamp(0.0, 0.98),
-                  spans: spansFraction.clamp(0.02, 1.0),
-                  dim: live ? 0.28 : 0.5,
-                  notes: noteMarks,
-                  focused: focusedMark,
+            child: Stack(
+              children: <Widget>[
+                Positioned.fill(
+                  child: Semantics(
+                    label: _whenItPlays,
+                    image: true,
+                    child: CustomPaint(
+                      size: Size.infinite,
+                      painter: _WavePainter(
+                        wave: wave,
+                        tint: live ? tint : AppColors.line,
+                        played: playedFraction,
+                        starts: startsFraction.clamp(0.0, 0.98),
+                        spans: spansFraction.clamp(0.02, 1.0),
+                        dim: live ? 0.28 : 0.5,
+                        notes: noteMarks,
+                        focused: focusedMark,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+                // Said in the lane rather than only in a menu. Somebody
+                // deciding whether to record again needs to know at a
+                // glance that nobody has heard the last one — the whole
+                // value of a private take is knowing it is private.
+                //
+                // Over the waveform rather than in the column of buttons on
+                // the left, which is 104 pixels wide and was already 52
+                // pixels short of holding mute, levels, delete and a word:
+                // the lane overflowed on every take of your own that nobody
+                // had heard, which is every take at the moment it matters.
+                // A name makes that worse — "Send to Ms. Rivera" is four
+                // times the width of "Share" — and there is room here. The
+                // waveform keeps its full width, so every lane still draws
+                // against the same clock, which is the one thing about this
+                // view that must not bend.
+                if (onShare != null)
+                  Positioned.fill(
+                    // Filled rather than pinned to the right edge, so the
+                    // button is bounded by the lane it sits in. On the desk
+                    // panel this area can be narrow, and a name too long for
+                    // it should shorten rather than run off the end.
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 140),
+                        child: TextButton(
+                          onPressed: onShare,
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.cyan,
+                            backgroundColor: AppColors.raised,
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 10),
+                            minimumSize: const Size(0, 28),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              side: BorderSide(
+                                color: AppColors.cyan.withValues(alpha: 0.35),
+                              ),
+                            ),
+                          ),
+                          child: Text(
+                            shareLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
