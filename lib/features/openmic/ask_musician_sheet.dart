@@ -7,6 +7,7 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../domain/musical_roles.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/ask_terms_picker.dart';
 import '../../widgets/problem_report.dart';
 
 /// Asking one musician to play on one song.
@@ -64,6 +65,10 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
   /// they do, it stops moving — a control that keeps changing under somebody
   /// who has just set it is worse than one that never helps at all.
   bool _chosePart = false;
+
+  /// Playing, until somebody says otherwise. Every ask this app has ever made
+  /// is one of these (Every Musician, Same Song, 17 September 2026).
+  AskTerms _terms = AskTerms.play;
   String? _error;
   bool _sending = false;
 
@@ -161,6 +166,7 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
         profileId: widget.musician.id,
         part: _part,
         note: _note.text.trim(),
+        terms: _terms,
       );
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
@@ -280,6 +286,13 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
                         ),
                       ),
                   ],
+                ),
+                const SizedBox(height: 20),
+                const _Label('What answering means'),
+                const SizedBox(height: 10),
+                AskTermsPicker(
+                  terms: _terms,
+                  onChanged: (chosen) => setState(() => _terms = chosen),
                 ),
                 const SizedBox(height: 20),
                 const _Label('Anything to say', note: 'optional'),

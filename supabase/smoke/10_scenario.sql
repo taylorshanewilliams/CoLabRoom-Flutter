@@ -5259,6 +5259,200 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- An ask says whether answering means playing or writing (0145).
+--
+-- Every Musician, Same Song, 17 September 2026: co-writing fights are two
+-- honest memories of a session nobody wrote down. The terms are chosen when
+-- the ask is sent, they travel with the brief to the person deciding, and
+-- nothing afterwards can change them — which is the whole of their value.
+--
+-- In a room of its own, with a musician nobody else in this file has met, so
+-- the one-open-ask-per-person index and the blocks earlier in the file are
+-- both out of the way.
+-- ---------------------------------------------------------------------
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('7e1a5000-0000-0000-0000-000000000145', 'the.co.writer@smoke.test',
+   '{"display_name": "The Co-writer"}');
+
+insert into public.rooms (id, account_id, name)
+values ('7e1a5000-0000-0000-0000-00000000014a', :'writer', 'The Writing Room');
+
+insert into public.room_members (room_id, user_id, display_name, role) values
+  ('7e1a5000-0000-0000-0000-00000000014a', :'writer', 'The Writer', 'owner');
+
+insert into public.projects (id, room_id, account_id, title, created_by) values
+  ('7e1a5000-0000-0000-0000-00000000014b', '7e1a5000-0000-0000-0000-00000000014a',
+   :'writer', 'Two Memories', :'writer'),
+  ('7e1a5000-0000-0000-0000-00000000014c', '7e1a5000-0000-0000-0000-00000000014a',
+   :'writer', 'A Favour', :'writer');
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+-- The asks themselves, sent the way the app sends them: through the RPC, as
+-- the person asking. Only the function is called here. Reading the table back
+-- belongs below, because the shim (00_shim.sql) stands `authenticated` up as
+-- a bare role and grants it nothing on public tables, so a direct select here
+-- would fail for want of a grant long before any policy was consulted.
+do $$
+begin
+  perform public.ask_musician(
+    '7e1a5000-0000-0000-0000-00000000014b',
+    '7e1a5000-0000-0000-0000-000000000145',
+    'topline', 'Second verse is yours if you want it.', 'write');
+
+  -- Four arguments is what every client sent before this migration, and what
+  -- the room's own ask bar still means: playing.
+  perform public.ask_musician(
+    '7e1a5000-0000-0000-0000-00000000014c',
+    '7e1a5000-0000-0000-0000-000000000145',
+    'bass', '');
+
+  -- Two words, and no third one.
+  begin
+    perform public.ask_musician(
+      '7e1a5000-0000-0000-0000-00000000014b',
+      '7e1a5000-0000-0000-0000-000000000145',
+      'keys', '', 'produce');
+    raise exception 'a third kind of terms was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+-- What was written down, and what nothing can change.
+--
+-- As the table's owner rather than as the asker. The rule lives on the table,
+-- so the owner is the strongest case there is: if the role that owns
+-- project_asks cannot rewrite what an ask meant, nobody arriving through
+-- PostgREST can either. Running this as `authenticated` would look more like
+-- the asker and prove less -- the shim would refuse the update for a missing
+-- grant, and the block would pass without the trigger ever firing.
+reset role;
+do $$
+declare
+  written uuid;
+  played uuid;
+begin
+  select id into written from public.project_asks
+  where project_id = '7e1a5000-0000-0000-0000-00000000014b'
+    and part = 'topline';
+  select id into played from public.project_asks
+  where project_id = '7e1a5000-0000-0000-0000-00000000014c'
+    and part = 'bass';
+
+  if written is null or played is null then
+    raise exception 'the asks were not written';
+  end if;
+
+  if (select terms from public.project_asks where id = written)
+     is distinct from 'write' then
+    raise exception 'the ask did not carry the terms it was sent with (got %)',
+      (select terms from public.project_asks where id = written);
+  end if;
+
+  if (select terms from public.project_asks where id = played)
+     is distinct from 'play' then
+    raise exception 'an ask made without terms was not a playing ask (got %)',
+      (select terms from public.project_asks where id = played);
+  end if;
+
+  -- Settled when it was sent.
+  begin
+    update public.project_asks set terms = 'play' where id = written;
+    raise exception 'the terms of an ask were rewritten afterwards';
+  exception when insufficient_privilege then null;
+  end;
+
+  if (select terms from public.project_asks where id = written)
+     is distinct from 'write' then
+    raise exception 'the terms of an ask changed under an update that failed';
+  end if;
+
+  -- Closing one still works, which is the update this trigger sees most: it
+  -- names status and closed_at and never mentions terms.
+  update public.project_asks
+  set status = 'closed', closed_at = now()
+  where id = played;
+
+  if (select status from public.project_asks where id = played)
+     is distinct from 'closed' then
+    raise exception 'the terms trigger refused an ordinary close';
+  end if;
+end $$;
+
+-- The person asked reads it with the rest of the brief, before answering and
+-- before recording anything.
+reset role;
+set local request.jwt.claims = '{"sub": "7e1a5000-0000-0000-0000-000000000145"}';
+set local role authenticated;
+
+do $$
+declare
+  mine record;
+begin
+  select * into mine from public.asks_for_me()
+  where project_id = '7e1a5000-0000-0000-0000-00000000014b';
+
+  if mine.id is null then
+    raise exception 'the co-writer was shown nothing';
+  end if;
+  if mine.terms is distinct from 'write' then
+    raise exception 'the brief did not say what answering means (got %)',
+      mine.terms;
+  end if;
+
+  -- The person asked cannot change it either, and for two reasons at once:
+  -- no update policy admits them, and the trigger refuses the column to
+  -- everybody including the role that owns the table. The owner is checked
+  -- above and is the stronger case, so there is nothing left to run as them
+  -- here that the shim would not refuse for a missing grant first.
+end $$;
+
+reset role;
+do $$
+begin
+  if (select terms from public.project_asks
+        where project_id = '7e1a5000-0000-0000-0000-00000000014b'
+          and part = 'topline') is distinct from 'write' then
+    raise exception 'what answering meant did not survive being read';
+  end if;
+
+  -- What the ask says first. This row is the push on the phone and the line
+  -- drawn in the inbox's Activity list under the ask's own card, and it is
+  -- the one surface the sentence cannot be scrolled into view on. A write ask
+  -- that announced itself as playing would be the contradiction arriving
+  -- first and loudest.
+  if not exists (
+    select 1 from public.notifications
+    where type = 'song_ask'
+      and user_id = '7e1a5000-0000-0000-0000-000000000145'
+      and project_id = '7e1a5000-0000-0000-0000-00000000014b'
+      and title = 'The Writer asked you to write on topline'
+  ) then
+    raise exception 'a write ask announced itself as something else (got %)',
+      (select title from public.notifications
+       where type = 'song_ask'
+         and project_id = '7e1a5000-0000-0000-0000-00000000014b');
+  end if;
+
+  -- And playing still says exactly what it said before this migration.
+  if not exists (
+    select 1 from public.notifications
+    where type = 'song_ask'
+      and user_id = '7e1a5000-0000-0000-0000-000000000145'
+      and project_id = '7e1a5000-0000-0000-0000-00000000014c'
+      and title = 'The Writer asked you to play bass'
+  ) then
+    raise exception 'a playing ask stopped saying what it always said (got %)',
+      (select title from public.notifications
+       where type = 'song_ask'
+         and project_id = '7e1a5000-0000-0000-0000-00000000014c');
+  end if;
+end $$;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;

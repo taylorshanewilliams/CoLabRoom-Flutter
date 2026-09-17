@@ -90,7 +90,12 @@ insert into smoke_covered (name) values
   -- asserts both were refused. That is the trigger's whole reason for
   -- existing: the two functions refuse a cover as well, so if this stopped
   -- firing every other assertion in that block would still pass.
-  ('projects_no_cover_in_public');
+  ('projects_no_cover_in_public'),
+  -- 0145. The scenario sends a writing ask, then tries to turn it into a
+  -- playing one as the role that owns the table, and asserts both the refusal
+  -- and that the row is unchanged afterwards. The same block closes an ask,
+  -- which is the update this trigger sees most and has to wave through.
+  ('project_asks_terms_are_fixed');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario

@@ -346,11 +346,15 @@ abstract interface class MusicRepository {
   ///
   /// Grants them nothing. It is a message; accepting is what gives access,
   /// and only they can do that.
+  ///
+  /// [terms] says what answering means, and is settled here: the database
+  /// refuses to change it once the ask has gone.
   Future<void> askMusician({
     required String projectId,
     required String profileId,
     String? part,
     String note,
+    AskTerms terms,
   });
 
   /// Open asks aimed at you by name.
@@ -534,10 +538,14 @@ abstract interface class MusicRepository {
   ///
   /// Anybody in the room can ask, not only whoever uploaded the song: a
   /// bandmate saying "this wants drums" is a normal thing to happen in a band.
+  ///
+  /// [terms] says what answering means, and is settled here: the database
+  /// refuses to change it once the ask has gone up.
   Future<SongAsk> askFor({
     required String projectId,
     String? part,
     String note = '',
+    AskTerms terms = AskTerms.play,
   });
 
   /// Stop asking, because somebody answered or because it stopped mattering.

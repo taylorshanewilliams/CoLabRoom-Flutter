@@ -730,6 +730,19 @@ class _AskCard extends StatelessWidget {
                   color: AppColors.muted, fontSize: 12, height: 1.35),
             ),
           ],
+          // What answering means, before they answer. The sentence was
+          // settled when the ask was sent and the database will not let it
+          // change, which is the whole of its value: a co-writing argument is
+          // two honest memories of a session nobody wrote down.
+          if (ask.terms.notice != null) ...<Widget>[
+            const SizedBox(height: 7),
+            Text(
+              ask.terms.notice!,
+              key: const Key('ask_card_terms'),
+              style: const TextStyle(
+                  color: AppColors.gold, fontSize: 12, height: 1.35),
+            ),
+          ],
           if (ask.note.trim().isNotEmpty) ...<Widget>[
             const SizedBox(height: 7),
             Text(
