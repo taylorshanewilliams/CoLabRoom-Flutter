@@ -1378,6 +1378,19 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   Future<void> _export() async {
     final takes = _takes;
     if (takes.isEmpty || _busy) return;
+    // Saying it instead of throwing it.
+    //
+    // Both shapes of export decode audio and write a file, and a browser has
+    // neither: getApplicationDocumentsDirectory is a MissingPluginException
+    // there, which arrived as "something went wrong" and was reported as a
+    // fault. It is not a fault, it is the same limit the note at the top of
+    // this screen already names, so it reads like that one.
+    if (kIsWeb) {
+      setState(() => _error =
+          'Saving the takes needs the app. In a browser you can play them, '
+          'but the files are put together on the device.');
+      return;
+    }
     final choice = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -1399,8 +1412,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
               leading: const Icon(Icons.folder_zip_outlined, color: AppColors.cyan),
               title: const Text('Every take, separately'),
               subtitle: const Text(
-                'One file each, plus the volumes and timing written down — '
-                'for opening in a DAW. Yours to keep.',
+                'One file each, lined up and at tempo, for opening in a DAW. '
+                'Yours to keep.',
               ),
               onTap: () => Navigator.pop(sheetContext, 'layers'),
             ),
@@ -1423,6 +1436,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
               takes: takes,
               outputPath: '${root.path}/export_$stamp.zip',
               songTitle: widget.songTitle,
+              // The analysis's own tempo, not the click's. _tempo is whatever
+              // somebody dialled in to play against; what a DAW needs is what
+              // the recording actually runs at.
+              bpm: _reference?.bpm,
+              musicalKey: _reference?.musicalKey,
+              sections: _reference?.structureSections ??
+                  const <StructureSection>[],
+              downbeatsMs: _reference?.downbeatsMs ?? const <int>[],
+              beatsPerBar: _reference?.beatsPerBar,
             );
       if (file == null) return;
       await SharePlus.instance.share(
