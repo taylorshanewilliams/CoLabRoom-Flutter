@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../domain/moment_note.dart';
 import '../../domain/music_models.dart';
 import '../../services/user_facing_error.dart';
 import '../../services/invite_link.dart';
@@ -15,6 +16,7 @@ import '../../widgets/play_button.dart';
 import '../openmic/report_sheet.dart';
 import '../../app/routes.dart';
 import '../lessons/with_birth_month.dart';
+import '../layers/song_layers_screen.dart';
 import '../meeting/add_person_screen.dart';
 import '../openmic/musician_profile_screen.dart';
 import '../openmic/people_screen.dart';
@@ -180,6 +182,29 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
       settings: RouteSettings(name: AppRoutes.song(projectId)),
       builder: (_) => SongWorkspaceScreen(projectId: projectId),
+    )));
+  }
+
+  /// Somebody left a note at a moment of a recording of yours.
+  ///
+  /// Straight to the takes, which is where the recording, the marks on its
+  /// lane and the note itself are -- not the words. Opening the song would
+  /// leave the person on the lyrics with one more tap to work out.
+  ///
+  /// The card itself is the note's address. `notifications` has no column for
+  /// the thing a notification is about, so who left it and the words the card
+  /// is already showing are how the screen picks the right one out of a song
+  /// two people have both pinned something on.
+  void _openTakesAtTheNote(SongProject project, AppNotification about) {
+    if (!mounted) return;
+    unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+      settings: RouteSettings(name: AppRoutes.songTakes(project.id)),
+      builder: (_) => SongLayersScreen(
+        roomId: project.roomId,
+        projectId: project.id,
+        songTitle: project.title,
+        openNote: NoteToOpen(authorId: about.actorId, bodyStart: about.body),
+      ),
     )));
   }
 
@@ -520,6 +545,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                       roomId: notification.roomId!),
                                 ),
                               ));
+                            }
+                            // A note at a moment: the takes, opened on it.
+                            if (notification.type ==
+                                    NotificationType.momentNote &&
+                                notification.projectId != null) {
+                              final song = controller
+                                  .projectById(notification.projectId!);
+                              if (song != null) {
+                                _openTakesAtTheNote(song, notification);
+                              }
                             }
                             // Somebody asked to add you: Your people is
                             // where a request is answered, and it lists the
@@ -1019,6 +1054,10 @@ class _NotificationCard extends StatelessWidget {
         return Icons.how_to_reg_rounded;
       case NotificationType.callStarted:
         return Icons.videocam_rounded;
+      case NotificationType.momentNote:
+        // A pin, because that is the verb: the note is pinned to a second of
+        // the recording rather than said about the song in general.
+        return Icons.push_pin_outlined;
       case NotificationType.unfamiliar:
         return Icons.notifications_none_rounded;
     }

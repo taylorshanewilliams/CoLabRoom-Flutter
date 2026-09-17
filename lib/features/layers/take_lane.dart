@@ -37,6 +37,8 @@ class TakeLane extends StatelessWidget {
     this.onAdjust,
     this.onShare,
     this.subtitle,
+    this.noteMarks = const <double>[],
+    this.focusedMark,
     super.key,
   });
 
@@ -69,6 +71,18 @@ class TakeLane extends StatelessWidget {
   /// A forty-second harmony on a three-minute song is a short lane, not a
   /// full-width one — which is the fact a list could never show.
   final double spansFraction;
+
+  /// Where the notes pinned to this take are, 0..1 through the *song* — the
+  /// same measure as [playedFraction], so a mark sits under the playhead
+  /// when the playhead reaches it.
+  ///
+  /// Drawn on the lane rather than listed only underneath, because the thing
+  /// worth seeing at a glance is that the notes cluster in the last chorus.
+  final List<double> noteMarks;
+
+  /// The one being played, drawn taller so the row and the lane agree about
+  /// which note is open.
+  final double? focusedMark;
 
   final bool silent;
   final Color? playerColor;
@@ -232,6 +246,8 @@ class TakeLane extends StatelessWidget {
                 starts: startsFraction.clamp(0.0, 0.98),
                 spans: spansFraction.clamp(0.02, 1.0),
                 dim: live ? 0.28 : 0.5,
+                notes: noteMarks,
+                focused: focusedMark,
               ),
             ),
           ),
@@ -291,6 +307,8 @@ class _WavePainter extends CustomPainter {
     required this.starts,
     required this.spans,
     required this.dim,
+    this.notes = const <double>[],
+    this.focused,
   });
 
   final List<double> wave;
@@ -299,12 +317,16 @@ class _WavePainter extends CustomPainter {
   final double starts;
   final double spans;
   final double dim;
+  final List<double> notes;
+  final double? focused;
 
   @override
   void paint(Canvas canvas, Size size) {
     final left = size.width * starts;
     final laneWidth = math.min(size.width - left, size.width * spans);
     final middle = size.height / 2;
+
+    _paintNotes(canvas, size);
 
     if (wave.isEmpty) {
       // Still reading. A rule rather than nothing, so the lane does not
@@ -344,6 +366,26 @@ class _WavePainter extends CustomPainter {
     }
   }
 
+  /// A short gold tick at every pinned moment, floor to ceiling of the lane.
+  ///
+  /// Under the waveform rather than over it: a note marks where in the
+  /// playing something happens, and covering the playing to say so would be
+  /// the wrong way round.
+  void _paintNotes(Canvas canvas, Size size) {
+    if (notes.isEmpty) return;
+    final mark = Paint()..color = AppColors.gold.withValues(alpha: 0.5);
+    final lit = Paint()..color = AppColors.gold;
+    for (final at in notes) {
+      final x = size.width * at.clamp(0.0, 1.0);
+      final open = focused != null && (focused! - at).abs() < 0.0005;
+      canvas.drawRect(
+        Rect.fromLTWH(x - 1, open ? 0 : size.height * 0.22, 2,
+            open ? size.height : size.height * 0.56),
+        open ? lit : mark,
+      );
+    }
+  }
+
   @override
   bool shouldRepaint(_WavePainter old) =>
       old.played != played ||
@@ -351,5 +393,7 @@ class _WavePainter extends CustomPainter {
       old.starts != starts ||
       old.spans != spans ||
       old.dim != dim ||
+      old.focused != focused ||
+      !identical(old.notes, notes) ||
       !identical(old.wave, wave);
 }

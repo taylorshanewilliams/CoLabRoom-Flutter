@@ -78,7 +78,13 @@ insert into smoke_covered (name) values
   -- once, that re-writing shared_at on an already-shared take does not
   -- announce it twice, and that a private take never reaches the feed at all.
   ('song_layers_remember_event'),
-  ('song_layers_remember_event_on_share');
+  ('song_layers_remember_event_on_share'),
+  -- 0141. The scenario pins notes on a shared take, on a draft and on the
+  -- song's own recording, and asserts who was told each time and who was not.
+  ('moment_notes_announce'),
+  -- 0141. The scenario pins on a draft, shares that take, and asserts the
+  -- note stayed its author's alone -- which is this trigger's whole job.
+  ('moment_notes_freeze_audience');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario

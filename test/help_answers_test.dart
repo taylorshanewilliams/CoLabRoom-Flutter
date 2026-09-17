@@ -48,6 +48,10 @@ void main() {
       'is there a metronome': 'tuner',
       'how do i mute notifications': 'notifications',
       'can i use this on my laptop': 'web',
+      // 0141. Both of the words people reach for: the app's own ("note at a
+      // moment") and the one everything else on the internet uses.
+      'how do i leave a note at a moment': 'moment-note',
+      'can i pin a comment at a timestamp': 'moment-note',
     };
 
     cases.forEach((typed, expected) {

@@ -15,6 +15,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../data/music_repository.dart';
+import '../../domain/moment_note.dart';
 import '../../domain/music_models.dart';
 import '../../services/multitrack.dart';
 import '../../services/onset_align.dart';
@@ -28,6 +30,7 @@ import '../../services/take_naming.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
 import 'layer_console.dart';
+import 'moment_notes.dart';
 import 'song_level_store.dart';
 import 'layer_group.dart';
 import 'take_lane.dart';
@@ -61,8 +64,16 @@ class SongLayersScreen extends StatefulWidget {
     this.analysisService,
     this.embedded = false,
     this.onClose,
+    this.openNote,
     super.key,
   });
+
+  /// The note to open on, for arriving from a notification (0141).
+  ///
+  /// `public.notifications` has no column for the thing a notification is
+  /// about, so the row cannot carry the note's id and this is the address we
+  /// have instead: who left it, and the words themselves. See [NoteToOpen].
+  final NoteToOpen? openNote;
 
   /// True when this is a panel inside the song rather than a route on top of
   /// it.
@@ -144,6 +155,26 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// is the least urgent thing here and takes must never wait for one.
   final Map<String, List<double>> _waves = <String, List<double>>{};
 
+  /// The notes pinned to this song's recordings, earliest moment first.
+  ///
+  /// Read from the repository rather than the layer service: they are rows
+  /// about a song, like its asks and its nods, and the layer service is the
+  /// thing that moves audio.
+  List<MomentNote> _notes = const <MomentNote>[];
+
+  /// The note being played, which is also the one drawn open on the lane.
+  ///
+  /// While it is set, playback turns round at the end of the moment. Cleared
+  /// the moment somebody scrubs or pauses, because both of those mean "let go
+  /// of this bit".
+  MomentNote? _noteLoop;
+
+  /// Whether the note a notification sent us to has already been opened.
+  ///
+  /// Arriving is a one-off. Every later reload -- and there is one after each
+  /// pin and each delete -- leaves the playhead where the person put it.
+  bool _openedTheNote = false;
+
   /// Where the playhead is, and how long the song runs.
   Duration _position = Duration.zero;
   Duration _span = Duration.zero;
@@ -180,9 +211,18 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       }
     });
     _positionSub = _player.onPositionChanged.listen((position) {
+      if (!mounted) return;
+      // The loop through a note's moment, turned round here rather than with
+      // the player's own release mode: that loops the whole file, and this is
+      // eleven seconds in the middle of it.
+      final loop = _noteLoop;
+      if (loop != null && position.inMilliseconds >= loop.loopEndMs) {
+        unawaited(_player.seek(Duration(milliseconds: loop.playFromMs)));
+        return;
+      }
       // Ignored mid-drag: the finger is the truth until it lifts, and the
       // player is still reporting where it was.
-      if (mounted && !_scrubbing) setState(() => _position = position);
+      if (!_scrubbing) setState(() => _position = position);
     });
     _durationSub = _player.onDurationChanged.listen((duration) {
       if (mounted) setState(() => _span = duration);
@@ -275,6 +315,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       });
       unawaited(_loadFaces(layers));
       unawaited(_loadWaves());
+      unawaited(_loadNotes());
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -294,7 +335,75 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     }
   }
 
-  String? get _me => Supabase.instance.client.auth.currentUser?.id;
+  /// The repository, when this screen is inside the app rather than pumped on
+  /// its own. Notes are the only thing here that needs it.
+  MusicRepository? get _repository =>
+      BetaScope.maybeOf(context, listen: false)?.repository;
+
+  /// Who is signed in.
+  ///
+  /// Through the repository where there is one, which is every real screen
+  /// and now the tests as well. The direct reach for Supabase stays as the
+  /// fallback and is wrapped, because `Supabase.instance` asserts rather than
+  /// returning null when nothing has been initialised — so a screen pumped
+  /// with a take on it used to throw out of a getter that only wanted to know
+  /// whose take it was.
+  /// Both branches are wrapped, because both throw. `Supabase.instance`
+  /// asserts rather than returning null when nothing has been initialised,
+  /// and `currentUserId` throws an AuthException when nobody is signed in —
+  /// and this is read from `build()`, by `_mine(take)` on every lane. A token
+  /// expiring while the screen is open used to turn the takes into a red
+  /// error box; not knowing who you are means every take is somebody else's,
+  /// which is what this returned before there was a repository in it.
+  String? get _me {
+    try {
+      final repository = _repository;
+      if (repository != null) return repository.currentUserId;
+      return Supabase.instance.client.auth.currentUser?.id;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The notes on this song, and the one to open if we arrived from a
+  /// notification.
+  ///
+  /// Best-effort and never awaited by [_load]: a song whose notes will not
+  /// load still plays, which is the same rule the waveforms and the faces
+  /// follow.
+  Future<void> _loadNotes() async {
+    final repository = _repository;
+    if (repository == null) return;
+    try {
+      final notes = await repository.loadMomentNotes(widget.projectId);
+      if (!mounted) return;
+      setState(() => _notes = notes);
+      // Once, on arrival, and never again.
+      //
+      // This runs after every pin and every delete as well, and without the
+      // latch each of those would drag the playhead back to the note the
+      // notification was about — you reply at 0:30, press Pin it, and the
+      // screen throws you back to 1:48.
+      final opening = widget.openNote;
+      if (opening != null && !_openedTheNote) {
+        final found = opening.findIn(notes, exceptAuthor: _me);
+        if (found != null) {
+          _openedTheNote = true;
+          // Moved to, not played. Audio starting on its own because somebody
+          // opened a notification is a surprise; the moment is where the
+          // playhead is left, and Play does the rest.
+          await _openNote(found, play: false);
+        }
+      }
+    } catch (error) {
+      reportAndDescribe(
+        error,
+        service: 'layers',
+        stage: 'takes.notes',
+        projectId: widget.projectId,
+      );
+    }
+  }
 
   /// A member's own colour, the same one tinting their lines in the song
   /// sheet. Null for somebody who is not a member of this room — a guest
@@ -1059,7 +1168,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // the part you want to hear is at 2:40.
       await _player.pause();
       _pausedAt = kIsWeb ? _webSinglePath : _lastMixPath;
-      if (mounted) setState(() => _playing = false);
+      // A note's loop lasts as long as somebody is listening to it. Pressing
+      // stop and starting again plays the song on from there.
+      if (mounted) setState(() {
+        _playing = false;
+        _noteLoop = null;
+      });
       return;
     }
 
@@ -1347,7 +1461,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     // while scrolling to the other. Side by side, the comparison is just the
     // picture. It also gives the landscape orientation something to be.
     final console = MediaQuery.of(context).orientation == Orientation.landscape;
-    return Scaffold(
+    return PinAtPlayheadKey(
+      onPin: () => unawaited(_pinNote()),
+      child: Scaffold(
       backgroundColor: AppColors.deepNavy,
       appBar: AppBar(
         backgroundColor: AppColors.deepNavy,
@@ -1424,16 +1540,52 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                 ),
               )
             : console && _takes.isNotEmpty
-            ? LayerConsole(
-                takes: _takes,
-                silentIds: _silent,
-                onToggle: (take) => _toggle(take.id),
-                onGain: (take) {
-                  final layer = _layerFor(take);
-                  if (!_mine(take) || layer == null) return null;
-                  return (Take _, double value) =>
-                      unawaited(_setGain(layer, value));
-                },
+            // Sideways is the faders, and the notes underneath them.
+            //
+            // A teacher turns the phone to reach the faders while they listen
+            // to a student, and the notes have to come with them: pinning
+            // works sideways (the button is in the bottom bar, which does not
+            // rotate away) and until now nothing else did — no list, no way
+            // to hear a moment again, no way to take words back. There are no
+            // marks here because a fader strip has no time on it; the marks
+            // are on the lanes, which are the portrait view.
+            ? LayoutBuilder(
+                builder: (context, room) => Column(
+                  children: <Widget>[
+                    Expanded(
+                      child: LayerConsole(
+                        takes: _takes,
+                        silentIds: _silent,
+                        onToggle: (take) => _toggle(take.id),
+                        onGain: (take) {
+                          final layer = _layerFor(take);
+                          if (!_mine(take) || layer == null) return null;
+                          return (Take _, double value) =>
+                              unawaited(_setGain(layer, value));
+                        },
+                      ),
+                    ),
+                    if (_notes.isNotEmpty)
+                      ConstrainedBox(
+                        // A third of a landscape phone at most, so the desk
+                        // keeps the height it was rebuilt to fit in.
+                        constraints: BoxConstraints(
+                          maxHeight: math.min(132, room.maxHeight * 0.34),
+                        ),
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                          child: MomentNoteList(
+                            notes: _notes,
+                            focusedId: _noteLoop?.id,
+                            currentUserId: _me ?? '',
+                            labelFor: _takes.length > 1 ? _noteOnLabel : null,
+                            onOpen: (note) => unawaited(_openNote(note)),
+                            onDelete: (note) => unawaited(_deleteNote(note)),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               )
             : RefreshIndicator(
                 onRefresh: _load,
@@ -1547,6 +1699,17 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                       ),
                       const SizedBox(height: 14),
                       _timeline(),
+                      if (_notes.isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 16),
+                        MomentNoteList(
+                          notes: _notes,
+                          focusedId: _noteLoop?.id,
+                          currentUserId: _me ?? '',
+                          labelFor: _takes.length > 1 ? _noteOnLabel : null,
+                          onOpen: (note) => unawaited(_openNote(note)),
+                          onDelete: (note) => unawaited(_deleteNote(note)),
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       _MetronomeNote(
                         on: _clickOn,
@@ -1631,6 +1794,33 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                   ),
                 ],
               ),
+              // Says where it will land, the way the record button does.
+              //
+              // Every Musician, Same Song, 17 September 2026: the note is
+              // pinned at the playhead, so the moment is decided before
+              // anybody types and the label is the moment. A button rather
+              // than a long-press on the lane: the plan's own audit found
+              // that this app hides things brilliantly and announces
+              // nothing, and a gesture nobody is told about is a feature
+              // nobody has.
+              if (_noteTargets.isNotEmpty)
+                TextButton.icon(
+                  key: const Key('pin_moment_note'),
+                  onPressed: _busy || _recording ? null : () => unawaited(_pinNote()),
+                  icon: const Icon(Icons.push_pin_outlined, size: 17),
+                  label: Text(
+                    'Note at ${_clock(_position)}',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.gold,
+                    disabledForegroundColor: AppColors.line,
+                    minimumSize: const Size.fromHeight(36),
+                  ),
+                ),
               // The way back in, said in the words somebody would use for it.
               //
               // A phone in a room is the right tool for catching an idea and
@@ -1659,6 +1849,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -1702,6 +1893,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       playerColor: layer == null ? null : _colorForMember(layer.recordedBy),
       playerPhoto: layer == null ? null : _photos[layer.recordedBy],
       subtitle: take.id == _referenceId ? 'the song' : null,
+      noteMarks: _noteMarksFor(take),
+      focusedMark: _focusedMarkFor(take),
       silent: _silent.contains(take.id),
       onToggle: () => _toggle(take.id),
       // No delete on the reference: it is what every chord and lyric on the
@@ -1718,6 +1911,168 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           // play along, and until now nobody could.
           : (take.id == _referenceId ? () => unawaited(_showSongLevel()) : null),
     );
+  }
+
+  /// Which recording a note is on, in the words the lane uses for it.
+  String _noteOnLabel(MomentNote note) {
+    final id = _noteTakeId(note);
+    for (final take in _takes) {
+      if (take.id == id) {
+        return take.id == _referenceId ? 'The song' : TakeNaming.describe(take);
+      }
+    }
+    return 'a take';
+  }
+
+  /// Which take a note belongs to, as this screen names takes.
+  ///
+  /// The song's own recording is [_referenceId] here and a null `layer_id` in
+  /// the database, because it is not a row in song_layers.
+  String _noteTakeId(MomentNote note) => note.layerId ?? _referenceId;
+
+  /// Where the notes on one take sit, 0..1 through the song.
+  List<double> _noteMarksFor(Take take) {
+    final span = _songSpan.inMilliseconds;
+    if (span <= 0) return const <double>[];
+    return <double>[
+      for (final note in _notes)
+        if (_noteTakeId(note) == take.id)
+          (note.atMs / span).clamp(0.0, 1.0),
+    ];
+  }
+
+  double? _focusedMarkFor(Take take) {
+    final loop = _noteLoop;
+    final span = _songSpan.inMilliseconds;
+    if (loop == null || span <= 0 || _noteTakeId(loop) != take.id) return null;
+    return (loop.atMs / span).clamp(0.0, 1.0);
+  }
+
+  /// The recordings somebody may pin a note on.
+  ///
+  /// Not every lane: a take nobody has shared is heard by whoever recorded it
+  /// and by nobody else (0057), so there is nothing to say to them about it
+  /// and the database would refuse the row anyway. Offering the action and
+  /// then failing would be the worse of the two.
+  List<NoteTarget> get _noteTargets {
+    final out = <NoteTarget>[];
+    for (final take in _takes) {
+      final layer = _layerFor(take);
+      if (layer == null) {
+        // The song's own recording, which everybody in the room can hear.
+        out.add(NoteTarget(id: null, label: 'The song'));
+        continue;
+      }
+      if (!layer.isShared && !_mine(take)) continue;
+      out.add(NoteTarget(
+        id: layer.id,
+        label: TakeNaming.describe(take),
+        // A take of your own that nobody has been sent. You may write on it;
+        // what you write stays yours, this time and after you share it
+        // (0141's on_shared_take), and the sheet says so.
+        yoursAlone: !layer.isShared,
+      ));
+    }
+    return out;
+  }
+
+  /// Pins words at the playhead.
+  ///
+  /// The moment is decided before the sheet opens, which is the whole
+  /// difference between this and a comment: somebody hears the thing, says
+  /// "there", and then types.
+  Future<void> _pinNote() async {
+    final repository = _repository;
+    final targets = _noteTargets;
+    if (repository == null || targets.isEmpty || _recording) return;
+    final at = _position.inMilliseconds;
+    final draft = await showMomentNoteSheet(
+      context,
+      atMs: at,
+      on: targets,
+      // The newest recording, which in a lesson room is the take that just
+      // arrived and on any song is the one somebody is listening to.
+      initialLayerId: targets.last.id,
+    );
+    if (draft == null || !mounted) return;
+    try {
+      await repository.addMomentNote(
+        projectId: widget.projectId,
+        layerId: draft.layerId,
+        atMs: at,
+        body: draft.body,
+      );
+      await _loadNotes();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = reportAndDescribe(
+            error,
+            service: 'layers',
+            stage: 'takes.pin',
+            route: 'Takes',
+            projectId: widget.projectId,
+          ));
+    }
+  }
+
+  /// Plays a note's moment: from three seconds before it, round and round.
+  Future<void> _openNote(MomentNote note, {bool play = true}) async {
+    final from = Duration(milliseconds: note.playFromMs);
+    setState(() {
+      _noteLoop = note;
+      _position = from;
+    });
+    try {
+      if (!play) {
+        // Left where the note is, so pressing Play lands on it.
+        await _player.seek(from);
+        return;
+      }
+      if (kIsWeb) {
+        final single = _webSinglePath;
+        if (single == null) return;
+        await _player.play(audioSourceFor(single));
+        await _player.seek(from);
+      } else {
+        if (_lastMixPath == null && !await _rebuildMix()) return;
+        await _playMix(from: from);
+      }
+      _pausedAt = null;
+      if (mounted) setState(() => _playing = true);
+    } catch (error) {
+      // The playhead has already moved, so the note is open either way. What
+      // must not happen is silence with no reason: audio that will not start
+      // here looks exactly like a note that does nothing.
+      if (!mounted) return;
+      setState(() => _error = reportAndDescribe(
+            error,
+            service: 'layers',
+            stage: 'takes.note',
+            route: 'Takes',
+            projectId: widget.projectId,
+          ));
+    }
+  }
+
+  Future<void> _deleteNote(MomentNote note) async {
+    final repository = _repository;
+    if (repository == null) return;
+    try {
+      await repository.deleteMomentNote(note);
+      if (mounted && _noteLoop?.id == note.id) {
+        setState(() => _noteLoop = null);
+      }
+      await _loadNotes();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = reportAndDescribe(
+            error,
+            service: 'layers',
+            stage: 'takes.unpin',
+            route: 'Takes',
+            projectId: widget.projectId,
+          ));
+    }
   }
 
   /// Lets the room hear a take that was until now only yours.
@@ -2018,7 +2373,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     final at = Duration(
       milliseconds: (span.inMilliseconds * fraction.clamp(0.0, 1.0)).round(),
     );
-    setState(() => _position = at);
+    // Going somewhere else means letting go of a note's loop, or the playhead
+    // would be dragged straight back to it.
+    setState(() {
+      _position = at;
+      _noteLoop = null;
+    });
     try {
       await _player.seek(at);
     } catch (_) {

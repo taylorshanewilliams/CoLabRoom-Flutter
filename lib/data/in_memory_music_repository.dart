@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import '../domain/activity.dart';
 import '../domain/calls.dart';
 import '../domain/lesson_link.dart';
+import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
@@ -2151,6 +2152,67 @@ class InMemoryMusicRepository implements MusicRepository {
     );
     if (index >= 0) _practiceMarks.removeAt(index);
     _practiceMarks.insert(0, kept);
+  }
+
+  /// Notes pinned to a moment, newest write last and read back in moment
+  /// order.
+  ///
+  /// Nothing here models who can hear what: the real rule is three RLS
+  /// policies (0141) and a fake that re-implemented it would be asserting
+  /// its own opinion. Whether a note may be pinned at all is decided above
+  /// this, by whether the recording is one you can hear.
+  final List<MomentNote> _momentNotes = <MomentNote>[];
+
+  /// Takes nobody has been shared with, so a note pinned on one comes back
+  /// marked the way 0141's before-insert trigger marks it.
+  ///
+  /// The one piece of the rule worth modelling here, because it is the piece
+  /// the screen shows: a note on your own draft reads "only you". The layers
+  /// come from the layer service rather than from this repository, so
+  /// whoever sets them up says which ids are drafts.
+  final Set<String> draftLayerIds = <String>{};
+
+  @override
+  Future<List<MomentNote>> loadMomentNotes(String projectId) async {
+    final mine = <MomentNote>[
+      for (final note in _momentNotes)
+        if (note.projectId == projectId) note,
+    ]..sort((a, b) => a.atMs.compareTo(b.atMs));
+    return List<MomentNote>.unmodifiable(mine);
+  }
+
+  @override
+  Future<MomentNote> addMomentNote({
+    required String projectId,
+    required int atMs,
+    required String body,
+    String? layerId,
+    int? endMs,
+  }) async {
+    final note = MomentNote(
+      id: 'moment-${_momentNotes.length + 1}',
+      projectId: projectId,
+      layerId: layerId,
+      atMs: atMs < 0 ? 0 : atMs,
+      endMs: endMs,
+      body: body.trim(),
+      authorId: currentUserId,
+      authorName: 'Taylor',
+      // As the trigger does it: the song's own recording is always the
+      // room's, and a take is only the room's once it has been shared.
+      onSharedTake: layerId == null || !draftLayerIds.contains(layerId),
+      createdAt: DateTime.now(),
+    );
+    _momentNotes.add(note);
+    return note;
+  }
+
+  @override
+  Future<void> deleteMomentNote(MomentNote note) async {
+    // Yours only, the way the function behind this is (0141).
+    _momentNotes.removeWhere(
+      (kept) => kept.id == note.id && kept.authorId == currentUserId,
+    );
   }
 
   @override

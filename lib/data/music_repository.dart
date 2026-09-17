@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import '../domain/activity.dart';
 import '../domain/calls.dart';
 import '../domain/lesson_link.dart';
+import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
@@ -674,6 +675,30 @@ abstract interface class MusicRepository {
   /// id again updates it; a note already kept is not lost to a later save
   /// without one.
   Future<void> keepPracticeMark(PracticeMark mark);
+
+  /// Every note pinned to a moment of a recording on this song, earliest
+  /// moment first.
+  ///
+  /// Read by exactly the people who can hear the recording (0141), so a note
+  /// on somebody else's unshared take never arrives here at all.
+  Future<List<MomentNote>> loadMomentNotes(String projectId);
+
+  /// Pins words at [atMs] of a recording. A null [layerId] means the song's
+  /// own recording; [endMs] makes it a passage rather than an instant.
+  ///
+  /// Whoever played the recording is told, once. Nobody is told about their
+  /// own note.
+  Future<MomentNote> addMomentNote({
+    required String projectId,
+    required int atMs,
+    required String body,
+    String? layerId,
+    int? endMs,
+  });
+
+  /// Takes back a note you left. Yours only, and nothing is said about a
+  /// note that is not.
+  Future<void> deleteMomentNote(MomentNote note);
 
   /// Who is looking for what you play, as counts per part.
   Future<List<WantAround>> wantsAround();
