@@ -103,6 +103,18 @@ abstract interface class MusicRepository {
     required String body,
   });
 
+  /// Puts [contribution] at [position] in its song, and changes nothing else
+  /// about it: not its words, its writer, its colour or its voice note.
+  ///
+  /// The song editor uses it when a line moves, and when there is no room
+  /// left between two lines for a new one and the lines have to be spaced out
+  /// again. `position` is one of the two columns room editors may update
+  /// (migration 0006).
+  Future<Contribution> moveContribution({
+    required Contribution contribution,
+    required double position,
+  });
+
   Future<void> deleteContribution(Contribution contribution);
 
   Future<List<Contribution>> importContributions({

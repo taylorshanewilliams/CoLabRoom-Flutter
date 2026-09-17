@@ -99,6 +99,37 @@ begin
   end if;
 end $$;
 
+-- Moving a line. Since 17 September 2026 the editor's save keeps a moved
+-- line on its own row, so it changes only the line's position, and when
+-- there is no room left between two lines it spaces the song out again. The
+-- line being moved is usually somebody else's: here the bandmate, a room
+-- editor, moves one of the writer's, through the column grant from 0006.
+set local request.jwt.claims = '{"sub": "22222222-2222-2222-2222-222222222222"}';
+set local role authenticated;
+
+update public.contributions
+set position = -1024
+where project_id = :'project' and body = 'the third line';
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+do $$
+begin
+  if (
+    select position from public.contributions
+    where project_id = '44444444-4444-4444-4444-444444444444' and body = 'the third line'
+  ) is distinct from -1024 then
+    raise exception 'a room editor could not move a bandmate''s line';
+  end if;
+  if (
+    select author_id from public.contributions
+    where project_id = '44444444-4444-4444-4444-444444444444' and body = 'the third line'
+  ) is distinct from '11111111-1111-1111-1111-111111111111'::uuid then
+    raise exception 'moving a line changed who wrote it';
+  end if;
+end $$;
+
 -- A bandmate reading the song and saying something about it.
 insert into public.comments (contribution_id, author_id, body)
 select id, :'bandmate', 'love this one'

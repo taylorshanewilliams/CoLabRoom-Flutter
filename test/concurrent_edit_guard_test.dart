@@ -1,5 +1,6 @@
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/features/workspace/continuous_song_editor.dart';
+import 'package:colabroom/features/workspace/line_reconciliation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Two people writing the same song at once used to destroy each other's work.
@@ -81,9 +82,28 @@ void main() {
       addTearDown(controller.dispose);
 
       controller.syncProject(_projectWith(<String>['a', 'b']), force: true);
-      controller.noteServerOrder(<String>['a', 'b', 'new-line']);
+      controller.noteServerView(const <SeenLine>[
+        SeenLine(contributionId: 'a', body: 'line a'),
+        SeenLine(contributionId: 'b', body: 'line b'),
+        SeenLine(contributionId: 'new-line', body: 'written just now'),
+      ]);
 
       expect(controller.viewOfServer, <String>['a', 'b', 'new-line']);
+    });
+
+    test('remembers the words it was shown, not only the ids', () {
+      // A bandmate can rewrite a line without changing any id. Comparing the
+      // text with the words this editor was shown is what leaves their
+      // rewrite alone when this writer did not touch that line.
+      final controller = ContinuousSongEditorController();
+      addTearDown(controller.dispose);
+
+      controller.syncProject(_projectWith(<String>['a', 'b']), force: true);
+
+      expect(controller.seenLines, const <SeenLine>[
+        SeenLine(contributionId: 'a', body: 'line a'),
+        SeenLine(contributionId: 'b', body: 'line b'),
+      ]);
     });
 
     test('hands back a list callers cannot corrupt', () {

@@ -683,6 +683,22 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<Contribution> moveContribution({
+    required Contribution contribution,
+    required double position,
+  }) async {
+    // Selected back so a row that is gone, or that this account may not
+    // move, fails here rather than reporting a move that never happened.
+    await client
+        .from('contributions')
+        .update(<String, dynamic>{'position': position})
+        .eq('id', contribution.id)
+        .select('id')
+        .single();
+    return contribution.copyWith(position: position);
+  }
+
+  @override
   Future<void> deleteContribution(Contribution contribution) async {
     final note = contribution.voiceNote;
     if (note != null) await deleteVoiceNote(note);

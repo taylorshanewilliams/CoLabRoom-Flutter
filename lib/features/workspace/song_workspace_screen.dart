@@ -28,6 +28,7 @@ import '../../widgets/offer_notifications.dart';
 import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/microphone_disclosure.dart';
 import 'continuous_song_editor.dart';
+import 'line_reconciliation.dart';
 import 'ask_bar.dart';
 import 'audience_dial.dart';
 import 'song_history_screen.dart';
@@ -74,6 +75,24 @@ enum _SongMenuAction {
 /// the left and the song's own header above - to draw a screen designed for a
 /// 390px phone across 1500px, which is both disorienting and stretched.
 enum _WorkspacePanel { words, sheet, takes }
+
+/// One line of the song as a save in progress knows the server holds it.
+class _HeldLine {
+  const _HeldLine({required this.body, required this.position, required this.order});
+
+  /// The words, in stored form, as this editor has them.
+  final String body;
+  final double position;
+
+  /// Where the line stood before the save, for rows that share a position.
+  final int order;
+
+  _HeldLine copyWith({String? body, double? position}) => _HeldLine(
+        body: body ?? this.body,
+        position: position ?? this.position,
+        order: order,
+      );
+}
 
 class SongWorkspaceScreen extends StatefulWidget {
   const SongWorkspaceScreen({
@@ -592,34 +611,40 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     return AppColors.orange;
   }
 
-  /// Reconciles the flowing document's [lines] against [project]'s existing
-  /// contributions positionally (index-for-index) — matching how
-  /// ContinuousSongEditor's own voice-note tap handling maps a visual line
-  /// index straight to `project.contributions[index]`. A line whose content
-  /// differs from the contribution at that position gets its body updated
-  /// in place (preserving id/color/voice note); new trailing lines become
-  /// new contributions in the author's color; contributions beyond the end
-  /// of the new line list are deleted. Mid-document inserts/deletes shift
-  /// every following contribution's body rather than its identity — the
-  /// same approximation the widget's own voice-note mapping already makes.
+  /// Saves the flowing document's [lines] into [project]'s contributions,
+  /// one contribution per line, each keeping its writer.
+  ///
+  /// The lines are diffed against what the editor was shown (see
+  /// line_reconciliation.dart). A line whose words did not change keeps its
+  /// contribution and writes nothing. A line rewritten where it stands keeps
+  /// its contribution, colour and voice note and takes the new words. A line
+  /// that moved takes its contribution with it. A new line becomes a new
+  /// contribution in the writer's colour, placed between its neighbours. A
+  /// line that went deletes exactly its own contribution.
+  ///
+  /// This used to go index for index, and said so: "mid-document inserts and
+  /// deletes shift every following contribution's body rather than its
+  /// identity". In a band's song that meant one new line near the top put
+  /// every later line's words under the wrong person's name and colour, next
+  /// to the wrong voice notes, and deleting a line deleted the last one
+  /// (audit, 17 September 2026).
   Future<void> _saveDocument(SongProject project, List<String> lines) async {
     final controller = BetaScope.of(context);
+    final repository = controller.repository;
     final contributions = project.contributions;
     final room = controller.roomForProject(project.id);
     final authorColorValue = _authorColorFor(room).toARGB32();
-    final count = lines.length > contributions.length ? lines.length : contributions.length;
 
-    // Everything below maps a line to a contribution by position, which is
-    // only true while this editor's picture of the song still matches the
-    // server's. It stops being true the moment a bandmate adds a line: the
-    // editor refuses to hydrate while somebody is typing, so `lines` can be
-    // an older document than `contributions`, and reconciling one against the
-    // other by index writes the stale one over the fresh one — silently.
+    // The diff below reasons from what this editor was shown, which is only
+    // true while its picture of the song still matches the server's. It stops
+    // being true the moment a bandmate adds a line: the editor refuses to
+    // hydrate while somebody is typing, so `lines` can be an older document
+    // than `contributions`.
     //
-    // Concretely, with a bandmate appending line 21 to a 20-line song: index
-    // 20 has a contribution and no line, so the old code deleted theirs. With
-    // an insert at the top, every body shifts by one and the colour beside
-    // each line ends up belonging to the wrong person.
+    // Lines appended after everything this editor saw are fine — they are
+    // simply not part of this document, and stay after it. Anything else
+    // (a line inserted above, one deleted, the order changed) means the
+    // picture is wrong somewhere this editor cannot see.
     //
     // So: compare what the editor was last shown against what is there now.
     final seen = _continuousController.viewOfServer;
@@ -633,9 +658,9 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           List.generate(seen.length, (i) => prefix[i] == seen[i]).every((match) => match);
       if (!sameOrder) {
         // Lines were inserted, removed or reordered underneath this editor.
-        // Position no longer identifies anything, so any write here is a
-        // guess — and a wrong guess overwrites somebody's words. Refusing
-        // costs this save; guessing costs their work.
+        // What it was shown is no longer what is there, so a diff against it
+        // is a guess — and a wrong guess overwrites somebody's words.
+        // Refusing costs this save; guessing costs their work.
         throw const SongSaveFailure(
           'Someone else changed this song while you were writing. '
           'Reopen it to get their version — your words are still on screen.',
@@ -644,36 +669,78 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       }
     }
 
+    final rows = <String, Contribution>{for (final line in contributions) line.id: line};
+    final plan = _continuousController.reconcile(lines);
+    // Past the end of what this editor was ever shown. The check above proves
+    // the shared part still lines up, so these arrived from somebody else
+    // after this document was last hydrated, and nobody can have meant to
+    // delete or move a line they have never seen. They are not in the plan,
+    // and the plan's lines are placed before them.
+    final unseen = contributions.skip(seen.length).toList(growable: false);
+    final placement = planPositions(
+      <double?>[
+        for (final line in plan.lines)
+          switch (line.change) {
+            LineChange.kept || LineChange.rewritten => rows[line.contributionId]!.position,
+            LineChange.moved || LineChange.added => null,
+          },
+      ],
+      before: unseen.isEmpty ? null : unseen.first.position,
+    );
+
+    // What the server holds of this document, updated after each write that
+    // lands. It becomes the editor's new picture whether the save finishes or
+    // fails partway: a line already inserted near the top and then a dropped
+    // connection must not leave the editor comparing against the old order,
+    // which would read its own insert as somebody else's and refuse every
+    // save after it.
+    final held = <String, _HeldLine>{};
+    final seenLines = _continuousController.seenLines;
+    for (var i = 0; i < seenLines.length; i += 1) {
+      final row = rows[seenLines[i].contributionId]!;
+      held[row.id] = _HeldLine(
+        body: seenLines[i].body,
+        position: row.position,
+        order: i,
+      );
+    }
+
     try {
-      for (var i = 0; i < count; i += 1) {
-        final hasLine = i < lines.length;
-        final hasContribution = i < contributions.length;
-        if (hasLine && hasContribution) {
-          final stored = storedLineFor(lines[i]);
-          if (stored != contributions[i].body) {
-            await controller.repository.updateContribution(
-              contribution: contributions[i],
-              body: stored,
-            );
-          }
-        } else if (hasLine) {
-          final stored = storedLineFor(lines[i]);
-          final basePosition = contributions.isEmpty ? 0.0 : contributions.last.position;
-          await controller.repository.addContribution(
-            project: project,
-            body: stored,
-            colorValue: authorColorValue,
-            position: basePosition + 1024 * (i - contributions.length + 1),
-          );
-        } else {
-          // Past the end of what this editor was ever shown. The prefix check
-          // above proves the shared part still lines up, so anything beyond it
-          // arrived from somebody else after this document was last hydrated —
-          // and nobody can have meant to delete a line they have never seen.
-          // Their work simply stays.
-          if (seen.isNotEmpty && i >= seen.length) continue;
-          await controller.repository.deleteContribution(contributions[i]);
+      for (final id in plan.deleted) {
+        await repository.deleteContribution(rows[id]!);
+        held.remove(id);
+      }
+      for (var i = 0; i < plan.lines.length; i += 1) {
+        final line = plan.lines[i];
+        final id = line.contributionId;
+        if (id == null) continue;
+        var row = rows[id]!;
+        final position = placement.positions[i];
+        if (row.position != position) {
+          row = await repository.moveContribution(contribution: row, position: position);
+          held[id] = held[id]!.copyWith(position: position);
         }
+        if (line.change == LineChange.rewritten) {
+          if (line.body != row.body) {
+            await repository.updateContribution(contribution: row, body: line.body);
+          }
+          held[id] = held[id]!.copyWith(body: line.body);
+        }
+      }
+      for (var i = 0; i < plan.lines.length; i += 1) {
+        final line = plan.lines[i];
+        if (line.change != LineChange.added) continue;
+        final created = await repository.addContribution(
+          project: project,
+          body: line.body,
+          colorValue: authorColorValue,
+          position: placement.positions[i],
+        );
+        held[created.id] = _HeldLine(
+          body: line.body,
+          position: placement.positions[i],
+          order: seenLines.length + i,
+        );
       }
     } catch (error) {
       // Whether another attempt can possibly work is the only thing the
@@ -696,22 +763,30 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         permanent: !transient,
       );
     } finally {
+      // This save just created, moved and deleted rows, so the lines the
+      // editor was hydrated with are already out of date. Without
+      // re-recording them, the guard above would refuse the *next* save over
+      // changes this very editor made — turning a protection against losing
+      // other people's work into an obstacle to doing your own.
+      //
+      // Recorded from what this save wrote rather than from the reload, which
+      // also brings back lines a bandmate added meanwhile. Those are not on
+      // this screen, and counting them as seen let the next save delete them.
+      // Ordered the way both repositories order a song: by position, then by
+      // the order the rows already had.
+      final ordered = held.entries.toList(growable: false)
+        ..sort((left, right) {
+          final byPosition = left.value.position.compareTo(right.value.position);
+          return byPosition != 0 ? byPosition : left.value.order.compareTo(right.value.order);
+        });
+      _continuousController.noteServerView(<SeenLine>[
+        for (final entry in ordered) SeenLine(contributionId: entry.key, body: entry.value.body),
+      ]);
       // The reload is a refresh, not part of the save. Letting it throw from
       // a finally would replace the exception explaining why the save failed
       // with one about the reload that followed it.
       try {
         await controller.load();
-        // This save just created and deleted rows, so the ids the editor was
-        // hydrated with are already out of date. Without re-recording them,
-        // the guard above would refuse the *next* save over changes this very
-        // editor made — turning a protection against losing other people's
-        // work into an obstacle to doing your own.
-        final refreshed = controller.projectById(widget.projectId);
-        if (refreshed != null && mounted) {
-          _continuousController.noteServerOrder(
-            refreshed.contributions.map((line) => line.id),
-          );
-        }
       } catch (_) {}
     }
   }
