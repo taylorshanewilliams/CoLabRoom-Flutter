@@ -13,6 +13,9 @@ import 'ask_musician_sheet.dart';
 import 'heard_it_sheet.dart';
 import 'report_sheet.dart';
 import '../../widgets/problem_report.dart';
+import '../../app/routes.dart';
+import '../notifications/notifications_screen.dart';
+import '../workspace/song_workspace_screen.dart';
 
 /// A song somebody put up for anybody to hear.
 ///
@@ -229,6 +232,11 @@ class _OpenMicSongScreenState extends State<OpenMicSongScreen> {
   @override
   Widget build(BuildContext context) {
     final song = _song;
+    // Your own song, reached from "1 song out there · 1 offer waiting". It
+    // used to offer you "Offer to play on this", "Heard it" and a report flag
+    // on your own work, and nothing about the offer that was waiting (audit,
+    // 17 September 2026).
+    final mine = song != null && song.ownerId == widget.repository.currentUserId;
     return Scaffold(
       backgroundColor: AppColors.deepNavy,
       appBar: AppBar(
@@ -240,7 +248,7 @@ class _OpenMicSongScreenState extends State<OpenMicSongScreen> {
           style: const TextStyle(fontSize: 17),
         ),
         actions: <Widget>[
-          if (song != null)
+          if (song != null && !mine)
             IconButton(
               tooltip: 'Report this song',
               onPressed: () => unawaited(_report()),
@@ -369,7 +377,19 @@ class _OpenMicSongScreenState extends State<OpenMicSongScreen> {
       // somebody reads; offering to play is what they came to do.
       bottomNavigationBar: song == null
           ? null
-          : SafeArea(
+          : mine
+              ? _YourSongOutThere(
+                  heard: _heard,
+                  onOffers: () => unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+                    settings: const RouteSettings(name: AppRoutes.notifications),
+                    builder: (_) => const NotificationsScreen(),
+                  ))),
+                  onOpen: () => unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+                    settings: RouteSettings(name: AppRoutes.song(song.id)),
+                    builder: (_) => SongWorkspaceScreen(projectId: song.id),
+                  ))),
+                )
+              : SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(18, 6, 18, 12),
                 child: Column(
@@ -435,6 +455,58 @@ class _OpenMicSongScreenState extends State<OpenMicSongScreen> {
                 ),
               ),
             ),
+    );
+  }
+}
+
+/// The bottom of the page when the song is yours: how many people heard it,
+/// where offers to play on it are answered, and the song itself.
+class _YourSongOutThere extends StatelessWidget {
+  const _YourSongOutThere({required this.heard, required this.onOffers, required this.onOpen});
+
+  final int heard;
+  final VoidCallback onOffers;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        key: const Key('open_mic_yours'),
+        padding: const EdgeInsets.fromLTRB(18, 6, 18, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              heard == 0
+                  ? 'Your song. Nobody has said they heard it yet.'
+                  : 'Your song. ${heard == 1 ? '1 person' : '$heard people'} heard it.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.35),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: const Key('open_mic_yours_offers'),
+              onPressed: onOffers,
+              icon: const Icon(Icons.inbox_outlined, size: 18),
+              label: const Text('Offers to play on it'),
+              style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              key: const Key('open_mic_yours_open'),
+              onPressed: onOpen,
+              icon: const Icon(Icons.music_note_rounded, size: 18),
+              label: const Text('Open the song'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(50),
+                backgroundColor: AppColors.cyan,
+                foregroundColor: AppColors.ink,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

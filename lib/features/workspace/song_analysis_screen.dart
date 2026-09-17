@@ -589,8 +589,15 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     ),
                   ),
                   const SizedBox(height: 18),
+                  // The song, once it has a sheet. The recording's file name
+                  // ("south of midnight 2.m4a") was the headline of a finished
+                  // song sheet (audit, 17 September 2026).
                   Text(
-                    reference == null ? 'Add a reference recording' : reference.displayName,
+                    reference == null
+                        ? 'Add a reference recording'
+                        : ready
+                            ? widget.project.title
+                            : reference.displayName,
                     style: GoogleFonts.fraunces(
                       color: AppColors.text,
                       fontSize: 26,
@@ -602,7 +609,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     reference == null
                         ? 'Use a rehearsal, demo, or finished mix. If this project already has lyrics, CoLabRoom times them to the recording; if not, it builds a separate song sheet from what you sing — your project\'s own lyrics stay untouched either way.'
                         : ready
-                            ? 'This song now has a timed lyric map and chord map for Live mode.'
+                            ? 'Made from ${reference.displayName}. The chords follow the words, and Perform scrolls with the recording.'
                             : 'Ready when you are. If the project has lyrics, they\'ll be timed to this take — otherwise this builds a separate song sheet from what it hears, without touching the project\'s own lyrics.',
                     style: const TextStyle(color: AppColors.muted, height: 1.45, fontSize: 12),
                   ),
@@ -625,7 +632,26 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                   // where the app hands back the thing nobody wanted to work
                   // out by ear. A prize does not share a row with a file
                   // picker.
-                  if (reference != null) ...<Widget>[
+                  // Making it again is a re-run that costs a song sheet, so
+                  // on a finished sheet it is a quiet button, not the gold
+                  // one above the sheet itself.
+                  if (reference != null && ready) ...<Widget>[
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      key: const Key('analyze_reference_recording'),
+                      onPressed: _working ? null : _analyze,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('Make it again'),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Listens again from the top — useful after you replace the recording.',
+                        style: TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.4),
+                      ),
+                    ),
+                  ],
+                  if (reference != null && !ready) ...<Widget>[
                     const SizedBox(height: 12),
                     SongSheetButton(
                       key: const Key('analyze_reference_recording'),
