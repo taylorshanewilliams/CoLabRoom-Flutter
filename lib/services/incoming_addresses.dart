@@ -4,6 +4,8 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb, visibleForTesting;
 import 'package:flutter/widgets.dart';
 
+import 'browser_history.dart';
+
 /// An address arriving from outside the app: the browser's forward button on
 /// the web, a tapped link or a scanned QR code on a phone.
 ///
@@ -140,6 +142,9 @@ class IncomingAddresses with WidgetsBindingObserver {
 
   @override
   Future<bool> didPushRouteInformation(RouteInformation routeInformation) async {
+    // The browser's Back is an address too, and one that was already open:
+    // go back to it rather than opening it again on top.
+    if (BrowserHistory.travel(routeInformation)) return true;
     arrive(routeInformation.uri);
     // Handled either way. False would pass the address on to the framework,
     // which is the crash this exists to stop -- and on an iPhone it would

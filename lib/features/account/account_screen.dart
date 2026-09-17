@@ -277,11 +277,17 @@ class _AccountScreenState extends State<AccountScreen> {
     // This one never had one.
     return Scaffold(
       backgroundColor: AppColors.ink,
+      // A way back. Account became a pushed screen when it left the tabs, and
+      // kept the big heading it had as a tab and nothing to leave by: on the
+      // web the browser's Back was the only way out (audit, 17 September
+      // 2026).
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        title: const Text('Account'),
+      ),
       body: ListView(
-      padding: const EdgeInsets.fromLTRB(18, 20, 18, 30),
+      padding: const EdgeInsets.fromLTRB(18, 8, 18, 30),
       children: <Widget>[
-        Text('Account', style: Theme.of(context).textTheme.displaySmall),
-        const SizedBox(height: 20),
         AppSurface(
           child: Row(
             children: <Widget>[
