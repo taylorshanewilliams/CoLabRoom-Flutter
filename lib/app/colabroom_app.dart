@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -9,45 +10,137 @@ import 'workspace_shell.dart';
 import '../services/browser_history.dart';
 import '../services/current_route.dart';
 
-class CoLabRoomApp extends StatelessWidget {
-  const CoLabRoomApp.preview({required MusicBetaController controller, super.key})
+class CoLabRoomApp extends StatefulWidget {
+  const CoLabRoomApp.preview({required MusicBetaController controller, this.onWeb, super.key})
       : _controller = controller,
         _supabase = null;
 
-  const CoLabRoomApp.supabase({required SupabaseClient client, super.key})
+  const CoLabRoomApp.supabase({required SupabaseClient client, this.onWeb, super.key})
       : _controller = null,
         _supabase = client;
 
   final MusicBetaController? _controller;
   final SupabaseClient? _supabase;
 
+  /// Whether this is the web build. A test passes it; production reads
+  /// [kIsWeb].
+  final bool? onWeb;
+
+  @override
+  State<CoLabRoomApp> createState() => _CoLabRoomAppState();
+}
+
+class _CoLabRoomAppState extends State<CoLabRoomApp> {
+  // Made once, not per build: a new delegate would be a new navigator, and
+  // everything open on it would close.
+  late final Widget _home = widget._supabase == null
+      ? WorkspaceShell(controller: widget._controller!)
+      : SupabaseAuthGate(client: widget._supabase!);
+
+  // Costs nothing until a route names itself, and then that name reaches
+  // every error report without anybody remembering to pass it.
+  // RouteTracker names the screen for crash reports. BrowserHistory
+  // makes the browser's back button go back a screen instead of leaving
+  // the site, which it did because a MaterialApp with imperative pushes
+  // registers one history entry for the entire app.
+  late final List<NavigatorObserver> _observers = <NavigatorObserver>[RouteTracker(), BrowserHistory()];
+
+  late final RouterConfig<Object> _webRouter = RouterConfig<Object>(
+    routeInformationProvider: PlatformRouteInformationProvider(
+      initialRouteInformation: RouteInformation(
+        uri: Uri.parse(WidgetsBinding.instance.platformDispatcher.defaultRouteName),
+      ),
+    ),
+    routeInformationParser: const _AnyAddress(),
+    routerDelegate: _OneHome(home: _home, observers: _observers),
+    backButtonDispatcher: RootBackButtonDispatcher(),
+  );
+
+  // Clamp system font scaling so a user's accessibility text-size
+  // setting can't blow past what our fixed-width dialogs/tiles were
+  // laid out for and trigger a RenderFlex overflow.
+  Widget _clampText(BuildContext context, Widget? child) {
+    final clamped = MediaQuery.textScalerOf(context).clamp(minScaleFactor: 0.8, maxScaleFactor: 1.3);
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: clamped),
+      child: child!,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final home = _supabase == null
-        ? WorkspaceShell(controller: _controller!)
-        : SupabaseAuthGate(client: _supabase);
+    // The web build runs under a Router, and this is why.
+    //
+    // 17 September 2026: typing app.colabroom.com, signed in, showed "Opening
+    // your rooms…" and then went back to Google, every time. A recorder in
+    // the live page found it. MaterialApp's own navigator asks the browser for
+    // single-entry history when it starts; BrowserHistory asks for multi-entry;
+    // and switching from single to multi steps history back once
+    // (`history.go(-1)`) to undo the entry single-entry pushed. Chrome
+    // prerenders an address while it is typed, and a prerendered page cannot
+    // add history entries -- so the entry was never there, and the step back
+    // left the site. It struck when the signed-in shell arrived, because that
+    // is when BrowserHistory is made a second time.
+    //
+    // A Router's navigator never asks for single-entry history, so there is
+    // nothing to switch away from and nothing to undo. Addresses themselves
+    // are still IncomingAddresses' and DeepLink's; the Router only holds the
+    // app.
+    if (widget.onWeb ?? kIsWeb) {
+      return MaterialApp.router(
+        title: BetaConfig.appName,
+        debugShowCheckedModeBanner: false,
+        theme: CoLabRoomTheme.dark(),
+        builder: _clampText,
+        routerConfig: _webRouter,
+      );
+    }
     return MaterialApp(
       title: BetaConfig.appName,
       debugShowCheckedModeBanner: false,
-      // Costs nothing until a route names itself, and then that name reaches
-      // every error report without anybody remembering to pass it.
-      // RouteTracker names the screen for crash reports. BrowserHistory
-      // makes the browser's back button go back a screen instead of leaving
-      // the site, which it did because a MaterialApp with imperative pushes
-      // registers one history entry for the entire app.
-      navigatorObservers: <NavigatorObserver>[RouteTracker(), BrowserHistory()],
+      navigatorObservers: _observers,
       theme: CoLabRoomTheme.dark(),
-      // Clamp system font scaling so a user's accessibility text-size
-      // setting can't blow past what our fixed-width dialogs/tiles were
-      // laid out for and trigger a RenderFlex overflow.
-      builder: (context, child) {
-        final clamped = MediaQuery.textScalerOf(context).clamp(minScaleFactor: 0.8, maxScaleFactor: 1.3);
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(textScaler: clamped),
-          child: child!,
-        );
-      },
-      home: home,
+      builder: _clampText,
+      home: _home,
+    );
+  }
+}
+
+/// Every address is the app. Which screen an address opens is DeepLink's and
+/// IncomingAddresses' decision, made inside the shell; the Router's only job
+/// here is to be the kind of app that never asks for single-entry history.
+class _AnyAddress extends RouteInformationParser<Object> {
+  const _AnyAddress();
+
+  @override
+  Future<Object> parseRouteInformation(RouteInformation routeInformation) async => routeInformation.uri;
+}
+
+/// The app, as the one page of a Router.
+class _OneHome extends RouterDelegate<Object> with ChangeNotifier, PopNavigatorRouterDelegateMixin<Object> {
+  _OneHome({required this.home, required this.observers});
+
+  final Widget home;
+  final List<NavigatorObserver> observers;
+
+  @override
+  final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+  // Nothing to report: BrowserHistory tells the browser where somebody is,
+  // screen by screen, and a second reporter would fight it.
+  @override
+  Object? get currentConfiguration => null;
+
+  @override
+  Future<void> setNewRoutePath(Object configuration) async {}
+
+  @override
+  Widget build(BuildContext context) {
+    return Navigator(
+      key: navigatorKey,
+      observers: observers,
+      pages: <Page<void>>[MaterialPage<void>(name: '/', child: home)],
+      onDidRemovePage: (_) {},
     );
   }
 }
