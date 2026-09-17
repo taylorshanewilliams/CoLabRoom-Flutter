@@ -124,6 +124,12 @@ class MelodyNote {
   final int midi;
   final int cents;
 
+  /// The pitch the recording sang, named — a fact about the recording, not a
+  /// reading. Anything a person reads on screen goes through noteAsPlayed
+  /// instead, which moves it by their transpose and spells it in the key that
+  /// lands in; this getter has no transpose and no key, so using it in the UI
+  /// is the bug #341 fixed for chords (Every Musician, Same Song, 17
+  /// September 2026). Only tests about what the pipeline heard use it.
   String get label => midiNoteLabel(midi);
   int get durationMs => endMs - startMs;
 

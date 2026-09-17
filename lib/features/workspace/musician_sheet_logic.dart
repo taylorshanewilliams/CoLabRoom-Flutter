@@ -439,6 +439,21 @@ String keyAsPlayed(String key, int transpose) {
   return spellInKey(moved, moved);
 }
 
+/// A sung note as the person reading the song sees it: [transpose] semitones
+/// from where the recording sang it, spelled in the key that lands in.
+///
+/// [key] is the song's key before transposing, as for [chordAsPlayed].
+///
+/// Perform moved its chords into the key you had chosen and left its note
+/// names in the recording's, so a singer who dropped the song to fit their
+/// voice read the chord over a word in one key and the note under it in
+/// another, and Sing along asked them for a pitch the chart no longer had.
+/// How you read a song is yours and moves with your transpose; what the
+/// recording did is a fact and does not (Every Musician, Same Song, 17
+/// September 2026).
+String noteAsPlayed(int midi, {required int transpose, String? key}) =>
+    noteInKey(midi + transpose, key == null ? null : keyAsPlayed(key, transpose));
+
 /// A note name moved by [semitones], or null when [note] is not a note name
 /// at all -- a degree, a quality, anything else after a slash.
 ///

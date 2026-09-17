@@ -99,6 +99,21 @@ String noteName(int pitch, {required bool flats}) {
   return flats ? _flatNames[index] : _sharpNames[index];
 }
 
+/// A sung note written the way [key] writes it: B♭4 in a flat key, A♯4 in a
+/// sharp one.
+///
+/// [midi] is the number the melody and the tuner both speak in, where 69 is
+/// A4, so the octave comes out with the name. The accidentals are the printed
+/// ones those two have always used (F♯4, not F#4), and which accidental to use
+/// is [spellInKey]'s decision -- the same rule the chords go through, so a
+/// note under a word and the chord over it cannot call one pitch two things.
+String noteInKey(int midi, String? key) {
+  final spelled = spellInKey(noteName(midi, flats: false), key)
+      .replaceAll('#', '♯')
+      .replaceAll('b', '♭');
+  return '$spelled${midi ~/ 12 - 1}';
+}
+
 bool _prefersFlats(String root) {
   if (root.contains('b')) return true;
   // F is the one natural that belongs to the flat side of the circle.
