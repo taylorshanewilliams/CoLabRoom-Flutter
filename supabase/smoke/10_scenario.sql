@@ -4015,4 +4015,106 @@ where '11111111-1111-1111-1111-111111111111' in (requester_id, addressee_id);
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- ---------------------------------------------------------------------
+-- Somebody wants to add you (0132).
+--
+-- A request tells the person asked; a yes clears that card and tells the
+-- person who asked. Asking again within a day tells nobody again, and a
+-- request withdrawn takes its card with it.
+-- ---------------------------------------------------------------------
+
+reset role;
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
+set local role authenticated;
+select public.request_connection('88888888-8888-8888-8888-888888888888') as asked_state \gset
+
+reset role;
+do $$
+begin
+  if private.wants_invites('88888888-8888-8888-8888-888888888888')
+     and (select count(*) from public.notifications
+          where user_id = '88888888-8888-8888-8888-888888888888'
+            and actor_id = '99999999-9999-9999-9999-999999999999'
+            and type = 'connection_request') <> 1 then
+    raise exception 'the person asked to connect was not told';
+  end if;
+end $$;
+
+-- The yes.
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+set local role authenticated;
+select public.respond_to_connection('99999999-9999-9999-9999-999999999999', true) as answer \gset
+
+reset role;
+do $$
+begin
+  if exists (select 1 from public.notifications
+             where user_id = '88888888-8888-8888-8888-888888888888'
+               and actor_id = '99999999-9999-9999-9999-999999999999'
+               and type = 'connection_request') then
+    raise exception 'a request that was answered left its card in the inbox';
+  end if;
+  if private.wants_invite_responses('99999999-9999-9999-9999-999999999999')
+     and not exists (select 1 from public.notifications
+                     where user_id = '99999999-9999-9999-9999-999999999999'
+                       and actor_id = '88888888-8888-8888-8888-888888888888'
+                       and type = 'connection_accepted') then
+    raise exception 'the person who asked was not told about the yes';
+  end if;
+end $$;
+
+-- Removed, and asked again the same day: no second card, no second push.
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
+set local role authenticated;
+select public.remove_connection('88888888-8888-8888-8888-888888888888');
+select public.request_connection('88888888-8888-8888-8888-888888888888') as asked_again \gset
+
+reset role;
+do $$
+begin
+  if exists (select 1 from public.notifications
+             where user_id = '88888888-8888-8888-8888-888888888888'
+               and actor_id = '99999999-9999-9999-9999-999999999999'
+               and type = 'connection_request') then
+    raise exception 'asking again within a day told them again';
+  end if;
+end $$;
+
+-- A request withdrawn takes its card with it.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+select public.request_connection('99999999-9999-9999-9999-999999999999') as writer_asked \gset
+
+reset role;
+do $$
+begin
+  if private.wants_invites('99999999-9999-9999-9999-999999999999')
+     and not exists (select 1 from public.notifications
+                     where user_id = '99999999-9999-9999-9999-999999999999'
+                       and actor_id = '11111111-1111-1111-1111-111111111111'
+                       and type = 'connection_request') then
+    raise exception 'the second request was not told';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+select public.remove_connection('99999999-9999-9999-9999-999999999999');
+
+reset role;
+do $$
+begin
+  if exists (select 1 from public.notifications
+             where user_id = '99999999-9999-9999-9999-999999999999'
+               and actor_id = '11111111-1111-1111-1111-111111111111'
+               and type = 'connection_request') then
+    raise exception 'a withdrawn request left its card in the inbox';
+  end if;
+end $$;
+
+delete from public.connections
+where '99999999-9999-9999-9999-999999999999' in (requester_id, addressee_id);
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
 commit;

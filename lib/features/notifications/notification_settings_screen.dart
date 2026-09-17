@@ -310,7 +310,7 @@ class NotificationSettingsScreen extends StatelessWidget {
                 children: <Widget>[
                   SwitchListTile(
                     title: const Text('Invites'),
-                    subtitle: const Text('When someone invites you to a room or a song'),
+                    subtitle: const Text('When someone invites you to a room or a song, or asks to add you'),
                     value: preferences.invites,
                     onChanged: (value) => controller.updateNotificationPreferences(
                       preferences.copyWith(invites: value),
@@ -319,7 +319,7 @@ class NotificationSettingsScreen extends StatelessWidget {
                   const Divider(height: 1),
                   SwitchListTile(
                     title: const Text('Invite responses'),
-                    subtitle: const Text('When someone accepts or declines your invite'),
+                    subtitle: const Text('When someone accepts or declines your invite, or adds you back'),
                     value: preferences.inviteResponses,
                     onChanged: (value) => controller.updateNotificationPreferences(
                       preferences.copyWith(inviteResponses: value),

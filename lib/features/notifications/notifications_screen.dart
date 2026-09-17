@@ -15,6 +15,7 @@ import '../../widgets/play_button.dart';
 import '../openmic/report_sheet.dart';
 import '../../app/routes.dart';
 import '../openmic/musician_profile_screen.dart';
+import '../openmic/people_screen.dart';
 import '../messages/room_thread_sheet.dart';
 import '../openmic/person_thread_sheet.dart';
 import '../workspace/ask_thread_sheet.dart';
@@ -369,6 +370,36 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                       RouteSettings(name: AppRoutes.song(id)),
                                   builder: (_) =>
                                       SongWorkspaceScreen(projectId: id),
+                                ),
+                              ));
+                            }
+                            // Somebody asked to add you: Your people is
+                            // where a request is answered, and it lists the
+                            // ones waiting on you first.
+                            if (notification.type ==
+                                NotificationType.connectionRequest) {
+                              unawaited(Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  settings: const RouteSettings(
+                                      name: AppRoutes.people),
+                                  builder: (_) => const PeopleScreen(),
+                                ),
+                              ));
+                            }
+                            // Somebody added you back: their page, to see
+                            // who you are now connected to.
+                            if (notification.type ==
+                                    NotificationType.connectionAccepted &&
+                                notification.actorId != null) {
+                              unawaited(Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  settings: RouteSettings(
+                                      name: AppRoutes.musician(
+                                          notification.actorId!)),
+                                  builder: (_) => MusicianProfileScreen(
+                                    profileId: notification.actorId!,
+                                    repository: controller.repository,
+                                  ),
                                 ),
                               ));
                             }
@@ -805,6 +836,10 @@ class _NotificationCard extends StatelessWidget {
         return Icons.chat_bubble_outline_rounded;
       case NotificationType.wantMatched:
         return Icons.person_search_rounded;
+      case NotificationType.connectionRequest:
+        return Icons.person_add_alt_1_rounded;
+      case NotificationType.connectionAccepted:
+        return Icons.how_to_reg_rounded;
       case NotificationType.unfamiliar:
         return Icons.notifications_none_rounded;
     }
