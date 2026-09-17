@@ -34,6 +34,15 @@ abstract final class BetaConfig {
   /// Version and build together, for anywhere a person or a triage query
   /// needs to know exactly what produced something.
   static String get fullVersion => '$appVersion ($buildRef)';
+
+  /// Measuring tools for whoever is building the app, and nobody else.
+  ///
+  /// The "Recording latency" row on Account used to hang off `kDebugMode`,
+  /// and testers install debug APKs, so testers saw a measurement tool with
+  /// no idea what to do with it (audit, 17 September 2026). No CI build
+  /// passes this. Turn it on for a local run with
+  /// `--dart-define=DEV_TOOLS=true`.
+  static const devTools = bool.fromEnvironment('DEV_TOOLS');
   // These are public client values and are embedded in every mobile/web build. RLS—not
   // secrecy of the publishable key—protects application data.
   static const supabaseUrl = String.fromEnvironment(

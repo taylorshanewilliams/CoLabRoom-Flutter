@@ -312,6 +312,11 @@ void main() {
       expect(make, findsOneWidget,
           reason: 'the empty state described a set and offered no way to '
               'make one');
+      // Scrolled to, as a thumb would. On this 740-pixel phone its middle sat
+      // two pixels above the bottom edge, and the 24-pixel Clear all on the
+      // strip above (audit, 17 September 2026) takes it three past.
+      await tester.ensureVisible(make);
+      await tester.pump();
       await tester.tap(make);
       await _arrive(tester);
 

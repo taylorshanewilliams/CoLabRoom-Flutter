@@ -86,8 +86,68 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   final Map<String, Uint8List> _imageCache = <String, Uint8List>{};
   final Set<String> _imageFetchesInFlight = <String>{};
 
+  /// Invitations somebody has said no thanks to, while Undo is still on
+  /// screen.
+  ///
+  /// Declining is final on the server: `decline_room_invitation` and
+  /// `answer_room_invite` both close the invitation and tell whoever sent it,
+  /// there and then. So the no is held back here, the card leaves the inbox
+  /// at once, and nothing is sent until Undo has gone without being pressed
+  /// (audit, 17 September 2026). Here rather than on the inbox screen so the
+  /// card stays gone, and the bell's count stays right, after somebody
+  /// leaves the inbox and comes back before it is sent.
+  final Set<String> _declinesHeld = <String>{};
+
+  /// Declines that have gone out, kept out of the lists for as long as this
+  /// controller lives.
+  ///
+  /// Sending reloads, but a reload already running when the decline goes out
+  /// makes that reload a no-op and can finish with the invitation still in
+  /// it. Letting go of the hold alone then brought a closed card back with a
+  /// live No thanks that could only fail (review of the audit fixes, 17
+  /// September 2026). Keeping the id costs nothing: a closed invitation is
+  /// never reopened, and inviting somebody again makes a new one.
+  final Set<String> _declinesSent = <String>{};
+
+  bool _answeredNo(String inviteId) =>
+      _declinesHeld.contains(inviteId) || _declinesSent.contains(inviteId);
+
+  bool _disposed = false;
+
+  /// Takes an invitation out of every list while its decline can be undone.
+  void holdDecline(String inviteId) {
+    if (_disposed) return;
+    if (_declinesHeld.add(inviteId)) notifyListeners();
+  }
+
+  /// Undo: the invitation is back, and nobody was told anything.
+  void releaseDecline(String inviteId) {
+    if (_disposed) return;
+    if (_declinesHeld.remove(inviteId)) notifyListeners();
+  }
+
+  /// Sends a held decline with [send], unless it was taken back first.
+  ///
+  /// Also nothing once this controller is gone, which means the account
+  /// signed out in the seconds Undo was up. An invitation left open is the
+  /// safe way for that to go wrong: it is still there to answer next time.
+  Future<void> sendHeldDecline(
+    String inviteId,
+    Future<void> Function() send,
+  ) async {
+    if (_disposed || !_declinesHeld.contains(inviteId)) return;
+    try {
+      await send();
+      // Before the hold goes, so the card is never back for a frame.
+      _declinesSent.add(inviteId);
+    } finally {
+      releaseDecline(inviteId);
+    }
+  }
+
   List<MusicRoom> get rooms => List<MusicRoom>.unmodifiable(_rooms);
-  List<BetaInvite> get invites => List<BetaInvite>.unmodifiable(_invites);
+  List<BetaInvite> get invites => List<BetaInvite>.unmodifiable(
+      _invites.where((invite) => !_answeredNo(invite.id)));
 
   /// Somebody asking you by name to play on one of their songs. Kept beside
   /// invitations because it is the same kind of thing to a person — a request
@@ -98,7 +158,8 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// Somebody inviting you into a whole room of theirs, by name rather
   /// than by emailing you a code.
   List<RoomInviteForMe> get roomInvitesForMe =>
-      List<RoomInviteForMe>.unmodifiable(_roomInvitesForMe);
+      List<RoomInviteForMe>.unmodifiable(
+          _roomInvitesForMe.where((invite) => !_answeredNo(invite.id)));
 
   /// A slice of what is going on outside your own rooms.
   ///
@@ -940,6 +1001,7 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _reloadDebounce?.cancel();
     for (final timer in _projectDebounce.values) {

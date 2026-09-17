@@ -73,6 +73,63 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  /// No thanks, with a few seconds to take it back.
+  ///
+  /// "No thanks" used to decline on the spot, and a thumb that meant Join
+  /// had no way back (audit, 17 September 2026). The server has no way back
+  /// either — a decline closes the invitation and tells the sender at once —
+  /// so the card goes now and the answer goes when Undo does.
+  ///
+  /// The sending hangs off the snackbar, not this screen. The snackbar
+  /// belongs to the app's messenger and carries on over whatever screen is
+  /// next, so leaving the inbox still sends it; any way it closes other than
+  /// Undo counts as meaning it.
+  void _declineWithUndo({
+    required String inviteId,
+    required String said,
+    required Future<void> Function() send,
+  }) {
+    final controller = BetaScope.of(context, listen: false);
+    final messenger = ScaffoldMessenger.of(context);
+    controller.holdDecline(inviteId);
+    messenger.hideCurrentSnackBar();
+    final shown = messenger.showSnackBar(SnackBar(
+      content: Text(said),
+      // An action makes a snackbar stay up until it is dismissed, and this
+      // one has to go on its own for the answer to be sent.
+      persist: false,
+      // Four seconds is plenty to see Undo and tap it, and not enough with
+      // TalkBack or VoiceOver: the message is read out first, then it takes
+      // a swipe to Undo and a double tap. `persist: false` also switches off
+      // what used to keep a snackbar with an action up until they got to it,
+      // so without this the decline went before they could reach Undo
+      // (review of the audit fixes, 17 September 2026). Thirty seconds is the
+      // middle of what Android's own "Time to take action" setting offers,
+      // and the answer still goes during the same visit.
+      duration: MediaQuery.accessibleNavigationOf(context)
+          ? const Duration(seconds: 30)
+          : const Duration(seconds: 4),
+      action: SnackBarAction(
+        key: Key('inbox_undo_$inviteId'),
+        label: 'Undo',
+        onPressed: () => controller.releaseDecline(inviteId),
+      ),
+    ));
+    unawaited(shown.closed.then((_) async {
+      try {
+        await controller.sendHeldDecline(inviteId, send);
+      } catch (error) {
+        if (!mounted) {
+          reportAndDescribe(error,
+              service: 'app', stage: 'invite', route: 'Inbox');
+          return;
+        }
+        showProblem(context, error,
+            service: 'app', stage: 'invite', route: 'Inbox');
+      }
+    }));
+  }
+
   Future<void> _useCode() async {
     final controller = BetaScope.of(context);
     final code = await showDialog<String>(
@@ -290,10 +347,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           '${invite.roomName} is in Your music now.',
                           open: () => _openRoom(invite.roomId),
                         ),
-                        onDecline: () => _run(
-                          () => controller.answerRoomInvite(invite,
+                        onDecline: () => _declineWithUndo(
+                          inviteId: invite.id,
+                          said: 'Declined. They will be told.',
+                          send: () => controller.answerRoomInvite(invite,
                               accept: false),
-                          'Declined. They have been told.',
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -321,9 +379,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                               ? _openSong(invite.projectId!)
                               : _openRoom(invite.roomId),
                         ),
-                        onDecline: () => _run(
-                          () => controller.declineInvite(invite),
-                          'Invitation declined.',
+                        onDecline: () => _declineWithUndo(
+                          inviteId: invite.id,
+                          said: 'Invitation declined.',
+                          send: () => controller.declineInvite(invite),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -748,14 +807,18 @@ class _RoomInviteCard extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: FilledButton(
+                  key: Key('room_invite_join_${invite.id}'),
                   onPressed: busy ? null : onAccept,
+                  style: _answerTouch,
                   child: const Text('Join'),
                 ),
               ),
               const SizedBox(width: 8),
               TextButton(
+                key: Key('room_invite_decline_${invite.id}'),
                 onPressed: busy ? null : onDecline,
-                style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+                style: TextButton.styleFrom(foregroundColor: AppColors.muted)
+                    .merge(_answerTouch),
                 child: const Text('No thanks'),
               ),
             ],
@@ -765,6 +828,19 @@ class _RoomInviteCard extends StatelessWidget {
     );
   }
 }
+
+/// Join and No thanks take a 48-pixel-tall touch whatever the platform.
+///
+/// Material pads a button out to 48 only on a phone. On a desk the density
+/// is compact and the touch shrinks to 40, around a button drawn 32 tall,
+/// and these two are the answer to somebody wanting you in their band
+/// (audit, 17 September 2026). The extra touch is invisible. On a phone the
+/// card looks exactly as it did; on a desk the buttons are drawn at a phone's
+/// 40 rather than 32.
+const ButtonStyle _answerTouch = ButtonStyle(
+  tapTargetSize: MaterialTapTargetSize.padded,
+  visualDensity: VisualDensity.standard,
+);
 
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel(this.text);
@@ -813,7 +889,15 @@ class _InviteCard extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              CircleAvatar(backgroundColor: AppColors.blue, child: Text(initial)),
+              // The same ground and letter as your own initials in the top
+              // bar. Left to CircleAvatar, the letter came out pale blue on
+              // flat blue, 3.37:1 (audit, 17 September 2026).
+              CircleAvatar(
+                key: const Key('invite_face'),
+                backgroundColor: AppColors.faceGround.first,
+                foregroundColor: AppColors.faceLetter,
+                child: Text(initial),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -844,14 +928,18 @@ class _InviteCard extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: FilledButton(
+                  key: Key('invite_join_${invite.id}'),
                   onPressed: busy ? null : onJoin,
+                  style: _answerTouch,
                   child: const Text('Join'),
                 ),
               ),
               const SizedBox(width: 8),
               TextButton(
+                key: Key('invite_decline_${invite.id}'),
                 onPressed: busy ? null : onDecline,
-                style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+                style: TextButton.styleFrom(foregroundColor: AppColors.muted)
+                    .merge(_answerTouch),
                 child: const Text('No thanks'),
               ),
             ],

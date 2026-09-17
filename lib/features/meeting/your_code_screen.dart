@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../app/routes.dart';
@@ -244,11 +245,14 @@ class _YourCodeScreenState extends State<YourCodeScreen> {
           ),
         ),
         const SizedBox(height: 14),
-        SelectableText(
+        _spokenCode(
           meetingCodeSaid(code),
-          key: const Key('meet_code'),
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: AppColors.gold, fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: 3),
+          child: SelectableText(
+            meetingCodeSaid(code),
+            key: const Key('meet_code'),
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.gold, fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: 3),
+          ),
         ),
         const SizedBox(height: 6),
         Center(
@@ -260,6 +264,33 @@ class _YourCodeScreenState extends State<YourCodeScreen> {
           ),
         ),
       ];
+
+  /// The code as a screen reader should say it: what it is, then the code a
+  /// character at a time.
+  ///
+  /// Selectable text reaches assistive technology as a text box with no
+  /// name, so the one thing this screen exists to show was announced as an
+  /// unlabelled field (audit, 17 September 2026). The label says what it is,
+  /// and the code is marked to be spelled out, because "k7m2" read as a word
+  /// is no use to somebody typing it in. Copy my link, right under it, is
+  /// the way to take it with you.
+  static Widget _spokenCode(String said, {required Widget child}) {
+    const lead = 'Your code, ';
+    return Semantics(
+      key: const Key('meet_code_spoken'),
+      container: true,
+      excludeSemantics: true,
+      attributedLabel: AttributedString(
+        '$lead$said',
+        attributes: <StringAttribute>[
+          SpellOutStringAttribute(
+            range: TextRange(start: lead.length, end: lead.length + said.length),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
 
   List<Widget> _people() => <Widget>[
         for (final person in _connectedHere) ...<Widget>[

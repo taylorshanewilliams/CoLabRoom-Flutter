@@ -423,14 +423,25 @@ class _WaitingOnYouState extends State<WaitingOnYou> {
           Align(
             alignment: Alignment.centerRight,
             child: Padding(
-              padding: const EdgeInsets.only(right: 10, top: 2),
+              padding: const EdgeInsets.only(right: 10),
               child: TextButton(
                 key: const Key('waiting_clear_all'),
                 onPressed: _clearAll,
                 style: TextButton.styleFrom(
                   foregroundColor: AppColors.muted,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
-                  minimumSize: Size.zero,
+                  // At least 24 tall, the floor in WCAG 2.2 SC 2.5.8. It was
+                  // shrink-wrapped to its words, 61x17 on a desk (audit, 17
+                  // September 2026). The 2 pixels of padding above it went
+                  // into the touch, so the strip is 5 taller at normal text
+                  // and no taller at 1.3x. A full 48 costs 29 pixels, which
+                  // takes a landscape phone past the 40% [denseRowHeight]
+                  // keeps it under; moving it to the end of the row instead
+                  // hid it behind a scroll. Which of those to give up is
+                  // Taylor's call, so this is the size that needs neither.
+                  // Standard density, or a desk takes 8 back off it.
+                  minimumSize: const Size(48, 24),
+                  visualDensity: VisualDensity.standard,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
                 // Styled on the Text rather than through

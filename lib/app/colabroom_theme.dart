@@ -18,6 +18,26 @@ abstract final class AppColors {
   /// app. See memory/project_premium_tier_visual_design.md for why.
   static const gold = Color(0xFFE3B34D);
 
+  /// The ground under your initials when there is no picture, light end
+  /// first.
+  ///
+  /// The light end was [blue] itself, and small text does not read on it:
+  /// white is 4.36:1. The audit measured the inbox's pale blue initial on
+  /// flat blue at 3.37:1 (17 September 2026), and looking for the others
+  /// found worse — the initials in the top bar and on Account had no colour
+  /// of their own and took the body text grey, 1.6:1. A blue one shade
+  /// deeper puts white past 4.5:1 at every point of the gradient and still
+  /// reads as the same blue beside the rest of the app.
+  static const faceGround = <Color>[Color(0xFF2866EE), Color(0xFF124A80)];
+
+  /// The letters on [faceGround].
+  static const faceLetter = Color(0xFFFFFFFF);
+
+  /// The unread count on the bell. The pill stays the error pink; the number
+  /// on it is ink, because white on that pink was 2.66:1 at ten pixels
+  /// (audit, 17 September 2026).
+  static const badgeLetter = ink;
+
   /// The 10 collaborator colors the backend assigns members from (see
   /// accept_room_invitation_by_id / set_my_room_color in
   /// supabase/migrations/0006_shared_document_editor.sql) — kept in the
@@ -35,6 +55,30 @@ abstract final class AppColors {
     Color(0xFFA8E063),
     Color(0xFFFF7A7A),
   ];
+}
+
+/// The WCAG 2.x contrast ratio between two opaque colours, 1 to 21.
+double contrastRatio(Color a, Color b) {
+  final one = a.computeLuminance();
+  final two = b.computeLuminance();
+  final lighter = one > two ? one : two;
+  final darker = one > two ? two : one;
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/// [colour], moved toward [AppColors.text] only as far as it takes to read
+/// on [ground] at 4.5:1.
+///
+/// For letters drawn in somebody's own colour. Most of the palette already
+/// clears 4.5:1 and comes back unchanged, so a member still sees the colour
+/// they chose; the few that do not are lifted a step at a time rather than
+/// swapped for white, which keeps them recognisably theirs.
+Color readableOn(Color colour, Color ground) {
+  for (var step = 0; step <= 10; step += 1) {
+    final lifted = Color.lerp(colour, AppColors.text, step / 10)!;
+    if (contrastRatio(lifted, ground) >= 4.5) return lifted;
+  }
+  return AppColors.text;
 }
 
 abstract final class CoLabRoomTheme {
