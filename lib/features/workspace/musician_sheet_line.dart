@@ -5,6 +5,7 @@ import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/practice_rules.dart';
 import 'package:colabroom/services/chord_names.dart';
 import 'package:flutter/material.dart';
+import '../../services/music_reference.dart';
 
 typedef MusicianChordTap = void Function(
   MusicianSheetLine line,
@@ -54,6 +55,7 @@ class MusicianChordLyricLine extends StatelessWidget {
   const MusicianChordLyricLine({
     required this.line,
     required this.transpose,
+    this.musicalKey,
     required this.fontScale,
     required this.showChords,
     this.editable = false,
@@ -69,6 +71,10 @@ class MusicianChordLyricLine extends StatelessWidget {
 
   final MusicianSheetLine line;
   final int transpose;
+
+  /// The song's key before transposing, so chords are spelled the way the
+  /// key writes them (B♭, not A♯). Null when none was found.
+  final String? musicalKey;
   final double fontScale;
   final bool showChords;
   final bool editable;
@@ -145,6 +151,7 @@ class MusicianChordLyricLine extends StatelessWidget {
               chord: placements[index],
               wordIndex: index,
               transpose: transpose,
+              musicalKey: musicalKey,
               fontScale: fontScale,
               showChords: showChords,
               editable: editable,
@@ -218,6 +225,7 @@ class _ChordWord extends StatelessWidget {
     required this.chord,
     required this.wordIndex,
     required this.transpose,
+    this.musicalKey,
     required this.fontScale,
     required this.showChords,
     required this.editable,
@@ -237,6 +245,7 @@ class _ChordWord extends StatelessWidget {
   final ChordCue? chord;
   final int wordIndex;
   final int transpose;
+  final String? musicalKey;
   final double fontScale;
   final bool showChords;
   final bool editable;
@@ -272,7 +281,12 @@ class _ChordWord extends StatelessWidget {
     // chordDisplay spells the label the way it goes on paper: ChordMini
     // stores Harte notation, so without this the sheet reads "C:maj".
     final chordText =
-        chord == null ? '' : chordDisplay(transposeChord(chord!.chord, transpose));
+        chord == null
+            ? ''
+            : spellInKey(
+                chordDisplay(transposeChord(chord!.chord, transpose)),
+                musicalKey == null ? null : transposeChord(musicalKey!, transpose),
+              );
     final chordWidget = chord == null
         ? const SizedBox.shrink()
         : InkWell(

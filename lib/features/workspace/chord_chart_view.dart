@@ -7,6 +7,7 @@ import '../../services/chord_chart.dart';
 import '../../services/chord_names.dart';
 import 'music_reference_sheets.dart';
 import 'musician_sheet_logic.dart' show transposeChord;
+import '../../services/music_reference.dart';
 
 /// The song as bars.
 ///
@@ -273,7 +274,11 @@ class _BarCell extends StatelessWidget {
     // the bar isn't in four, which happens more than people expect.
     final byBeat = <int, String>{};
     for (final chord in bar.chords) {
-      byBeat[chord.beat] = chordDisplay(transposeChord(chord.chord, transpose));
+      final key = song.musicalKey;
+      byBeat[chord.beat] = spellInKey(
+        chordDisplay(transposeChord(chord.chord, transpose)),
+        key == null ? null : transposeChord(key, transpose),
+      );
     }
     return Container(
       decoration: BoxDecoration(

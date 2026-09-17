@@ -2113,6 +2113,23 @@ begin
   end if;
 end $$;
 
+-- One word for one sound (0135). The tour offered "hip-hop" and settings
+-- "hip hop"; spellings of one sound are one tag, and count once.
+select public.set_open_mic_presence(
+  true, null, null, null, array['Hip Hop', 'hip-hop', 'LoFi', 'R & B', 'drum and  bass']
+);
+
+do $$
+declare
+  mine text[];
+begin
+  select sounds_like into mine from public.profiles
+  where id = '11111111-1111-1111-1111-111111111111';
+  if mine <> array['hip-hop', 'lo-fi', 'r&b', 'drum and bass'] then
+    raise exception 'sounds_like folded to % rather than hip-hop/lo-fi/r&b/drum and bass', mine;
+  end if;
+end $$;
+
 -- Put it back to something the rest of the file can read.
 select public.set_open_mic_presence(
   true, null, null, null, array['folk', 'americana']

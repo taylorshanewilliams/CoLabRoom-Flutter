@@ -13,6 +13,7 @@ import '../../widgets/problem_report.dart';
 import '../../services/user_facing_error.dart';
 import 'interludes.dart';
 import 'play_later.dart';
+import '../../domain/sounds.dart';
 
 /// The first two minutes, and the four facts the app cannot work without.
 ///
@@ -985,15 +986,13 @@ class _WhatYouSoundLikeState extends State<_WhatYouSoundLike> {
   ///
   /// `soundsLike` is free text on purpose — "nobody earns a genre, so this
   /// can order a list without ever ranking a person" — so these are only here
-  /// because an empty box with no examples is the question people skip.
-  static const List<String> _starters = <String>[
-    'indie', 'folk', 'rock', 'metal', 'punk', 'hip-hop',
-    'r&b', 'soul', 'country', 'jazz', 'blues', 'electronic',
-    'pop', 'worship', 'lo-fi', 'acoustic',
-  ];
+  /// because an empty box with no examples is the question people skip. The
+  /// first sixteen of the list Open Mic settings offers, so a word picked here
+  /// and a word picked there are the same word.
+  static final List<String> _starters = soundStarters.take(16).toList(growable: false);
 
   void _add() {
-    final text = widget.field.text.trim().toLowerCase();
+    final text = soundWord(widget.field.text);
     if (text.isEmpty) return;
     widget.onToggle(text);
     widget.field.clear();
