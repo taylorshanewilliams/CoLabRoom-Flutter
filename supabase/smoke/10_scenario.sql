@@ -4224,9 +4224,13 @@ begin
                  where user_id = '11111111-1111-1111-1111-111111111111') then
     raise exception 'the room does not show who is in its call';
   end if;
-  if exists (select 1 from public.call_presence) then
-    raise exception 'call presence is readable directly';
-  end if;
+  -- Refused outright or read as empty: either way nobody reads it directly.
+  begin
+    if exists (select 1 from public.call_presence) then
+      raise exception 'call presence is readable directly';
+    end if;
+  exception when insufficient_privilege then null;
+  end;
   if public.blocked_with_any(array['11111111-1111-1111-1111-111111111111'::uuid]) then
     raise exception 'a block is reported where there is none';
   end if;

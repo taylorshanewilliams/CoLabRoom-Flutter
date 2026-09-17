@@ -135,7 +135,8 @@ create table if not exists public.call_presence (
 create index if not exists call_presence_room_idx on public.call_presence (room_id, heard_at desc);
 
 alter table public.call_presence enable row level security;
-revoke insert, update, delete on public.call_presence from authenticated, anon;
+-- Read through room_call, written through hear_me_in_call: nothing directly.
+revoke all on table public.call_presence from authenticated, anon;
 
 -- When a room was last told a call had started, so a dropped connection and a
 -- rejoin is not a second push to everybody.
