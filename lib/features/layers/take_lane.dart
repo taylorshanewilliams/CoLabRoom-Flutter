@@ -264,33 +264,47 @@ class TakeLane extends StatelessWidget {
                     // button is bounded by the lane it sits in. On the desk
                     // panel this area can be narrow, and a name too long for
                     // it should shorten rather than run off the end.
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 140),
-                        child: TextButton(
-                          onPressed: onShare,
-                          style: TextButton.styleFrom(
-                            foregroundColor: AppColors.cyan,
-                            backgroundColor: AppColors.raised,
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 10),
-                            minimumSize: const Size(0, 28),
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              side: BorderSide(
-                                color: AppColors.cyan.withValues(alpha: 0.35),
+                    child: LayoutBuilder(
+                      builder: (context, lane) => Align(
+                        alignment: Alignment.centerRight,
+                        child: ConstrainedBox(
+                          // Never more than most of the lane, and see-through
+                          // besides. Sitting over the waveform buys the
+                          // shared clock, but this is the one lane somebody
+                          // is actually reading — their own take, unheard,
+                          // while they decide whether to play it again — and
+                          // a solid pill wide enough for a name would have
+                          // covered the shape they were reading it for. On a
+                          // narrow desk panel it could have covered all of
+                          // it.
+                          constraints: BoxConstraints(
+                            maxWidth: math.min(140, lane.maxWidth * 0.62),
+                          ),
+                          child: TextButton(
+                            onPressed: onShare,
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.cyan,
+                              backgroundColor:
+                                  AppColors.raised.withValues(alpha: 0.82),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 10),
+                              minimumSize: const Size(0, 28),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                side: BorderSide(
+                                  color: AppColors.cyan.withValues(alpha: 0.35),
+                                ),
                               ),
                             ),
-                          ),
-                          child: Text(
-                            shareLabel,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w800,
+                            child: Text(
+                              shareLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                         ),

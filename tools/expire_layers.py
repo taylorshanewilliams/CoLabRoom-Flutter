@@ -43,7 +43,9 @@ somebody's coursework, and a pilot would fail silently.
 
 The exception only ever extends. It never shortens anything: a lesson take
 that is still being opened is already safe under the ordinary rule, and this
-adds a floor underneath it rather than a ceiling over it.
+adds a floor underneath it rather than a ceiling over it. And it does not cost
+a take its notice: one leaving its term is warned on the run that first finds
+it past 180 days and deleted on a later one, like everything else here.
 
 Environment:
   SUPABASE_PROJECT_REF        project ref (already a repo secret)
@@ -240,6 +242,17 @@ def main() -> int:
 
     to_warn = [layer for layer in warn_candidates if not in_its_term(layer)]
     to_delete = [layer for layer in delete_candidates if not in_its_term(layer)]
+
+    # Nothing is warned and deleted in the same run. That is the second of the
+    # three promises at the top of this file — warned first, once, with a
+    # fortnight to act — and until now it held only because the thresholds are
+    # a fortnight apart and the schedule is weekly. The term exception breaks
+    # that: a hand-in is held out of both passes all term and then, on the
+    # Sunday after day 180, lands in both on the same morning, so the layers
+    # this feature exists to protect would have been the only ones deleted
+    # with no notice at all. A layer being warned now waits for a later run.
+    warned_now = {layer["id"] for layer in to_warn}
+    to_delete = [layer for layer in to_delete if layer["id"] not in warned_now]
     # Counted by layer, not by pass. A take old enough to be deleted is old
     # enough to be warned as well, so it is in both candidate lists and would
     # otherwise be reported twice.
@@ -253,11 +266,11 @@ def main() -> int:
         print()
 
     # ---- warn ----------------------------------------------------------
-    # Warned before deleted, and warned once. Ordered this way round on
-    # purpose: a layer that crosses both thresholds between two runs of this
-    # script — which happens if the schedule ever misses a fortnight — gets
-    # its warning on this run and is deleted on a later one, rather than
-    # vanishing in the same pass that was supposed to give notice.
+    # Warned before deleted, and warned once. A layer that crosses both
+    # thresholds between two runs of this script gets its warning on this run
+    # and is deleted on a later one, rather than vanishing in the same pass
+    # that was supposed to give notice — held out of the deletion list above
+    # rather than by this ordering, which only ever made it look true.
     projects_warned: set[str] = set()
     for layer in to_warn:
         projects_warned.add(layer["project_id"])

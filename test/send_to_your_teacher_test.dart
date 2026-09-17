@@ -207,6 +207,37 @@ void main() {
           isNull);
     });
 
+    test('once somebody else is invited in, it is a room again', () {
+      // A lesson link makes a room with two people in it, and nothing keeps
+      // it that way: the teacher owns the room and the invite button is not
+      // hidden for lessons. share_layer tells every member, so "Only Ms.
+      // Rivera will hear this" would be a false promise the moment an
+      // accompanist is added.
+      final room = _room(teacherId: 'teacher-1');
+      final andAnother = MusicRoom(
+        id: room.id,
+        accountId: room.accountId,
+        name: room.name,
+        icon: room.icon,
+        createdAt: room.createdAt,
+        updatedAt: room.updatedAt,
+        members: <RoomMember>[
+          ...room.members,
+          const RoomMember(
+            userId: 'accompanist-1',
+            displayName: 'Sam',
+            role: RoomRole.editor,
+            colorValue: 0xFF7CE0A0,
+          ),
+        ],
+      );
+
+      expect(
+        teacherToSendTo(lessonRoom: true, room: andAnother, me: 'student-1'),
+        isNull,
+      );
+    });
+
     test('a room made by opening a lesson link knows that it is one', () async {
       final repository = InMemoryMusicRepository.seeded()
         ..offerLesson(
@@ -280,6 +311,18 @@ void main() {
           shareLabel: shareLabelFor('Professor Aleksandra Wiśniewska-Kowalczyk')));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
+
+      // And leaves the take's own shape showing. The button sits over the
+      // waveform so that every lane still draws against the same clock, and
+      // the lane it sits on is the one somebody is reading — their own take,
+      // that nobody has heard — so it must not be able to cover the thing
+      // they are reading it for, however long the teacher's name is.
+      final lane = tester.getRect(find.byType(TakeLane));
+      final waveLeft = lane.left + 9 + 104 + 8; // padding, buttons, gap
+      final waveRight = lane.right - 10; // padding
+      final button = tester.getRect(find.byType(TextButton));
+      expect(button.left - waveLeft,
+          greaterThan((waveRight - waveLeft) * 0.3));
     });
 
     testWidgets('sending it promises one listener', (tester) async {
