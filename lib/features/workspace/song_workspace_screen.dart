@@ -1458,8 +1458,12 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     }
 
     if (_lastContributionCount != project.contributions.length) {
+      // A song opens at its first line. Following the end is for lines that
+      // arrive while it is open; opening at the end hid the start of every
+      // song somebody came to read or play.
+      final opening = _lastContributionCount < 0;
       _lastContributionCount = project.contributions.length;
-      _scrollToBottom();
+      if (!opening) _scrollToBottom();
     }
 
     final media = MediaQuery.of(context);
