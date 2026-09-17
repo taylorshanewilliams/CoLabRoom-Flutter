@@ -1,4 +1,5 @@
 import '../../domain/song_analysis_models.dart';
+import '../../services/chord_beat_grid.dart' show barNumberAt;
 import 'musician_sheet_logic.dart' show noteAsPlayed;
 
 /// The rules of practising a song, kept out of the screen so they can be
@@ -13,7 +14,7 @@ import 'musician_sheet_logic.dart' show noteAsPlayed;
 
 /// Where playback is once [elapsed] has run past the end of [loop]: back at
 /// its start. Anywhere else, unchanged.
-Duration keepInside(Duration elapsed, StructureSection? loop) {
+Duration keepInside(Duration elapsed, PracticeLoop? loop) {
   if (loop == null) return elapsed;
   if (elapsed.inMilliseconds < loop.endMs) return elapsed;
   return Duration(milliseconds: loop.startMs);
@@ -50,12 +51,194 @@ List<String> sectionChipLabels(List<StructureSection> sections) {
 }
 
 /// The speeds worth offering. Slower than half is a different song.
-const List<double> practiceRates = <double>[0.5, 0.75, 1.0];
+///
+/// Three of them was too few. Slowing a passage down and creeping it back up
+/// is what every one of the eight lenses in the research asked for first, and
+/// half to three-quarters to full is a jump a hand cannot follow: the step a
+/// player needs next is a tenth, not a quarter (Every Musician, Same Song,
+/// 17 September 2026).
+const List<double> practiceRates = <double>[0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1.0];
 
+/// Half, three-quarter and full speed keep the names a musician says out
+/// loud. The ones in between have no such name, so they say the number
+/// rather than a fraction nobody would read aloud.
 String rateLabel(double rate) {
   if (rate == 0.5) return '½';
   if (rate == 0.75) return '¾';
-  return '1×';
+  if (rate == 1) return '1×';
+  return '${(rate * 100).round()}%';
+}
+
+/// The speed one step either side of [rate], or null at the ends.
+///
+/// Null is how the stepper knows to go grey: seven speeds on seven chips is
+/// a row the thumb has to scroll past before it can reach the parts, so
+/// Perform shows one speed and two arrows instead.
+double? rateStep(double rate, {required bool faster}) {
+  final at = practiceRates.indexOf(rate);
+  final from = at < 0 ? practiceRates.length - 1 : at;
+  final next = faster ? from + 1 : from - 1;
+  if (next < 0 || next >= practiceRates.length) return null;
+  return practiceRates[next];
+}
+
+/// What is on repeat: a part of the song by name, or a run of bars.
+///
+/// Sections were all there was, and "again" meant a part a musician would
+/// name. But the sentence a teacher says most often is "bars nine to twelve",
+/// and the research asked for it in every lens (Every Musician, Same Song,
+/// 17 September 2026). Downstream both are the same thing — a start, an end
+/// and a name — which is why Follow me and the practice marks needed nothing
+/// new to carry one.
+class PracticeLoop {
+  const PracticeLoop({
+    required this.startMs,
+    required this.endMs,
+    required this.label,
+    this.firstBar,
+    this.lastBar,
+  });
+
+  final int startMs;
+  final int endMs;
+
+  /// What the chip and the practice mark call it: "Chorus 2", "Bars 9–12".
+  final String label;
+
+  /// The bars this covers, when it was chosen as bars rather than as a part.
+  final int? firstBar;
+  final int? lastBar;
+
+  bool get isBars => firstBar != null && lastBar != null;
+
+  /// By where it runs and what it is called, so a loop rebuilt from two
+  /// times — a heartbeat from the leader, a practice mark reopened — is the
+  /// same loop as the one the chip is showing.
+  @override
+  bool operator ==(Object other) =>
+      other is PracticeLoop &&
+      other.startMs == startMs &&
+      other.endMs == endMs &&
+      other.label == label;
+
+  @override
+  int get hashCode => Object.hash(startMs, endMs, label);
+}
+
+/// One loop per section, named the way its chip is.
+List<PracticeLoop> sectionLoops(List<StructureSection> sections) {
+  final labels = sectionChipLabels(sections);
+  return <PracticeLoop>[
+    for (var i = 0; i < sections.length; i += 1)
+      PracticeLoop(
+        startMs: sections[i].startMs,
+        endMs: sections[i].endMs,
+        label: labels[i],
+      ),
+  ];
+}
+
+/// "Bars 9–12", or "Bar 9" when it is one.
+String barsLabel(int firstBar, int lastBar) =>
+    firstBar == lastBar ? 'Bar $firstBar' : 'Bars $firstBar–$lastBar';
+
+/// Where bar [bar] starts: the downbeat it begins on.
+///
+/// Bar 1 is the first downbeat, for now. A pickup phrase ahead of it is not
+/// bar 0 and not bar 1 either (see barNumberAt), so a loop simply cannot
+/// start before the recording's own count does. [downbeatsMs] is ascending,
+/// which is how the beat tracker emits it.
+int barStartMs(int bar, List<int> downbeatsMs) {
+  if (downbeatsMs.isEmpty) return 0;
+  return downbeatsMs[bar.clamp(1, downbeatsMs.length).toInt() - 1];
+}
+
+/// Where bar [bar] ends: the next downbeat, or the end of the recording for
+/// the last bar.
+///
+/// [songEndMs] is the recording's own length when it is known. Without it the
+/// last bar is given the length of the one before it, which is the only
+/// honest guess available and is never used to decide anything a musician
+/// can see except where a loop over the final bar turns round.
+int barEndMs(int bar, List<int> downbeatsMs, {int? songEndMs}) {
+  final count = downbeatsMs.length;
+  if (count == 0) return 0;
+  final at = bar.clamp(1, count).toInt();
+  if (at < count) return downbeatsMs[at];
+  final last = downbeatsMs[count - 1];
+  if (songEndMs != null && songEndMs > last) return songEndMs;
+  final one = count >= 2 ? last - downbeatsMs[count - 2] : 0;
+  return last + (one > 0 ? one : 1);
+}
+
+/// A loop over [firstBar] to [lastBar] inclusive, snapped to the downbeats
+/// either side of them.
+///
+/// Null without a grid to count bars on. A bar loop laid over a guessed grid
+/// would be confidently wrong in a way nobody could see, which is the same
+/// reason the chord chart refuses to draw bars without downbeats.
+PracticeLoop? barLoop({
+  required int firstBar,
+  required int lastBar,
+  required List<int> downbeatsMs,
+  int? songEndMs,
+}) {
+  final count = downbeatsMs.length;
+  if (count == 0) return null;
+  var first = firstBar.clamp(1, count).toInt();
+  var last = lastBar.clamp(1, count).toInt();
+  if (last < first) {
+    final held = first;
+    first = last;
+    last = held;
+  }
+  final start = barStartMs(first, downbeatsMs);
+  final end = barEndMs(last, downbeatsMs, songEndMs: songEndMs);
+  if (end <= start) return null;
+  return PracticeLoop(
+    startMs: start,
+    endMs: end,
+    label: barsLabel(first, last),
+    firstBar: first,
+    lastBar: last,
+  );
+}
+
+/// The loop a start and an end time mean on this song: the part with exactly
+/// those edges, or else the run of bars they cover.
+///
+/// Follow me and the practice marks carry a loop as two times and nothing
+/// else, on purpose — two phones cannot misread a number the way they can
+/// misread a name (see follow_me.dart). This is how a time range becomes
+/// something to put on a chip again, and it is why a follower's chip reads
+/// "Bars 9–12" without the leader ever sending those words. The times
+/// themselves are kept exactly as given: the follower loops where the leader
+/// loops, and only the name is worked out here.
+PracticeLoop? loopFor(
+  int? startMs,
+  int? endMs, {
+  List<StructureSection> sections = const <StructureSection>[],
+  List<int> downbeatsMs = const <int>[],
+}) {
+  if (startMs == null || endMs == null || endMs <= startMs) return null;
+  final labels = sectionChipLabels(sections);
+  for (var i = 0; i < sections.length; i += 1) {
+    if (sections[i].startMs == startMs && sections[i].endMs == endMs) {
+      return PracticeLoop(startMs: startMs, endMs: endMs, label: labels[i]);
+    }
+  }
+  final first = barNumberAt(startMs, downbeatsMs);
+  // The end is where the loop turns round rather than a moment it plays, so
+  // the last bar is the one the instant just before it sits in.
+  final last = barNumberAt(endMs - 1, downbeatsMs);
+  if (first == null || last == null || last < first) return null;
+  return PracticeLoop(
+    startMs: startMs,
+    endMs: endMs,
+    label: barsLabel(first, last),
+    firstBar: first,
+    lastBar: last,
+  );
 }
 
 /// Which word of a line is being sung at [elapsedMs]: the last one that has

@@ -5,6 +5,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/audio_source_for.dart';
+import '../../services/chord_beat_grid.dart' show barNumberAt;
 import '../../services/follow_me.dart';
 import 'package:flutter/services.dart';
 
@@ -257,12 +258,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// Practising: one part on repeat, and the recording slowed.
   ///
   /// Both belong to synced mode, the one where the song is the clock. A loop
-  /// is a section of the song's own structure -- Intro, Verse, Chorus -- so
-  /// "again" means the part a musician would name, not a time range. The
-  /// rate is applied to the player when there is one and to the wall clock
-  /// when there is not, so a sheet with no recording still slows down.
+  /// is a section of the song's own structure -- Intro, Verse, Chorus -- or a
+  /// run of bars off the recording's own grid, so "again" means either the
+  /// part a musician would name or the bars they would count, never a raw
+  /// time range. The rate is applied to the player when there is one and to
+  /// the wall clock when there is not, so a sheet with no recording still
+  /// slows down.
   double _rate = 1;
-  StructureSection? _loop;
+  PracticeLoop? _loop;
 
   /// Singing along: the phone's ear open, the singer's note beside the
   /// song's. Only offered when the recording has a tune to sing against.
@@ -281,6 +284,22 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   List<StructureSection> get _sections =>
       widget.analysis?.reference?.structureSections ??
       const <StructureSection>[];
+
+  /// The first beat of each bar, which is the whole of what bar loops are
+  /// built on. Empty for a recording analysed before beat tracking, or one
+  /// the tracker gave no confident answer for: those songs keep section
+  /// loops and are offered no bars at all.
+  List<int> get _downbeats =>
+      widget.analysis?.reference?.downbeatsMs ?? const <int>[];
+
+  /// Where the recording stops, for the one bar that has no next downbeat to
+  /// end on. Not [_songDuration], which a manual "song time" can set to
+  /// something the recording is not.
+  int? get _recordingEndMs {
+    final duration = widget.analysis?.reference?.durationMs;
+    if (duration != null && duration > 0) return duration;
+    return _sheetLines.isEmpty ? null : _sheetLines.last.endMs;
+  }
 
   Melody? get _melody => widget.analysis?.reference?.melody;
 
@@ -340,7 +359,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final practise = widget.practise;
     if (practise != null && _hasSync) {
       _rate = practise.rate;
-      _loop = _sectionAt(practise.startMs, practise.endMs);
+      _loop = _loopFor(practise.startMs, practise.endMs);
       _elapsed = Duration(milliseconds: _loop?.startMs ?? 0);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_scroll.hasClients) return;
@@ -470,7 +489,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _rate = state.rate;
       if (audio != null) unawaited(audio.setPlaybackRate(state.rate));
     }
-    _loop = _sectionAt(state.loopStartMs, state.loopEndMs);
+    _loop = _loopFor(state.loopStartMs, state.loopEndMs);
     final target = together.targetMs() ?? state.positionMs;
     final moved = worthCorrecting(_elapsedNow.inMilliseconds, target);
     if (moved) _seekTo(Duration(milliseconds: target));
@@ -527,14 +546,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     });
   }
 
-  /// The section on repeat, found by where it sits in the song.
-  StructureSection? _sectionAt(int? startMs, int? endMs) {
-    if (startMs == null || endMs == null) return null;
-    for (final section in _sections) {
-      if (section.startMs == startMs && section.endMs == endMs) return section;
-    }
-    return null;
-  }
+  /// What is on repeat, found by where it sits in the song: the part with
+  /// those edges, or the bars it covers. See loopFor.
+  PracticeLoop? _loopFor(int? startMs, int? endMs) => loopFor(
+        startMs,
+        endMs,
+        sections: _sections,
+        downbeatsMs: _downbeats,
+      );
 
   /// Following ended. Whatever was worked on is kept, with the leader's
   /// note; when it was the leader who stopped, the phone says where it went,
@@ -611,14 +630,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     );
   }
 
-  /// A part named the way its chip is.
+  /// A part named the way its chip is -- "Chorus 2", or "Bars 9–12" for a run
+  /// of bars, which is what makes a practice mark read "Bars 9–12 at 70%".
   String _partLabel(int? startMs, int? endMs) {
     if (startMs == null || endMs == null) return 'The whole song';
-    final labels = sectionChipLabels(_sections);
-    for (var i = 0; i < _sections.length; i++) {
-      if (_sections[i].startMs == startMs && _sections[i].endMs == endMs) return labels[i];
-    }
-    return 'A part of the song';
+    return _loopFor(startMs, endMs)?.label ?? 'A part of the song';
   }
 
   /// Stop leading. With somebody following, first the chance to leave them
@@ -1368,22 +1384,22 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _armControlHide();
   }
 
-  /// Loop one part, or stop looping.
+  /// Loop one part or one run of bars, or stop looping.
   ///
-  /// Tapping the part already on repeat is the way out; any other part jumps
+  /// Choosing what is already on repeat is the way out; anything else jumps
   /// there and stays there, playing or paused. Paused, the sheet still moves
-  /// to the part so the next press of Start begins where the eye is.
-  void _setLoop(StructureSection section) {
+  /// to it so the next press of Start begins where the eye is.
+  void _setLoop(PracticeLoop loop) {
     _takeOver();
     _cancelCountdown();
-    final same = identical(section, _loop);
+    final same = loop == _loop;
     setState(() {
-      _loop = same ? null : section;
+      _loop = same ? null : loop;
       _controlsVisible = true;
       if (_mode == LiveScrollMode.off && _hasSync) _mode = LiveScrollMode.synced;
     });
     if (!same) {
-      _seekTo(Duration(milliseconds: section.startMs));
+      _seekTo(Duration(milliseconds: loop.startMs));
       if (_mode == LiveScrollMode.synced) {
         _markOffsetsDirty();
         if (!_playing) {
@@ -1398,6 +1414,51 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     }
     _lastTick = null;
     _armControlHide();
+  }
+
+  /// Pick the bars to put on repeat.
+  ///
+  /// It opens on the bars the song is sitting in rather than on bar 1, so
+  /// parking on the passage that will not come out and pressing Bars offers
+  /// that passage. Four bars is the phrase a teacher hands out when they
+  /// hand one out.
+  void _openBarLoop() {
+    final downbeats = _downbeats;
+    if (downbeats.length < 2) return;
+    _showControls();
+    final current = _loop;
+    final here = barNumberAt(_elapsedNow.inMilliseconds, downbeats) ?? 1;
+    unawaited(showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.deepNavy,
+      showDragHandle: true,
+      builder: (sheetContext) => _BarLoopSheet(
+        barCount: downbeats.length,
+        firstBar: current?.firstBar ?? here,
+        lastBar: current?.lastBar ?? math.min(here + 3, downbeats.length),
+        looping: current?.isBars ?? false,
+        onChoose: (first, last) {
+          Navigator.of(sheetContext).pop();
+          final chosen = barLoop(
+            firstBar: first,
+            lastBar: last,
+            downbeatsMs: downbeats,
+            songEndMs: _recordingEndMs,
+          );
+          if (chosen == null) return;
+          // Named the way it will be named when it comes back from a
+          // heartbeat or a practice mark, so bars that happen to be exactly
+          // the chorus say Chorus on the way in as well as on the way back.
+          final loop = _loopFor(chosen.startMs, chosen.endMs) ?? chosen;
+          if (loop != _loop) _setLoop(loop);
+        },
+        onStop: () {
+          Navigator.of(sheetContext).pop();
+          final on = _loop;
+          if (on != null) _setLoop(on);
+        },
+      ),
+    ));
   }
 
   @override
@@ -1588,10 +1649,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         hasAudio: _audioReady,
                         onPlay: _onPlayPressed,
                         onMode: _selectMode,
-                        sections: _sections,
-                        sectionLabels: sectionChipLabels(_sections),
+                        loops: sectionLoops(_sections),
                         loop: _loop,
                         onLoop: _setLoop,
+                        barCount: _downbeats.length,
+                        onBars: _openBarLoop,
                         rate: _rate,
                         onRate: _setRate,
                         onSeek: _onSeek,
@@ -2052,10 +2114,11 @@ class _LiveControls extends StatelessWidget {
     required this.hasAudio,
     required this.onPlay,
     required this.onMode,
-    required this.sections,
-    required this.sectionLabels,
+    required this.loops,
     required this.loop,
     required this.onLoop,
+    this.barCount = 0,
+    this.onBars,
     required this.rate,
     required this.onRate,
     required this.onSeek,
@@ -2106,11 +2169,17 @@ class _LiveControls extends StatelessWidget {
   final ValueChanged<StemKind>? onWithout;
   final String? mixNote;
 
-  /// The song's own parts, one chip each, and which one is on repeat.
-  final List<StructureSection> sections;
-  final List<String> sectionLabels;
-  final StructureSection? loop;
-  final ValueChanged<StructureSection> onLoop;
+  /// The song's own parts, one chip each, and what is on repeat -- one of
+  /// them, or a run of bars.
+  final List<PracticeLoop> loops;
+  final PracticeLoop? loop;
+  final ValueChanged<PracticeLoop> onLoop;
+
+  /// How many bars the recording has, and the way to pick a run of them.
+  /// Nought means no beat grid was found, and then there are no bar
+  /// controls at all: sections are the only thing that can be looped.
+  final int barCount;
+  final VoidCallback? onBars;
 
   /// How fast the song goes, and where in it we are.
   final double rate;
@@ -2124,6 +2193,12 @@ class _LiveControls extends StatelessWidget {
   /// In the manual modes the scroll is a speed, and a "chorus" is wherever
   /// the eye happens to be.
   bool get _showPractice => _synced && hasSync;
+
+  /// One bar is a grid nobody can choose a run from, so the chip needs two.
+  bool get _canLoopBars => barCount >= 2 && onBars != null;
+
+  /// A run of bars is what is on repeat, rather than a named part.
+  bool get _barsOn => loop?.isBars ?? false;
 
   @override
   Widget build(BuildContext context) {
@@ -2282,13 +2357,7 @@ class _LiveControls extends StatelessWidget {
                   key: const Key('live_practice_row'),
                   scrollDirection: Axis.horizontal,
                   children: <Widget>[
-                    for (final each in practiceRates)
-                      _ModeChip(
-                        key: Key('live_rate_$each'),
-                        label: rateLabel(each),
-                        selected: rate == each,
-                        onTap: () => onRate(each),
-                      ),
+                    _RateStepper(rate: rate, onRate: onRate),
                     // Sing along, when there is a tune to sing against. A
                     // recording analysed before the pipeline could hear one
                     // simply has no chip -- not a chip that says no.
@@ -2320,19 +2389,30 @@ class _LiveControls extends StatelessWidget {
                           onTap: () => onWithout!(stem.kind),
                         ),
                     ],
-                    if (sections.isNotEmpty) ...<Widget>[
+                    if (loops.isNotEmpty || _canLoopBars) ...<Widget>[
                       const SizedBox(width: 6),
                       const Padding(
                         padding: EdgeInsets.only(right: 6),
                         child: Icon(Icons.repeat_rounded, size: 15, color: AppColors.muted),
                       ),
-                      for (var i = 0; i < sections.length; i++)
+                      // Bars first, because the run a player is stuck on is
+                      // rarely a whole part of the song. Without a beat grid
+                      // there is no chip here at all -- see [barCount].
+                      if (_canLoopBars)
+                        _ModeChip(
+                          key: const Key('live_loop_bars'),
+                          label: _barsOn ? loop!.label : 'Bars',
+                          icon: _barsOn ? Icons.repeat_rounded : null,
+                          selected: _barsOn,
+                          onTap: onBars!,
+                        ),
+                      for (var i = 0; i < loops.length; i++)
                         _ModeChip(
                           key: Key('live_loop_$i'),
-                          label: sectionLabels[i],
-                          icon: identical(loop, sections[i]) ? Icons.repeat_rounded : null,
-                          selected: identical(loop, sections[i]),
-                          onTap: () => onLoop(sections[i]),
+                          label: loops[i].label,
+                          icon: loop == loops[i] ? Icons.repeat_rounded : null,
+                          selected: loop == loops[i],
+                          onTap: () => onLoop(loops[i]),
                         ),
                     ],
                   ],
@@ -2466,6 +2546,197 @@ class _ModeChip extends StatelessWidget {
           color: selected ? AppColors.ink : AppColors.muted,
         ),
         visualDensity: VisualDensity.compact,
+      ),
+    );
+  }
+}
+
+/// The speed, and the two ways to move it.
+///
+/// Seven speeds would be seven chips, and the practice row already carries
+/// the sing chip, the parts left out and every section of the song. So the
+/// speeds became one reading with an arrow either side: it takes less width
+/// than the three chips it replaces and holds twice as many steps (Every
+/// Musician, Same Song, 17 September 2026). The reading is gold once the
+/// song is slowed, because a speed you have forgotten you set is the reason
+/// a passage "still sounds wrong" at the end of an hour.
+class _RateStepper extends StatelessWidget {
+  const _RateStepper({required this.rate, required this.onRate});
+
+  final double rate;
+  final ValueChanged<double> onRate;
+
+  @override
+  Widget build(BuildContext context) {
+    final slower = rateStep(rate, faster: false);
+    final faster = rateStep(rate, faster: true);
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.line),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            _RateArrow(
+              key: const Key('live_rate_slower'),
+              icon: Icons.remove_rounded,
+              tooltip: 'Slower',
+              onTap: slower == null ? null : () => onRate(slower),
+            ),
+            SizedBox(
+              width: 34,
+              child: Text(
+                rateLabel(rate),
+                key: const Key('live_rate'),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                  color: rate == 1 ? AppColors.muted : AppColors.gold,
+                ),
+              ),
+            ),
+            _RateArrow(
+              key: const Key('live_rate_faster'),
+              icon: Icons.add_rounded,
+              tooltip: 'Faster',
+              onTap: faster == null ? null : () => onRate(faster),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RateArrow extends StatelessWidget {
+  const _RateArrow({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    super.key,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onTap,
+      icon: Icon(icon, size: 16),
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 30, height: 30),
+      color: AppColors.text,
+      disabledColor: AppColors.line,
+    );
+  }
+}
+
+/// Choosing the bars to put on repeat.
+///
+/// "Bars nine to twelve" is the sentence a teacher says more than any other,
+/// and until now the smallest thing this app could repeat was a whole chorus
+/// (Every Musician, Same Song, 17 September 2026). The two ends move in whole
+/// bars, so what is chosen always starts and ends on a downbeat the recording
+/// actually has; there is nothing here to type and nothing to get wrong.
+class _BarLoopSheet extends StatefulWidget {
+  const _BarLoopSheet({
+    required this.barCount,
+    required this.firstBar,
+    required this.lastBar,
+    required this.looping,
+    required this.onChoose,
+    required this.onStop,
+  });
+
+  final int barCount;
+  final int firstBar;
+  final int lastBar;
+
+  /// A run of bars is already on repeat, so there is a way back out of it.
+  final bool looping;
+
+  final void Function(int firstBar, int lastBar) onChoose;
+  final VoidCallback onStop;
+
+  @override
+  State<_BarLoopSheet> createState() => _BarLoopSheetState();
+}
+
+class _BarLoopSheetState extends State<_BarLoopSheet> {
+  late double _first =
+      widget.firstBar.clamp(1, widget.barCount).toDouble();
+  late double _last = widget.lastBar
+      .clamp(widget.firstBar.clamp(1, widget.barCount), widget.barCount)
+      .toDouble();
+
+  @override
+  Widget build(BuildContext context) {
+    final first = _first.round();
+    final last = _last.round();
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(22, 4, 22, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              'Loop bars',
+              style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              barsLabel(first, last),
+              key: const Key('live_bar_range_label'),
+              style: const TextStyle(
+                color: AppColors.gold,
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            RangeSlider(
+              key: const Key('live_bar_range'),
+              values: RangeValues(_first, _last),
+              min: 1,
+              max: widget.barCount.toDouble(),
+              divisions: widget.barCount - 1,
+              activeColor: AppColors.gold,
+              inactiveColor: AppColors.line,
+              labels: RangeLabels('$first', '$last'),
+              onChanged: (values) => setState(() {
+                _first = values.start;
+                _last = values.end;
+              }),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: <Widget>[
+                if (widget.looping)
+                  TextButton(
+                    key: const Key('live_bar_loop_stop'),
+                    onPressed: widget.onStop,
+                    child: const Text('Stop looping'),
+                  ),
+                const Spacer(),
+                FilledButton(
+                  key: const Key('live_bar_loop_apply'),
+                  onPressed: () => widget.onChoose(first, last),
+                  child: const Text('Loop these bars'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

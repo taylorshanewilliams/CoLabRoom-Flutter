@@ -555,7 +555,7 @@ void main() {
         ),
       ));
       await tester.pump(const Duration(milliseconds: 100));
-      expect(chip(tester, 'live_rate_0.75').selected, isTrue);
+      expect(find.text('¾'), findsOneWidget);
       expect(chip(tester, 'live_loop_1').selected, isTrue);
       expect(find.text('0:03'), findsOneWidget);
       expect(find.text('Start'), findsOneWidget);
