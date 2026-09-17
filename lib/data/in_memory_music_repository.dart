@@ -2145,6 +2145,10 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<bool> isLessonRoom(String roomId) async =>
+      _lessonRooms.containsValue(roomId);
+
+  @override
   Future<List<PracticeMark>> myPracticeMarks() async {
     final since = DateTime.now().subtract(const Duration(days: 14));
     return List<PracticeMark>.unmodifiable(

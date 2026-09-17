@@ -2430,6 +2430,23 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<bool> isLessonRoom(String roomId) async {
+    // Nothing is selected but the key, because nothing else is needed here:
+    // the teacher is the room's owner and the app already knows the members.
+    //
+    // The read is safe on its own terms. lesson_rooms_read_either (0129)
+    // shows a row to the student it belongs to and to the teacher whose link
+    // made it, so a third account asking about the same room gets nothing
+    // back rather than a hint that the lesson exists.
+    final rows = await client
+        .from('lesson_rooms')
+        .select('room_id')
+        .eq('room_id', roomId)
+        .limit(1);
+    return (rows as List<dynamic>).isNotEmpty;
+  }
+
+  @override
   Future<String> myMeetingCode() async => '${await client.rpc<dynamic>('my_meeting_code')}';
 
   @override

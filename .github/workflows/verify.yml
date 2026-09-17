@@ -157,7 +157,8 @@ jobs:
       - name: Compile-check Python
         run: |
           python -m compileall -q \
-            tools/set_push_config.py \n            tools/crash_free_rate.py \
+            tools/set_push_config.py \
+            tools/crash_free_rate.py \
             inference/separation_service/handler.py \
             inference/separation_service/smoke_test.py \
             inference/chord_service/app.py \
@@ -166,6 +167,7 @@ jobs:
             tools/health_check.py \
             tools/load_test.py \
             tools/expire_stems.py \
+            tools/expire_layers.py \
             tools/chord_mix_experiment.py \
             tools/transcript_mix_experiment.py \
             tools/transcript_model_experiment.py \

@@ -32,6 +32,10 @@ on:
         description: 'Layers unopened this long are warned (must be less than retention)'
         type: string
         default: '75'
+      lesson_keep_days:
+        description: 'Takes sent to a teacher are kept this long after they were sent'
+        type: string
+        default: '180'
       dry_run:
         description: 'true = report only, false = actually delete'
         type: choice
@@ -54,6 +58,11 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           RETENTION_DAYS: ${{ inputs.retention_days || '90' }}
           WARN_DAYS: ${{ inputs.warn_days || '75' }}
+          # A take a student sent to their teacher is a hand-in, and the
+          # 90-day rule counts from when it was last opened -- which would
+          # delete coursework in week thirteen of the term it belongs to.
+          # See tools/expire_layers.py.
+          LESSON_KEEP_DAYS: ${{ inputs.lesson_keep_days || '180' }}
           # The scheduled run acts; a hand-run reports unless told otherwise.
           # A sweep that only ever reported would be a policy nobody enforces.
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
