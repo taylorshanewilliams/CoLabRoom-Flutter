@@ -239,6 +239,8 @@ class SupabaseMusicRepository implements MusicRepository {
       inviteResponses: row['invite_responses'] as bool? ?? true,
       projectUpdates: row['project_updates'] as bool? ?? true,
       asks: row['asks'] as bool? ?? true,
+      messages: row['messages'] as bool? ?? true,
+      calls: row['calls'] as bool? ?? true,
     );
   }
 
@@ -250,6 +252,8 @@ class SupabaseMusicRepository implements MusicRepository {
       'invite_responses': preferences.inviteResponses,
       'project_updates': preferences.projectUpdates,
       'asks': preferences.asks,
+      'messages': preferences.messages,
+      'calls': preferences.calls,
     });
   }
 

@@ -708,6 +708,57 @@ begin
   end if;
 end $$;
 
+-- 0136: messages and calls can be quieted too, each on its own switch.
+insert into public.notification_preferences (user_id, messages, calls)
+values ('22222222-2222-2222-2222-222222222222', false, true)
+on conflict (user_id) do update set messages = false, calls = true;
+
+do $$
+declare
+  before_messages int;
+  before_calls int;
+begin
+  select count(*) into before_messages from public.notifications
+  where type = 'direct_message' and user_id = '22222222-2222-2222-2222-222222222222';
+  select count(*) into before_calls from public.notifications
+  where type = 'call_started' and user_id = '22222222-2222-2222-2222-222222222222';
+
+  perform private.notify_user('22222222-2222-2222-2222-222222222222', 'direct_message',
+    'Writer', 'hello', null, null, null, '11111111-1111-1111-1111-111111111111');
+  perform private.notify_user('22222222-2222-2222-2222-222222222222', 'call_started',
+    'Writer started a call', 'Room. Join from the room.', null, null, null,
+    '11111111-1111-1111-1111-111111111111');
+
+  if (select count(*) from public.notifications
+      where type = 'direct_message' and user_id = '22222222-2222-2222-2222-222222222222') <> before_messages then
+    raise exception 'a message was announced to somebody who had quieted messages';
+  end if;
+  if (select count(*) from public.notifications
+      where type = 'call_started' and user_id = '22222222-2222-2222-2222-222222222222') <> before_calls + 1 then
+    raise exception 'quieting messages quieted calls as well';
+  end if;
+
+  update public.notification_preferences set messages = true, calls = false
+  where user_id = '22222222-2222-2222-2222-222222222222';
+  perform private.notify_user('22222222-2222-2222-2222-222222222222', 'direct_message',
+    'Writer', 'hello again', null, null, null, '11111111-1111-1111-1111-111111111111');
+  perform private.notify_user('22222222-2222-2222-2222-222222222222', 'call_started',
+    'Writer started a call', 'Room. Join from the room.', null, null, null,
+    '11111111-1111-1111-1111-111111111111');
+
+  if (select count(*) from public.notifications
+      where type = 'direct_message' and user_id = '22222222-2222-2222-2222-222222222222') <> before_messages + 1 then
+    raise exception 'turning messages back on did not announce them again';
+  end if;
+  if (select count(*) from public.notifications
+      where type = 'call_started' and user_id = '22222222-2222-2222-2222-222222222222') <> before_calls + 1 then
+    raise exception 'a call was announced to somebody who had quieted calls';
+  end if;
+
+  update public.notification_preferences set calls = true
+  where user_id = '22222222-2222-2222-2222-222222222222';
+end $$;
+
 -- Leaving nothing open behind, so the unique index tests below start clean.
 update public.project_asks
 set status = 'closed', closed_at = now()

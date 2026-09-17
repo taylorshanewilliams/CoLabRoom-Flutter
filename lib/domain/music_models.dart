@@ -1400,6 +1400,8 @@ class NotificationPreferences {
     this.inviteResponses = true,
     this.projectUpdates = true,
     this.asks = true,
+    this.messages = true,
+    this.calls = true,
   });
 
   final bool invites;
@@ -1413,17 +1415,28 @@ class NotificationPreferences {
   /// at more people asking each other for help.
   final bool asks;
 
+  /// Somebody messaging you, or saying something in one of your rooms. The
+  /// message is in Messages either way; this is about being told (0136).
+  final bool messages;
+
+  /// Somebody starting a call in one of your rooms (0136).
+  final bool calls;
+
   NotificationPreferences copyWith({
     bool? invites,
     bool? inviteResponses,
     bool? projectUpdates,
     bool? asks,
+    bool? messages,
+    bool? calls,
   }) {
     return NotificationPreferences(
       invites: invites ?? this.invites,
       inviteResponses: inviteResponses ?? this.inviteResponses,
       projectUpdates: projectUpdates ?? this.projectUpdates,
       asks: asks ?? this.asks,
+      messages: messages ?? this.messages,
+      calls: calls ?? this.calls,
     );
   }
 }
