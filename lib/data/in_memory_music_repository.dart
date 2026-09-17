@@ -1950,8 +1950,26 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<LessonLink?> myLessonLink() async => _lessonLink;
 
+  /// The age rule both ends of a lesson link meet, as 0139 applies it: an
+  /// account that answered under 13 is closed to them, one that has never
+  /// said is asked, and somebody under 18 is told. The sentences are the
+  /// server's, kept in [lessonLinksAreForAdults] and its neighbour.
+  void _lessonsNeedAnAdult() {
+    switch (_callStanding) {
+      case CallStanding.refused:
+        throw const NameConflict(lessonLinksClosedOnThisAccount);
+      case CallStanding.unknown:
+        throw const LessonNeedsABirthMonth();
+      case CallStanding.minor:
+        throw const NameConflict(lessonLinksAreForAdults);
+      case CallStanding.adult:
+        return;
+    }
+  }
+
   @override
   Future<LessonLink> openLessonLink(String title) async {
+    _lessonsNeedAnAdult();
     final cleaned = title.trim().isEmpty ? 'Lessons' : title.trim();
     final existing = _lessonLink;
     final link = LessonLink(
@@ -2073,6 +2091,10 @@ class InMemoryMusicRepository implements MusicRepository {
     if (offered == null) {
       throw const NameConflict('That lesson link is turned off, or it is not one.');
     }
+    // After the link itself, as 0139 does it: a link that was turned off says
+    // so to everybody, and nobody is asked for a birth month to open
+    // something that was never going to open.
+    _lessonsNeedAnAdult();
     final already = _lessonRooms[cleaned];
     if (already != null && _rooms.any((room) => room.id == already)) return already;
     final now = DateTime.now();

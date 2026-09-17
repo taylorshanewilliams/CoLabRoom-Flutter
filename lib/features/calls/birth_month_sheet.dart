@@ -19,12 +19,23 @@ import '../../services/user_facing_error.dart';
 /// beside a picker still open for an older year (audit, 17 September 2026):
 /// the caller says so, and the server never lets the question be asked again
 /// on that account (0138).
-Future<CallStanding?> askBirthMonth(BuildContext context, MusicRepository repository) {
+///
+/// Lesson links ask it too, and save the same answer (0139), so [heading] and
+/// [why] can say which of the two somebody is standing in front of. The
+/// defaults are a call's.
+Future<CallStanding?> askBirthMonth(
+  BuildContext context,
+  MusicRepository repository, {
+  String heading = 'Before your first call',
+  String why = 'Which month and year were you born? Calls are for people 18 and over '
+      'for now; calls for 13 to 17 with a parent or guardian are coming. '
+      'Nobody else sees this, and you only say it once.',
+}) {
   return showModalBottomSheet<CallStanding>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (_) => _BirthMonthSheet(repository: repository),
+    builder: (_) => _BirthMonthSheet(repository: repository, heading: heading, why: why),
   );
 }
 
@@ -34,9 +45,11 @@ const List<String> _months = <String>[
 ];
 
 class _BirthMonthSheet extends StatefulWidget {
-  const _BirthMonthSheet({required this.repository});
+  const _BirthMonthSheet({required this.repository, required this.heading, required this.why});
 
   final MusicRepository repository;
+  final String heading;
+  final String why;
 
   @override
   State<_BirthMonthSheet> createState() => _BirthMonthSheetState();
@@ -100,16 +113,14 @@ class _BirthMonthSheetState extends State<_BirthMonthSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const Text(
-                'Before your first call',
-                style: TextStyle(color: AppColors.text, fontSize: 21, fontWeight: FontWeight.w800),
+              Text(
+                widget.heading,
+                style: const TextStyle(color: AppColors.text, fontSize: 21, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Which month and year were you born? Calls are for people 18 and over '
-                'for now; calls for 13 to 17 with a parent or guardian are coming. '
-                'Nobody else sees this, and you only say it once.',
-                style: TextStyle(color: AppColors.muted, fontSize: 14, height: 1.45),
+              Text(
+                widget.why,
+                style: const TextStyle(color: AppColors.muted, fontSize: 14, height: 1.45),
               ),
               const SizedBox(height: 18),
               Row(

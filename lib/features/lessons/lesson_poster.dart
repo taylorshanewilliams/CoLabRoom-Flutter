@@ -92,6 +92,15 @@ abstract final class LessonPoster {
             'Scan with your phone camera',
             style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
           ),
+          pw.SizedBox(height: 8),
+          // Said on the wall, not only in the app: whoever reads this is the
+          // person deciding whether to scan it (Every Musician, Same Song,
+          // 17 September 2026 -- adult students first, until there is a
+          // guardian step).
+          pw.Text(
+            'For students 18 and over',
+            style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey800),
+          ),
           pw.SizedBox(height: 10),
           pw.Container(
             width: 380,

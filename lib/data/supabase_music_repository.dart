@@ -2385,7 +2385,12 @@ class SupabaseMusicRepository implements MusicRepository {
 
   @override
   Future<LessonLink> openLessonLink(String title) async {
-    await client.rpc<dynamic>('open_lesson_link', params: <String, dynamic>{'in_title': title.trim()});
+    try {
+      await client.rpc<dynamic>('open_lesson_link', params: <String, dynamic>{'in_title': title.trim()});
+    } on PostgrestException catch (error) {
+      if (error.hint == lessonBirthMonthHint) throw const LessonNeedsABirthMonth();
+      rethrow;
+    }
     final link = await myLessonLink();
     if (link == null) {
       throw StateError('The lesson link was made but could not be read back.');
@@ -2400,8 +2405,16 @@ class SupabaseMusicRepository implements MusicRepository {
 
   @override
   Future<String> joinLessonLink(String code) async {
-    final room = await client.rpc<dynamic>('join_lesson_link', params: <String, dynamic>{'in_code': code});
-    return '$room';
+    try {
+      final room = await client.rpc<dynamic>('join_lesson_link', params: <String, dynamic>{'in_code': code});
+      return '$room';
+    } on PostgrestException catch (error) {
+      // 0139: lesson links are for people 18 and over, and this account has
+      // never said when it was born. Every other refusal already carries a
+      // sentence written for whoever is holding the phone.
+      if (error.hint == lessonBirthMonthHint) throw const LessonNeedsABirthMonth();
+      rethrow;
+    }
   }
 
   @override

@@ -14,6 +14,7 @@ import '../../domain/musical_roles.dart';
 import '../../widgets/play_button.dart';
 import '../openmic/report_sheet.dart';
 import '../../app/routes.dart';
+import '../lessons/with_birth_month.dart';
 import '../meeting/add_person_screen.dart';
 import '../openmic/musician_profile_screen.dart';
 import '../openmic/people_screen.dart';
@@ -52,6 +53,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         content: Text(success),
         action: open == null ? null : SnackBarAction(label: 'Open', onPressed: open),
       ));
+    } on NothingSaidAboutAge {
+      // A lesson code, and the birth month question was closed rather than
+      // answered (0139). Nothing happened, so nothing is said.
     } catch (error) {
       // Was `Text(error.toString())`, which is how a musician standing in a
       // room came to be shown a Postgres unique-constraint violation. The
@@ -142,7 +146,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (lesson != null) {
       await _run(
         () async {
-          await controller.joinLessonLink(lesson);
+          // Lesson links are for people 18 and over for now, so the server
+          // may want a birth month before it opens one (0139).
+          await withBirthMonth(
+            () => controller.joinLessonLink(lesson),
+            context: context,
+            repository: controller.repository,
+          );
         },
         'Your lesson room is ready. It is under Your music.',
       );

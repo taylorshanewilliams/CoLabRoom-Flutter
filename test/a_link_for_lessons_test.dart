@@ -2,6 +2,7 @@ import 'package:colabroom/app/beta_scope.dart';
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
+import 'package:colabroom/domain/calls.dart';
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/features/lessons/lesson_link_screen.dart';
 import 'package:colabroom/features/lessons/lesson_poster.dart';
@@ -117,7 +118,10 @@ void main() {
 
   group("the teacher's side", () {
     testWidgets('one question, then the code: QR, typed code, share, copy, off', (tester) async {
-      final repository = InMemoryMusicRepository.seeded();
+      // A teacher who has said when they were born: both ends of a lesson
+      // link are adults since 0139, and what happens when somebody has not
+      // said is in lesson_links_are_for_adults_test.dart.
+      final repository = InMemoryMusicRepository.seeded()..callStanding = CallStanding.adult;
       final copied = <String>[];
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
         if (call.method == 'Clipboard.setData') {
@@ -163,7 +167,7 @@ void main() {
     });
 
     testWidgets('fits a small phone with large text', (tester) async {
-      final repository = InMemoryMusicRepository.seeded();
+      final repository = InMemoryMusicRepository.seeded()..callStanding = CallStanding.adult;
       await repository.openLessonLink('Beginner guitar and songwriting lessons');
       final controller = MusicBetaController(repository);
       await controller.load();
@@ -202,6 +206,7 @@ void main() {
   group("the student's side", () {
     testWidgets('a lesson code in Join with a code makes their room, and only once', (tester) async {
       final repository = InMemoryMusicRepository.seeded()
+        ..callStanding = CallStanding.adult
         ..offerLesson(code: '0123456789ab', title: 'Guitar lessons', teacherName: 'Maria');
       final controller = await boot(tester, repository, const NotificationsScreen());
       final before = controller.rooms.length;
@@ -227,7 +232,7 @@ void main() {
     });
 
     testWidgets("a teacher's own code says so rather than making a room", (tester) async {
-      final repository = InMemoryMusicRepository.seeded();
+      final repository = InMemoryMusicRepository.seeded()..callStanding = CallStanding.adult;
       await repository.openLessonLink('Voice');
       final controller = await boot(tester, repository, const NotificationsScreen());
       final before = controller.rooms.length;
