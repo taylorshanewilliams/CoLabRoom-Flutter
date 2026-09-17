@@ -5292,34 +5292,24 @@ insert into public.projects (id, room_id, account_id, title, created_by) values
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 set local role authenticated;
 
+-- The asks themselves, sent the way the app sends them: through the RPC, as
+-- the person asking. Only the function is called here. Reading the table back
+-- belongs below, because the shim (00_shim.sql) stands `authenticated` up as
+-- a bare role and grants it nothing on public tables, so a direct select here
+-- would fail for want of a grant long before any policy was consulted.
 do $$
-declare
-  written uuid;
-  played uuid;
 begin
-  written := public.ask_musician(
+  perform public.ask_musician(
     '7e1a5000-0000-0000-0000-00000000014b',
     '7e1a5000-0000-0000-0000-000000000145',
     'topline', 'Second verse is yours if you want it.', 'write');
 
-  if (select terms from public.project_asks where id = written)
-     is distinct from 'write' then
-    raise exception 'the ask did not carry the terms it was sent with (got %)',
-      (select terms from public.project_asks where id = written);
-  end if;
-
   -- Four arguments is what every client sent before this migration, and what
   -- the room's own ask bar still means: playing.
-  played := public.ask_musician(
+  perform public.ask_musician(
     '7e1a5000-0000-0000-0000-00000000014c',
     '7e1a5000-0000-0000-0000-000000000145',
     'bass', '');
-
-  if (select terms from public.project_asks where id = played)
-     is distinct from 'play' then
-    raise exception 'an ask made without terms was not a playing ask (got %)',
-      (select terms from public.project_asks where id = played);
-  end if;
 
   -- Two words, and no third one.
   begin
@@ -5330,10 +5320,46 @@ begin
     raise exception 'a third kind of terms was accepted';
   exception when invalid_parameter_value then null;
   end;
+end $$;
 
-  -- Settled when it was sent. The asker is exactly who project_asks_close
-  -- (0049) lets update this row through PostgREST, so this is the person the
-  -- trigger exists to refuse.
+-- What was written down, and what nothing can change.
+--
+-- As the table's owner rather than as the asker. The rule lives on the table,
+-- so the owner is the strongest case there is: if the role that owns
+-- project_asks cannot rewrite what an ask meant, nobody arriving through
+-- PostgREST can either. Running this as `authenticated` would look more like
+-- the asker and prove less -- the shim would refuse the update for a missing
+-- grant, and the block would pass without the trigger ever firing.
+reset role;
+do $$
+declare
+  written uuid;
+  played uuid;
+begin
+  select id into written from public.project_asks
+  where project_id = '7e1a5000-0000-0000-0000-00000000014b'
+    and part = 'topline';
+  select id into played from public.project_asks
+  where project_id = '7e1a5000-0000-0000-0000-00000000014c'
+    and part = 'bass';
+
+  if written is null or played is null then
+    raise exception 'the asks were not written';
+  end if;
+
+  if (select terms from public.project_asks where id = written)
+     is distinct from 'write' then
+    raise exception 'the ask did not carry the terms it was sent with (got %)',
+      (select terms from public.project_asks where id = written);
+  end if;
+
+  if (select terms from public.project_asks where id = played)
+     is distinct from 'play' then
+    raise exception 'an ask made without terms was not a playing ask (got %)',
+      (select terms from public.project_asks where id = played);
+  end if;
+
+  -- Settled when it was sent.
   begin
     update public.project_asks set terms = 'play' where id = written;
     raise exception 'the terms of an ask were rewritten afterwards';
@@ -5378,11 +5404,11 @@ begin
       mine.terms;
   end if;
 
-  -- And the person asked cannot change it either. No update policy admits
-  -- them, so this matches nothing rather than being refused -- the check is
-  -- that the row is untouched afterwards.
-  update public.project_asks set terms = 'play'
-  where project_id = '7e1a5000-0000-0000-0000-00000000014b';
+  -- The person asked cannot change it either, and for two reasons at once:
+  -- no update policy admits them, and the trigger refuses the column to
+  -- everybody including the role that owns the table. The owner is checked
+  -- above and is the stronger case, so there is nothing left to run as them
+  -- here that the shim would not refuse for a missing grant first.
 end $$;
 
 reset role;
@@ -5391,7 +5417,7 @@ begin
   if (select terms from public.project_asks
         where project_id = '7e1a5000-0000-0000-0000-00000000014b'
           and part = 'topline') is distinct from 'write' then
-    raise exception 'the person asked rewrote what answering meant';
+    raise exception 'what answering meant did not survive being read';
   end if;
 
   -- What the ask says first. This row is the push on the phone and the line
