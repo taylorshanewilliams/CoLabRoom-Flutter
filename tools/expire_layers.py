@@ -47,6 +47,18 @@ adds a floor underneath it rather than a ceiling over it. And it does not cost
 a take its notice: one leaving its term is warned on the run that first finds
 it past 180 days and deleted on a later one, like everything else here.
 
+A second exception, from the same plan, for the opposite kind of take. The
+first take anybody recorded of a part on a song is never deleted by this
+sweep, however long it goes unopened. Every Musician, Same Song,
+17 September 2026, for beginners at every age: the takes screen plays
+today's take beside the first one on the same bars ("then and now",
+then_and_now.dart), and that has no "then" if the sweep took it while nobody
+was practising — which is exactly when a beginner's first take goes
+unopened. It is one take per part per person per song, so what this keeps
+is bounded by how many people have played, not by how much. The person who
+recorded it can still delete it themselves; this only stops the job doing
+it for them.
+
 Environment:
   SUPABASE_PROJECT_REF        project ref (already a repo secret)
   SUPABASE_SERVICE_ROLE_KEY   service role key (already a repo secret)
@@ -151,6 +163,135 @@ def lesson_room_songs(base: str, headers: dict, project_ids) -> set[str]:
     return {song for song, room in room_of.items() if room in lesson_rooms}
 
 
+EPOCH = datetime.min.replace(tzinfo=timezone.utc)
+
+# How many rows one page asks for. PostgREST caps every response at the
+# project's max-rows setting (1000 on Supabase unless somebody changed it)
+# and says nothing when it does, so a page is never assumed to be the last
+# one because it was full or short: see every_row.
+PAGE = 1000
+
+
+def every_row(url: str, headers: dict, *, page: int = PAGE):
+    """Every row [url] selects, a page at a time, however many there are.
+
+    One request for every take on a hundred songs would come back cut at the
+    server's cap, silently, and a first take past the cut would be missing
+    from the set that keeps it — warned one Sunday and deleted a later one
+    while the log printed that first takes are kept. The candidate queries
+    above main() can get away with a cap because a truncated candidate list
+    only means fewer layers are looked at; this read cannot, because here
+    the missing rows are the ones the exemption exists for.
+
+    Paged by id rather than by offset, so a take recorded while the sweep
+    runs cannot shift the pages under it, and read until a page comes back
+    empty rather than short: a server whose cap is lower than [page] hands
+    back fewer rows than asked for, and the next page simply starts after
+    the last id it gave. A request that fails raises out of the run, which
+    is the right outcome for a sweep that cannot see every take.
+
+    [url] already has its select and its filters; the order, the limit and
+    the cursor are added to it.
+    """
+    after: str | None = None
+    while True:
+        cursor = "" if after is None else f"&id=gt.{urllib.parse.quote(after, safe='')}"
+        rows = request(f"{url}&order=id.asc&limit={page}{cursor}", headers=headers) or []
+        if not rows:
+            return
+        yield from rows
+        after = str(rows[-1]["id"])
+
+
+def first_take_ids(layers) -> set[str]:
+    """The earliest take of each part by each person on each song.
+
+    Grouped the way the takes screen pairs them (then_and_now.dart): by the
+    account that recorded the take and the part it was marked as, an unmarked
+    part included. Earliest by created_at, and by id when two share an
+    instant, so the same take is the first one on every run. A take whose
+    created_at cannot be read sorts first: keeping it is the recoverable
+    mistake.
+    """
+    first: dict[tuple, tuple] = {}
+    for layer in layers:
+        key = (
+            layer.get("project_id"),
+            layer.get("recorded_by") or "",
+            layer.get("part") or "other",
+        )
+        order = (when(layer.get("created_at")) or EPOCH, str(layer.get("id")))
+        held = first.get(key)
+        if held is None or order < held:
+            first[key] = order
+    return {order[1] for order in first.values()}
+
+
+def first_takes(base: str, headers: dict, project_ids) -> set[str]:
+    """The first take of every part on these songs, by id.
+
+    Asked about the candidates' songs rather than about everything, for the
+    reason lesson_room_songs gives: the candidate set is what has gone
+    unopened for a quarter, and a sweep that read every layer in the account
+    to answer this would grow with the app. Every take on those songs is
+    read, opened or not, because which one came first is a fact about the
+    whole song and not about the layers that happen to be old — and read
+    through every_row, page by page, because a hundred songs' takes do not
+    fit in one response and a response cut short would lose exactly the
+    takes this is meant to find.
+    """
+    if not project_ids:
+        return set()
+    rows: list[dict] = []
+    for chunk in chunked(set(project_ids), 100):
+        rows.extend(every_row(
+            f"{base}/rest/v1/song_layers"
+            f"?select=id,project_id,part,recorded_by,created_at"
+            f"&project_id=in.({in_list(chunk)})",
+            headers,
+        ))
+    return first_take_ids(rows)
+
+
+def kept_as_the_first(layer: dict, first_ids: set[str]) -> bool:
+    """Whether this layer is the first take of its part, which the sweep never deletes."""
+    return layer.get("id") in first_ids
+
+
+def decide(warn_candidates, delete_candidates, keep):
+    """Which layers are warned and which deleted on this run.
+
+    [keep] says which are held out of both passes: a take in its term, the
+    first take of a part. Pure, and separate from the fetching, so that what
+    the sweep keeps can be tested without a database — CI is the only place
+    this runs before a Sunday morning.
+
+    Returns the layers to warn, the layers to delete, and the ids kept.
+    """
+    to_warn = [layer for layer in warn_candidates if not keep(layer)]
+    to_delete = [layer for layer in delete_candidates if not keep(layer)]
+
+    # Nothing is warned and deleted in the same run. That is the second of the
+    # three promises at the top of this file — warned first, once, with a
+    # fortnight to act — and until now it held only because the thresholds are
+    # a fortnight apart and the schedule is weekly. The term exception breaks
+    # that: a hand-in is held out of both passes all term and then, on the
+    # Sunday after day 180, lands in both on the same morning, so the layers
+    # this feature exists to protect would have been the only ones deleted
+    # with no notice at all. A layer being warned now waits for a later run.
+    warned_now = {layer["id"] for layer in to_warn}
+    to_delete = [layer for layer in to_delete if layer["id"] not in warned_now]
+    # Counted by layer, not by pass. A take old enough to be deleted is old
+    # enough to be warned as well, so it is in both candidate lists and would
+    # otherwise be reported twice.
+    kept = {
+        layer["id"]
+        for layer in [*warn_candidates, *delete_candidates]
+        if keep(layer)
+    }
+    return to_warn, to_delete, kept
+
+
 def kept_for_the_term(layer: dict, lesson_songs: set[str], keep_after: datetime) -> bool:
     """Whether this layer is a take sent to a teacher that is still in its term."""
     if layer.get("project_id") not in lesson_songs:
@@ -202,6 +343,7 @@ def main() -> int:
     print(f"Warn   layers unopened since {warn_cutoff} ({warn_days} days)")
     print(f"Keep   takes sent to a teacher since {keep_after.isoformat()} "
           f"({lesson_keep_days} days)")
+    print("Keep   the first take of every part, however long unopened")
     print(f"Mode: {'DRY RUN — nothing will change' if dry_run else 'LIVE'}")
     print()
 
@@ -230,39 +372,36 @@ def main() -> int:
     # A layer is warned once and never again, so warning one that is not
     # going to be deleted would both frighten somebody for no reason and use
     # up the one warning they were owed for later.
-    lesson_songs = lesson_room_songs(
-        base,
-        headers,
+    candidate_songs = (
         {layer["project_id"] for layer in warn_candidates}
-        | {layer["project_id"] for layer in delete_candidates},
+        | {layer["project_id"] for layer in delete_candidates}
     )
+    lesson_songs = lesson_room_songs(base, headers, candidate_songs)
 
     def in_its_term(layer: dict) -> bool:
         return kept_for_the_term(layer, lesson_songs, keep_after)
 
-    to_warn = [layer for layer in warn_candidates if not in_its_term(layer)]
-    to_delete = [layer for layer in delete_candidates if not in_its_term(layer)]
+    # ---- the first take ------------------------------------------------
+    # Held out of both passes the same way, for the reason at the top of
+    # this file: it is the "then" every later take is heard beside.
+    first_ids = first_takes(base, headers, candidate_songs)
 
-    # Nothing is warned and deleted in the same run. That is the second of the
-    # three promises at the top of this file — warned first, once, with a
-    # fortnight to act — and until now it held only because the thresholds are
-    # a fortnight apart and the schedule is weekly. The term exception breaks
-    # that: a hand-in is held out of both passes all term and then, on the
-    # Sunday after day 180, lands in both on the same morning, so the layers
-    # this feature exists to protect would have been the only ones deleted
-    # with no notice at all. A layer being warned now waits for a later run.
-    warned_now = {layer["id"] for layer in to_warn}
-    to_delete = [layer for layer in to_delete if layer["id"] not in warned_now]
-    # Counted by layer, not by pass. A take old enough to be deleted is old
-    # enough to be warned as well, so it is in both candidate lists and would
-    # otherwise be reported twice.
-    kept = {
-        layer["id"]
-        for layer in [*warn_candidates, *delete_candidates]
-        if in_its_term(layer)
-    }
+    def is_the_first(layer: dict) -> bool:
+        return kept_as_the_first(layer, first_ids)
+
+    to_warn, to_delete, kept = decide(
+        warn_candidates,
+        delete_candidates,
+        lambda layer: in_its_term(layer) or is_the_first(layer),
+    )
+    by_id = {layer["id"]: layer for layer in [*warn_candidates, *delete_candidates]}
+    kept_for_term = sum(1 for layer_id in kept if in_its_term(by_id[layer_id]))
+    kept_as_first = sum(1 for layer_id in kept if is_the_first(by_id[layer_id]))
+    if kept_for_term:
+        print(f"Kept for the term: {kept_for_term} take(s) sent to a teacher")
+    if kept_as_first:
+        print(f"Kept as a first take: {kept_as_first} take(s), the first of a part")
     if kept:
-        print(f"Kept for the term: {len(kept)} take(s) sent to a teacher")
         print()
 
     # ---- warn ----------------------------------------------------------

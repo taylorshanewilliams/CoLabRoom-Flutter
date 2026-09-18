@@ -174,6 +174,12 @@ jobs:
             tools/lyric_accuracy_experiment.py \
             tools/triage_agent/triage.py
 
+      - name: Test the tools
+        # The retention sweep decides in Python what production deletes, and
+        # this is the only place that decision runs before a Sunday morning.
+        # Plain unittest, on tools/test_*.py, with nothing to install.
+        run: python -m unittest discover -s tools -p "test_*.py" -v
+
       - name: Lint
         run: |
           pip install --quiet ruff

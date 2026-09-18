@@ -44,10 +44,18 @@ class Multitrack {
   /// A take is skipped entirely when it is not [Take.enabled], which is what
   /// makes muting a layer while recording against the rest possible without
   /// deleting anything.
+  ///
+  /// [fit] turns the sum down to fit full scale, which is what everything
+  /// that plays a mix wants. Then and now passes false: it sums two mixes
+  /// that differ by one take and plays a passage of each back to back, and
+  /// fitting each on its own would leave the two at different levels — a
+  /// "then" that plays quieter than "now" says something nobody meant. It
+  /// fits the pair once, together, after splicing them.
   static MixResult mix(
     List<Take> takes,
     List<Float64List> audio, {
     List<String> silentTakeIds = const <String>[],
+    bool fit = true,
   }) {
     assert(takes.length == audio.length);
     var longest = 0;
@@ -96,7 +104,7 @@ class Multitrack {
     // between layers exactly as it was and only changes how loud the whole
     // thing is.
     var scaled = false;
-    if (peak > 1.0) {
+    if (fit && peak > 1.0) {
       final factor = 0.99 / peak;
       for (var s = 0; s < out.length; s += 1) {
         out[s] *= factor;
