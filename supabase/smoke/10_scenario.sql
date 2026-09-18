@@ -7001,6 +7001,350 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
+-- A spoken note at a moment (0152).
+--
+-- Every Musician, Same Song, 17 September 2026, slice 23. The teacher says
+-- something at 1:48 of the take the student sent them, in 0141's lesson
+-- room further up this file. It is a moment_notes row with a voice and no
+-- words, and every rule a typed note has still holds: the student who
+-- played it can read it and is told once, somebody outside the room can
+-- neither read it nor leave one, and only the teacher can take it back.
+-- A note has to say something, the voice has to live in this song's own
+-- folder, and one object is one note.
+--
+-- Not here: the storage policies the audio goes through. The shim grants
+-- storage.objects to service_role only (see 0148's block), so a
+-- write as authenticated would be refused on the grant whatever the policy
+-- said, and a check that cannot fail for the right reason proves nothing.
+-- (Reads reach authenticated since 0155's block, further down.)
+-- ---------------------------------------------------------------------
+
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('5011e500-0000-0000-0000-000000000152', 'passer.by@smoke.test',
+   '{"display_name": "Passer By"}');
+
+-- The teacher says it.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  spoken uuid;
+begin
+  -- No words and no voice is not a note.
+  begin
+    insert into public.moment_notes (project_id, layer_id, at_ms)
+    values ('5011e500-0000-0000-0000-00000000014b',
+            '5011e500-0000-0000-0000-00000000014c', 108000);
+    raise exception 'a note with neither words nor a voice was accepted';
+  exception when check_violation then null;
+  end;
+
+  -- The voice has to live in this song's own folder, or the read policy
+  -- would hand out whatever object the row pointed at.
+  begin
+    insert into public.moment_notes (project_id, layer_id, at_ms, voice_path)
+    values ('5011e500-0000-0000-0000-00000000014b',
+            '5011e500-0000-0000-0000-00000000014c', 108000,
+            '5011e500-0000-0000-0000-00000000014a/44444444-4444-4444-4444-444444444444/moments/elsewhere.wav');
+    raise exception 'a spoken note pointing into another song''s folder was accepted';
+  exception when check_violation then null;
+  end;
+
+  insert into public.moment_notes (project_id, layer_id, at_ms, voice_path)
+  values ('5011e500-0000-0000-0000-00000000014b',
+          '5011e500-0000-0000-0000-00000000014c', 108000,
+          '5011e500-0000-0000-0000-00000000014a/5011e500-0000-0000-0000-00000000014b/moments/said-at-148.wav')
+  returning id into spoken;
+  perform set_config('smoke.spoken_note', spoken::text, true);
+
+  if not exists (
+    select 1 from public.moment_notes
+    where id = spoken and body is null and on_shared_take is true
+  ) then
+    raise exception 'a spoken note on a sent take did not come back as the room''s, with no words';
+  end if;
+
+  -- One object is one note.
+  begin
+    insert into public.moment_notes (project_id, layer_id, at_ms, voice_path)
+    values ('5011e500-0000-0000-0000-00000000014b',
+            '5011e500-0000-0000-0000-00000000014c', 109000,
+            '5011e500-0000-0000-0000-00000000014a/5011e500-0000-0000-0000-00000000014b/moments/said-at-148.wav');
+    raise exception 'two notes were allowed to share one recording';
+  exception when unique_violation then null;
+  end;
+end $$;
+
+-- The student, who played it, was told -- by a card that says the note was
+-- spoken, rather than by one with nothing on it. Read without a role, the
+-- way 0141's block reads who was told.
+reset role;
+do $$
+begin
+  if not exists (
+    select 1 from public.notifications
+    where user_id = '5011e500-0000-0000-0000-000000000141'
+      and type = 'moment_note'
+      and actor_id = '11111111-1111-1111-1111-111111111111'
+      and title = 'The Writer left a note at 1:48'
+      and body = 'Said out loud'
+  ) then
+    raise exception 'the person who played the take was not told a note was spoken on it';
+  end if;
+end $$;
+
+-- And can read it.
+set local request.jwt.claims = '{"sub": "5011e500-0000-0000-0000-000000000141", "email": "the.student@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  if not exists (
+    select 1 from public.moment_notes
+    where id = current_setting('smoke.spoken_note')::uuid
+      and voice_path is not null
+  ) then
+    raise exception 'the person who played the take could not read a spoken note on it';
+  end if;
+
+  -- Not theirs to take back.
+  perform public.delete_moment_note(current_setting('smoke.spoken_note')::uuid);
+  if not exists (
+    select 1 from public.moment_notes
+    where id = current_setting('smoke.spoken_note')::uuid
+  ) then
+    raise exception 'somebody other than its author took back a spoken note';
+  end if;
+end $$;
+
+-- Somebody outside the room gets nothing, and may leave nothing.
+reset role;
+set local request.jwt.claims = '{"sub": "5011e500-0000-0000-0000-000000000152", "email": "passer.by@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (
+    select 1 from public.moment_notes
+    where id = current_setting('smoke.spoken_note')::uuid
+  ) then
+    raise exception 'somebody outside the room could read a spoken note';
+  end if;
+
+  begin
+    insert into public.moment_notes (project_id, layer_id, at_ms, voice_path)
+    values ('5011e500-0000-0000-0000-00000000014b',
+            '5011e500-0000-0000-0000-00000000014c', 5000,
+            '5011e500-0000-0000-0000-00000000014a/5011e500-0000-0000-0000-00000000014b/moments/uninvited.wav');
+    raise exception 'somebody outside the room left a spoken note';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- The teacher takes it back, and it is gone for the student too.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.delete_moment_note(current_setting('smoke.spoken_note')::uuid);
+  if exists (
+    select 1 from public.moment_notes
+    where id = current_setting('smoke.spoken_note')::uuid
+  ) then
+    raise exception 'the author could not take back a spoken note';
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "5011e500-0000-0000-0000-000000000141", "email": "the.student@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (
+    select 1 from public.moment_notes
+    where id = current_setting('smoke.spoken_note')::uuid
+  ) then
+    raise exception 'a spoken note taken back was still readable by the person it was about';
+  end if;
+end $$;
+
+reset role;
+
+-- ---------------------------------------------------------------------
+-- A setlist that knows each song (0157).
+--
+-- A set stored titles and an order; a gigging band needs what to do with
+-- each song. Six nullable columns on the row that joins a song to a set,
+-- null meaning "what the song says". The set's owner writes them through
+-- 0005's update policy, a song arrives saying nothing, a field cleared goes
+-- back to the song, the table refuses what the app would (a key nothing can
+-- read, a tempo nothing can count at, an empty string as an answer), and
+-- nobody else -- not a viewer of the room, not an editor who can change the
+-- song itself -- can see the set or change what it says. The Covers Room
+-- and its people are 0142's, above.
+-- ---------------------------------------------------------------------
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+insert into public.setlists (id, owner_id, name)
+values ('a5e70157-0000-0000-0000-000000000001',
+        '11111111-1111-1111-1111-111111111111', 'Saturday at the Anchor');
+
+insert into public.setlist_projects (setlist_id, project_id, position) values
+  ('a5e70157-0000-0000-0000-000000000001', '50a6e142-0000-0000-0000-00000000014b', 0),
+  ('a5e70157-0000-0000-0000-000000000001', '50a6e142-0000-0000-0000-00000000014c', 1);
+
+do $$
+declare
+  song record;
+begin
+  -- A song arrives in a set saying nothing: the app reads the song.
+  if exists (
+    select 1 from public.setlist_projects
+    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+      and (played_key is not null or bpm is not null or count_in is not null
+           or form is not null or ending is not null or note is not null)
+  ) then
+    raise exception 'a song arrived in a set with answers nobody gave';
+  end if;
+
+  -- The owner says what the band does with it.
+  update public.setlist_projects
+  set played_key = 'Bb major', bpm = 92, count_in = 'Drums, two bars',
+      form = 'Intro · Verse · Chorus · Chorus', ending = 'Cold',
+      note = 'Straight into the next one'
+  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+    and project_id = '50a6e142-0000-0000-0000-00000000014b';
+
+  select * into song from public.setlist_projects
+  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+    and project_id = '50a6e142-0000-0000-0000-00000000014b';
+  if song.played_key is distinct from 'Bb major'
+     or song.bpm is distinct from 92
+     or song.count_in is distinct from 'Drums, two bars'
+     or song.form is distinct from 'Intro · Verse · Chorus · Chorus'
+     or song.ending is distinct from 'Cold'
+     or song.note is distinct from 'Straight into the next one' then
+    raise exception 'the owner''s answers did not land';
+  end if;
+
+  -- The other song in the set is untouched.
+  if exists (
+    select 1 from public.setlist_projects
+    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+      and project_id = '50a6e142-0000-0000-0000-00000000014c'
+      and played_key is not null
+  ) then
+    raise exception 'one song''s key landed on another';
+  end if;
+
+  -- A field cleared hands the song back to what it says.
+  update public.setlist_projects set bpm = null
+  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+    and project_id = '50a6e142-0000-0000-0000-00000000014b';
+  if (select bpm from public.setlist_projects
+      where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+        and project_id = '50a6e142-0000-0000-0000-00000000014b') is not null then
+    raise exception 'a cleared tempo stayed';
+  end if;
+
+  -- The table refuses what the app would, because 0005 lets an owner update
+  -- this row directly and a rule that lives only in the app is one request
+  -- away from nothing.
+  begin
+    update public.setlist_projects set played_key = 'Mixolydian'
+    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+      and project_id = '50a6e142-0000-0000-0000-00000000014b';
+    raise exception 'a plain update stored something that is not a key';
+  exception when check_violation then null;
+  end;
+
+  begin
+    update public.setlist_projects set bpm = 300
+    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+      and project_id = '50a6e142-0000-0000-0000-00000000014b';
+    raise exception 'a tempo nothing can count at was stored';
+  exception when check_violation then null;
+  end;
+
+  begin
+    update public.setlist_projects set note = ''
+    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+      and project_id = '50a6e142-0000-0000-0000-00000000014b';
+    raise exception 'an empty note was stored as an answer';
+  exception when check_violation then null;
+  end;
+end $$;
+
+-- Somebody who can only look at the room does not own the set. They cannot
+-- see it, and an update from them lands on no row -- which is the silence
+-- the app turns into a sentence when no row comes back.
+reset role;
+set local request.jwt.claims = '{"sub": "50a6e142-0000-0000-0000-000000000147"}';
+set local role authenticated;
+
+do $$
+declare
+  touched integer;
+begin
+  if exists (
+    select 1 from public.setlist_projects
+    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+  ) then
+    raise exception 'somebody else''s set was readable by a viewer of the room';
+  end if;
+
+  update public.setlist_projects set note = 'Faster'
+  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+    and project_id = '50a6e142-0000-0000-0000-00000000014b';
+  get diagnostics touched = row_count;
+  if touched <> 0 then
+    raise exception 'a viewer of the room changed what somebody else''s set says';
+  end if;
+end $$;
+
+-- And an editor of the room, who can change the song itself (0144), still
+-- cannot change the set: it is the owner's, not the room's.
+reset role;
+set local request.jwt.claims = '{"sub": "50a6e142-0000-0000-0000-000000000146"}';
+set local role authenticated;
+
+do $$
+declare
+  touched integer;
+begin
+  update public.setlist_projects set played_key = 'C major'
+  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+    and project_id = '50a6e142-0000-0000-0000-00000000014b';
+  get diagnostics touched = row_count;
+  if touched <> 0 then
+    raise exception 'an editor of the room changed what somebody else''s set says';
+  end if;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select note from public.setlist_projects
+      where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+        and project_id = '50a6e142-0000-0000-0000-00000000014b')
+     is distinct from 'Straight into the next one' then
+    raise exception 'somebody who does not own the set changed what it says';
+  end if;
+  if (select played_key from public.setlist_projects
+      where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+        and project_id = '50a6e142-0000-0000-0000-00000000014b')
+     is distinct from 'Bb major' then
+    raise exception 'somebody who does not own the set moved a song''s key';
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------
 -- Everyone on it says yes before it goes out (0155).
 --
 -- Every Musician, Same Song, 17 September 2026. Three things have to hold.
@@ -7572,349 +7916,6 @@ begin
 end $$;
 
 reset role;
-
--- ---------------------------------------------------------------------
--- A spoken note at a moment (0152).
---
--- Every Musician, Same Song, 17 September 2026, slice 23. The teacher says
--- something at 1:48 of the take the student sent them, in 0141's lesson
--- room further up this file. It is a moment_notes row with a voice and no
--- words, and every rule a typed note has still holds: the student who
--- played it can read it and is told once, somebody outside the room can
--- neither read it nor leave one, and only the teacher can take it back.
--- A note has to say something, the voice has to live in this song's own
--- folder, and one object is one note.
---
--- Not here: the storage policies the audio goes through. The shim grants
--- storage.objects to service_role only (see 0148's block), so a read or a
--- write as authenticated would be refused on the grant whatever the policy
--- said, and a check that cannot fail for the right reason proves nothing.
--- ---------------------------------------------------------------------
-
-insert into auth.users (id, email, raw_user_meta_data) values
-  ('5011e500-0000-0000-0000-000000000152', 'passer.by@smoke.test',
-   '{"display_name": "Passer By"}');
-
--- The teacher says it.
-set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
-set local role authenticated;
-
-do $$
-declare
-  spoken uuid;
-begin
-  -- No words and no voice is not a note.
-  begin
-    insert into public.moment_notes (project_id, layer_id, at_ms)
-    values ('5011e500-0000-0000-0000-00000000014b',
-            '5011e500-0000-0000-0000-00000000014c', 108000);
-    raise exception 'a note with neither words nor a voice was accepted';
-  exception when check_violation then null;
-  end;
-
-  -- The voice has to live in this song's own folder, or the read policy
-  -- would hand out whatever object the row pointed at.
-  begin
-    insert into public.moment_notes (project_id, layer_id, at_ms, voice_path)
-    values ('5011e500-0000-0000-0000-00000000014b',
-            '5011e500-0000-0000-0000-00000000014c', 108000,
-            '5011e500-0000-0000-0000-00000000014a/44444444-4444-4444-4444-444444444444/moments/elsewhere.wav');
-    raise exception 'a spoken note pointing into another song''s folder was accepted';
-  exception when check_violation then null;
-  end;
-
-  insert into public.moment_notes (project_id, layer_id, at_ms, voice_path)
-  values ('5011e500-0000-0000-0000-00000000014b',
-          '5011e500-0000-0000-0000-00000000014c', 108000,
-          '5011e500-0000-0000-0000-00000000014a/5011e500-0000-0000-0000-00000000014b/moments/said-at-148.wav')
-  returning id into spoken;
-  perform set_config('smoke.spoken_note', spoken::text, true);
-
-  if not exists (
-    select 1 from public.moment_notes
-    where id = spoken and body is null and on_shared_take is true
-  ) then
-    raise exception 'a spoken note on a sent take did not come back as the room''s, with no words';
-  end if;
-
-  -- One object is one note.
-  begin
-    insert into public.moment_notes (project_id, layer_id, at_ms, voice_path)
-    values ('5011e500-0000-0000-0000-00000000014b',
-            '5011e500-0000-0000-0000-00000000014c', 109000,
-            '5011e500-0000-0000-0000-00000000014a/5011e500-0000-0000-0000-00000000014b/moments/said-at-148.wav');
-    raise exception 'two notes were allowed to share one recording';
-  exception when unique_violation then null;
-  end;
-end $$;
-
--- The student, who played it, was told -- by a card that says the note was
--- spoken, rather than by one with nothing on it. Read without a role, the
--- way 0141's block reads who was told.
-reset role;
-do $$
-begin
-  if not exists (
-    select 1 from public.notifications
-    where user_id = '5011e500-0000-0000-0000-000000000141'
-      and type = 'moment_note'
-      and actor_id = '11111111-1111-1111-1111-111111111111'
-      and title = 'The Writer left a note at 1:48'
-      and body = 'Said out loud'
-  ) then
-    raise exception 'the person who played the take was not told a note was spoken on it';
-  end if;
-end $$;
-
--- And can read it.
-set local request.jwt.claims = '{"sub": "5011e500-0000-0000-0000-000000000141", "email": "the.student@smoke.test"}';
-set local role authenticated;
-
-do $$
-begin
-  if not exists (
-    select 1 from public.moment_notes
-    where id = current_setting('smoke.spoken_note')::uuid
-      and voice_path is not null
-  ) then
-    raise exception 'the person who played the take could not read a spoken note on it';
-  end if;
-
-  -- Not theirs to take back.
-  perform public.delete_moment_note(current_setting('smoke.spoken_note')::uuid);
-  if not exists (
-    select 1 from public.moment_notes
-    where id = current_setting('smoke.spoken_note')::uuid
-  ) then
-    raise exception 'somebody other than its author took back a spoken note';
-  end if;
-end $$;
-
--- Somebody outside the room gets nothing, and may leave nothing.
-reset role;
-set local request.jwt.claims = '{"sub": "5011e500-0000-0000-0000-000000000152", "email": "passer.by@smoke.test"}';
-set local role authenticated;
-
-do $$
-begin
-  if exists (
-    select 1 from public.moment_notes
-    where id = current_setting('smoke.spoken_note')::uuid
-  ) then
-    raise exception 'somebody outside the room could read a spoken note';
-  end if;
-
-  begin
-    insert into public.moment_notes (project_id, layer_id, at_ms, voice_path)
-    values ('5011e500-0000-0000-0000-00000000014b',
-            '5011e500-0000-0000-0000-00000000014c', 5000,
-            '5011e500-0000-0000-0000-00000000014a/5011e500-0000-0000-0000-00000000014b/moments/uninvited.wav');
-    raise exception 'somebody outside the room left a spoken note';
-  exception when insufficient_privilege then null;
-  end;
-end $$;
-
--- The teacher takes it back, and it is gone for the student too.
-reset role;
-set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
-set local role authenticated;
-
-do $$
-begin
-  perform public.delete_moment_note(current_setting('smoke.spoken_note')::uuid);
-  if exists (
-    select 1 from public.moment_notes
-    where id = current_setting('smoke.spoken_note')::uuid
-  ) then
-    raise exception 'the author could not take back a spoken note';
-  end if;
-end $$;
-
-reset role;
-set local request.jwt.claims = '{"sub": "5011e500-0000-0000-0000-000000000141", "email": "the.student@smoke.test"}';
-set local role authenticated;
-
-do $$
-begin
-  if exists (
-    select 1 from public.moment_notes
-    where id = current_setting('smoke.spoken_note')::uuid
-  ) then
-    raise exception 'a spoken note taken back was still readable by the person it was about';
-  end if;
-end $$;
-
-reset role;
-
--- ---------------------------------------------------------------------
--- A setlist that knows each song (0157).
---
--- A set stored titles and an order; a gigging band needs what to do with
--- each song. Six nullable columns on the row that joins a song to a set,
--- null meaning "what the song says". The set's owner writes them through
--- 0005's update policy, a song arrives saying nothing, a field cleared goes
--- back to the song, the table refuses what the app would (a key nothing can
--- read, a tempo nothing can count at, an empty string as an answer), and
--- nobody else -- not a viewer of the room, not an editor who can change the
--- song itself -- can see the set or change what it says. The Covers Room
--- and its people are 0142's, above.
--- ---------------------------------------------------------------------
-
-set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
-set local role authenticated;
-
-insert into public.setlists (id, owner_id, name)
-values ('a5e70157-0000-0000-0000-000000000001',
-        '11111111-1111-1111-1111-111111111111', 'Saturday at the Anchor');
-
-insert into public.setlist_projects (setlist_id, project_id, position) values
-  ('a5e70157-0000-0000-0000-000000000001', '50a6e142-0000-0000-0000-00000000014b', 0),
-  ('a5e70157-0000-0000-0000-000000000001', '50a6e142-0000-0000-0000-00000000014c', 1);
-
-do $$
-declare
-  song record;
-begin
-  -- A song arrives in a set saying nothing: the app reads the song.
-  if exists (
-    select 1 from public.setlist_projects
-    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-      and (played_key is not null or bpm is not null or count_in is not null
-           or form is not null or ending is not null or note is not null)
-  ) then
-    raise exception 'a song arrived in a set with answers nobody gave';
-  end if;
-
-  -- The owner says what the band does with it.
-  update public.setlist_projects
-  set played_key = 'Bb major', bpm = 92, count_in = 'Drums, two bars',
-      form = 'Intro · Verse · Chorus · Chorus', ending = 'Cold',
-      note = 'Straight into the next one'
-  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-    and project_id = '50a6e142-0000-0000-0000-00000000014b';
-
-  select * into song from public.setlist_projects
-  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-    and project_id = '50a6e142-0000-0000-0000-00000000014b';
-  if song.played_key is distinct from 'Bb major'
-     or song.bpm is distinct from 92
-     or song.count_in is distinct from 'Drums, two bars'
-     or song.form is distinct from 'Intro · Verse · Chorus · Chorus'
-     or song.ending is distinct from 'Cold'
-     or song.note is distinct from 'Straight into the next one' then
-    raise exception 'the owner''s answers did not land';
-  end if;
-
-  -- The other song in the set is untouched.
-  if exists (
-    select 1 from public.setlist_projects
-    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-      and project_id = '50a6e142-0000-0000-0000-00000000014c'
-      and played_key is not null
-  ) then
-    raise exception 'one song''s key landed on another';
-  end if;
-
-  -- A field cleared hands the song back to what it says.
-  update public.setlist_projects set bpm = null
-  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-    and project_id = '50a6e142-0000-0000-0000-00000000014b';
-  if (select bpm from public.setlist_projects
-      where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-        and project_id = '50a6e142-0000-0000-0000-00000000014b') is not null then
-    raise exception 'a cleared tempo stayed';
-  end if;
-
-  -- The table refuses what the app would, because 0005 lets an owner update
-  -- this row directly and a rule that lives only in the app is one request
-  -- away from nothing.
-  begin
-    update public.setlist_projects set played_key = 'Mixolydian'
-    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-      and project_id = '50a6e142-0000-0000-0000-00000000014b';
-    raise exception 'a plain update stored something that is not a key';
-  exception when check_violation then null;
-  end;
-
-  begin
-    update public.setlist_projects set bpm = 300
-    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-      and project_id = '50a6e142-0000-0000-0000-00000000014b';
-    raise exception 'a tempo nothing can count at was stored';
-  exception when check_violation then null;
-  end;
-
-  begin
-    update public.setlist_projects set note = ''
-    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-      and project_id = '50a6e142-0000-0000-0000-00000000014b';
-    raise exception 'an empty note was stored as an answer';
-  exception when check_violation then null;
-  end;
-end $$;
-
--- Somebody who can only look at the room does not own the set. They cannot
--- see it, and an update from them lands on no row -- which is the silence
--- the app turns into a sentence when no row comes back.
-reset role;
-set local request.jwt.claims = '{"sub": "50a6e142-0000-0000-0000-000000000147"}';
-set local role authenticated;
-
-do $$
-declare
-  touched integer;
-begin
-  if exists (
-    select 1 from public.setlist_projects
-    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-  ) then
-    raise exception 'somebody else''s set was readable by a viewer of the room';
-  end if;
-
-  update public.setlist_projects set note = 'Faster'
-  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-    and project_id = '50a6e142-0000-0000-0000-00000000014b';
-  get diagnostics touched = row_count;
-  if touched <> 0 then
-    raise exception 'a viewer of the room changed what somebody else''s set says';
-  end if;
-end $$;
-
--- And an editor of the room, who can change the song itself (0144), still
--- cannot change the set: it is the owner's, not the room's.
-reset role;
-set local request.jwt.claims = '{"sub": "50a6e142-0000-0000-0000-000000000146"}';
-set local role authenticated;
-
-do $$
-declare
-  touched integer;
-begin
-  update public.setlist_projects set played_key = 'C major'
-  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-    and project_id = '50a6e142-0000-0000-0000-00000000014b';
-  get diagnostics touched = row_count;
-  if touched <> 0 then
-    raise exception 'an editor of the room changed what somebody else''s set says';
-  end if;
-end $$;
-
-reset role;
-do $$
-begin
-  if (select note from public.setlist_projects
-      where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-        and project_id = '50a6e142-0000-0000-0000-00000000014b')
-     is distinct from 'Straight into the next one' then
-    raise exception 'somebody who does not own the set changed what it says';
-  end if;
-  if (select played_key from public.setlist_projects
-      where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
-        and project_id = '50a6e142-0000-0000-0000-00000000014b')
-     is distinct from 'Bb major' then
-    raise exception 'somebody who does not own the set moved a song''s key';
-  end if;
-end $$;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 

@@ -849,7 +849,7 @@ grant execute on function public.song_audience(uuid) to authenticated;
 -- What a stranger can hear
 -- ---------------------------------------------------------------------
 
--- Both restated from 0094, which is still their latest definition, with the
+-- Restated from 0094, which is still its latest definition, with the
 -- public-surface branch narrowed from "shared" to "public": shared, and
 -- its player said yes. The branch for somebody asked to play on the song
 -- (0094) is left as it was -- that consent is the room's, addressed to one
@@ -879,10 +879,13 @@ for select to authenticated using (
 );
 
 -- And the audio, or a part is gone from the page and still plays for
--- anybody holding its path. The public-surface branch used to admit every
--- object under a public song's folder, drafts included; it now admits
--- exactly two things: the song's own reference recording, and a take
--- exactly as far as the policy above admits its row.
+-- anybody holding its path. Restated from 0152, which is its latest
+-- definition and keeps the moments folder out of this policy altogether
+-- (a spoken note has its own door); that line is kept. The public-surface
+-- branch used to admit every object under a public song's folder, drafts
+-- included; it now admits exactly two things: the song's own reference
+-- recording, and a take exactly as far as the policy above admits its
+-- row.
 --
 -- Answered by a security-definer function, and asked the positive way
 -- round, for a reason that cost this migration a review. A policy
@@ -929,6 +932,7 @@ drop policy if exists room_files_read_members on storage.objects;
 create policy room_files_read_members on storage.objects
 for select to authenticated using (
   bucket_id = 'room-files'
+  and name not like '%/moments/%'
   and (
     private.is_room_member(private.as_uuid((storage.foldername(name))[1]))
     or (
