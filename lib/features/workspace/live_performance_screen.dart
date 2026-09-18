@@ -357,8 +357,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
 
   /// Done once the recording is local, or has failed to be. A part kept
   /// from last time is restored after this, so the mix is built with the
-  /// song in it and swapped under a player that already exists rather than
-  /// racing the recording for who makes the player.
+  /// song in it. Whichever of the two makes the player first keeps it; see
+  /// _prepareAudio.
   final Completer<void> _referenceReady = Completer<void>();
 
   /// The last part mix written, deleted when the next one replaces it. Each
@@ -823,6 +823,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       final path = await _analysis.ensureLocalReference(reference);
       if (!mounted) return;
       _referencePath = path;
+      // The path is all a part mix needs, so a part kept from last time can
+      // start building now rather than after the player below is ready.
+      if (!_referenceReady.isCompleted) _referenceReady.complete();
       final player = AudioPlayer();
       await player.setSource(audioSourceFor(path));
       if (_rate != 1) await player.setPlaybackRate(_rate);
@@ -830,7 +833,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       // or a leader followed from the first second. The recording starts
       // from there rather than from the top, under words that are not.
       if (_elapsed > Duration.zero) await player.seek(_elapsed);
-      if (!mounted) {
+      // Gone, or a mix got here first: a part mix, or the band without a
+      // part, put its own player under the words while the recording
+      // loaded, and that one has the recording in it already. Until this
+      // check the recording on its own replaced it, and the mix player
+      // leaked.
+      if (!mounted || _audioPlayer != null) {
         await player.dispose();
         return;
       }
