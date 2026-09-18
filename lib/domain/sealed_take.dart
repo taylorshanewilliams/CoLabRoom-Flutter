@@ -59,9 +59,26 @@ const int sealForAtMostYears = 10;
 DateTime aYearOn(DateTime now) =>
     DateTime(now.year + 1, now.month, now.day, now.hour, now.minute);
 
-/// The day somebody picked, at the time of day it is [now].
-DateTime onTheDay(DateTime picked, DateTime now) =>
-    DateTime(picked.year, picked.month, picked.day, now.hour, now.minute);
+/// The moment a day somebody [picked] opens: the start of that day, where
+/// they are.
+///
+/// The dialog and the takes screen promise a date and nothing more -- "Opens
+/// 20 December 2026" -- while the server only asks whether the moment has
+/// passed. Opening at the time of day it was sealed, a take put away at
+/// 23:50 showed nothing for nearly all of the day it was promised for, and
+/// its card first appeared on the 21st. The year that is offered unasked
+/// keeps its evening (see [aYearOn]), and so does that same day when the
+/// picker is opened and closed on it, so looking at the calendar changes
+/// nothing.
+DateTime opensOn(DateTime picked, DateTime asked) {
+  final offered = aYearOn(asked);
+  final theSameDay = picked.year == offered.year &&
+      picked.month == offered.month &&
+      picked.day == offered.day;
+  return theSameDay
+      ? offered
+      : DateTime(picked.year, picked.month, picked.day);
+}
 
 /// The first and last days a seal may be set to open.
 DateTime earliestSealDay(DateTime now) =>

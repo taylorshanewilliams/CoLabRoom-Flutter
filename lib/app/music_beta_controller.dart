@@ -295,9 +295,22 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// Through here rather than straight to the repository so that a take
   /// sealed a second time, in a session that already answered its first
   /// card, is offered again when its new day comes.
+  ///
+  /// The answered card leaves the fetched list before its id leaves
+  /// [_sealsEnded]. The list is only refetched when the app loads, so until
+  /// then the id was the one thing hiding it, and forgetting the id alone
+  /// put "A year ago tonight" back on Home for a take sealed a minute ago --
+  /// where either answer would have quietly undone the new seal.
   Future<DateTime> sealTake(String layerId, {required DateTime until}) async {
     final opens = await repository.sealTake(layerId, until: until);
+    final stillDue = <SealedTake>[
+      for (final take in _sealedTakesDue)
+        if (take.id != layerId) take,
+    ];
+    final changed = stillDue.length != _sealedTakesDue.length;
+    _sealedTakesDue = stillDue;
     _sealsEnded.remove(layerId);
+    if (changed) notifyListeners();
     return opens;
   }
 

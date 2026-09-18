@@ -20,6 +20,14 @@ import 'waiting_on_you.dart';
 /// x is "Not now", and it is the permanent kind of dismissal, not the
 /// session's -- the take goes back among the song's takes either way, and
 /// nothing anywhere remembers which answer it was.
+/// What Home says when "Play it" could not make a sound.
+///
+/// The seal has ended all the same, so this is where the take now is: a weak
+/// connection on the one evening it was offered must not read as the idea
+/// being lost.
+String sealedTakeIsBackWords(SealedTake take) =>
+    'It is back among the takes on ${take.songTitle}.';
+
 WaitingItem sealedTakeCard(
   SealedTake take, {
   required DateTime now,

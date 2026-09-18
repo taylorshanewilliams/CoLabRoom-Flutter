@@ -131,7 +131,7 @@ Future<MusicBetaController> _openTakes(
 Future<MusicBetaController> _openHome(
   WidgetTester tester,
   InMemoryMusicRepository repository, {
-  Future<void> Function(SealedTake take)? hear,
+  Future<bool> Function(SealedTake take)? hear,
 }) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   await SetAside.load();
@@ -237,8 +237,35 @@ void main() {
       expect(repository.isPutAway(id), isFalse);
 
       // The furthest day the picker offers is one the repository takes.
-      final furthest = onTheDay(latestSealDay(_sealedOn), _sealedOn);
+      final furthest = opensOn(latestSealDay(_sealedOn), _sealedOn);
       expect(await repository.sealTake(id, until: furthest), furthest);
+    });
+
+    test('the nearest day the picker offers has not come yet either',
+        () async {
+      // A picked day opens when it starts, so tomorrow is the tightest case:
+      // sealed at 21:40, it opens two hours and twenty minutes later.
+      final (repository, id) = _withADraft();
+
+      final nearest = opensOn(earliestSealDay(_sealedOn), _sealedOn);
+
+      expect(nearest, DateTime(2025, 9, 19));
+      expect(await repository.sealTake(id, until: nearest), nearest);
+    });
+
+    test('a day they pick opens when that day starts', () {
+      // "Opens 20 December 2026" promises the date and nothing else. Sealed
+      // at ten to midnight and opened at that hour, the card was not there
+      // at nine in the morning or six in the evening of the 20th.
+      final lateOneNight = DateTime(2025, 9, 18, 23, 50);
+
+      expect(opensOn(DateTime(2026, 12, 20), lateOneNight),
+          DateTime(2026, 12, 20));
+
+      // The year that is offered keeps its evening, and opening the picker
+      // and closing it on that same day changes nothing.
+      expect(opensOn(DateTime(2026, 9, 18), lateOneNight),
+          aYearOn(lateOneNight));
     });
 
     test('sealing a sealed take keeps the day it already had', () async {
@@ -327,6 +354,8 @@ void main() {
       final opens = await repository.sealTake(id,
           until: DateTime.now().add(const Duration(days: 40)));
       expect(opens.day, day);
+      expect(opens, DateTime(opens.year, opens.month, opens.day),
+          reason: 'a picked day opens when it starts');
       expect('Opens ${dayInWords(opens)}', chosen);
       expect(find.text(sealedUntilWords(opens)), findsOneWidget);
     });
@@ -599,13 +628,18 @@ void main() {
       final controller = await _openHome(
         tester,
         repository,
-        hear: (take) async => heard.add(take.id),
+        hear: (take) async {
+          heard.add(take.id);
+          return true;
+        },
       );
 
       _sealedCards(tester).single.onAction();
       await tester.pump(const Duration(milliseconds: 200));
 
       expect(heard, <String>[id]);
+      expect(find.byType(SnackBar), findsNothing,
+          reason: 'the bar at the bottom says where it went');
       expect(_sealedCards(tester), isEmpty);
       expect(repository.isPutAway(id), isFalse,
           reason: 'it is back among the song\'s takes');
@@ -616,6 +650,43 @@ void main() {
       expect(_sealedCards(tester), isEmpty);
       expect(await repository.sealedTakesDue(), isEmpty);
     });
+
+    testWidgets('a take that will not play still says where it went',
+        (tester) async {
+      // A weak connection on the one evening it is offered. The player fails
+      // quietly by design, so without this the card went, no sound came, and
+      // nothing said what had become of an idea kept for a year.
+      final (repository, id) = await _sealedAYearAgoTonight();
+      final sealed = (await repository.sealedTakesDue()).single;
+      await _openHome(tester, repository, hear: (take) async => false);
+
+      _sealedCards(tester).single.onAction();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(sealedTakeIsBackWords(sealed),
+          'It is back among the takes on Midnight Signal.');
+      expect(find.text(sealedTakeIsBackWords(sealed)), findsOneWidget);
+      // Playing it was still an answer.
+      expect(_sealedCards(tester), isEmpty);
+      expect(repository.isPutAway(id), isFalse);
+    });
+
+    testWidgets('and so does a player that falls over', (tester) async {
+      final (repository, id) = await _sealedAYearAgoTonight();
+      await _openHome(
+        tester,
+        repository,
+        hear: (take) async => throw StateError('no audio device'),
+      );
+
+      _sealedCards(tester).single.onAction();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('It is back among the takes on Midnight Signal.'),
+          findsOneWidget);
+      expect(tester.takeException(), isNull);
+      expect(repository.isPutAway(id), isFalse);
+    });
   });
 
   group('"Not now" is final', () {
@@ -625,7 +696,10 @@ void main() {
       final controller = await _openHome(
         tester,
         repository,
-        hear: (take) async => heard.add(take.id),
+        hear: (take) async {
+          heard.add(take.id);
+          return true;
+        },
       );
 
       _sealedCards(tester).single.onDismiss!();
@@ -665,6 +739,33 @@ void main() {
       repository.hear();
       await ending;
       expect(controller.sealedTakesDue, isEmpty);
+    });
+
+    test('sealing it again the same evening does not bring the old card back',
+        () async {
+      // They answer the card, think again, find the take back in the song
+      // and put it away for another year. The answered card was still in the
+      // list the app had fetched, hidden only by its id, and sealing forgot
+      // the id: "A year ago tonight" came back for a take sealed a minute
+      // ago, and either answer on it would have undone the new seal.
+      final (repository, id) = await _sealedAYearAgoTonight();
+      final controller = MusicBetaController(repository);
+      addTearDown(controller.dispose);
+      await controller.load();
+      await controller.endSeal(controller.sealedTakesDue.single);
+
+      final opens = await controller.sealTake(id, until: aYearOn(_theDay));
+
+      expect(opens, DateTime(2027, 9, 18, 21, 40));
+      expect(controller.sealedTakesDue, isEmpty);
+      expect(repository.isPutAway(id), isTrue);
+      await controller.load();
+      expect(controller.sealedTakesDue, isEmpty);
+
+      // Its own day, a year on, is a new offer and is made.
+      repository.clock = () => DateTime(2027, 9, 18, 21, 40);
+      await controller.load();
+      expect(controller.sealedTakesDue.single.id, id);
     });
 
     test('nothing is kept about a seal that has ended', () async {

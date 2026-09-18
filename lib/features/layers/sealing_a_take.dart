@@ -27,9 +27,10 @@ String sealedUntilWords(DateTime opens) =>
 /// null if they thought better of it.
 ///
 /// A year unless they say otherwise, at the same time of day as now: a take
-/// sealed late one evening comes back late one evening. The day can be any
-/// from tomorrow to just short of ten years, which is as far as the table
-/// lets a seal go (0158).
+/// sealed late one evening comes back late one evening. A day they pick
+/// opens when that day starts, because the date is all this promises them.
+/// The day can be any from tomorrow to just short of ten years, which is as
+/// far as the table lets a seal go (0158).
 Future<DateTime?> askWhenToOpen(BuildContext context, {DateTime? now}) {
   final asked = now ?? DateTime.now();
   var opens = aYearOn(asked);
@@ -71,7 +72,7 @@ Future<DateTime?> askWhenToOpen(BuildContext context, {DateTime? now}) {
                   helpText: 'Open it on',
                 );
                 if (picked == null) return;
-                setDialogState(() => opens = onTheDay(picked, asked));
+                setDialogState(() => opens = opensOn(picked, asked));
               },
               style: TextButton.styleFrom(
                 foregroundColor: AppColors.cyan,
