@@ -66,10 +66,15 @@ class _Asking extends InMemoryMusicRepository {
     String? part,
     String note = '',
     AskTerms terms = AskTerms.play,
+    String sungIn = '',
   }) async {
     sent.add(terms);
     return super.askFor(
-        projectId: projectId, part: part, note: note, terms: terms);
+        projectId: projectId,
+        part: part,
+        note: note,
+        terms: terms,
+        sungIn: sungIn);
   }
 }
 

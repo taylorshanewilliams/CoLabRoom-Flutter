@@ -24,6 +24,7 @@ import 'the_app_noticed.dart';
 import '../../app/beta_scope.dart';
 import '../../widgets/profile_face.dart';
 import '../../domain/sounds.dart';
+import '../../domain/sung_in.dart';
 
 /// Somebody's own room.
 ///
@@ -305,6 +306,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
               bio: written.trim().isEmpty ? null : written.trim(),
               plays: me.plays,
               soundsLike: me.soundsLike,
+              singsIn: me.singsIn,
               partsRecorded: me.partsRecorded,
               songsPlayedOn: me.songsPlayedOn,
               peopleWorkedWith: me.peopleWorkedWith,
@@ -648,6 +650,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
         locationVisibility: changed.locationVisibility,
         plays: changed.plays,
         soundsLike: changed.soundsLike,
+        singsIn: changed.singsIn,
       );
       await _load();
     } catch (error) {
@@ -1298,6 +1301,19 @@ class _Body extends StatelessWidget {
             ],
           ),
         ],
+        // Declared by them, never worked out from a recording, a name or a
+        // city (Every Musician, Same Song, 17 September 2026). Languages and
+        // traditions in one line, because which is which is theirs to say.
+        if (musician.singsIn.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 28),
+          const _Heading('Sings in', note: 'their own words'),
+          const SizedBox(height: 9),
+          Text(
+            musician.singsIn.map(sungInShown).join(' · '),
+            key: const Key('profile_sings_in'),
+            style: const TextStyle(color: AppColors.text, fontSize: 13.5),
+          ),
+        ],
         if (musician.plays.isNotEmpty) ...<Widget>[
           const SizedBox(height: 28),
           const _Heading('Also plays', note: 'their own words'),
@@ -1773,6 +1789,7 @@ class _Presence {
     required this.locationVisibility,
     required this.plays,
     required this.soundsLike,
+    required this.singsIn,
   });
 
   final bool discoverable;
@@ -1780,6 +1797,7 @@ class _Presence {
   final String locationVisibility;
   final List<String> plays;
   final List<String> soundsLike;
+  final List<String> singsIn;
 }
 
 class _PresenceSheet extends StatefulWidget {
@@ -1835,6 +1853,15 @@ class _PresenceSheetState extends State<_PresenceSheet> {
   late final Set<String> _soundsLike;
   final TextEditingController _ownWords = TextEditingController();
 
+  /// The languages somebody sings in and the traditions they work in.
+  ///
+  /// Typed, with no list to pick from: a row of suggested languages is a
+  /// choice about which languages count (Every Musician, Same Song, 17
+  /// September 2026). Insertion order is kept, so what they wrote first
+  /// stays first. Capped like the sounds above, for the same reason.
+  late final Set<String> _singsIn;
+  final TextEditingController _ownSungIn = TextEditingController();
+
   /// For a role the list does not have. Somebody plays the sitar, somebody
   /// runs front of house, somebody writes string arrangements — a fixed list
   /// is a promise this app cannot keep, and the column is free text anyway.
@@ -1848,6 +1875,22 @@ class _PresenceSheetState extends State<_PresenceSheet> {
     _city = TextEditingController(text: widget.me.city ?? '');
     _plays = widget.me.plays.toSet();
     _soundsLike = widget.me.soundsLike.toSet();
+    _singsIn = widget.me.singsIn.toSet();
+  }
+
+  /// Adds a language or a tradition, in somebody's own words.
+  ///
+  /// Folded the way the server keeps it, so "Português" typed here and
+  /// "portuguese" on somebody else's page are one word rather than two that
+  /// never match each other.
+  void _addSungIn() {
+    final typed = sungInWord(_ownSungIn.text);
+    if (typed.isEmpty || typed.length > 40) return;
+    if (_singsIn.length >= _maxSounds || _singsIn.contains(typed)) return;
+    setState(() {
+      _singsIn.add(typed);
+      _ownSungIn.clear();
+    });
   }
 
   /// Adds whatever somebody typed, in their words.
@@ -1883,6 +1926,7 @@ class _PresenceSheetState extends State<_PresenceSheet> {
   void dispose() {
     _ownRole.dispose();
     _ownWords.dispose();
+    _ownSungIn.dispose();
     _city.dispose();
     super.dispose();
   }
@@ -2093,6 +2137,73 @@ class _PresenceSheetState extends State<_PresenceSheet> {
               style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
             ),
             const SizedBox(height: 20),
+            const _SheetHeading('What you sing in'),
+            const SizedBox(height: 4),
+            // Says what makes it safe to answer: nothing is guessed, where
+            // the words go, and that nothing is held against anybody who
+            // leaves it empty (Every Musician, Same Song, 17 September 2026).
+            const Text(
+              'The languages you sing in and any traditions you work in, in '
+              'your words. The app never guesses them. They show on your '
+              'page, and a word you share with somebody can be why their '
+              'song reaches you. Nobody is hidden or ranked by them.',
+              style:
+                  TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4),
+            ),
+            if (_singsIn.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: <Widget>[
+                  for (final word in _singsIn)
+                    FilterChip(
+                      key: Key('sings_in_chip_$word'),
+                      label: Text(sungInShown(word)),
+                      selected: true,
+                      onSelected: (_) =>
+                          setState(() => _singsIn.remove(word)),
+                      showCheckmark: false,
+                      selectedColor: AppColors.gold.withValues(alpha: 0.18),
+                      backgroundColor: AppColors.raised,
+                      side: const BorderSide(color: AppColors.gold),
+                      labelStyle: const TextStyle(
+                        color: AppColors.gold,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 10),
+            TextField(
+              key: const Key('sings_in_field'),
+              controller: _ownSungIn,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _addSungIn(),
+              style: const TextStyle(fontSize: 14),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'A language or a tradition',
+                prefixIcon: const Icon(Icons.add_rounded, size: 18),
+                suffixIcon: TextButton(
+                  key: const Key('sings_in_add'),
+                  onPressed: _addSungIn,
+                  child: const Text('Add'),
+                ),
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _singsIn.length >= _maxSounds
+                  ? 'Five is the most. Take one off to add another.'
+                  : 'Portuguese, Hindi, Carnatic, fado. One at a time, up to '
+                      'five.',
+              style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
+            ),
+            const SizedBox(height: 20),
             const _SheetHeading('Where you are'),
             const SizedBox(height: 4),
             // Says the limit out loud. A location field that could mean a
@@ -2172,6 +2283,7 @@ class _PresenceSheetState extends State<_PresenceSheet> {
                   locationVisibility: _visibility,
                   plays: _plays.toList(growable: false),
                   soundsLike: _soundsLike.toList(growable: false),
+                  singsIn: _singsIn.toList(growable: false),
                 ),
               ),
               style: FilledButton.styleFrom(

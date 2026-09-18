@@ -7917,6 +7917,260 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- Say what you sing in (0156).
+--
+-- Every Musician, Same Song, 17 September 2026. Four things have to hold.
+-- What somebody declares is kept the way sounds are: folded to one
+-- spelling, five at most, and left alone by a call that does not mention
+-- it. A word two people both wrote is a reason the feed gives, and never a
+-- filter: somebody who declared nothing sees exactly the feed they saw
+-- before anybody declared anything, in the same order, and no song is
+-- hidden from anybody. An ask says what it is in, to the room's card and to
+-- the person asked, and a line written to one person never reaches the
+-- card strangers read. And all of it runs as authenticated with a sound in
+-- the same call, because that is the call the settings sheet makes, and
+-- 0135's helper refused it to everybody but the superuser this file
+-- usually is.
+--
+-- Fresh readers. The song is 0155's, still up with the owner's guitar.
+-- ---------------------------------------------------------------------
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('51a60156-0000-0000-0000-000000000001', 'singsin@smoke.test',
+   '{"display_name": "Sings In Portuguese"}'),
+  -- Declares nothing, ever. The feed they see must not move.
+  ('51a60156-0000-0000-0000-000000000002', 'saysnothing@smoke.test',
+   '{"display_name": "Says Nothing"}');
+
+-- Before anybody has declared anything: what the one who says nothing sees.
+set local request.jwt.claims = '{"sub": "51a60156-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+begin
+  if not exists (
+    select 1 from public.open_mic_feed(24, null::text)
+    where id = 'e0e0e155-0000-0000-0000-00000000015a'
+  ) then
+    raise exception 'the song this block reads was not in the feed';
+  end if;
+  perform set_config(
+    'smoke.feed_before',
+    (select string_agg(f.id::text || ':' || f.reason, ',' order by f.ordinality)
+       from public.open_mic_feed(24, null::text) with ordinality as f),
+    true);
+end $$;
+
+-- The writer says what they sing in, in the call the settings sheet makes:
+-- sounds and languages together, as the person and not as the superuser.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+select public.set_open_mic_presence(
+  true, null, null, null,
+  array['folk', 'Hip Hop'],
+  array['Português', 'portuguese', '  Hindustani   Classical ', 'fado']
+);
+
+do $$
+declare
+  mine record;
+begin
+  select * into mine
+  from public.musician_profile('11111111-1111-1111-1111-111111111111');
+  -- Folded, deduplicated and in the order chosen, or "Português" on one
+  -- page and "Portuguese" on another would never be the same language.
+  if mine.sings_in is distinct from array['portuguese', 'hindustani', 'fado'] then
+    raise exception 'sings_in was kept as % rather than portuguese/hindustani/fado',
+      mine.sings_in;
+  end if;
+  -- The sound beside it went through as well: 0135's helper, as authenticated.
+  if mine.sounds_like is distinct from array['folk', 'hip-hop'] then
+    raise exception 'a sound saved beside a language was kept as %', mine.sounds_like;
+  end if;
+end $$;
+
+-- Five, and no more.
+select public.set_open_mic_presence(
+  true, null, null, null, null,
+  array['a', 'b', 'c', 'd', 'e', 'f', 'g']
+);
+
+do $$
+declare
+  n int;
+begin
+  select coalesce(array_length(sings_in, 1), 0) into n
+  from public.musician_profile('11111111-1111-1111-1111-111111111111');
+  if n <> 5 then
+    raise exception 'sings_in kept % words rather than five', n;
+  end if;
+end $$;
+
+select public.set_open_mic_presence(
+  true, null, null, null, null,
+  array['Português', 'Hindustani classical', 'fado']
+);
+
+-- Five arguments: the call an app that has not updated makes, and the one
+-- the first-run tour makes. It resolves, and it leaves sings_in alone.
+select public.set_open_mic_presence(
+  true, null, null, null, array['folk', 'americana']
+);
+
+do $$
+declare
+  mine record;
+begin
+  select * into mine
+  from public.musician_profile('11111111-1111-1111-1111-111111111111');
+  if mine.sings_in is distinct from array['portuguese', 'hindustani', 'fado'] then
+    raise exception 'a call that never mentioned sings_in left it as %', mine.sings_in;
+  end if;
+  if mine.sounds_like is distinct from array['folk', 'americana'] then
+    raise exception 'the five-argument call kept sounds_like as %', mine.sounds_like;
+  end if;
+end $$;
+
+-- Somebody who sings in Portuguese too, and has said nothing else at all:
+-- no part, no sound, no city, not listed.
+reset role;
+set local request.jwt.claims = '{"sub": "51a60156-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+select public.set_open_mic_presence(
+  false, null, null, null, null, array['PORTUGUESE']
+);
+
+do $$
+declare
+  page record;
+  track record;
+begin
+  -- The page says it, to somebody allowed to see the page.
+  select * into page
+  from public.musician_profile('11111111-1111-1111-1111-111111111111');
+  if page.sings_in is distinct from array['portuguese', 'hindustani', 'fado'] then
+    raise exception 'the page showed % for what they sing in', page.sings_in;
+  end if;
+
+  select * into track from public.open_mic_feed(24, null::text)
+  where id = 'e0e0e155-0000-0000-0000-00000000015a';
+  if track.reason is distinct from 'Also sings in Portuguese' then
+    raise exception 'a language two people share gave the reason "%"', track.reason;
+  end if;
+
+  -- Never a filter. Every song the one who says nothing was shown is here
+  -- too; declaring a language hid nothing.
+  if exists (
+    select 1
+    from unnest(string_to_array(current_setting('smoke.feed_before'), ',')) as b(entry)
+    where split_part(b.entry, ':', 1)::uuid not in (
+      select id from public.open_mic_feed(24, null::text)
+    )
+  ) then
+    raise exception 'declaring a language hid a song from the feed';
+  end if;
+end $$;
+
+-- And the one who declared nothing: the same songs, the same order, the
+-- same lines as before anybody said anything.
+reset role;
+set local request.jwt.claims = '{"sub": "51a60156-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+declare
+  feed_now text;
+begin
+  select string_agg(f.id::text || ':' || f.reason, ',' order by f.ordinality)
+    into feed_now
+  from public.open_mic_feed(24, null::text) with ordinality as f;
+  if feed_now is distinct from current_setting('smoke.feed_before') then
+    raise exception 'the feed moved for somebody who declared nothing: % became %',
+      current_setting('smoke.feed_before'), feed_now;
+  end if;
+end $$;
+
+-- An ask says what it is in. The room's ask is a plain insert, and the one
+-- sent to a person goes through ask_musician.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+insert into public.project_asks (project_id, asked_by, part, sung_in)
+values ('e0e0e155-0000-0000-0000-00000000015a',
+        '11111111-1111-1111-1111-111111111111', 'tabla',
+        'Sa = C#, Rupak, Hindi');
+
+do $$
+begin
+  begin
+    insert into public.project_asks (project_id, asked_by, part, sung_in)
+    values ('e0e0e155-0000-0000-0000-00000000015a',
+            '11111111-1111-1111-1111-111111111111', 'sarangi', repeat('x', 81));
+    raise exception 'a line longer than eighty characters was kept on an ask';
+  exception when check_violation then null;
+  end;
+end $$;
+
+select public.ask_musician(
+  'e0e0e155-0000-0000-0000-00000000015a',
+  '51a60156-0000-0000-0000-000000000001',
+  'vocal', 'Come and sing on this.', 'play', 'Sa = D, Teental, Hindi');
+
+-- Five arguments, from an app that has not updated. It resolves, and the
+-- ask it makes says nothing about what it is in.
+select public.ask_musician(
+  'e0e0e155-0000-0000-0000-00000000015a',
+  '51a60156-0000-0000-0000-000000000002',
+  'harmony', '', 'play');
+
+reset role;
+set local request.jwt.claims = '{"sub": "51a60156-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  asked record;
+  track record;
+begin
+  select * into asked from public.asks_for_me()
+  where project_id = 'e0e0e155-0000-0000-0000-00000000015a';
+  if asked.sung_in is distinct from 'Sa = D, Teental, Hindi' then
+    raise exception 'the person asked was told the song is in "%"', asked.sung_in;
+  end if;
+
+  select * into track from public.open_mic_feed(24, null::text)
+  where id = 'e0e0e155-0000-0000-0000-00000000015a';
+  -- The room's line. The newer one was written to one person, and the card
+  -- is read by strangers.
+  if track.ask_sung_in is distinct from 'Sa = C#, Rupak, Hindi' then
+    raise exception 'the feed card said the song is in "%"', track.ask_sung_in;
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "51a60156-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+declare
+  asked record;
+begin
+  select * into asked from public.asks_for_me()
+  where project_id = 'e0e0e155-0000-0000-0000-00000000015a';
+  if asked.id is null then
+    raise exception 'a five-argument ask never reached the person asked';
+  end if;
+  if asked.sung_in is distinct from '' then
+    raise exception 'an ask that did not say what it is in said "%"', asked.sung_in;
+  end if;
+end $$;
+
 reset role;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';

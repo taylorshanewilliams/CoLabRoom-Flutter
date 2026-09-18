@@ -401,6 +401,7 @@ class FeedTrack {
     this.ownerAvatarPath,
     this.askingFor = const <String>[],
     this.askNote = '',
+    this.askSungIn = '',
     this.musicalKey,
     this.bpm,
     this.durationMs,
@@ -413,6 +414,11 @@ class FeedTrack {
   final String ownerName;
   final String? ownerAvatarPath;
   final DateTime putUpAt;
+
+  /// What somebody answering would be joining, in the asker's own words:
+  /// "Sa = C#, Rupak, Hindi". From the song's latest open ask that said,
+  /// and empty when none did (Every Musician, Same Song, 17 September 2026).
+  final String askSungIn;
 
   /// Why the feed put this in front of you, in its own words — "Needs a
   /// bass", "You have played together", "Nothing like what you play".
@@ -604,6 +610,7 @@ class AskForMe {
     this.askedById,
     this.part,
     this.note = '',
+    this.sungIn = '',
     this.storagePath,
     this.durationMs,
     this.musicalKey,
@@ -614,6 +621,11 @@ class AskForMe {
   });
 
   final String id;
+
+  /// What answering would mean joining, in the asker's own words: "Sa = C#,
+  /// Rupak, Hindi". Free text, said once when the ask is made, and empty
+  /// when it was not said (Every Musician, Same Song, 17 September 2026).
+  final String sungIn;
   final String projectId;
   final String songTitle;
   final String askedByName;
@@ -682,6 +694,7 @@ class SongAsk {
     required this.createdAt,
     this.part,
     this.note = '',
+    this.sungIn = '',
     this.closed = false,
     this.opinionsOpened = false,
     this.terms = AskTerms.play,
@@ -696,6 +709,11 @@ class SongAsk {
 
   /// What they'd say about it out loud. Often empty, and that is fine.
   final String note;
+
+  /// What somebody answering would be joining: "Sa = C#, Rupak, Hindi".
+  /// Free text in the asker's words, and empty when they did not say (Every
+  /// Musician, Same Song, 17 September 2026).
+  final String sungIn;
 
   final String askedBy;
   final DateTime createdAt;
@@ -731,6 +749,7 @@ class SongAsk {
         createdAt: createdAt,
         part: part,
         note: note,
+        sungIn: sungIn,
         closed: closed ?? this.closed,
         opinionsOpened: opinionsOpened ?? this.opinionsOpened,
         // Not a parameter. Terms are settled when the ask is sent and the
@@ -1185,6 +1204,7 @@ class Musician {
     this.discoverable,
     this.locationVisibility,
     this.soundsLike = const <String>[],
+    this.singsIn = const <String>[],
     this.sharedSounds = const <String>[],
     this.isDemo = false,
     this.matchedParts = const <String>[],
@@ -1200,6 +1220,16 @@ class Musician {
   final String id;
   final String displayName;
   final String? avatarPath;
+
+  /// The languages they sing in and the traditions they work in, in their
+  /// own words: "portuguese", "hindi", "carnatic".
+  ///
+  /// Declared, never inferred: not from a recording, a name or a city (Every
+  /// Musician, Same Song, 17 September 2026). Five at most, kept the way
+  /// [soundsLike] is, and used the same way: a word you both wrote down is
+  /// one more reason the feed can give, and never a filter. Somebody who
+  /// wrote nothing here is not pushed down by anybody who did.
+  final List<String> singsIn;
 
   /// What somebody says about themselves, in their own words.
   ///

@@ -11,6 +11,7 @@ import '../domain/lesson_link.dart';
 import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
+import '../domain/sung_in.dart';
 import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
 import 'music_repository.dart';
@@ -1238,6 +1239,7 @@ class InMemoryMusicRepository implements MusicRepository {
       FeedTrack(
         id: 'preview-open-1',
         title: 'Ladder Of Life',
+        ownerId: 'preview-mara',
         ownerName: 'Mara Ellison',
         storagePath: 'preview/ladder.m4a',
         putUpAt: now.subtract(const Duration(hours: 5)),
@@ -1251,19 +1253,42 @@ class InMemoryMusicRepository implements MusicRepository {
       FeedTrack(
         id: 'preview-open-2',
         title: 'Kitchen Window',
+        ownerId: 'preview-dev',
         ownerName: 'Dev Okonjo',
         storagePath: 'preview/kitchen.m4a',
         putUpAt: now.subtract(const Duration(days: 2)),
         askingFor: const <String>['harmony'],
         musicalKey: 'D',
         durationMs: 142000,
-        reason: 'Nothing like what you play',
+        // A word you both sing in is a reason, the way open_mic_feed gives
+        // it (0156). With nothing declared this is the line it always was,
+        // and either way the song stays where it was in the list: closeness
+        // is a sentence on a card, never a filter.
+        reason: _alsoSingsIn('preview-dev') ?? 'Nothing like what you play',
       ),
     ];
     return <FeedTrack>[
       for (final track in all)
         if (part == null || track.askingFor.contains(part)) track,
     ];
+  }
+
+  /// The feed's line for the first word you and [ownerId] both sing in, or
+  /// null when there is none.
+  ///
+  /// Both sides declared it (Every Musician, Same Song, 17 September 2026):
+  /// nothing here reads a name, a city or a recording. Whole words, as the
+  /// server matches them, after the same folding.
+  String? _alsoSingsIn(String ownerId) {
+    final mine = _me.singsIn.map(sungInWord).toSet();
+    if (mine.isEmpty) return null;
+    for (final musician in _everyone) {
+      if (musician.id != ownerId) continue;
+      for (final word in musician.singsIn) {
+        if (mine.contains(sungInWord(word))) return alsoSingsIn(word);
+      }
+    }
+    return null;
   }
 
   @override
@@ -1627,6 +1652,7 @@ class InMemoryMusicRepository implements MusicRepository {
     String? part,
     String note = '',
     AskTerms terms = AskTerms.play,
+    String sungIn = '',
   }) async {}
 
   @override
@@ -1734,6 +1760,7 @@ class InMemoryMusicRepository implements MusicRepository {
       city: _me.city,
       plays: <String>[..._me.plays, part],
       soundsLike: _me.soundsLike,
+      singsIn: _me.singsIn,
       partsRecorded: _me.partsRecorded,
       songsPlayedOn: _me.songsPlayedOn,
       peopleWorkedWith: _me.peopleWorkedWith,
@@ -1769,6 +1796,7 @@ class InMemoryMusicRepository implements MusicRepository {
           : (cleaned.length > 300 ? cleaned.substring(0, 300) : cleaned),
       plays: _me.plays,
       soundsLike: _me.soundsLike,
+      singsIn: _me.singsIn,
       partsRecorded: _me.partsRecorded,
       songsPlayedOn: _me.songsPlayedOn,
       peopleWorkedWith: _me.peopleWorkedWith,
@@ -1787,6 +1815,7 @@ class InMemoryMusicRepository implements MusicRepository {
     String? locationVisibility,
     List<String>? plays,
     List<String>? soundsLike,
+    List<String>? singsIn,
   }) async {
     _me = Musician(
       id: _me.id,
@@ -1802,6 +1831,16 @@ class InMemoryMusicRepository implements MusicRepository {
           : <String>{
               for (final t in soundsLike)
                 if (t.trim().isNotEmpty) t.trim().toLowerCase(),
+            }.take(5).toList(growable: false),
+      // The same again for tidy_sings_in (0156): folded to one spelling,
+      // in the order chosen, five at most, nothing over forty characters.
+      // Null leaves what was declared alone.
+      singsIn: singsIn == null
+          ? _me.singsIn
+          : <String>{
+              for (final t in singsIn)
+                if (t.trim().isNotEmpty && t.trim().length <= 40)
+                  sungInWord(t),
             }.take(5).toList(growable: false),
       partsRecorded: _me.partsRecorded,
       songsPlayedOn: _me.songsPlayedOn,
@@ -1839,6 +1878,10 @@ class InMemoryMusicRepository implements MusicRepository {
     Musician(
       id: 'preview-dev',
       displayName: 'Dev Okonjo',
+      // Written down by him, which is the only way the app knows it. The
+      // feed says "Also sings in Portuguese" on his song once you have
+      // declared it too, and not before.
+      singsIn: <String>['portuguese', 'english'],
       plays: <String>['drums', 'percussion'],
       partsRecorded: <String, int>{'drums': 12},
       songsPlayedOn: 11,
@@ -2959,6 +3002,7 @@ class InMemoryMusicRepository implements MusicRepository {
     String? part,
     String note = '',
     AskTerms terms = AskTerms.play,
+    String sungIn = '',
   }) async {
     final cleaned = part?.trim();
     final ask = SongAsk(
@@ -2968,6 +3012,9 @@ class InMemoryMusicRepository implements MusicRepository {
       createdAt: DateTime.now(),
       part: cleaned == null || cleaned.isEmpty ? null : cleaned,
       note: note.trim(),
+      // Kept as typed, and only what was typed: an ask that did not say
+      // stays empty rather than borrowing from anybody's profile.
+      sungIn: sungIn.trim(),
       terms: terms,
     );
     _asks.putIfAbsent(projectId, () => <SongAsk>[]).add(ask);

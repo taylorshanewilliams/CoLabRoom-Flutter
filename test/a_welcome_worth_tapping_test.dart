@@ -36,6 +36,7 @@ class _Spy extends InMemoryMusicRepository {
     String? locationVisibility,
     List<String>? plays,
     List<String>? soundsLike,
+    List<String>? singsIn,
   }) async {
     saved = true;
     this.discoverable = discoverable;

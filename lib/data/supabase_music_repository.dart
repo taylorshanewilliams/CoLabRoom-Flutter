@@ -1441,6 +1441,8 @@ class SupabaseMusicRepository implements MusicRepository {
               '$a',
           ],
           askNote: row['ask_note'] as String? ?? '',
+          // Absent until 0156 is applied, and empty is what it means anyway.
+          askSungIn: row['ask_sung_in'] as String? ?? '',
           musicalKey: row['musical_key'] as String?,
           bpm: (row['bpm'] as num?)?.toDouble(),
           durationMs: (row['duration_ms'] as num?)?.toInt(),
@@ -1737,6 +1739,7 @@ class SupabaseMusicRepository implements MusicRepository {
     String? part,
     String note = '',
     AskTerms terms = AskTerms.play,
+    String sungIn = '',
   }) async {
     await client.rpc<dynamic>(
       'ask_musician',
@@ -1746,6 +1749,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'in_part': part,
         'in_note': note,
         'in_terms': terms.wireName,
+        'in_sung_in': sungIn.trim(),
       },
     );
   }
@@ -1763,6 +1767,7 @@ class SupabaseMusicRepository implements MusicRepository {
           askedById: row['asked_by'] as String?,
           part: row['part'] as String?,
           note: row['note'] as String? ?? '',
+          sungIn: row['sung_in'] as String? ?? '',
           createdAt:
               DateTime.tryParse('${row['created_at']}')?.toLocal() ??
                   DateTime.now(),
@@ -2017,6 +2022,7 @@ class SupabaseMusicRepository implements MusicRepository {
     String? locationVisibility,
     List<String>? plays,
     List<String>? soundsLike,
+    List<String>? singsIn,
   }) async {
     await client.rpc<dynamic>(
       'set_open_mic_presence',
@@ -2026,6 +2032,9 @@ class SupabaseMusicRepository implements MusicRepository {
         'in_location_visibility': locationVisibility,
         'in_plays': plays,
         'in_sounds_like': soundsLike,
+        // Null leaves what is stored alone, as it does for the two above.
+        // The server folds and caps it (0156), so this sends what was typed.
+        'in_sings_in': singsIn,
       },
     );
   }
@@ -2055,6 +2064,13 @@ class SupabaseMusicRepository implements MusicRepository {
       soundsLike: <String>[
         for (final t
             in (row['sounds_like'] as List<dynamic>? ?? const <dynamic>[]))
+          '$t',
+      ],
+      // From musician_profile only (0156). find_musicians does not carry it:
+      // the people list is not ordered by it, so it has nothing to explain.
+      singsIn: <String>[
+        for (final t
+            in (row['sings_in'] as List<dynamic>? ?? const <dynamic>[]))
           '$t',
       ],
       // Only find_musicians works this out; a profile row has nobody to
@@ -2113,7 +2129,7 @@ class SupabaseMusicRepository implements MusicRepository {
         // tally of somebody's sentences, and the app does not keep those
         // (Every Musician, Same Song, 17 September 2026).
         .select(
-            'id, project_id, asked_by, part, note, terms, created_at, status, opinions_opened_at')
+            'id, project_id, asked_by, part, note, sung_in, terms, created_at, status, opinions_opened_at')
         .eq('project_id', projectId)
         .eq('status', 'open')
         .order('created_at', ascending: false);
@@ -2128,6 +2144,7 @@ class SupabaseMusicRepository implements MusicRepository {
     String? part,
     String note = '',
     AskTerms terms = AskTerms.play,
+    String sungIn = '',
   }) async {
     final cleaned = part?.trim();
     final row = await client
@@ -2142,8 +2159,12 @@ class SupabaseMusicRepository implements MusicRepository {
           // Written once. 0145 refuses an update of this column, so the row
           // that comes back is the last word on what answering meant.
           'terms': terms.wireName,
+          // The asker's words, as typed (0156). Never filled in from a
+          // profile or a recording: declared, never inferred.
+          'sung_in': sungIn.trim(),
         })
-        .select('id, project_id, asked_by, part, note, terms, created_at, status')
+        .select(
+            'id, project_id, asked_by, part, note, sung_in, terms, created_at, status')
         .single();
     return _ask(row);
   }
@@ -2216,6 +2237,7 @@ class SupabaseMusicRepository implements MusicRepository {
               DateTime.now(),
       part: part,
       note: row['note'] as String? ?? '',
+      sungIn: row['sung_in'] as String? ?? '',
       closed: (row['status'] as String? ?? 'open') != 'open',
       // A time, read as a yes or no: the app never shows when.
       opinionsOpened: row['opinions_opened_at'] != null,

@@ -873,6 +873,19 @@ class _AskCard extends StatelessWidget {
                   color: AppColors.cyan, fontSize: 12, height: 1.35),
             ),
           ],
+          // What they would be joining, in the asker's own words: "Sa = C#,
+          // Rupak, Hindi". With the brief because it is the same kind of
+          // fact, and before the answer because that is when it is needed
+          // (Every Musician, Same Song, 17 September 2026).
+          if (ask.sungIn.trim().isNotEmpty) ...<Widget>[
+            const SizedBox(height: 4),
+            Text(
+              ask.sungIn.trim(),
+              key: const Key('ask_card_sung_in'),
+              style: const TextStyle(
+                  color: AppColors.cyan, fontSize: 12, height: 1.35),
+            ),
+          ],
           if (ask.partsOnIt.isNotEmpty) ...<Widget>[
             const SizedBox(height: 4),
             Text(
