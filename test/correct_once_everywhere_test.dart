@@ -74,6 +74,33 @@ void main() {
       );
       expect(offer!.targets.map((t) => t.section.startMs), <int>[48000]);
       expect(offer.question, 'Also in the other chorus?');
+
+      // The structure model's edge can sit a few frames after the downbeat
+      // it means. That does not make the outro's first bar part of the
+      // chorus, so the correction still has nowhere to go there.
+      final late = findChordRepeats(
+        bundle: _corrected(_song(lastChorusEndMs: 76000, jitterMs: 40)),
+        chord: 'Am',
+        startMs: 20000,
+        endMs: 23900,
+        originalStartMs: 20000,
+      );
+      expect(late!.targets.map((t) => t.section.startMs), <int>[48040]);
+    });
+
+    test('edges a few frames off the downbeat still count by bar', () {
+      // Every section edge lands late by a frame or two. The bar is counted
+      // from the nearest downbeat, not the one containing the edge, so the
+      // correction lands in bar 3 of each chorus and not in bar 2.
+      final offer = findChordRepeats(
+        bundle: _corrected(_song(jitterMs: 40)),
+        chord: 'Am',
+        startMs: 20000,
+        endMs: 23900,
+        originalStartMs: 20000,
+      );
+      expect(offer!.targets.map((t) => t.startMs), <int>[52000, 76000]);
+      expect(offer.targets.map((t) => t.replaces?.id), <int>[14, 19]);
     });
 
     test('a song with no repeats offers nothing', () {
@@ -550,20 +577,25 @@ SongAnalysisBundle _song({
   List<StructureSection> sections = _form,
   int lastChorusEndMs = 88000,
   bool grid = true,
+  int jitterMs = 0,
   ChordCue Function(ChordCue cue)? rewrite,
 }) {
   const bar = 2000;
+  // [jitterMs] moves every section edge after the first that far off its
+  // downbeat, the way the structure model's edges really land.
   final form = <StructureSection>[
     for (final section in sections)
-      section.startMs == 72000 && section.label == 'Chorus'
-          ? StructureSection(
-              startMs: section.startMs,
-              endMs: lastChorusEndMs,
-              label: section.label,
-              groupIndex: section.groupIndex,
-              customLabel: section.customLabel,
-            )
-          : section,
+      StructureSection(
+        startMs: section.startMs == 0 ? 0 : section.startMs + jitterMs,
+        endMs: (section.startMs == 72000 && section.label == 'Chorus'
+                ? lastChorusEndMs
+                : section.endMs) +
+            jitterMs,
+        label: section.label,
+        groupIndex: section.groupIndex,
+        repeatsSectionLabel: section.repeatsSectionLabel,
+        customLabel: section.customLabel,
+      ),
   ];
   ChordCue cue(int id, String chord, int startMs) => ChordCue(
         id: id,

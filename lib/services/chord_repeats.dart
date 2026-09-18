@@ -209,13 +209,10 @@ int _toleranceMs(List<int> beats) {
 /// The same moment in [repeat] as [ms] is in [home].
 ///
 /// By bar when the grid reaches: the bar [ms] is in, counted from the bar
-/// the section starts nearest to, and the same way into that bar. A section
-/// boundary from the structure model sits a few frames either side of the
-/// downbeat it means, which is why its first bar is the nearest one and not
-/// the one containing it. Null when the repeat is too short to have that bar,
-/// so a half-length last chorus is not given a chord from a bar it does not
-/// play. Before the first downbeat, and without a grid at all, the same
-/// distance into the section.
+/// the section starts nearest to, and the same way into that bar. Null when
+/// the repeat is too short to have that bar, so a half-length last chorus is
+/// not given a chord from a bar it does not play. Before the first downbeat,
+/// and without a grid at all, the same distance into the section.
 int? _mapMoment(
   StructureSection home,
   StructureSection repeat,
@@ -223,14 +220,13 @@ int? _mapMoment(
   List<int> downbeats,
 ) {
   if (downbeats.length >= 2) {
-    final homeFirst = _nearestIndex(home.startMs, downbeats);
-    final repeatFirst = _nearestIndex(repeat.startMs, downbeats);
+    final (homeFirst, _) = _barSpan(home, downbeats);
+    final (repeatFirst, repeatEnd) = _barSpan(repeat, downbeats);
     final bar = barNumberAt(ms, downbeats);
     if (bar != null && bar - 1 >= homeFirst) {
       final target = repeatFirst + (bar - 1 - homeFirst);
-      if (target >= downbeats.length) return null;
+      if (target >= repeatEnd) return null;
       final targetStart = downbeats[target];
-      if (targetStart >= repeat.endMs) return null;
       final barStart = downbeats[bar - 1];
       final barLength =
           bar < downbeats.length ? downbeats[bar] - barStart : 0;
@@ -246,6 +242,29 @@ int? _mapMoment(
   if (home.durationMs <= 0) return null;
   final fraction = ((ms - home.startMs) / home.durationMs).clamp(0.0, 1.0);
   return repeat.startMs + (fraction * repeat.durationMs).round();
+}
+
+/// The bars a section covers: the index of its first bar in [downbeats], and
+/// the index of the first bar that is not part of it.
+///
+/// A section boundary from the structure model sits a few frames either side
+/// of the downbeat it means, so each edge is the nearest downbeat and not the
+/// one containing it: an edge 30ms after a downbeat is that downbeat, not a
+/// whole extra bar. Both edges, because the end decides whether a repeat has
+/// the bar being corrected at all, and a last chorus that ends a few frames
+/// after the outro's downbeat must not be read as owning the outro's first
+/// bar. The one exception is a section that runs on past the last downbeat,
+/// where the nearest one is the last one however far off it is; the bar it
+/// starts is inside the section when the section goes on for more than half
+/// a bar beyond it.
+(int, int) _barSpan(StructureSection section, List<int> downbeats) {
+  final first = _nearestIndex(section.startMs, downbeats);
+  var end = _nearestIndex(section.endMs, downbeats);
+  if (end == downbeats.length - 1 &&
+      section.endMs - downbeats[end] > medianBeatIntervalMs(downbeats) / 2) {
+    end = downbeats.length;
+  }
+  return (first, end);
 }
 
 int _nearestIndex(int ms, List<int> sorted) {
