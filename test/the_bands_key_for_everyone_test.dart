@@ -94,9 +94,14 @@ void main() {
     for (final name in _readers) {
       test('$name puts the band\'s key in front of the analysed one', () {
         final definition = _latestDefinition(name);
+        // Whatever the tables are called in it. tonight() spells the same
+        // thing with pr and par (0144), and a restatement that renamed
+        // them here would still be right.
         expect(
-          definition,
-          contains('coalesce(p.key_override, r.musical_key)'),
+          RegExp('coalesce[(][a-z_]+[.]key_override, '
+                  '[a-z_]+[.]musical_key[)]')
+              .hasMatch(definition),
+          isTrue,
           reason: 'restate public.$name from its latest definition, which '
               'reads the band\'s key since 0160',
         );
