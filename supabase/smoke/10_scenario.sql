@@ -9835,8 +9835,9 @@ insert into auth.users (id, email, raw_user_meta_data) values
    '{"display_name": "Second Verse"}'),
   ('a0a0a159-0000-0000-0000-00000000000c', 'thirdchair@smoke.test',
    '{"display_name": "Third Chair"}'),
-  -- In the room, and only listening.
-  ('a0a0a159-0000-0000-0000-00000000000d', 'justlistening@smoke.test',
+  -- In the room, and only listening. Not justlistening@, which 0147's block
+  -- already has: the emails in this file are one namespace.
+  ('a0a0a159-0000-0000-0000-00000000000d', 'onlylistening@smoke.test',
    '{"display_name": "Just Listening"}'),
   -- Never in the room.
   ('a0a0a159-0000-0000-0000-00000000000e', 'nextdoor@smoke.test',
