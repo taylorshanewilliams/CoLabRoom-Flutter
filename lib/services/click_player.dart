@@ -36,7 +36,14 @@ abstract class ClickPlayer {
 /// in a way a backing track never is, because there is nothing else playing
 /// for it to drift against.
 class WavClickPlayer implements ClickPlayer {
-  final AudioPlayer _player = AudioPlayer();
+  /// [player] is for a screen whose click has to carry an audio session of
+  /// its own. The takes screen counts somebody in while its recorder is
+  /// running, and a player left on the default session asks Android for sole
+  /// audio focus and gets the capture silenced -- see OverdubSession. Owned
+  /// from here on either way: [dispose] disposes it.
+  WavClickPlayer({AudioPlayer? player}) : _player = player ?? AudioPlayer();
+
+  final AudioPlayer _player;
   int _generation = 0;
 
   @override
