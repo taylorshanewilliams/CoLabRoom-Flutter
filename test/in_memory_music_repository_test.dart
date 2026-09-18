@@ -111,7 +111,7 @@ void main() {
     expect(updated.contributions[1].body, 'An edited middle line');
     expect(updated.contributions[1].revision, 2);
 
-    await repository.deleteContribution(updated.contributions[1]);
+    await repository.cutLine(updated.contributions[1]);
     updated = (await repository.loadRooms()).first.projects.single;
     expect(updated.contributions.map((line) => line.id), <String>['line-1', 'line-2']);
   });

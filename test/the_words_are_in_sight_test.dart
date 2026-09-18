@@ -42,9 +42,9 @@ class _Counting extends InMemoryMusicRepository {
   }
 
   @override
-  Future<void> deleteContribution(Contribution contribution) {
+  Future<void> cutLine(Contribution line) {
     writes += 1;
-    return super.deleteContribution(contribution);
+    return super.cutLine(line);
   }
 }
 

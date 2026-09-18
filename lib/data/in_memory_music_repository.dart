@@ -452,19 +452,35 @@ class InMemoryMusicRepository implements MusicRepository {
     return updated;
   }
 
+  /// Lines cut from each song, newest cut first, every writer's. The real
+  /// table keeps them in place with deleted_at set; here they leave the song
+  /// and wait, so nothing that reads a song can see one.
+  final Map<String, List<Contribution>> _cutLines = <String, List<Contribution>>{};
+
   @override
-  Future<void> deleteContribution(Contribution contribution) async {
-    final project = _allProjects.firstWhere((value) => value.id == contribution.projectId);
-    if (contribution.voiceNote != null) {
-      _voiceNoteBytes.remove(contribution.voiceNote!.storagePath);
-    }
+  Future<void> cutLine(Contribution line) async {
+    final project = _allProjects.firstWhere((value) => value.id == line.projectId);
+    final stored = project.contributions.where((value) => value.id == line.id).toList(growable: false);
+    // Already cut, or never there: not an error, the same as cut_line.
+    if (stored.isEmpty) return;
+    // The voice note stays with the line. It is the line's, not the song's.
+    _cutLines.putIfAbsent(line.projectId, () => <Contribution>[]).insert(0, stored.single);
     _replaceProject(
       project.copyWith(
         contributions: project.contributions
-            .where((value) => value.id != contribution.id)
+            .where((value) => value.id != line.id)
             .toList(growable: false),
         updatedAt: DateTime.now(),
       ),
+    );
+  }
+
+  @override
+  Future<List<Contribution>> linesYouCut(SongProject project) async {
+    // The signed-in person's own, as lines_you_cut answers for auth.uid().
+    return List<Contribution>.unmodifiable(
+      (_cutLines[project.id] ?? const <Contribution>[])
+          .where((line) => line.authorId == currentUserId),
     );
   }
 

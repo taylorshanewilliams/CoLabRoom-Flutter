@@ -764,10 +764,14 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     await refreshProject(contribution.projectId);
   }
 
-  Future<void> deleteContribution(Contribution contribution) async {
-    await repository.deleteContribution(contribution);
-    await refreshProject(contribution.projectId);
+  Future<void> cutLine(Contribution line) async {
+    await repository.cutLine(line);
+    await refreshProject(line.projectId);
   }
+
+  /// Your own lines cut from [project], whoever cut them. Read when asked
+  /// for rather than carried on the song: a cut line is not part of it.
+  Future<List<Contribution>> linesYouCut(SongProject project) => repository.linesYouCut(project);
 
   Future<int> importContributions(
     SongProject project,
