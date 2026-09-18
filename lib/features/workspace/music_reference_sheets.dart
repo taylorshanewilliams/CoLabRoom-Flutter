@@ -7,8 +7,10 @@ import '../../services/set_aside.dart';
 import '../../services/what_works_here.dart';
 
 import '../../app/colabroom_theme.dart';
+import '../../services/horn_reading.dart';
 import '../../services/music_reference.dart';
 import 'guitar_chord_diagram.dart';
+import 'musician_sheet_logic.dart' show keyAsPlayed;
 
 /// The reference sheets, opened from the thing they describe.
 ///
@@ -51,15 +53,31 @@ Future<void> showChordReference(
   );
 }
 
-Future<void> showKeyReference(BuildContext context, String keyLabel) {
-  final reference = keyReference(keyLabel);
-  if (reference == null) return Future<void>.value();
+/// The key, and — when the caller can remember it — which instrument this
+/// person reads it for.
+///
+/// [keyLabel] is the concert key as this person plays it. [onReading] is what
+/// makes the sheet a picker rather than a chart: the key badge is where
+/// somebody already goes to ask about the key, so it is where the answer to
+/// "which key is this for me" belongs, one small row rather than a banner on
+/// the sheet (Every Musician, Same Song, 17 September 2026).
+Future<void> showKeyReference(
+  BuildContext context,
+  String keyLabel, {
+  HornReading reading = HornReading.concert,
+  ValueChanged<HornReading>? onReading,
+}) {
+  if (keyReference(keyLabel) == null) return Future<void>.value();
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
     backgroundColor: AppColors.deepNavy,
-    builder: (_) => _KeyReferenceSheet(reference: reference),
+    builder: (_) => _KeyReferenceSheet(
+      concertKey: keyLabel,
+      reading: reading,
+      onReading: onReading,
+    ),
   );
 }
 
@@ -195,18 +213,70 @@ class _ChordReferenceSheet extends StatelessWidget {
   }
 }
 
-class _KeyReferenceSheet extends StatelessWidget {
-  const _KeyReferenceSheet({required this.reference});
+class _KeyReferenceSheet extends StatefulWidget {
+  const _KeyReferenceSheet({
+    required this.concertKey,
+    required this.reading,
+    this.onReading,
+  });
 
-  final KeyReference reference;
+  /// The key everybody else in the room is in.
+  final String concertKey;
+  final HornReading reading;
+  final ValueChanged<HornReading>? onReading;
+
+  @override
+  State<_KeyReferenceSheet> createState() => _KeyReferenceSheetState();
+}
+
+class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
+  late HornReading _reading = widget.reading;
+
+  /// The key as this person's instrument writes it, which is what the scale,
+  /// the chords and the capo rows below are all about: a sax player asking
+  /// what is in this key wants their own seven notes, not the band's.
+  String get _written => keyAsPlayed(widget.concertKey, _reading.semitones);
+
+  void _choose(HornReading reading) {
+    if (reading == _reading) return;
+    setState(() => _reading = reading);
+    widget.onReading?.call(reading);
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Transposing a real key always lands on a real key, so this cannot be
+    // null once showKeyReference has checked the one it was handed.
+    final reference = keyReference(_written)!;
+    // The band's key, never dropped from a transposed part: it is what this
+    // player has to say out loud to everybody else.
+    final concert =
+        keyReference(widget.concertKey)?.display ?? widget.concertKey;
     return _SheetFrame(
       key: const Key('key_reference_sheet'),
       title: reference.display,
-      subtitle: 'Relative ${reference.relative}',
+      subtitle: _reading == HornReading.concert
+          ? 'Relative ${reference.relative}'
+          : 'Relative ${reference.relative} · concert $concert',
       children: <Widget>[
+        if (widget.onReading != null) ...<Widget>[
+          _Section(
+            heading: 'Read as',
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final reading in HornReading.values)
+                  _ReadingChip(
+                    reading: reading,
+                    selected: reading == _reading,
+                    onTap: () => _choose(reading),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
         _Section(
           heading: 'The scale',
           child: Wrap(
@@ -414,6 +484,58 @@ class _NoteChip extends StatelessWidget {
             style: const TextStyle(color: AppColors.muted, fontSize: 9.5),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// One instrument to read the song for.
+///
+/// Listed flat and in a fixed order, the way the plan asks readings to be
+/// listed: four languages for the same song, never a ladder from easy to
+/// advanced. Nothing here says what anybody plays.
+class _ReadingChip extends StatelessWidget {
+  const _ReadingChip({
+    required this.reading,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final HornReading reading;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        key: Key('read_as_${reading.name}'),
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.gold.withValues(alpha: 0.16)
+                : AppColors.raised,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected
+                  ? AppColors.gold.withValues(alpha: 0.55)
+                  : AppColors.line,
+            ),
+          ),
+          child: Text(
+            reading.label,
+            style: TextStyle(
+              color: selected ? AppColors.gold : AppColors.text,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
       ),
     );
   }

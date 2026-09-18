@@ -15,6 +15,7 @@ import '../../domain/practice_mark.dart';
 import '../../domain/song_analysis_models.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../services/horn_reading.dart';
 import '../../services/music_reference.dart' show noteInKey;
 import '../../services/pitch.dart';
 import '../../services/pitch_listener.dart';
@@ -28,6 +29,7 @@ import 'musician_sheet_line.dart';
 import 'musician_sheet_logic.dart';
 import 'practice_marks.dart';
 import 'practice_rules.dart';
+import 'song_reading_store.dart';
 import 'song_transpose_store.dart';
 
 enum LiveScrollMode { off, synced, slow, medium, fast, timed }
@@ -161,6 +163,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// 17 September 2026). Read from this device and never from Follow me: a
   /// leader moves where the song is, not what key a follower reads it in.
   int _transpose = 0;
+
+  /// The instrument this person reads the song for, as they left it on the
+  /// sheet's key badge. Stacks on [_transpose], and personal for the same
+  /// reason: a B♭ player and a guitarist follow the same leader through the
+  /// same song and read two different pages (Every Musician, Same Song, 17
+  /// September 2026).
+  HornReading _reading = HornReading.concert;
   double _fontScale = 1;
   Duration _songDuration = const Duration(minutes: 3, seconds: 30);
   Duration _elapsed = Duration.zero;
@@ -380,6 +389,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     if (reference != null) unawaited(_prepareAudio(reference));
     unawaited(_loadCountdownPrefs());
     unawaited(_loadTranspose());
+    unawaited(_loadReading());
 
     final together = widget.together;
     if (together != null) {
@@ -682,6 +692,16 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     setState(() => _transpose = kept);
     // A chord name changes width when it moves ("G" to "Bb"), which can move
     // where a line wraps and so where the synced scroll thinks it is.
+    _markOffsetsDirty();
+  }
+
+  /// The instrument this person reads the song for, chosen on the song
+  /// sheet's key badge and read back here so a horn player who set their part
+  /// up before rehearsal still has it on stage.
+  Future<void> _loadReading() async {
+    final kept = await SongReadingStore.load(widget.project.id);
+    if (!mounted || kept == _reading) return;
+    setState(() => _reading = kept);
     _markOffsetsDirty();
   }
 
@@ -1508,7 +1528,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
             _source != LiveLyricSource.songSheet ||
             !_showChords
         ? null
-        : keyAsPlayed(songKey, _transpose);
+        // A horn reading names both keys, because the written key is what
+        // this player reads and the concert key is what they have to say to
+        // everybody else before the count-in.
+        : _reading == HornReading.concert
+            ? 'Key of ${keyAsPlayed(songKey, _transpose)}'
+            : keyAsRead(songKey, transpose: _transpose, reading: _reading);
+    // The person's key with their instrument's transposition on top, which
+    // is what every chord and every note name under a word is written in.
+    final readTranspose = _transpose + _reading.semitones;
     // The key the chords and the note names are spelled by: the song's own
     // key before the move, which is what chordAsPlayed and noteAsPlayed both
     // take. Not playedKey above -- that one is the badge under the title, and
@@ -1575,7 +1603,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         if (playedKey != null) ...<Widget>[
                           const SizedBox(height: 4),
                           Text(
-                            'Key of $playedKey',
+                            playedKey,
                             key: const Key('live_key'),
                             textAlign: TextAlign.center,
                             style: TextStyle(
@@ -1600,7 +1628,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                             fontSize: lyricSize,
                             compact: landscape,
                             showChords: _showChords,
-                            transpose: _transpose,
+                            transpose: readTranspose,
                             musicalKey: spellingKey,
                             active: _mode == LiveScrollMode.synced &&
                                 _lineKey(i) == _activeLineKey,
@@ -1682,6 +1710,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         melody: _melody,
                         // Sing along compares against the tune in the key
                         // this person reads the song in, not the recording's.
+                        // Deliberately without the horn reading: a voice has
+                        // no transposition, and asking a singer for the note
+                        // a trumpet would write would be asking them to sing
+                        // a tone above the song.
                         transpose: _transpose,
                         musicalKey: spellingKey,
                         singing: _singing,

@@ -9,8 +9,10 @@ import 'package:colabroom/features/workspace/chord_editor_sheet.dart';
 import 'package:colabroom/features/workspace/chord_sheet_export.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/musician_song_sheet.dart';
+import 'package:colabroom/features/workspace/song_reading_store.dart';
 import 'package:colabroom/features/workspace/song_transpose_store.dart';
 import 'package:colabroom/services/chord_chart.dart';
+import 'package:colabroom/services/horn_reading.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:colabroom/services/user_facing_error.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -54,6 +56,11 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   /// Whether a transpose button was pressed before the kept key arrived, so
   /// a slow read cannot undo the press.
   bool _transposeTouched = false;
+
+  /// The instrument this person reads the song for, kept on this device (see
+  /// SongReadingStore). It stacks on [_transpose].
+  HornReading _reading = HornReading.concert;
+  bool _readingTouched = false;
   double _fontScale = 1;
   bool _showChords = true;
   bool _editingChords = false;
@@ -96,6 +103,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     super.initState();
     _bundle = widget.bundle;
     unawaited(_loadTranspose());
+    unawaited(_loadReading());
   }
 
   @override
@@ -109,7 +117,10 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     if (oldWidget.project.id != widget.project.id) {
       _transpose = 0;
       _transposeTouched = false;
+      _reading = HornReading.concert;
+      _readingTouched = false;
       unawaited(_loadTranspose());
+      unawaited(_loadReading());
     }
   }
 
@@ -118,6 +129,21 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     final kept = await SongTransposeStore.load(projectId);
     if (!mounted || _transposeTouched || widget.project.id != projectId) return;
     if (kept != _transpose) setState(() => _transpose = kept);
+  }
+
+  Future<void> _loadReading() async {
+    final projectId = widget.project.id;
+    final kept = await SongReadingStore.load(projectId);
+    if (!mounted || _readingTouched || widget.project.id != projectId) return;
+    if (kept != _reading) setState(() => _reading = kept);
+  }
+
+  void _chooseReading(HornReading reading) {
+    setState(() {
+      _readingTouched = true;
+      _reading = reading;
+    });
+    unawaited(SongReadingStore.save(widget.project.id, reading));
   }
 
   void _shiftTranspose(int delta) {
@@ -139,6 +165,13 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   /// zero, which was harmless while nothing remembered it. Now it is only
   /// set aside for the edit, and your key comes back with Done.
   int get _shownTranspose => _editingChords ? 0 : _transpose;
+
+  /// The reading the page is drawn with, set aside while chords are being
+  /// corrected for the same reason the transpose is: a chord typed into the
+  /// editor is saved as written and has to be read against what is stored,
+  /// not against what a trumpet would call it.
+  HornReading get _shownReading =>
+      _editingChords ? HornReading.concert : _reading;
 
   void _toggleChordEditing() {
     setState(() {
@@ -462,11 +495,19 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   Widget build(BuildContext context) {
     final transpose = _shownTranspose;
     final sheetLines = _sheetLines();
-    final transposeLabel = transpose == 0
+    final reading = _shownReading;
+    final baseLabel = transpose == 0
         ? 'Original key'
         : transpose > 0
             ? '+$transpose semitones'
             : '$transpose semitones';
+    // The chart has no key badge, so without this a horn reading chosen on
+    // the sheet would move every chord on the chart with nothing on screen
+    // saying why (interface direction: it hides brilliantly and announces
+    // nothing). One word on the control that is already there.
+    final transposeLabel = reading == HornReading.concert
+        ? baseLabel
+        : '$baseLabel · for ${reading.label}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -669,7 +710,9 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
         if (_view == SongSheetView.chart)
           ChordChartView(
             rows: _chart,
-            transpose: transpose,
+            // The chart is the same chords, so it reads the same way: the
+            // person's key with their instrument's transposition on top.
+            transpose: transpose + reading.semitones,
             fontScale: _fontScale,
             // The song, so a tapped chord can say where it sits in it rather
             // than only what it is.
@@ -684,6 +727,8 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             lines: sheetLines,
             musicalKey: _bundle.reference?.musicalKey,
             transpose: transpose,
+            reading: reading,
+            onReading: _editingChords ? null : _chooseReading,
             fontScale: _fontScale,
             showChords: _showChords,
             editableChords: _editingChords && !_savingChord,
