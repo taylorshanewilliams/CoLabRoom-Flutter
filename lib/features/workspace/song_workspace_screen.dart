@@ -29,6 +29,7 @@ import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/microphone_disclosure.dart';
 import '../lessons/leaving_practice.dart';
 import 'continuous_song_editor.dart';
+import 'cut_lines_sheet.dart';
 import 'line_reconciliation.dart';
 import 'ask_bar.dart';
 import 'audience_dial.dart';
@@ -61,6 +62,11 @@ enum _SongMenuAction {
   deleteSong,
   color,
   history,
+
+  /// Your own lines that came out of this song, whoever took them out
+  /// (0153). Offered to everybody, always: the list is the only way to find
+  /// out that a cut line is kept, and it says so by being there.
+  cutLines,
   print,
   share,
 
@@ -806,7 +812,11 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   /// its contribution, colour and voice note and takes the new words. A line
   /// that moved takes its contribution with it. A new line becomes a new
   /// contribution in the writer's colour, placed between its neighbours. A
-  /// line that went deletes exactly its own contribution.
+  /// line that went cuts exactly its own contribution, which its writer
+  /// keeps (0153): the row is marked cut and leaves the song, and the
+  /// reload after the save cannot bring it back, because the read policy no
+  /// longer shows it to anyone. Nothing on this side filters it out; there
+  /// is nothing to filter.
   ///
   /// This used to go index for index, and said so: "mid-document inserts and
   /// deletes shift every following contribution's body rather than its
@@ -901,7 +911,11 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
 
     try {
       for (final id in plan.deleted) {
-        await repository.deleteContribution(rows[id]!);
+        await repository.cutLine(rows[id]!);
+        // Out of the editor's picture as well as out of the song. The next
+        // save diffs against what is recorded here, so a line still recorded
+        // as seen would read as deleted again, or as moved, and either would
+        // send a write for a row the server no longer shows.
         held.remove(id);
       }
       for (var i = 0; i < plan.lines.length; i += 1) {
@@ -1173,6 +1187,14 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       await _inviteToSong(project);
       return;
     }
+    if (action == _SongMenuAction.cutLines) {
+      await showCutLinesSheet(
+        context,
+        project: project,
+        controller: BetaScope.of(context, listen: false),
+      );
+      return;
+    }
     if (action == _SongMenuAction.whoseSong) {
       await _changeSongOrigin(project);
       return;
@@ -1205,6 +1227,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         case _SongMenuAction.tell:
         case _SongMenuAction.whoseSong:
         case _SongMenuAction.leavePractice:
+        case _SongMenuAction.cutLines:
           // Handled above, before this switch, because it opens a sheet
           // rather than producing an export.
           return;
@@ -2100,6 +2123,16 @@ class _PortraitProjectHeader extends StatelessWidget {
                   subtitle: Text('Who did what, and when'),
                 ),
               ),
+              const PopupMenuItem<_SongMenuAction>(
+                key: Key('song_cut_lines'),
+                value: _SongMenuAction.cutLines,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.content_cut_rounded),
+                  title: Text('Your cut lines'),
+                  subtitle: Text('Kept for you, whoever cut them'),
+                ),
+              ),
               const PopupMenuDivider(),
               const PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.whoseSong,
@@ -2326,6 +2359,16 @@ class _LandscapeWorkspace extends StatelessWidget {
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.person_add_alt_1_rounded),
                       title: Text('Invite to This Song'),
+                    ),
+                  ),
+                  const PopupMenuItem<_SongMenuAction>(
+                    key: Key('song_cut_lines'),
+                    value: _SongMenuAction.cutLines,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.content_cut_rounded),
+                      title: Text('Your cut lines'),
+                      subtitle: Text('Kept for you, whoever cut them'),
                     ),
                   ),
                   const PopupMenuDivider(),

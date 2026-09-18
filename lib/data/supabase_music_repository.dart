@@ -700,10 +700,28 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<void> deleteContribution(Contribution contribution) async {
-    final note = contribution.voiceNote;
-    if (note != null) await deleteVoiceNote(note);
-    await client.from('contributions').delete().eq('id', contribution.id);
+  Future<void> cutLine(Contribution line) async {
+    // Through the function, not an update: 0006 limits direct updates to
+    // body and position, and the row's voice note is deliberately left where
+    // it is. Refused for somebody who cannot edit the song, and a no-op for a
+    // line somebody else already cut.
+    await client.rpc<void>(
+      'cut_line',
+      params: <String, dynamic>{'target_line': line.id},
+    );
+  }
+
+  @override
+  Future<List<Contribution>> linesYouCut(SongProject project) async {
+    // The function answers for the signed-in person alone; the read policy
+    // hides every cut line, so this is the only way one is ever read.
+    final rows = await client.rpc<List<dynamic>>(
+      'lines_you_cut',
+      params: <String, dynamic>{'target_project': project.id},
+    );
+    return rows
+        .map((row) => _contribution(Map<String, dynamic>.from(row as Map)))
+        .toList(growable: false);
   }
 
   @override

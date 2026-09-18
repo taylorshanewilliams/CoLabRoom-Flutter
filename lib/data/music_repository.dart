@@ -116,7 +116,20 @@ abstract interface class MusicRepository {
     required double position,
   });
 
-  Future<void> deleteContribution(Contribution contribution);
+  /// Takes [line] out of its song without deleting it.
+  ///
+  /// The row keeps its writer, its colour, its place and its voice note, and
+  /// stops being part of the song. Only its writer can find it again, through
+  /// [linesYouCut], whoever cut it. This used to delete the row, and the
+  /// voice note with it: one person's words disappearing at another person's
+  /// hand, with nothing to show they were ever there (Every Musician, Same
+  /// Song, 17 September 2026; migration 0153).
+  Future<void> cutLine(Contribution line);
+
+  /// The signed-in person's own lines that have been cut from [project],
+  /// newest cut first. Nobody else's: the writer is the one person a cut line
+  /// is kept for.
+  Future<List<Contribution>> linesYouCut(SongProject project);
 
   Future<List<Contribution>> importContributions({
     required SongProject project,

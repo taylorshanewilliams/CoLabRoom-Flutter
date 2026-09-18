@@ -6076,6 +6076,199 @@ end $$;
 
 reset role;
 
+-- ---------------------------------------------------------------------
+-- A line you cut goes back to whoever wrote it (0153).
+--
+-- A line taken out of a song is cut, never deleted: the row stays with
+-- deleted_at set, leaves the song for everybody, and only its writer can
+-- read it again, through lines_you_cut. The person who cut it keeps
+-- nothing. Anybody who can edit the song can cut a line; somebody who can
+-- only look cannot, and neither can somebody who is not in the room at all,
+-- which is the null-role case the coalesce in cut_line exists for.
+-- ---------------------------------------------------------------------
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('cc153000-0000-0000-0000-000000000001', 'thecowriter@smoke.test',
+   '{"display_name": "The Co-writer"}'),
+  -- Not 'onlylooking@': 0147's block already has that address, and
+  -- auth.users keeps emails unique.
+  ('cc153000-0000-0000-0000-000000000002', 'only.looking.here@smoke.test',
+   '{"display_name": "Only Looking"}'),
+  -- Never inserted into room_members anywhere.
+  ('cc153000-0000-0000-0000-000000000003', 'notinthisroom@smoke.test',
+   '{"display_name": "Not In This Room"}');
+
+insert into public.rooms (id, account_id, name)
+values ('cc153000-0000-0000-0000-000000000010',
+        '11111111-1111-1111-1111-111111111111', 'The Cutting Room');
+
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('cc153000-0000-0000-0000-000000000010', '11111111-1111-1111-1111-111111111111',
+   'The Writer', 'owner', 4294937166),
+  ('cc153000-0000-0000-0000-000000000010', 'cc153000-0000-0000-0000-000000000001',
+   'The Co-writer', 'editor', 4283215698),
+  ('cc153000-0000-0000-0000-000000000010', 'cc153000-0000-0000-0000-000000000002',
+   'Only Looking', 'viewer', 4284000001);
+
+insert into public.projects (id, room_id, account_id, title, created_by) values
+  ('cc153000-0000-0000-0000-000000000020', 'cc153000-0000-0000-0000-000000000010',
+   '11111111-1111-1111-1111-111111111111', 'Two Writers',
+   '11111111-1111-1111-1111-111111111111');
+
+-- Two people's words in one song, written the way the editor writes them.
+insert into public.contributions (id, project_id, author_id, author_name, body, position) values
+  ('cc153000-0000-0000-0000-000000000031', 'cc153000-0000-0000-0000-000000000020',
+   '11111111-1111-1111-1111-111111111111', 'The Writer', 'a line the writer wrote', 1024),
+  ('cc153000-0000-0000-0000-000000000032', 'cc153000-0000-0000-0000-000000000020',
+   'cc153000-0000-0000-0000-000000000001', 'The Co-writer', 'a line the co-writer wrote', 2048),
+  ('cc153000-0000-0000-0000-000000000033', 'cc153000-0000-0000-0000-000000000020',
+   '11111111-1111-1111-1111-111111111111', 'The Writer', 'a line that stays', 3072);
+
+-- The co-writer cuts the writer's line. It leaves the song, and the person
+-- who cut it cannot read it any more: not through the table, and not
+-- through the list, which is the writer's and nobody else's.
+set local request.jwt.claims = '{"sub": "cc153000-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.cut_line('cc153000-0000-0000-0000-000000000031');
+
+  if exists (select 1 from public.contributions
+             where id = 'cc153000-0000-0000-0000-000000000031') then
+    raise exception 'the person who cut a line could still read it';
+  end if;
+  if exists (select 1 from public.lines_you_cut('cc153000-0000-0000-0000-000000000020')) then
+    raise exception 'the person who cut somebody else''s line was handed a copy of it';
+  end if;
+  if (select count(*) from public.contributions
+      where project_id = 'cc153000-0000-0000-0000-000000000020') <> 2 then
+    raise exception 'cutting one line did not leave the other two in the song';
+  end if;
+
+  -- A second cut of the same line, and a cut of a line that does not exist:
+  -- neither is an error, because the save loop that calls this must not
+  -- fail over a line that is already out of the song.
+  perform public.cut_line('cc153000-0000-0000-0000-000000000031');
+  perform public.cut_line('cc153000-0000-0000-0000-000000000099');
+end $$;
+
+-- The writer finds it again, and only there: a cut line is not part of the
+-- song even for the person who wrote it.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.contributions
+             where id = 'cc153000-0000-0000-0000-000000000031') then
+    raise exception 'a cut line was still in the song for its writer';
+  end if;
+  if (select string_agg(body, ', ')
+      from public.lines_you_cut('cc153000-0000-0000-0000-000000000020'))
+     is distinct from 'a line the writer wrote' then
+    raise exception 'the writer could not find the line that was cut from them';
+  end if;
+
+  -- And the other way round. The writer cuts the co-writer's line; each of
+  -- them keeps exactly their own.
+  perform public.cut_line('cc153000-0000-0000-0000-000000000032');
+  if (select string_agg(body, ', ')
+      from public.lines_you_cut('cc153000-0000-0000-0000-000000000020'))
+     is distinct from 'a line the writer wrote' then
+    raise exception 'cutting somebody else''s line put it in the cutter''s list';
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "cc153000-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+begin
+  if (select string_agg(body, ', ')
+      from public.lines_you_cut('cc153000-0000-0000-0000-000000000020'))
+     is distinct from 'a line the co-writer wrote' then
+    raise exception 'the co-writer''s cut line was not kept for the co-writer, and only that one';
+  end if;
+
+  -- The delete policy is gone. Even an editor cannot take a line out for
+  -- good with a plain delete, which is what the app used to do.
+  delete from public.contributions where id = 'cc153000-0000-0000-0000-000000000033';
+end $$;
+
+-- Somebody who can only look cannot take a line out.
+reset role;
+set local request.jwt.claims = '{"sub": "cc153000-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.cut_line('cc153000-0000-0000-0000-000000000033');
+    raise exception 'somebody who can only look cut a line';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- And somebody who is not in the room at all. The viewer above has a role;
+-- this account has none, `null in (...)` is null, and without the coalesce
+-- a stranger with any valid token could cut lines out of anybody's song.
+reset role;
+set local request.jwt.claims = '{"sub": "cc153000-0000-0000-0000-000000000003"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.cut_line('cc153000-0000-0000-0000-000000000033');
+    raise exception 'somebody outside the room cut a line';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
+
+-- The first cut's time stands: a second cut of an already-cut line does not
+-- move it. Backdated here because now() does not move inside one transaction,
+-- so a cut that did overwrite the time would otherwise be invisible.
+update public.contributions
+set deleted_at = now() - interval '1 hour'
+where id = 'cc153000-0000-0000-0000-000000000031';
+
+set local request.jwt.claims = '{"sub": "cc153000-0000-0000-0000-000000000001"}';
+set local role authenticated;
+select public.cut_line('cc153000-0000-0000-0000-000000000031');
+reset role;
+
+do $$
+begin
+  if (select deleted_at from public.contributions
+      where id = 'cc153000-0000-0000-0000-000000000031')
+     is distinct from now() - interval '1 hour' then
+    raise exception 'cutting an already-cut line moved the time it was cut';
+  end if;
+  if (select deleted_at from public.contributions
+      where id = 'cc153000-0000-0000-0000-000000000032') is null then
+    raise exception 'the writer''s cut of the co-writer''s line did not land';
+  end if;
+  if (select deleted_at from public.contributions
+      where id = 'cc153000-0000-0000-0000-000000000033') is not null then
+    raise exception 'a refused cut marked the line anyway';
+  end if;
+  if not exists (select 1 from public.contributions
+                 where id = 'cc153000-0000-0000-0000-000000000033') then
+    raise exception 'an editor deleted a line for good with a plain delete';
+  end if;
+  -- The cut rows are still whole: this is what "kept" means.
+  if (select count(*) from public.contributions
+      where project_id = 'cc153000-0000-0000-0000-000000000020') <> 3 then
+    raise exception 'a cut line was deleted rather than kept';
+  end if;
+end $$;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;

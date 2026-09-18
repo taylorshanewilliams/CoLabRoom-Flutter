@@ -498,7 +498,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         title: const Text('Replace project lyrics?'),
         content: Text(
           hasExisting
-              ? 'This replaces everything currently in the project\'s lyrics with the words heard in this recording. This can\'t be undone.'
+              ? 'This replaces everything currently in the project\'s lyrics with the words heard in this recording. Each line it replaces is kept for whoever wrote it, under Your cut lines.'
               : 'This writes the words heard in this recording into the project\'s lyrics, so you don\'t have to retype them.',
         ),
         actions: <Widget>[
@@ -515,7 +515,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     try {
       final controller = BetaScope.of(context);
       for (final line in widget.project.contributions) {
-        await controller.deleteContribution(line);
+        await controller.cutLine(line);
       }
       await controller.importContributions(
         widget.project,
