@@ -28,6 +28,12 @@ import 'waiting_on_you.dart';
 String sealedTakeIsBackWords(SealedTake take) =>
     'It is back among the takes on ${take.songTitle}.';
 
+/// And when the seal could not be ended either, which is what no signal at
+/// all looks like. It is still put away, and the card comes back the next
+/// time the app opens.
+const String sealedTakeWillBeOfferedAgainWords =
+    'It would not play just now. You will be offered it again.';
+
 WaitingItem sealedTakeCard(
   SealedTake take, {
   required DateTime now,

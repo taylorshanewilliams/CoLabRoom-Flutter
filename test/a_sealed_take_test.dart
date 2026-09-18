@@ -687,6 +687,28 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(repository.isPutAway(id), isFalse);
     });
+
+    testWidgets('with no signal at all it does not say the take is back',
+        (tester) async {
+      // Neither the sound nor the end of the seal got through. The take is
+      // still put away, so the words must not send them to look for it.
+      final (source, id) = await _sealedAYearAgoTonight();
+      await _openHome(
+        tester,
+        _CannotBeReached(source),
+        hear: (take) async => false,
+      );
+
+      _sealedCards(tester).single.onAction();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text(sealedTakeWillBeOfferedAgainWords), findsOneWidget);
+      expect(find.text('It is back among the takes on Midnight Signal.'),
+          findsNothing);
+      expect(source.isPutAway(id), isTrue);
+      // Not while they are looking, all the same.
+      expect(_sealedCards(tester), isEmpty);
+    });
   });
 
   group('"Not now" is final', () {
@@ -792,6 +814,20 @@ void main() {
       expect(repository.isPutAway(id), isTrue);
     });
   });
+}
+
+/// A server that cannot be reached on the evening the card is answered.
+class _CannotBeReached extends InMemoryMusicRepository {
+  _CannotBeReached(this._source) : super.from(_source);
+
+  final InMemoryMusicRepository _source;
+
+  @override
+  Future<List<SealedTake>> sealedTakesDue() => _source.sealedTakesDue();
+
+  @override
+  Future<void> unsealTake(String layerId) async =>
+      throw StateError('No signal.');
 }
 
 /// A server that has not answered "Not now" yet.

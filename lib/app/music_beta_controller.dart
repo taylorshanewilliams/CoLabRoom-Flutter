@@ -323,14 +323,20 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// never do while somebody is looking. A seal the server never heard about
   /// is still a seal, so the next time the app opens it is offered again,
   /// which is the honest outcome.
-  Future<void> endSeal(SealedTake take) async {
+  ///
+  /// Answers whether the server heard. Only "Play it" asks, and only when
+  /// the take would not play: it has to say where the take is, and "back
+  /// among your takes" is not true of a seal that never ended.
+  Future<bool> endSeal(SealedTake take) async {
     _sealsEnded.add(take.id);
     notifyListeners();
     try {
       await retrying(() => repository.unsealTake(take.id));
+      return true;
     } catch (error) {
       unawaited(ErrorReporter().reportWarning(
         service: 'app', stage: 'sealed_take.end', message: error.toString()));
+      return false;
     }
   }
 

@@ -754,7 +754,7 @@ class _SongsScreenState extends State<SongsScreen> {
     // round trip, and its path is signed for this person whether the take is
     // sealed or not. The seal does not wait for the sound either.
     final sounding = hear(take);
-    unawaited(controller.endSeal(take));
+    final ending = controller.endSeal(take);
     var heard = false;
     try {
       heard = await sounding;
@@ -766,9 +766,17 @@ class _SongsScreenState extends State<SongsScreen> {
     // the card gone, no sound, and nothing anywhere saying what became of an
     // idea kept for a year. The bar's second line is the only other place
     // that says where the take went, and it is only there when it plays.
-    messenger?.showSnackBar(
-      SnackBar(content: Text(sealedTakeIsBackWords(take))),
-    );
+    //
+    // Which words depends on whether the seal ended, so this one path waits
+    // to find out. With no signal at all neither call gets through, the take
+    // is still sealed, and saying it was back in the song would send them
+    // looking for something that is not there.
+    final ended = await ending;
+    messenger?.showSnackBar(SnackBar(
+      content: Text(
+        ended ? sealedTakeIsBackWords(take) : sealedTakeWillBeOfferedAgainWords,
+      ),
+    ));
   }
 
   /// The app's one player, and whether the take is the thing it now has.
