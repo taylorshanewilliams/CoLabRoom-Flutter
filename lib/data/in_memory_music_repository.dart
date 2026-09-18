@@ -1871,9 +1871,9 @@ class InMemoryMusicRepository implements MusicRepository {
   /// Somebody else says something on an ask.
   ///
   /// This repository has one signed-in person and no network, so the other
-  /// side of a conversation has to be played by whoever is driving it: the
-  /// preview, or a test that needs an opinion written by somebody other than
-  /// the person reading it.
+  /// side of a conversation has to be played by the test driving it. It
+  /// exists for tests that need an opinion written by somebody other than
+  /// the person reading it; nothing in the app calls it.
   Future<AskReply> replyArrivesFrom({
     required String askId,
     required String personId,

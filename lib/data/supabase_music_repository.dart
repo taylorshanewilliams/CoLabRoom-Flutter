@@ -2136,14 +2136,19 @@ class SupabaseMusicRepository implements MusicRepository {
 
   @override
   Future<void> openOpinions(String askId) async {
-    // A plain update: the table's own trigger (0154) refuses anybody but
-    // the asker and keeps the first time if this is a second tap.
+    // The table's own trigger (0154) refuses anybody but the asker and keeps
+    // the first time if this is a second tap. Selected back so an ask that
+    // is gone, or that this account cannot see, fails here rather than
+    // reporting a decision that was never written: the sheet hides the
+    // control once this returns, and it must not hide it over nothing.
     await client
         .from('project_asks')
         .update(<String, dynamic>{
           'opinions_opened_at': DateTime.now().toUtc().toIso8601String(),
         })
-        .eq('id', askId);
+        .eq('id', askId)
+        .select('opinions_opened_at')
+        .single();
   }
 
   static const String _replyColumns =
