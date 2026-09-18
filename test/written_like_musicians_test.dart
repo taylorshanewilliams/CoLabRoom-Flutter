@@ -71,6 +71,14 @@ void main() {
       expect(spellInKey('G#:maj/3', 'Eb major'), 'Ab:maj/3');
       expect(spellInKey('C#6/9', 'Eb major'), 'Db6/9');
     });
+
+    test('a flat bass somebody wrote is not corrected to a sharp', () {
+      // The chord rule reads the same third in D/Gb and would call it F#.
+      // Somebody typed that Gb, and a spelling somebody chose is theirs --
+      // the same promise the key rule makes (review, 17 September 2026).
+      expect(spellInKey('D/Gb', 'D minor'), 'D/Gb');
+      expect(spellInKey('C+/Ab', 'Eb major'), 'C+/Ab');
+    });
   });
 
   group('one word for one sound', () {

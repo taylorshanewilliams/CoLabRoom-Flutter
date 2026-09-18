@@ -60,13 +60,17 @@ bool keyUsesFlats(String? key) {
 /// A7 in D minor is a C♯ -- because that is the one sharp a flat minor key
 /// really has.
 ///
-/// A slash chord's bass is spelled from the chord it belongs to when it is
-/// one of that chord's own notes. The key rule on its own read D/F♯ in D
+/// A slash chord's *sharp* bass is spelled from the chord it belongs to when
+/// it is one of that chord's own notes. The key rule on its own read D/F♯ in D
 /// minor as D/G♭, and that F♯ is the major third of D: a third is two letters
 /// up from the root whatever the key is doing, so it has to be written as
 /// some kind of F (Every Musician, Same Song, 17 September 2026). A bass that
 /// is not a chord tone is nothing to do with the chord, and is left to the
 /// key rule.
+///
+/// Only a sharp bass goes through it, for the same reason only sharps are
+/// respelled at all: a bass somebody wrote as a G♭ is theirs, and the chord
+/// rule is not allowed to correct it either (review, 17 September 2026).
 String spellInKey(String written, String? key) {
   if (!keyUsesFlats(key)) return written;
   final tonic = RegExp(r'^([A-G][#b]?)').firstMatch(key!.trim())?.group(1);
@@ -76,7 +80,7 @@ String spellInKey(String written, String? key) {
   final leadingTone = minor && tonicPitch != null ? (tonicPitch + 11) % 12 : null;
 
   final slash = written.lastIndexOf('/');
-  if (slash > 0) {
+  if (slash > 0 && written.substring(slash + 1).contains('#')) {
     // The root is spelled in the key first, because the bass is then counted
     // in letters from whatever the root ended up being called.
     final chord = _flattenSharps(written.substring(0, slash), leadingTone);
@@ -166,8 +170,10 @@ String noteName(int pitch, {required bool flats}) {
 /// [midi] is the number the melody and the tuner both speak in, where 69 is
 /// A4, so the octave comes out with the name. The accidentals are the printed
 /// ones those two have always used (F♯4, not F#4), and which accidental to use
-/// is [spellInKey]'s decision -- the same rule the chords go through, so a
-/// note under a word and the chord over it cannot call one pitch two things.
+/// is [spellInKey]'s decision -- the key rule, which is what the chords go
+/// through too everywhere except a slash bass. A sung note has no chord to be
+/// the third of, so in D minor a D/F♯ over a word can sit above a G♭4 under
+/// it: the chord names that pitch from the chord, the note from the key.
 String noteInKey(int midi, String? key) {
   final spelled = spellInKey(noteName(midi, flats: false), key)
       .replaceAll('#', '♯')
