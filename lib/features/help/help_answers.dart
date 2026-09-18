@@ -238,6 +238,28 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
     ],
   ),
   HelpAnswer(
+    id: 'offline',
+    question: 'Can I play a song where there is no signal?',
+    answer: 'Yes, if you keep it on your phone first. Open the song, press '
+        'the ⋮ menu and choose Keep on this phone. A set has the same thing '
+        'in its own ⋮ menu, and keeps every song in it.\n\n'
+        'That fetches the words, the song sheet, the recording and its '
+        'separated parts, so Perform plays the song with its chords and '
+        'beats with no connection at all. The menu then says On this phone; '
+        'press it again to take the song off.\n\n'
+        'If the app cannot open because there is no signal, the songs you '
+        'kept are listed on that screen, ready to perform.\n\n'
+        'It is only for you and only on this phone: nobody in the room is '
+        'told, and nobody else who signs in here sees them. A song that is '
+        'not kept still opens with its words, and says that the recording is '
+        'missing. In a browser there is nowhere to keep a song, so the menu '
+        'does not offer it there.',
+    keywords: <String>[
+      'offline', 'signal', 'airplane', 'aeroplane', 'wifi', 'internet',
+      'connection', 'reception', 'basement', 'van', 'kept',
+    ],
+  ),
+  HelpAnswer(
     id: 'missing-song',
     question: 'I cannot find a song I made.',
     answer: 'Everything you have is in Your music, grouped by the room it '

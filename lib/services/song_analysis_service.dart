@@ -12,6 +12,7 @@ import 'audio_analysis_utils.dart';
 import 'chord_beat_grid.dart';
 import 'chord_repeats.dart';
 import 'error_reporter.dart';
+import 'kept_songs.dart';
 
 export 'audio_analysis_utils.dart' show SongAnalysisProgress;
 
@@ -225,13 +226,70 @@ List<List<TranscriptWord>> groupTranscriptWordsIntoLines(List<TranscriptWord> wo
   return lines;
 }
 
+/// What Perform opens with when it asks for a song's sheet.
+///
+/// Three honest answers. The sheet as the server has it; the copy kept on
+/// this phone, when the server did not answer; or neither, with the sentence
+/// Perform says about it, because a screen that opens words-only without a
+/// word about why looks like a song that has no recording (Every Musician,
+/// Same Song, 17 September 2026).
+class PerformSheet {
+  const PerformSheet({this.bundle, this.fromThisPhone = false, this.missing});
+
+  final SongAnalysisBundle? bundle;
+
+  /// True when the network did not answer and this is the copy kept here.
+  final bool fromThisPhone;
+
+  /// What Perform says when there is no sheet to be had, or null.
+  final String? missing;
+}
+
 class SongAnalysisService {
-  SongAnalysisService({SupabaseClient? client, ErrorReporter? reporter})
+  SongAnalysisService({SupabaseClient? client, ErrorReporter? reporter, KeptSongs? kept})
       : _clientOverride = client,
-        _reporter = reporter ?? ErrorReporter(client: client);
+        _reporter = reporter ?? ErrorReporter(client: client),
+        kept = kept ?? KeptSongs();
 
   final SupabaseClient? _clientOverride;
   final ErrorReporter _reporter;
+
+  /// The songs kept on this phone. The audio loaders below ask it before
+  /// they ask anything else, which is how Perform plays without signal.
+  final KeptSongs kept;
+
+  /// How long the server is given to answer for a song that is kept here.
+  ///
+  /// No signal fails at once. One bar in a basement does not: the request
+  /// hangs until something gives up on it, which can be most of a minute,
+  /// with a singer looking at a spinner and the song sitting on the phone
+  /// the whole time. A song that is not kept has nothing else to open with,
+  /// so it waits for the server exactly as long as it always did.
+  static const Duration keptAnswersAfter = Duration(seconds: 3);
+
+  /// The sheet for Perform: the server's when it answers, this phone's copy
+  /// when it does not, and otherwise a sentence about what is missing.
+  ///
+  /// The phone is asked first, because whether there is a copy here decides
+  /// how long the server is worth waiting for. A kept song follows the
+  /// server while the server answers, so what plays in the basement tonight
+  /// is the sheet as it was corrected this morning.
+  Future<PerformSheet> sheetForPerform(SongProject project) async {
+    final here = await kept.load(project.id);
+    try {
+      final asked = load(project.id);
+      final bundle = await (here == null ? asked : asked.timeout(keptAnswersAfter));
+      if (here != null) unawaited(kept.refresh(project, bundle));
+      return PerformSheet(bundle: bundle);
+    } catch (error) {
+      if (here != null) return PerformSheet(bundle: here.sheet, fromThisPhone: true);
+      return PerformSheet(
+        missing: isConnectivityFailure(error)
+            ? KeptSongs.notKeptOffline
+            : KeptSongs.sheetNotLoaded,
+      );
+    }
+  }
 
   /// Resolved on use rather than at construction, so building this service
   /// somewhere Supabase isn't initialized (previews, widget tests) doesn't
@@ -571,8 +629,14 @@ class SongAnalysisService {
   ///
   /// Both are handed to `audioSourceFor`, which builds the right kind of
   /// source without the caller needing to know which it got.
+  ///
+  /// A song kept on this phone answers first, from the app's own storage,
+  /// and needs neither the temp directory nor the network. The temp cache
+  /// below is the OS's to clear; the kept copy is the person's.
   Future<String> ensureLocalReference(ReferenceTrack reference) async {
     if (kIsWeb) return _signedUrl(reference.storagePath);
+    final here = await kept.audioPath(reference.projectId, reference.storagePath);
+    if (here != null) return here;
     final directory = await getTemporaryDirectory();
     final ext = audioFileExtension(reference.storagePath);
     final path = '${directory.path}/colabroom_reference_${reference.fileId}.$ext';
@@ -603,6 +667,8 @@ class SongAnalysisService {
   /// always MP3 (the worker encodes them before upload).
   Future<String> ensureLocalStem(SongStem stem) async {
     if (kIsWeb) return _signedUrl(stem.storagePath);
+    final here = await kept.audioPath(stem.projectId, stem.storagePath);
+    if (here != null) return here;
     final directory = await getTemporaryDirectory();
     final path = '${directory.path}/colabroom_stem_${stem.projectId}_${stem.kind.name}.mp3';
     final file = File(path);

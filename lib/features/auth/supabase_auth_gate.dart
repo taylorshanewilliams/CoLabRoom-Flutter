@@ -7,6 +7,7 @@ import '../../app/colabroom_theme.dart';
 import '../../app/music_beta_controller.dart';
 import '../../app/workspace_shell.dart';
 import '../../data/supabase_music_repository.dart';
+import '../songs/kept_here.dart';
 import 'supabase_auth_screen.dart';
 
 class SupabaseAuthGate extends StatefulWidget {
@@ -169,23 +170,35 @@ class _AuthFailure extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 460),
-          child: Padding(
-            padding: const EdgeInsets.all(28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const Icon(Icons.cloud_off_rounded, size: 48, color: AppColors.cyan),
-                const SizedBox(height: 16),
-                Text('We could not open the workspace.', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 8),
-                Text(message, textAlign: TextAlign.center),
-                const SizedBox(height: 18),
-                FilledButton(onPressed: onRetry, child: const Text('Try Again')),
-                TextButton(onPressed: onSignOut, child: const Text('Sign Out')),
-              ],
+      body: SafeArea(
+        child: Center(
+          // Scrolls, because a set kept for a gig is a dozen rows under
+          // what used to be the whole of this screen.
+          child: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 460),
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const Icon(Icons.cloud_off_rounded, size: 48, color: AppColors.cyan),
+                    const SizedBox(height: 16),
+                    Text('We could not open the workspace.', style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 8),
+                    Text(message, textAlign: TextAlign.center),
+                    const SizedBox(height: 18),
+                    FilledButton(onPressed: onRetry, child: const Text('Try Again')),
+                    TextButton(onPressed: onSignOut, child: const Text('Sign Out')),
+                    // Where a phone with no signal lands, so where the songs
+                    // kept for having no signal have to be. Nothing at all
+                    // when nothing is kept (Every Musician, Same Song,
+                    // 17 September 2026).
+                    const SizedBox(height: 18),
+                    const KeptHere(),
+                  ],
+                ),
+              ),
             ),
           ),
         ),

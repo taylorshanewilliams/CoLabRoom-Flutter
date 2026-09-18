@@ -12,10 +12,11 @@ import '../../services/song_analysis_service.dart';
 import '../../widgets/app_surface.dart';
 import '../workspace/song_workspace_screen.dart';
 import '../../services/user_facing_error.dart';
+import '../../services/kept_songs.dart';
 import '../../services/song_search.dart';
 import 'setlist_pack.dart';
 
-enum _SetlistMenuAction { print, sharePdf, share, rename, delete }
+enum _SetlistMenuAction { print, sharePdf, share, rename, delete, keepHere }
 
 /// The analysis behind a song, or null when there is none to be had.
 typedef LoadAnalysis = Future<SongAnalysisBundle?> Function(String projectId);
@@ -24,6 +25,7 @@ class SetlistDetailScreen extends StatefulWidget {
   const SetlistDetailScreen({
     required this.setlistId,
     this.loadAnalysis,
+    this.analysisService,
     super.key,
   });
 
@@ -32,6 +34,12 @@ class SetlistDetailScreen extends StatefulWidget {
   /// Where each song's analysis comes from. The app reads it from the
   /// analysis service; a test hands in what it likes.
   final LoadAnalysis? loadAnalysis;
+
+  /// The service itself, for what needs a real answer rather than a lenient
+  /// one: keeping the set on this phone fetches each sheet through it and
+  /// stops, saying so, on the first that cannot be fetched. Null in
+  /// production.
+  final SongAnalysisService? analysisService;
 
   @override
   State<SetlistDetailScreen> createState() => _SetlistDetailScreenState();
@@ -48,9 +56,28 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
   final Map<String, SongAnalysisBundle?> _analyses = <String, SongAnalysisBundle?>{};
   final Map<String, Future<SongAnalysisBundle?>> _loads = <String, Future<SongAnalysisBundle?>>{};
 
-  static Future<SongAnalysisBundle?> _fromService(String projectId) async {
+  SongAnalysisService get _analysis => widget.analysisService ?? SongAnalysisService();
+
+  /// Which of this phone's kept songs are known so far, or null until the
+  /// first read -- and on the web for good, where the menu says nothing
+  /// about keeping.
+  Set<String>? _keptIds;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadKept());
+  }
+
+  Future<void> _loadKept() async {
+    if (!KeptSongs.supported) return;
+    final ids = await _analysis.kept.keptIds();
+    if (mounted) setState(() => _keptIds = ids);
+  }
+
+  Future<SongAnalysisBundle?> _fromService(String projectId) async {
     try {
-      return await SongAnalysisService().load(projectId);
+      return await _analysis.load(projectId);
     } catch (_) {
       // Non-fatal: the row says what the band wrote and nothing more, and
       // the pack lists the song without a chart.
@@ -195,9 +222,68 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
       }
     }
 
+    // Kept on this phone means every song in it is. A set half here would
+    // open in the van with holes in it, so the state says so until the
+    // whole of it is here, and keeping it again fetches only what is not.
+    final keptIds = _keptIds;
+    final keptAll = keptIds != null &&
+        projects.isNotEmpty &&
+        projects.every((project) => keptIds.contains(project.id));
+
+    /// Keeps every song in the set on this phone, or takes them all off.
+    ///
+    /// Stops at the first song whose sheet cannot be fetched and says which,
+    /// rather than keeping the rest and calling the set kept. What was
+    /// fetched before it stays, so trying again is cheap.
+    Future<void> keepHere() async {
+      final messenger = ScaffoldMessenger.of(context);
+      final kept = _analysis.kept;
+      if (keptAll) {
+        for (final project in projects) {
+          await kept.remove(project.id);
+        }
+        await _loadKept();
+        // In place of whatever is showing, never queued behind it: "is on
+        // this phone" still on screen would otherwise hold this back for
+        // four seconds and say the opposite of what just happened.
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text('${setlist.name} is no longer kept on this phone.')));
+        return;
+      }
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('Keeping ${setlist.name} on this phone…')));
+      for (final project in projects) {
+        try {
+          final sheet = await _analysis.load(project.id);
+          await kept.keep(project, sheet, onProgress: (stage) {
+            messenger
+              ..hideCurrentSnackBar()
+              ..showSnackBar(SnackBar(content: Text('${project.title}: $stage')));
+          });
+        } catch (error) {
+          await _loadKept();
+          messenger
+            ..hideCurrentSnackBar()
+            ..showSnackBar(SnackBar(
+              content: Text(isConnectivityFailure(error)
+                  ? 'No connection, so ${project.title} was not kept. Try again where there is signal.'
+                  : 'Could not keep ${project.title}: ${reportAndDescribe(error, service: 'app', stage: 'keep_set', route: 'Setlist')}'),
+            ));
+          return;
+        }
+      }
+      await _loadKept();
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text('${setlist.name} is on this phone.')));
+    }
+
     Future<void> export(_SetlistMenuAction action) async {
       if (action == _SetlistMenuAction.rename) return rename();
       if (action == _SetlistMenuAction.delete) return delete();
+      if (action == _SetlistMenuAction.keepHere) return keepHere();
       try {
         final songs = await _packSongs(setlist, projects);
         switch (action) {
@@ -212,6 +298,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
             break;
           case _SetlistMenuAction.rename:
           case _SetlistMenuAction.delete:
+          case _SetlistMenuAction.keepHere:
             break;
         }
       } catch (error) {
@@ -254,13 +341,13 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
           PopupMenuButton<_SetlistMenuAction>(
             tooltip: 'Setlist options',
             onSelected: export,
-            itemBuilder: (_) => const <PopupMenuEntry<_SetlistMenuAction>>[
+            itemBuilder: (_) => <PopupMenuEntry<_SetlistMenuAction>>[
               // Both the printer and the PDF get the pack: the running order
               // with each song's key, tempo, count-in, form, ending and note,
               // then a chord chart per song in the key the set does it in.
               // One file a stand-in can read on the night (Every Musician,
               // Same Song, 17 September 2026).
-              PopupMenuItem<_SetlistMenuAction>(
+              const PopupMenuItem<_SetlistMenuAction>(
                 key: Key('print_set'),
                 value: _SetlistMenuAction.print,
                 child: ListTile(
@@ -269,7 +356,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                   title: Text('Send to printer'),
                 ),
               ),
-              PopupMenuItem<_SetlistMenuAction>(
+              const PopupMenuItem<_SetlistMenuAction>(
                 key: Key('share_set_pdf'),
                 value: _SetlistMenuAction.sharePdf,
                 child: ListTile(
@@ -278,7 +365,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                   title: Text('Share as PDF, with a chart per song'),
                 ),
               ),
-              PopupMenuItem<_SetlistMenuAction>(
+              const PopupMenuItem<_SetlistMenuAction>(
                 value: _SetlistMenuAction.share,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -286,8 +373,22 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                   title: Text('Share by text or email'),
                 ),
               ),
-              PopupMenuDivider(),
-              PopupMenuItem<_SetlistMenuAction>(
+              // The set for the van: every song's words, sheet and recording
+              // on this phone, where Perform finds them without signal. A
+              // convenience of this device and nothing the band is told.
+              if (keptIds != null && projects.isNotEmpty)
+                PopupMenuItem<_SetlistMenuAction>(
+                  key: const Key('keep_set_here'),
+                  value: _SetlistMenuAction.keepHere,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(keptAll ? Icons.phone_android_rounded : Icons.download_for_offline_outlined),
+                    title: Text(keptAll ? 'On this phone' : 'Keep this set on this phone'),
+                    subtitle: Text(keptAll ? 'Tap to take it off again' : 'Every song, for where there is no signal'),
+                  ),
+                ),
+              const PopupMenuDivider(),
+              const PopupMenuItem<_SetlistMenuAction>(
                 key: Key('rename_set'),
                 value: _SetlistMenuAction.rename,
                 child: ListTile(
@@ -296,7 +397,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                   title: Text('Rename set'),
                 ),
               ),
-              PopupMenuItem<_SetlistMenuAction>(
+              const PopupMenuItem<_SetlistMenuAction>(
                 key: Key('delete_set'),
                 value: _SetlistMenuAction.delete,
                 child: ListTile(

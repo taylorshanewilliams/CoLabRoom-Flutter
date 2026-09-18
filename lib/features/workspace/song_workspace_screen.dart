@@ -22,6 +22,7 @@ import '../../services/error_reporter.dart';
 import '../../services/project_export_service.dart';
 import '../../services/cowork_service.dart';
 import '../../services/follow_me.dart';
+import '../../services/kept_songs.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/offer_notifications.dart';
@@ -74,6 +75,10 @@ enum _SongMenuAction {
   /// dial; this is where the answer can be changed afterwards.
   whoseSong,
 
+  /// Keep this song on this phone, or take it off again. A convenience of
+  /// this device, never a fact about the song: see KeptSongs.
+  keepHere,
+
   /// Offered only to a teacher, and only in a lesson room of their own
   /// (0143). Everywhere else the entry is not in the menu at all.
   leavePractice,
@@ -92,6 +97,22 @@ enum _SongMenuAction {
 /// the left and the song's own header above - to draw a screen designed for a
 /// 390px phone across 1500px, which is both disorienting and stretched.
 enum _WorkspacePanel { words, sheet, takes }
+
+/// The menu's one line about this phone: the plain state when the song is
+/// kept here, the offer when it is not. Shared by the portrait and landscape
+/// menus so a desk and a phone read the same words.
+PopupMenuItem<_SongMenuAction> _keepHereEntry(bool kept) {
+  return PopupMenuItem<_SongMenuAction>(
+    key: const Key('song_keep_here'),
+    value: _SongMenuAction.keepHere,
+    child: ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(kept ? Icons.phone_android_rounded : Icons.download_for_offline_outlined),
+      title: Text(kept ? 'On this phone' : 'Keep on this phone'),
+      subtitle: Text(kept ? 'Tap to take it off again' : 'Perform where there is no signal'),
+    ),
+  );
+}
 
 /// One line of the song as a save in progress knows the server holds it.
 class _HeldLine {
@@ -115,10 +136,17 @@ class SongWorkspaceScreen extends StatefulWidget {
   const SongWorkspaceScreen({
     required this.projectId,
     this.embedded = false,
+    this.analysisService,
     super.key,
   });
 
   final String projectId;
+
+  /// Where the song's sheet and recording come from, and where a kept copy
+  /// of them lives. Null in production, which reaches for the real service;
+  /// a test hands in one that answers without a network, the same seam
+  /// Perform has.
+  final SongAnalysisService? analysisService;
 
   /// True when this is a pane rather than a route.
   ///
@@ -169,6 +197,13 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   int _lastContributionCount = -1;
   SongAnalysisBundle? _analysisBundle;
 
+  SongAnalysisService get _analysis => widget.analysisService ?? SongAnalysisService();
+
+  /// Whether this song is kept on this phone, or null while that is not yet
+  /// known -- and on the web, where there is nowhere to keep it, for good.
+  /// The menu shows nothing about it until there is something true to show.
+  bool? _keptHere;
+
   /// The shared stream for this song. Joined when the workspace opens and
   /// left when it closes — presence is scoped to the song rather than the
   /// app, which is both the only window in which "Jess is here" means
@@ -189,6 +224,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadAnalysisBundle());
+    unawaited(_loadKeptHere());
     unawaited(_loadAudience());
     unawaited(_loadLessonStudent());
     // Listening before joining, so a leader heard in the first second is
@@ -716,10 +752,50 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   /// the current model supports.
   Future<void> _loadAnalysisBundle() async {
     try {
-      final bundle = await SongAnalysisService().load(widget.projectId);
+      final bundle = await _analysis.load(widget.projectId);
       if (mounted) setState(() => _analysisBundle = bundle);
     } catch (_) {
       // Non-fatal: the toolbar just won't show a recording indicator.
+    }
+  }
+
+  Future<void> _loadKeptHere() async {
+    if (!KeptSongs.supported) return;
+    final kept = await _analysis.kept.isKept(widget.projectId);
+    if (mounted) setState(() => _keptHere = kept);
+  }
+
+  /// Keeps the song on this phone, or takes it off again.
+  ///
+  /// The sheet is fetched fresh rather than taken from [_analysisBundle],
+  /// which is null both for a song with no recording and for a load that
+  /// failed -- and keeping the words alone while saying "On this phone"
+  /// about a song whose recording is missing would be the lie this whole
+  /// slice exists to avoid. No connection means nothing is kept, and the
+  /// sentence says so.
+  Future<void> _keepHere(SongProject project) async {
+    final kept = _analysis.kept;
+    if (_keptHere == true) {
+      await kept.remove(project.id);
+      if (!mounted) return;
+      setState(() => _keptHere = false);
+      _showMessage('${project.title} is no longer kept on this phone.');
+      return;
+    }
+    _showMessage('Keeping ${project.title} on this phone…');
+    try {
+      final sheet = await _analysis.load(project.id);
+      await kept.keep(project, sheet, onProgress: (stage) {
+        if (mounted) _showMessage(stage);
+      });
+      if (!mounted) return;
+      setState(() => _keptHere = true);
+      _showMessage('${project.title} is on this phone.');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(isConnectivityFailure(error)
+          ? 'No connection, so nothing was kept. Try again where there is signal.'
+          : reportAndDescribe(error, service: 'app', stage: 'keep_song', route: 'Song'));
     }
   }
 
@@ -1076,15 +1152,11 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   Future<void> _openLivePerformance(SongProject project) async {
     // Live Performance is reachable straight from the project regardless
     // of whether the song has been analyzed yet — it falls back to manual
-    // scroll speeds when there's no synced timing. Best-effort load the
-    // analysis bundle so Synced mode is available when it has already been
-    // run; a failed/missing load shouldn't block entry.
-    SongAnalysisBundle? bundle;
-    try {
-      bundle = await SongAnalysisService().load(project.id);
-    } catch (_) {
-      bundle = null;
-    }
+    // scroll speeds when there's no synced timing. The sheet comes from the
+    // server, or from this phone when the server does not answer and the
+    // song is kept here; a load that gets neither does not block entry, and
+    // Perform says what is missing.
+    final sheet = await _analysis.sheetForPerform(project);
     if (!mounted) return;
     // Held now rather than looked up when a mark arrives: the last one can
     // arrive while this screen is being closed underneath Perform.
@@ -1097,7 +1169,9 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         settings: RouteSettings(name: AppRoutes.songLive(project.id)),
         builder: (_) => LivePerformanceScreen(
           project: project,
-          analysis: bundle,
+          analysis: sheet.bundle,
+          missing: sheet.missing,
+          analysisService: widget.analysisService,
           together: _together,
           me: me,
           ownMarkId: ownPracticeMarkId(controller.practiceMarks, projectId: project.id, me: me),
@@ -1246,6 +1320,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       await _changeSongOrigin(project);
       return;
     }
+    if (action == _SongMenuAction.keepHere) {
+      await _keepHere(project);
+      return;
+    }
     if (action == _SongMenuAction.leavePractice) {
       await _leavePractice(project);
       return;
@@ -1273,6 +1351,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         case _SongMenuAction.color:
         case _SongMenuAction.tell:
         case _SongMenuAction.whoseSong:
+        case _SongMenuAction.keepHere:
         case _SongMenuAction.leavePractice:
         case _SongMenuAction.cutLines:
           // Handled above, before this switch, because it opens a sheet
@@ -1907,6 +1986,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 projectId: widget.projectId,
                 repository: controller.repository,
                 leavePracticeFor: _leaveFor?.name,
+                keptHere: _keptHere,
               )
             : Column(
                 children: <Widget>[
@@ -1920,6 +2000,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     onRename: () => _rename(project),
                     onExport: (action) => _exportSong(project, action),
                     leavePracticeFor: _leaveFor?.name,
+                    keptHere: _keptHere,
                   ),
                   _WorkspaceToolbar(
                     onOpenLayers: () => _openLayers(project),
@@ -2069,6 +2150,7 @@ class _PortraitProjectHeader extends StatelessWidget {
     required this.onRename,
     required this.onExport,
     this.leavePracticeFor,
+    this.keptHere,
   });
 
   final SongProject project;
@@ -2082,6 +2164,10 @@ class _PortraitProjectHeader extends StatelessWidget {
   /// and null everywhere else — which is what keeps the entry out of every
   /// band room's menu rather than greying it out there.
   final String? leavePracticeFor;
+
+  /// Whether the song is kept on this phone, or null while unknown and on
+  /// the web, where the entry is not shown at all.
+  final bool? keptHere;
 
   @override
   Widget build(BuildContext context) {
@@ -2228,6 +2314,7 @@ class _PortraitProjectHeader extends StatelessWidget {
                   title: Text('Share by text or email'),
                 ),
               ),
+              if (keptHere != null) _keepHereEntry(keptHere!),
               // Last, and on its own, because it is the only entry here that
               // cannot be undone.
               const PopupMenuDivider(),
@@ -2278,6 +2365,7 @@ class _LandscapeWorkspace extends StatelessWidget {
     required this.projectId,
     required this.repository,
     this.leavePracticeFor,
+    this.keptHere,
     super.key,
   });
 
@@ -2286,6 +2374,9 @@ class _LandscapeWorkspace extends StatelessWidget {
   final VoidCallback? onBack;
   final VoidCallback onRename;
   final VoidCallback onOpenLayers;
+
+  /// Whether the song is kept on this phone; see _PortraitProjectHeader.
+  final bool? keptHere;
   final VoidCallback onOpenLive;
   final ValueChanged<_SongMenuAction> onExport;
   final bool hasRecording;
@@ -2466,6 +2557,7 @@ class _LandscapeWorkspace extends StatelessWidget {
                       title: Text('Share by text or email'),
                     ),
                   ),
+                  if (keptHere != null) _keepHereEntry(keptHere!),
                   const PopupMenuDivider(),
                   const PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.markFinished,

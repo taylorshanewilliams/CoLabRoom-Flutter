@@ -14,7 +14,6 @@ import '../../widgets/player_face.dart';
 import '../../domain/activity.dart';
 import '../../domain/music_models.dart';
 import '../../domain/practice_mark.dart';
-import '../../domain/song_analysis_models.dart' show SongAnalysisBundle;
 import '../../services/song_analysis_service.dart';
 import '../workspace/live_performance_screen.dart';
 import '../workspace/practice_marks.dart';
@@ -120,8 +119,14 @@ class SongsScreen extends StatefulWidget {
     this.onFindMusicians,
     this.onOpenMessages,
     this.showTopBar = true,
+    this.analysisService,
     super.key,
   });
+
+  /// Where a song's sheet comes from when Perform opens from here, and
+  /// where the songs kept on this phone live. Null in production; a test
+  /// hands in one that answers without a network.
+  final SongAnalysisService? analysisService;
 
   /// For the avatar in the corner, which is also the way into the account.
   final String displayName;
@@ -189,6 +194,8 @@ class _SongsScreenState extends State<SongsScreen> {
   /// shell does it, so `_open` knows which of its two behaviours it has
   /// without every caller having to be told.
   bool _desk = false;
+
+  SongAnalysisService get _analysis => widget.analysisService ?? SongAnalysisService();
 
   @override
   void initState() {
@@ -803,20 +810,18 @@ class _SongsScreenState extends State<SongsScreen> {
     // can be rebuilt away while Perform is open.
     final controller = BetaScope.of(context, listen: false);
     final me = controller.meOrNobody;
-    SongAnalysisBundle? bundle;
-    try {
-      bundle = await SongAnalysisService().load(song.id);
-    } catch (_) {
-      // Perform opens without the sheet's timing, as it does from the song.
-      bundle = null;
-    }
+    // The sheet as the server has it, or as this phone kept it, or a word
+    // about why neither -- the same door the song itself opens Perform by.
+    final sheet = await _analysis.sheetForPerform(song);
     if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         settings: RouteSettings(name: AppRoutes.songLive(song.id)),
         builder: (_) => LivePerformanceScreen(
           project: song,
-          analysis: bundle,
+          analysis: sheet.bundle,
+          missing: sheet.missing,
+          analysisService: widget.analysisService,
           practise: mark.lead,
           me: me,
           ownMarkId: ownPracticeMarkId(controller.practiceMarks, projectId: song.id, me: me),

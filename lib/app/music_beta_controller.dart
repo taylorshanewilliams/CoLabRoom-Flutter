@@ -9,12 +9,13 @@ import '../domain/lesson_link.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
+import '../services/kept_songs.dart';
 import '../services/retry.dart';
 import '../services/user_facing_error.dart';
 import '../services/error_reporter.dart';
 
 class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
-  MusicBetaController(this.repository) {
+  MusicBetaController(this.repository, {KeptSongs? kept}) : _kept = kept ?? KeptSongs() {
     _changesSubscription = repository.changes.listen((_) {
       _reloadDebounce?.cancel();
       _reloadDebounce = Timer(const Duration(milliseconds: 300), load);
@@ -448,6 +449,9 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       // corner of Home was initials until you had been to Settings — for
       // anybody who never went, the picture they uploaded never appeared.
       unawaited(loadAvatar());
+      // The library loaded, so it can say which kept songs are still this
+      // person's to hear.
+      unawaited(_dropKeptSongsNoLongerMine());
     } catch (error) {
       // The most consequential failure in the app: nothing loaded, so from
       // the outside it simply did not open. It has never been reported —
@@ -457,6 +461,35 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     } finally {
       _loading = false;
       notifyListeners();
+    }
+  }
+
+  /// The songs kept on this phone (KeptSongs), for the one rule about them
+  /// that is the library's to apply. See [_dropKeptSongsNoLongerMine].
+  final KeptSongs _kept;
+
+  /// Takes off this phone any kept song this person can no longer open.
+  ///
+  /// A kept copy is only ever made of something this person's own session
+  /// could download, which is the same storage policy that decides what
+  /// plays online. But rooms change: somebody is removed from a band, or a
+  /// song is deleted, and a copy kept for the van must not outlive the
+  /// right to hear it. Only run once the library has loaded, because a song
+  /// missing from a library that did not load is not missing at all -- it
+  /// is the very case the copy was kept for. A kept song the library does
+  /// not list is asked about by id, and dropped only on a clear no; a
+  /// question the server did not answer keeps it. Quiet throughout, and
+  /// after the library is shown: nothing here may cost anybody their songs.
+  Future<void> _dropKeptSongsNoLongerMine() async {
+    try {
+      final ids = await _kept.keptIds();
+      for (final id in ids) {
+        if (projectById(id) != null) continue;
+        final still = await repository.loadProject(id);
+        if (still == null) await _kept.remove(id);
+      }
+    } catch (_) {
+      // Next load.
     }
   }
 
