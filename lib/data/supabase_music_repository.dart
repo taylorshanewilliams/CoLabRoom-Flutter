@@ -13,6 +13,7 @@ import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/sealed_take.dart';
+import '../domain/song_brief.dart';
 import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
 import '../domain/song_analysis_models.dart' show SongAnalysisState;
@@ -2730,6 +2731,88 @@ class SupabaseMusicRepository implements MusicRepository {
       }
     }
     return sent;
+  }
+
+  @override
+  Future<List<String>> briefStudents({
+    required String projectId,
+    required List<String> roomIds,
+    required BriefToSend brief,
+  }) async {
+    if (roomIds.isEmpty) return const <String>[];
+    // The copies, found by where they came from (0149). Asked for rather
+    // than remembered from the send, because a send hands back only the
+    // copies it made just now, and the second week of the same piece is a
+    // brief for copies the students have had all along. The teacher owns
+    // these rooms, so the read policy shows them the rows.
+    final copies = await client
+        .from('projects')
+        .select('id')
+        .eq('copied_from', projectId)
+        .inFilter('room_id', roomIds)
+        .isFilter('deleted_at', null);
+    final songs = <String>[
+      for (final each in copies as List<dynamic>) (each as Map<String, dynamic>)['id'] as String,
+    ];
+    if (songs.isEmpty) return const <String>[];
+    // One call for all of them, so that a refusal briefs nobody rather than
+    // half a studio. The server decides who may: the teacher of each lesson,
+    // still owning its room (0150).
+    final took = await client.rpc<dynamic>('set_song_briefs', params: <String, dynamic>{
+      'in_projects': songs,
+      'in_passage': brief.passage,
+      'in_rate': brief.rate,
+      'in_start_ms': brief.startMs,
+      'in_end_ms': brief.endMs,
+      'in_listening_for': brief.listeningFor,
+      'in_due_words': brief.dueWords,
+    });
+    return <String>[for (final each in took as List<dynamic>? ?? const <dynamic>[]) '$each'];
+  }
+
+  @override
+  Future<List<SongBrief>> mySongBriefs() async {
+    // No filter on who: the read policy shows a brief to the two people it
+    // is between and to nobody else (0150), and a second copy of that rule
+    // here is one more place for the two to disagree.
+    final rows = await client
+        .from('song_briefs')
+        .select('id, project_id, teacher_id, student_id, teacher_name, passage, '
+            'start_ms, end_ms, rate, listening_for, due_words, set_at')
+        .order('set_at', ascending: false)
+        // One brief a song, so this counts copies rather than weeks: a
+        // studio of nine students with a few pieces each on the go is the
+        // teacher's whole side of it, and a student's side is one a lesson.
+        // Past this the oldest stops drawing its line on its song, which is
+        // the mildest way for a read to run out.
+        .limit(200);
+    return <SongBrief>[
+      for (final each in rows as List<dynamic>) _songBrief(Map<String, dynamic>.from(each as Map)),
+    ];
+  }
+
+  SongBrief _songBrief(Map<String, dynamic> row) {
+    final start = row['start_ms'];
+    final end = row['end_ms'];
+    final loop = start is num && end is num && end > start;
+    final due = (row['due_words'] as String? ?? '').trim();
+    return SongBrief(
+      id: row['id'] as String,
+      projectId: row['project_id'] as String,
+      teacherId: row['teacher_id'] as String,
+      studentId: row['student_id'] as String,
+      teacherName: row['teacher_name'] as String? ?? 'Your teacher',
+      passage: row['passage'] as String? ?? 'The whole song',
+      startMs: loop ? start.round() : null,
+      endMs: loop ? end.round() : null,
+      rate: (row['rate'] as num?)?.toDouble() ?? 1,
+      listeningFor: <String>[
+        for (final phrase in row['listening_for'] as List<dynamic>? ?? const <dynamic>[])
+          if ('$phrase'.trim().isNotEmpty) '$phrase'.trim(),
+      ],
+      dueWords: due.isEmpty ? null : due,
+      setAt: DateTime.tryParse('${row['set_at']}')?.toLocal() ?? DateTime.now(),
+    );
   }
 
   @override

@@ -19,6 +19,7 @@ import '../../services/kept_songs.dart';
 import '../../services/now_playing.dart';
 import '../../services/song_analysis_service.dart';
 import '../../widgets/on_this_phone_mark.dart';
+import '../lessons/what_to_practise.dart';
 import '../workspace/live_performance_screen.dart';
 import '../workspace/practice_marks.dart';
 import '../../widgets/app_surface.dart';
@@ -535,11 +536,39 @@ class _SongsScreenState extends State<SongsScreen> {
       ));
     }
 
+    final me = controller.meOrNobody;
+
+    // What a teacher asked for with a song they sent (0150): the passage,
+    // the speed and when by, in the practice card's own grammar, because to
+    // the student it is the same thing -- something to practise, from
+    // somebody. It says nothing about when it was asked and counts down to
+    // nothing; "before Thursday" is the teacher's words and only words.
+    // What they are listening for is on the song, where there is room.
+    final briefed = <String>{};
+    for (final brief in briefsAskedOf(me, controller.songBriefs)) {
+      if (briefed.contains(brief.projectId)) continue;
+      if (SetAside.has(SetAside.practice, brief.id)) continue;
+      final song = _songById(controller, brief.projectId);
+      if (song == null) continue;
+      briefed.add(brief.projectId);
+      items.add(WaitingItem(
+        id: 'brief-${brief.id}',
+        kind: WaitingKind.practice,
+        who: brief.teacherName,
+        eyebrow: briefFrom(brief, me: me),
+        line: song.title,
+        detail: songBriefSaid(brief),
+        actionLabel: 'Practise',
+        onAction: () => unawaited(_practise(song, brief.part)),
+        // Closed on this phone and nowhere else: nothing tells the teacher.
+        onDismiss: () => unawaited(_setAside(SetAside.practice, brief.id)),
+      ));
+    }
+
     // What a lesson left to practise, or what this person last worked on by
     // themselves. One card a song, the latest — except that words outlast
     // work; see _cardMark.
     final practised = <String>{};
-    final me = controller.meOrNobody;
     for (final newest in controller.practiceMarks) {
       if (practised.contains(newest.projectId)) continue;
       if (SetAside.has(SetAside.practice, newest.id)) continue;
@@ -547,6 +576,13 @@ class _SongsScreenState extends State<SongsScreen> {
       if (song == null) continue;
       practised.add(newest.projectId);
       final mark = _cardMark(controller, newest);
+      // Practising from a brief's card keeps this person's own mark on the
+      // song, like any other practice, and a second card beside the brief
+      // saying the same passage at the same speed is the row repeating
+      // itself. The brief stands for the song while it is there; a mark that
+      // carries somebody's words is a different thing said and keeps its
+      // card. Nothing is lost: the mark is still kept.
+      if (briefed.contains(mark.projectId) && isYourOwnPractice(mark, me: me)) continue;
       final worked = practiceWorked(mark);
       final note = mark.note;
       final mine = isYourOwnPractice(mark, me: me);
@@ -563,7 +599,7 @@ class _SongsScreenState extends State<SongsScreen> {
           if (note != null) '“$note”',
         ].join(' · '),
         actionLabel: 'Practise',
-        onAction: () => unawaited(_practise(song, mark)),
+        onAction: () => unawaited(_practise(song, mark.lead)),
         onDismiss: () => unawaited(_setAside(SetAside.practice, mark.id)),
       ));
     }
@@ -893,14 +929,15 @@ class _SongsScreenState extends State<SongsScreen> {
     return null;
   }
 
-  /// Straight to the part and the speed the lesson worked on, with the
-  /// song not yet playing: the student decides when to start.
+  /// Straight to the part and the speed the lesson worked on, or the ones a
+  /// teacher's brief asked for (0150), with the song not yet playing: the
+  /// student decides when to start.
   ///
   /// And what is done here is kept, like any other practice. The card whose
   /// only verb is Practise would be a strange door to walk through and leave
   /// no trace, when the same half hour opened from the song leaves one
   /// (Every Musician, Same Song, 17 September 2026).
-  Future<void> _practise(SongProject song, PracticeMark mark) async {
+  Future<void> _practise(SongProject song, PracticePart? part) async {
     // Held before the push rather than looked up on the way back: this screen
     // can be rebuilt away while Perform is open.
     final controller = BetaScope.of(context, listen: false);
@@ -917,7 +954,7 @@ class _SongsScreenState extends State<SongsScreen> {
           analysis: sheet.bundle,
           missing: sheet.missing,
           analysisService: widget.analysisService,
-          practise: mark.lead,
+          practise: part,
           me: me,
           ownMarkId: ownPracticeMarkId(controller.practiceMarks, projectId: song.id, me: me),
           keepPractice: (worked) => unawaited(controller.keepPracticeMark(worked)),

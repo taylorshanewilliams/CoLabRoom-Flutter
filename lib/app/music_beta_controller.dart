@@ -9,6 +9,7 @@ import '../domain/lesson_link.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/sealed_take.dart';
+import '../domain/song_brief.dart';
 import '../domain/song_analysis_models.dart';
 import '../domain/tonight_models.dart';
 import '../services/kept_songs.dart';
@@ -234,6 +235,19 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// than somebody else's — see isYourOwnPractice in
   /// features/workspace/practice_marks.dart.
   List<PracticeMark> get practiceMarks => List<PracticeMark>.unmodifiable(_practiceMarks);
+
+  List<SongBrief> _songBriefs = const <SongBrief>[];
+
+  /// What to practise on songs a teacher sent (0150), newest first: the
+  /// briefs this person is either end of. Home makes a card of the ones
+  /// asked of them, and the song shows its own to both people. Read with
+  /// everything else and at no other time -- nobody is told when one is
+  /// set, and nothing is sent back when one is read.
+  List<SongBrief> get songBriefs => List<SongBrief>.unmodifiable(_songBriefs);
+
+  /// The brief on this song, or null, which is nearly every song.
+  SongBrief? briefFor(String projectId) =>
+      _songBriefs.where((brief) => brief.projectId == projectId).firstOrNull;
 
   /// Who is looking, or empty when there is nobody to ask.
   ///
@@ -535,6 +549,12 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       // so a card that could not be fetched today is offered tomorrow.
       try {
         _sealedTakesDue = await repository.sealedTakesDue();
+      } catch (_) {
+        // Left as it was.
+      }
+      // And what a teacher asked for with a song they sent. The same again.
+      try {
+        _songBriefs = await repository.mySongBriefs();
       } catch (_) {
         // Left as it was.
       }

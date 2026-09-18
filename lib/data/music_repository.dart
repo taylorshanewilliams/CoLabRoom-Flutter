@@ -7,6 +7,7 @@ import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/sealed_take.dart';
+import '../domain/song_brief.dart';
 import '../domain/tonight_models.dart';
 
 abstract interface class MusicRepository {
@@ -787,6 +788,31 @@ abstract interface class MusicRepository {
     required String projectId,
     required List<String> roomIds,
   });
+
+  /// Says what to practise on the copy of [projectId] in each of [roomIds],
+  /// and returns the copies that took it (0150).
+  ///
+  /// Every Musician, Same Song, 17 September 2026, slice 20: the brief that
+  /// rides with an assignment -- a passage, a speed, a few things the
+  /// teacher is listening for, and when by, in words. One a song, so saying
+  /// it again replaces what was said before, which is how the second week of
+  /// the same piece is set. Only the teacher of the lesson a copy lives in
+  /// can, still owning the room; the student edits that room and is refused
+  /// all the same. A room with no copy of the song takes nothing, and a
+  /// lesson whose student has left is skipped.
+  ///
+  /// Nobody is told, and nothing ever comes back about it: not whether the
+  /// card was opened, and not whether anything was practised.
+  Future<List<String>> briefStudents({
+    required String projectId,
+    required List<String> roomIds,
+    required BriefToSend brief,
+  });
+
+  /// Every brief this person is one end of (0150), newest first: what their
+  /// teachers asked of them, and what they asked of their students. The
+  /// server shows a brief to those two people and nobody else.
+  Future<List<SongBrief>> mySongBriefs();
 
   /// Your code for meeting in person (0130), made the first time you ask.
   Future<String> myMeetingCode();

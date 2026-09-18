@@ -12,6 +12,7 @@ import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/sealed_take.dart';
+import '../domain/song_brief.dart';
 import '../domain/sung_in.dart';
 import '../domain/song_analysis_models.dart';
 import '../domain/tonight_models.dart';
@@ -2938,6 +2939,109 @@ class InMemoryMusicRepository implements MusicRepository {
     }
     return sent;
   }
+
+  /// Every brief set here (0150), one a song, whoever it is between. Who
+  /// reads which is decided on the way out, in [mySongBriefs].
+  final List<SongBrief> _songBriefs = <SongBrief>[];
+
+  @override
+  Future<List<String>> briefStudents({
+    required String projectId,
+    required List<String> roomIds,
+    required BriefToSend brief,
+  }) async {
+    // The copies, found by where they came from, as the real one asks the
+    // server for them (0149): a send hands back only what it made just now,
+    // and the second week of a piece is a brief for copies already there.
+    final copies = <String>[
+      for (final room in _rooms)
+        if (roomIds.contains(room.id))
+          for (final song in room.projects)
+            if (_copiedFrom[song.id] == projectId) song.id,
+    ];
+    if (copies.isEmpty) return const <String>[];
+    return setSongBriefs(copies, brief);
+  }
+
+  /// set_song_briefs (0150), with its refusals in its words and its order.
+  ///
+  /// Public so that a test can ask for it the way a student's phone could:
+  /// through the front door, by the song's id, with nothing in the app
+  /// offering it. Everything is checked before anything is written, because
+  /// the server rolls the whole statement back.
+  Future<List<String>> setSongBriefs(List<String> projectIds, BriefToSend brief) async {
+    if (projectIds.isEmpty) throw const NameConflict('Pick a student first.');
+    final passage = brief.passage.trim();
+    if (passage.isEmpty) throw const NameConflict('Practice needs a part of the song.');
+    if (brief.rate < 0.25 || brief.rate > 2) {
+      throw const NameConflict('That is not a speed to practise at.');
+    }
+    final taught = await lessonRoomsTaught();
+    final songs = <SongProject>[];
+    for (final projectId in projectIds) {
+      final song = _allProjects.where((candidate) => candidate.id == projectId).firstOrNull;
+      if (song == null) throw const NameConflict('That song could not be found.');
+      // The teacher of the lesson the song lives in, still owning the room.
+      // The student edits that room, and this is the line that refuses them.
+      if (!taught.contains(song.roomId)) {
+        throw const NameConflict('That is not a lesson of yours.');
+      }
+      songs.add(song);
+    }
+
+    // Trimmed, with runs of white space folded to one, as the server does it.
+    String folded(String words) => NamePolicy.clean(words);
+    final phrases = <String>[
+      for (final phrase in brief.listeningFor)
+        if (folded(phrase).isNotEmpty)
+          folded(phrase).length > briefPhraseLength
+              ? folded(phrase).substring(0, briefPhraseLength)
+              : folded(phrase),
+    ].take(briefPhrasesKept).toList(growable: false);
+    final due = folded(brief.dueWords ?? '');
+    final loop = brief.startMs != null &&
+        brief.endMs != null &&
+        brief.startMs! >= 0 &&
+        brief.endMs! > brief.startMs!;
+
+    final took = <String>[];
+    for (final song in songs) {
+      final room = _rooms.firstWhere((candidate) => candidate.id == song.roomId);
+      // Nobody on the other end: skipped, not refused.
+      final student = room.members.where((member) => member.userId != currentUserId).firstOrNull;
+      if (student == null) continue;
+      _songBriefs.removeWhere((kept) => kept.projectId == song.id);
+      _songBriefs.insert(
+        0,
+        SongBrief(
+          // New each time, so a card closed last week comes back this week.
+          id: _id('brief'),
+          projectId: song.id,
+          teacherId: currentUserId,
+          studentId: student.userId,
+          teacherName: _nameOf(currentUserId),
+          passage: passage.length > 40 ? passage.substring(0, 40) : passage,
+          startMs: loop ? brief.startMs : null,
+          endMs: loop ? brief.endMs : null,
+          rate: brief.rate,
+          listeningFor: phrases,
+          dueWords: due.isEmpty
+              ? null
+              : (due.length > briefDueLength ? due.substring(0, briefDueLength) : due),
+          setAt: DateTime.now(),
+        ),
+      );
+      took.add(song.id);
+    }
+    return took;
+  }
+
+  @override
+  Future<List<SongBrief>> mySongBriefs() async => List<SongBrief>.unmodifiable(
+        // The two people a brief is between, and nobody else (0150).
+        _songBriefs.where((brief) =>
+            brief.teacherId == currentUserId || brief.studentId == currentUserId),
+      );
 
   @override
   Future<List<PracticeMark>> myPracticeMarks() async {

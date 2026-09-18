@@ -17,6 +17,7 @@ import '../../app/colabroom_theme.dart';
 import '../../app/supabase_access.dart';
 import '../../domain/music_models.dart';
 import '../../domain/name_policy.dart';
+import '../../domain/practice_mark.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/error_reporter.dart';
 import '../../services/project_export_service.dart';
@@ -31,6 +32,7 @@ import '../../widgets/microphone_disclosure.dart';
 import '../../widgets/on_this_phone_mark.dart';
 import '../lessons/leaving_practice.dart';
 import '../lessons/sending_a_song.dart';
+import '../lessons/what_to_practise.dart';
 import 'continuous_song_editor.dart';
 import 'cut_lines_sheet.dart';
 import 'line_reconciliation.dart';
@@ -352,6 +354,11 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   /// this song is heard outside its room, and the answer decides whether
   /// the recording goes with it (0142). The repository does the copying;
   /// what is said back is the one sentence with the one number in it.
+  ///
+  /// What to practise rides with it when the teacher filled it in (0150).
+  /// It is set after the send and on every ticked lesson that holds a copy,
+  /// not only the ones made just now: the second week of a piece is a new
+  /// brief for copies the students already have.
   Future<void> _sendToStudents(SongProject project) async {
     final rooms = _sendTo;
     if (rooms.isEmpty) return;
@@ -369,19 +376,21 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       songTitle: project.title,
       rooms: rooms,
       origin: origin,
+      // What a brief can point at: parts and bars only where the student's
+      // copy will have the recording to move against.
+      pointAt: whereToPoint(
+        sheet: songHasASheet(project, _analysisBundle),
+        origin: origin,
+        recording: _analysisBundle?.reference,
+      ),
     );
-    if (chosen == null || chosen.isEmpty || !mounted) return;
+    if (chosen == null || chosen.rooms.isEmpty || !mounted) return;
+    final List<String> sent;
     try {
-      final sent = await controller.repository.sendSongToStudents(
+      sent = await controller.repository.sendSongToStudents(
         projectId: project.id,
-        roomIds: chosen,
+        roomIds: chosen.rooms,
       );
-      // The copies live in other rooms of this person's, so the library is
-      // read again rather than spliced: a song this device has not seen
-      // before has nothing to splice into (refreshProject says the same).
-      await controller.load();
-      if (!mounted) return;
-      _showMessage(sentSaid(sent.length));
     } catch (error) {
       if (!mounted) return;
       _showMessage(reportAndDescribe(
@@ -391,7 +400,44 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         route: 'Song',
         projectId: project.id,
       ));
+      return;
     }
+    // The brief is a second request, so signal can go between the two. Kept
+    // apart from the send's failure on purpose: by here every ticked student
+    // has the song, and saying the send failed would be untrue and would
+    // leave the teacher not knowing the copies exist. What is said instead
+    // is the part that did not happen, and the library is read either way.
+    final brief = chosen.brief;
+    var briefed = false;
+    var briefLost = false;
+    if (brief != null) {
+      try {
+        briefed = (await controller.repository.briefStudents(
+          projectId: project.id,
+          roomIds: chosen.rooms,
+          brief: brief,
+        ))
+            .isNotEmpty;
+      } catch (error) {
+        // Filed under its own stage so triage can tell a lost brief from a
+        // lost send. The sentence it describes is not the one shown: the
+        // teacher is told what is actually true of their students.
+        reportAndDescribe(
+          error,
+          service: 'app',
+          stage: 'brief_students',
+          route: 'Song',
+          projectId: project.id,
+        );
+        briefLost = true;
+      }
+    }
+    // The copies live in other rooms of this person's, so the library is
+    // read again rather than spliced: a song this device has not seen
+    // before has nothing to splice into (refreshProject says the same).
+    await controller.load();
+    if (!mounted) return;
+    _showMessage(briefLost ? briefNotSentSaid : sentSaid(sent.length, briefed: briefed));
   }
 
   /// A part, a speed and a few words, left on the student's Home (0143).
@@ -1305,7 +1351,9 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     return 'Could not save: $error';
   }
 
-  Future<void> _openLivePerformance(SongProject project) async {
+  /// [practise] opens it on a passage at a speed, waiting for Start: the
+  /// brief on this song (0150), asked for from the line under the toolbar.
+  Future<void> _openLivePerformance(SongProject project, {PracticePart? practise}) async {
     // Live Performance is reachable straight from the project regardless
     // of whether the song has been analyzed yet — it falls back to manual
     // scroll speeds when there's no synced timing. The sheet comes from the
@@ -1330,6 +1378,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           analysisService: widget.analysisService,
           together: _together,
           me: me,
+          practise: practise,
           ownMarkId: ownPracticeMarkId(controller.practiceMarks, projectId: project.id, me: me),
           keepPractice: (mark) => unawaited(controller.keepPracticeMark(mark)),
         ),
@@ -1343,6 +1392,28 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   Future<void> _followFromSong(SongProject project) async {
     _together.follow();
     await _openLivePerformance(project);
+  }
+
+  /// What to practise on this song (0150), for the two people it is between:
+  /// one line that opens the whole of it. Null on nearly every song.
+  ///
+  /// The teacher sees on their copy what the student sees on theirs, and
+  /// nothing else: no line here says whether it was opened, because nothing
+  /// anywhere records it.
+  Widget? _briefOnTheSong(SongProject project) {
+    final controller = BetaScope.of(context);
+    final brief = controller.briefFor(project.id);
+    if (brief == null) return null;
+    final me = controller.meOrNobody;
+    return BriefOnTheSong(
+      brief: brief,
+      me: me,
+      onOpen: () async {
+        final practise = await showBriefReading(context, brief: brief, me: me);
+        if (!practise || !mounted) return;
+        await _openLivePerformance(project, practise: brief.part);
+      },
+    );
   }
 
   /// The banner saying somebody leads this song, when there is one to
@@ -2142,6 +2213,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 onRecord: () => _openAnalysis(project, autoRecord: true),
                 editor: middle,
                 followBanner: _followBanner(project),
+                brief: _briefOnTheSong(project),
                 audience: _audience,
                 onOpenAudience: () => unawaited(_openAudience(project)),
                 projectId: widget.projectId,
@@ -2193,6 +2265,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     audience: _audience,
                     onTap: () => unawaited(_openAudience(project)),
                   ),
+                  // What a teacher asked for on this song (0150). Out of the
+                  // way while somebody is mid-line, like the asks below it.
+                  if (!keyboardOpen)
+                    if (_briefOnTheSong(project) case final brief?) brief,
                   // Under the toolbar, above the words. High enough that
                   // somebody sees what the song is asking for without
                   // scrolling, and out of the way when it is asking nothing —
@@ -2553,6 +2629,7 @@ class _LandscapeWorkspace extends StatelessWidget {
     required this.onRecord,
     required this.editor,
     this.followBanner,
+    this.brief,
     required this.audience,
     required this.onOpenAudience,
     required this.projectId,
@@ -2583,6 +2660,10 @@ class _LandscapeWorkspace extends StatelessWidget {
 
   /// Somebody leading this song, when there is.
   final Widget? followBanner;
+
+  /// What a teacher asked for on this song (0150), under who can hear it in
+  /// either arrangement. Null on nearly every song.
+  final Widget? brief;
 
   /// The two things portrait shows and landscape did not.
   ///
@@ -2830,6 +2911,7 @@ class _LandscapeWorkspace extends StatelessWidget {
               return Column(
                 children: <Widget>[
                   AudienceDial(audience: audience, onTap: onOpenAudience),
+                  if (brief case final asked?) asked,
                   AskBar(projectId: projectId, repository: repository),
                   const Divider(height: 1),
                   Expanded(child: editor),
@@ -2868,6 +2950,7 @@ class _LandscapeWorkspace extends StatelessWidget {
                         audience: audience,
                         onTap: onOpenAudience,
                       ),
+                      if (brief case final asked?) asked,
                       AskBar(projectId: projectId, repository: repository),
                       const SizedBox(height: 10),
                     ],

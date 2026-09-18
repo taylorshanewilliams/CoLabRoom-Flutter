@@ -9646,4 +9646,492 @@ reset role;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- ---------------------------------------------------------------------
+-- What to practise, and where it is (0150).
+--
+-- A teacher sends a song into two lesson rooms (0149) and says what to
+-- practise on both copies in one call: a passage, a speed, a few things she
+-- is listening for, tidied, and when by, in words. Saying it again replaces
+-- what was said under a new id. Each student reads their own brief and not
+-- the other's; the teacher reads both; a third person who is a member of
+-- the lesson room and can see the song reads nothing, and neither does a
+-- stranger. Nobody but the teacher of the lesson a song lives in can set
+-- one: not the student, who edits that very room and that very song; not a
+-- guest in the room; not another teacher of the same student; and not the
+-- teacher herself on a song that is not in a lesson. One wrong song in a
+-- list briefs nobody. A lesson whose student has left is skipped. Nothing
+-- can be written to the table directly, by anybody. And nobody is told:
+-- the only notification about the copy is the one 0149 wrote when the song
+-- arrived.
+-- ---------------------------------------------------------------------
+
+reset role;
+
+-- Made fresh rather than borrowed, as 0143's and 0149's blocks are: a
+-- refusal that happened for one of the older accounts' older reasons would
+-- look exactly like the refusal this block is checking.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('a5050150-0000-0000-0000-000000000001', 'the.voice.teacher.0150@smoke.test',
+   '{"display_name": "Ms Rivera"}'),
+  ('a5050150-0000-0000-0000-000000000002', 'maya.0150@smoke.test',
+   '{"display_name": "Maya"}'),
+  ('a5050150-0000-0000-0000-000000000003', 'jess.0150@smoke.test',
+   '{"display_name": "Jess"}'),
+  ('a5050150-0000-0000-0000-000000000004', 'the.piano.teacher.0150@smoke.test',
+   '{"display_name": "Mr Okafor"}'),
+  ('a5050150-0000-0000-0000-000000000005', 'outside.the.studio.0150@smoke.test',
+   '{"display_name": "Outside The Studio"}'),
+  ('a5050150-0000-0000-0000-000000000006', 'the.accompanist.0150@smoke.test',
+   '{"display_name": "The Accompanist"}'),
+  ('a5050150-0000-0000-0000-000000000007', 'left.early.0150@smoke.test',
+   '{"display_name": "Left Early"}');
+
+insert into public.rooms (id, account_id, name) values
+  -- The teacher's own studio shelf, where the song to send lives.
+  ('a5050150-0000-0000-0000-000000000010',
+   'a5050150-0000-0000-0000-000000000001', 'Rivera studio 0150'),
+  -- Two lesson rooms of hers. Maya's has a third person in it.
+  ('a5050150-0000-0000-0000-000000000011',
+   'a5050150-0000-0000-0000-000000000001', 'Voice lessons 0150 · Maya'),
+  ('a5050150-0000-0000-0000-000000000012',
+   'a5050150-0000-0000-0000-000000000001', 'Voice lessons 0150 · Jess'),
+  -- Another teacher's lesson room, with the same student in it.
+  ('a5050150-0000-0000-0000-000000000014',
+   'a5050150-0000-0000-0000-000000000004', 'Piano lessons 0150 · Maya'),
+  -- A lesson of hers whose student left: the lesson_rooms row outlives the
+  -- membership (0129).
+  ('a5050150-0000-0000-0000-000000000015',
+   'a5050150-0000-0000-0000-000000000001', 'Voice lessons 0150 · Left Early');
+
+-- Distinct colours, as every other room in this file (0006).
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('a5050150-0000-0000-0000-000000000010', 'a5050150-0000-0000-0000-000000000001',
+   'Ms Rivera', 'owner', 4294937180),
+  ('a5050150-0000-0000-0000-000000000011', 'a5050150-0000-0000-0000-000000000001',
+   'Ms Rivera', 'owner', 4294937181),
+  ('a5050150-0000-0000-0000-000000000011', 'a5050150-0000-0000-0000-000000000002',
+   'Maya', 'editor', 4283215711),
+  ('a5050150-0000-0000-0000-000000000011', 'a5050150-0000-0000-0000-000000000006',
+   'The Accompanist', 'editor', 4283215716),
+  ('a5050150-0000-0000-0000-000000000012', 'a5050150-0000-0000-0000-000000000001',
+   'Ms Rivera', 'owner', 4294937182),
+  ('a5050150-0000-0000-0000-000000000012', 'a5050150-0000-0000-0000-000000000003',
+   'Jess', 'editor', 4283215712),
+  ('a5050150-0000-0000-0000-000000000014', 'a5050150-0000-0000-0000-000000000004',
+   'Mr Okafor', 'owner', 4294937184),
+  ('a5050150-0000-0000-0000-000000000014', 'a5050150-0000-0000-0000-000000000002',
+   'Maya', 'editor', 4283215714),
+  ('a5050150-0000-0000-0000-000000000015', 'a5050150-0000-0000-0000-000000000001',
+   'Ms Rivera', 'owner', 4294937185);
+
+-- The lessons, written directly as 0143's and 0149's blocks write them,
+-- because what is being checked is 0150's guard and not 0129's flow.
+insert into public.lesson_links (id, teacher_id, code, title, closed_at) values
+  ('a5050150-0000-0000-0000-000000000020', 'a5050150-0000-0000-0000-000000000001',
+   '0150aaaabbbb', 'Voice lessons', null),
+  ('a5050150-0000-0000-0000-000000000021', 'a5050150-0000-0000-0000-000000000004',
+   '0150ccccdddd', 'Piano lessons', null);
+insert into public.lesson_rooms (link_id, student_id, room_id) values
+  ('a5050150-0000-0000-0000-000000000020', 'a5050150-0000-0000-0000-000000000002',
+   'a5050150-0000-0000-0000-000000000011'),
+  ('a5050150-0000-0000-0000-000000000020', 'a5050150-0000-0000-0000-000000000003',
+   'a5050150-0000-0000-0000-000000000012'),
+  ('a5050150-0000-0000-0000-000000000021', 'a5050150-0000-0000-0000-000000000002',
+   'a5050150-0000-0000-0000-000000000014'),
+  ('a5050150-0000-0000-0000-000000000020', 'a5050150-0000-0000-0000-000000000007',
+   'a5050150-0000-0000-0000-000000000015');
+
+-- Her studio song; a song in the other teacher's lesson with Maya; and a
+-- song in the lesson whose student has left.
+insert into public.projects (id, room_id, account_id, title, created_by, song_origin) values
+  ('a5050150-0000-0000-0000-000000000030', 'a5050150-0000-0000-0000-000000000010',
+   'a5050150-0000-0000-0000-000000000001', 'Caro mio ben',
+   'a5050150-0000-0000-0000-000000000001', 'ours'),
+  ('a5050150-0000-0000-0000-000000000033', 'a5050150-0000-0000-0000-000000000014',
+   'a5050150-0000-0000-0000-000000000004', 'The Piano Piece',
+   'a5050150-0000-0000-0000-000000000004', 'ours'),
+  ('a5050150-0000-0000-0000-000000000035', 'a5050150-0000-0000-0000-000000000015',
+   'a5050150-0000-0000-0000-000000000001', 'Left Behind',
+   'a5050150-0000-0000-0000-000000000001', 'ours');
+
+set local request.jwt.claims = '{"sub": "a5050150-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  sent record;
+  maya_copy uuid;
+  jess_copy uuid;
+  took integer;
+  brief public.song_briefs%rowtype;
+  first_id uuid;
+  jess_brief_id uuid;
+begin
+  -- The song arriving, as 0149 does it. No recording on this one: a brief
+  -- is about where the song plays, and the guard does not care whether it
+  -- does.
+  for sent in
+    select * from public.send_song_to_students(
+      'a5050150-0000-0000-0000-000000000030',
+      array['a5050150-0000-0000-0000-000000000011',
+            'a5050150-0000-0000-0000-000000000012']::uuid[])
+  loop
+    if sent.to_room = 'a5050150-0000-0000-0000-000000000011' then
+      maya_copy := sent.song_copy;
+    elsif sent.to_room = 'a5050150-0000-0000-0000-000000000012' then
+      jess_copy := sent.song_copy;
+    end if;
+  end loop;
+  if maya_copy is null or jess_copy is null then
+    raise exception 'the song did not reach both lessons, so there is nothing to brief';
+  end if;
+  perform set_config('smoke.brief_maya_copy', maya_copy::text, true);
+  perform set_config('smoke.brief_jess_copy', jess_copy::text, true);
+
+  -- Both copies, in one call. The phrases go in untidy and with one too
+  -- many; when by goes in with stray white space.
+  select count(*) into took
+  from public.set_song_briefs(
+    array[maya_copy, jess_copy],
+    'Bars 1–16', 0.75, 0, 32000,
+    array['  the breath   before credimi ', '', 'legato through the turn',
+          'vowels', 'the last consonant', 'the ending', 'one too many'],
+    '  before   Thursday ');
+  if took <> 2 then
+    raise exception 'briefing two copies did not come back with two songs (%)', took;
+  end if;
+
+  select * into brief from public.song_briefs b where b.project_id = maya_copy;
+  if brief.id is null then
+    raise exception 'the teacher cannot read the brief she just set';
+  end if;
+  if brief.teacher_id is distinct from 'a5050150-0000-0000-0000-000000000001'::uuid
+     or brief.student_id is distinct from 'a5050150-0000-0000-0000-000000000002'::uuid then
+    raise exception 'the brief does not name the two people it is between';
+  end if;
+  if brief.teacher_name is distinct from 'Ms Rivera' then
+    raise exception 'the brief does not say who it is from (got %)', brief.teacher_name;
+  end if;
+  if brief.passage is distinct from 'Bars 1–16'
+     or brief.start_ms is distinct from 0
+     or brief.end_ms is distinct from 32000
+     or brief.rate is distinct from 0.75 then
+    raise exception 'the passage or the speed did not arrive as said';
+  end if;
+  if brief.listening_for is distinct from
+     array['the breath before credimi', 'legato through the turn', 'vowels',
+           'the last consonant', 'the ending'] then
+    raise exception 'what she is listening for was not tidied to five phrases (got %)',
+      brief.listening_for;
+  end if;
+  if brief.due_words is distinct from 'before Thursday' then
+    raise exception 'when by did not arrive as words (got %)', brief.due_words;
+  end if;
+  first_id := brief.id;
+  if (select b.student_id from public.song_briefs b where b.project_id = jess_copy)
+     is distinct from 'a5050150-0000-0000-0000-000000000003'::uuid then
+    raise exception 'the second copy''s brief is not for its own student';
+  end if;
+  if (select count(*) from public.song_briefs) <> 2 then
+    raise exception 'the teacher does not read exactly the two briefs she set';
+  end if;
+
+  -- The second week of the same piece: said again, it replaces what was
+  -- said, under a new id, on the same song. One end alone is no passage,
+  -- so this one is the whole song; nothing to listen for and nothing about
+  -- when are both allowed.
+  select count(*) into took
+  from public.set_song_briefs(array[maya_copy], 'The whole song', 1, 5000, null, null, '   ');
+  if took <> 1 then
+    raise exception 'saying it again did not take';
+  end if;
+  if (select count(*) from public.song_briefs b where b.project_id = maya_copy) <> 1 then
+    raise exception 'saying it again left two briefs on one song';
+  end if;
+  select * into brief from public.song_briefs b where b.project_id = maya_copy;
+  if brief.id is not distinct from first_id then
+    raise exception 'a new brief kept the old one''s id, so a closed card would stay closed';
+  end if;
+  if brief.passage is distinct from 'The whole song'
+     or brief.start_ms is not null or brief.end_ms is not null
+     or brief.rate is distinct from 1
+     or brief.listening_for is distinct from '{}'::text[]
+     or brief.due_words is not null then
+    raise exception 'saying it again did not replace all of what was said before';
+  end if;
+
+  -- A lesson whose student has left is skipped, not refused, and takes
+  -- nothing.
+  select count(*) into took
+  from public.set_song_briefs(
+    array['a5050150-0000-0000-0000-000000000035']::uuid[], 'The whole song', 1);
+  if took <> 0 then
+    raise exception 'a brief was set for a student who is not there';
+  end if;
+  if exists (select 1 from public.song_briefs b
+             where b.project_id = 'a5050150-0000-0000-0000-000000000035') then
+    raise exception 'a brief was left in an empty lesson';
+  end if;
+
+  -- Refused: her own studio song, which is in no lesson; a song in another
+  -- teacher's lesson; a song that is nothing; nobody at all; no passage; no
+  -- speed, or one that is not a speed.
+  begin
+    perform public.set_song_briefs(
+      array['a5050150-0000-0000-0000-000000000030']::uuid[], 'The whole song', 1);
+    raise exception 'a brief was set on a song that is not in a lesson';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.set_song_briefs(
+      array['a5050150-0000-0000-0000-000000000033']::uuid[], 'The whole song', 1);
+    raise exception 'a teacher set a brief in another teacher''s lesson';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.set_song_briefs(array[null::uuid], 'The whole song', 1);
+    raise exception 'a brief was set on a song that is nothing';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.set_song_briefs(null::uuid[], 'The whole song', 1);
+    raise exception 'a brief was set for nobody';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.set_song_briefs(array[]::uuid[], 'The whole song', 1);
+    raise exception 'a brief was set for an empty list';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.set_song_briefs(array[jess_copy], '   ', 1);
+    raise exception 'a brief with no passage was set';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.set_song_briefs(array[jess_copy], 'The whole song', null);
+    raise exception 'a brief with no speed was set';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.set_song_briefs(array[jess_copy], 'The whole song', 3);
+    raise exception 'a brief at three times the speed was set';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- One wrong song in a list briefs nobody: Jess's brief is as it was.
+  select b.id into jess_brief_id from public.song_briefs b where b.project_id = jess_copy;
+  begin
+    perform public.set_song_briefs(
+      array[jess_copy, 'a5050150-0000-0000-0000-000000000030']::uuid[],
+      'Bars 17–32', 0.9, 32000, 64000);
+    raise exception 'a list with a wrong song in it briefed the right one';
+  exception when insufficient_privilege then null;
+  end;
+  if (select b.id from public.song_briefs b where b.project_id = jess_copy)
+       is distinct from jess_brief_id
+     or (select b.passage from public.song_briefs b where b.project_id = jess_copy)
+       is distinct from 'Bars 1–16' then
+    raise exception 'a refused list left half of itself behind';
+  end if;
+
+  -- And not by going round the function: the table takes no writes from a
+  -- phone, the teacher's included.
+  begin
+    insert into public.song_briefs
+      (project_id, teacher_id, student_id, teacher_name, passage)
+    values
+      ('a5050150-0000-0000-0000-000000000035', 'a5050150-0000-0000-0000-000000000001',
+       'a5050150-0000-0000-0000-000000000007', 'Ms Rivera', 'The whole song');
+    raise exception 'a brief was inserted directly';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- The other teacher briefs his own lesson with the same student, reads
+-- only that, and can do nothing to hers.
+reset role;
+set local request.jwt.claims = '{"sub": "a5050150-0000-0000-0000-000000000004"}';
+set local role authenticated;
+
+do $$
+declare
+  took integer;
+begin
+  select count(*) into took
+  from public.set_song_briefs(
+    array['a5050150-0000-0000-0000-000000000033']::uuid[], 'The whole song', 0.5,
+    null, null, array['even quavers'], 'by the weekend');
+  if took <> 1 then
+    raise exception 'a teacher could not brief a song in their own lesson';
+  end if;
+  if (select count(*) from public.song_briefs) <> 1 then
+    raise exception 'a teacher reads briefs that are not theirs';
+  end if;
+  begin
+    perform public.set_song_briefs(
+      array[current_setting('smoke.brief_maya_copy')::uuid], 'The whole song', 1);
+    raise exception 'another teacher of the same student set a brief on her copy';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Maya reads what each of her teachers asked of her and nothing of Jess's,
+-- and can set nothing: she edits the room and the song, and is still not
+-- the teacher of the lesson.
+reset role;
+set local request.jwt.claims = '{"sub": "a5050150-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+declare
+  mine uuid := current_setting('smoke.brief_maya_copy')::uuid;
+  theirs uuid := current_setting('smoke.brief_jess_copy')::uuid;
+  before_id uuid;
+begin
+  if (select count(*) from public.song_briefs) <> 2 then
+    raise exception 'the student does not read exactly the briefs asked of her (%)',
+      (select count(*) from public.song_briefs);
+  end if;
+  if (select b.teacher_name from public.song_briefs b where b.project_id = mine)
+     is distinct from 'Ms Rivera' then
+    raise exception 'the student cannot read the brief on the song sent to her';
+  end if;
+  if (select b.due_words from public.song_briefs b
+      where b.project_id = 'a5050150-0000-0000-0000-000000000033')
+     is distinct from 'by the weekend' then
+    raise exception 'the student cannot read her other teacher''s brief';
+  end if;
+  if exists (select 1 from public.song_briefs b where b.project_id = theirs) then
+    raise exception 'a student can read another student''s brief';
+  end if;
+
+  -- She can write on the song. That is the whole reason the brief is not
+  -- a column on it.
+  update public.projects set description = 'mine to work on' where id = mine;
+  if (select p.description from public.projects p where p.id = mine)
+     is distinct from 'mine to work on' then
+    raise exception 'the student cannot write on her own copy';
+  end if;
+
+  select b.id into before_id from public.song_briefs b where b.project_id = mine;
+  begin
+    perform public.set_song_briefs(array[mine], 'The whole song', 1, null, null, null, 'whenever');
+    raise exception 'a student set a brief on her own copy';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.set_song_briefs(
+      array['a5050150-0000-0000-0000-000000000033']::uuid[], 'The whole song', 1);
+    raise exception 'a student set a brief in her other lesson';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.song_briefs set due_words = 'whenever' where project_id = mine;
+    raise exception 'a student rewrote her brief directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    delete from public.song_briefs where project_id = mine;
+    raise exception 'a student deleted her brief directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.song_briefs
+      (project_id, teacher_id, student_id, teacher_name, passage)
+    values
+      (theirs, 'a5050150-0000-0000-0000-000000000002',
+       'a5050150-0000-0000-0000-000000000003', 'Maya', 'The whole song');
+    raise exception 'a student inserted a brief directly';
+  exception when insufficient_privilege then null;
+  end;
+  if (select b.id from public.song_briefs b where b.project_id = mine)
+       is distinct from before_id
+     or (select b.due_words from public.song_briefs b where b.project_id = mine) is not null then
+    raise exception 'a refused student still changed her brief';
+  end if;
+end $$;
+
+-- Jess, likewise, reads only hers.
+reset role;
+set local request.jwt.claims = '{"sub": "a5050150-0000-0000-0000-000000000003"}';
+set local role authenticated;
+
+do $$
+begin
+  if (select count(*) from public.song_briefs) <> 1
+     or not exists (select 1 from public.song_briefs b
+                    where b.project_id = current_setting('smoke.brief_jess_copy')::uuid) then
+    raise exception 'the second student does not read exactly her own brief';
+  end if;
+end $$;
+
+-- The third person in Maya's lesson room: a member, an editor, able to see
+-- the song, and neither of the two people the brief is between.
+reset role;
+set local request.jwt.claims = '{"sub": "a5050150-0000-0000-0000-000000000006"}';
+set local role authenticated;
+
+do $$
+begin
+  if not exists (select 1 from public.projects p
+                 where p.id = current_setting('smoke.brief_maya_copy')::uuid) then
+    raise exception 'the guest in the lesson room cannot see the song, so this proves nothing';
+  end if;
+  if exists (select 1 from public.song_briefs) then
+    raise exception 'a guest in the lesson room can read the brief';
+  end if;
+  begin
+    perform public.set_song_briefs(
+      array[current_setting('smoke.brief_maya_copy')::uuid], 'The whole song', 1);
+    raise exception 'a guest in the lesson room set a brief';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Somebody with a valid token and nothing to do with any of it.
+reset role;
+set local request.jwt.claims = '{"sub": "a5050150-0000-0000-0000-000000000005"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.song_briefs) then
+    raise exception 'a stranger can read somebody''s brief';
+  end if;
+  begin
+    perform public.set_song_briefs(
+      array[current_setting('smoke.brief_maya_copy')::uuid], 'The whole song', 1);
+    raise exception 'a stranger set a brief';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Nobody was told. Read without a role, as 0149's block reads them:
+-- notifications are read-own. The one thing Maya has heard about her copy
+-- is that it arrived, however many times what to practise was said.
+reset role;
+
+do $$
+begin
+  if exists (
+    select 1 from public.notifications n
+    where n.project_id in (current_setting('smoke.brief_maya_copy')::uuid,
+                           current_setting('smoke.brief_jess_copy')::uuid,
+                           'a5050150-0000-0000-0000-000000000033'::uuid)
+      and n.title not like '% sent you a song'
+  ) then
+    raise exception 'somebody was told about a brief';
+  end if;
+  if (select count(*) from public.notifications n
+      where n.user_id = 'a5050150-0000-0000-0000-000000000002'
+        and n.project_id = current_setting('smoke.brief_maya_copy')::uuid) > 1 then
+    raise exception 'the student was told more than that the song arrived';
+  end if;
+end $$;
+
+reset role;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
 commit;
