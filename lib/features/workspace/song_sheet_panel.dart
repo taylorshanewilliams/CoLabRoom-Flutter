@@ -6,11 +6,14 @@ import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/chord_chart_view.dart';
 import 'package:colabroom/features/workspace/chord_editor_sheet.dart';
+import 'package:colabroom/features/workspace/chord_sheet_export.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/musician_song_sheet.dart';
 import 'package:colabroom/features/workspace/song_transpose_store.dart';
 import 'package:colabroom/services/chord_chart.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
+import 'package:colabroom/services/user_facing_error.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -66,6 +69,18 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   /// switches to the chart.
   List<ChartRow>? _chartRows;
 
+  /// The sheet's lines, worked out once per bundle for the same reason.
+  ///
+  /// Two things read these now — the sheet and the two exports — and both
+  /// wanted them in [build], where a plain call re-walked the transcript and
+  /// re-scanned every chord cue against every line on every frame, including
+  /// the frames that draw the chart and never look at them.
+  ///
+  /// Safe to key on the bundle alone: with `ignoreWorkspaceLyrics` these come
+  /// entirely from the recording, so the project the panel is holding does
+  /// not enter into them.
+  List<MusicianSheetLine>? _lines;
+
   List<ChartRow> get _chart => _chartRows ??= buildChartRows(
         buildChartBars(
           cues: _bundle.chordCues,
@@ -89,6 +104,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     if (!identical(oldWidget.bundle, widget.bundle)) {
       _bundle = widget.bundle;
       _chartRows = null;
+      _lines = null;
     }
     if (oldWidget.project.id != widget.project.id) {
       _transpose = 0;
@@ -155,10 +171,66 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
 
   /// The sheet's chords in reading order, from the bundle as it stands.
   List<({MusicianSheetLine line, ChordCue chord, int wordIndex})>
-      _chordsInOrder() => chordsInReadingOrder(
-            buildMusicianSheetLines(widget.project, _bundle,
-                ignoreWorkspaceLyrics: true),
-          );
+      _chordsInOrder() => chordsInReadingOrder(_sheetLines());
+
+  List<MusicianSheetLine> _sheetLines() => _lines ??= buildMusicianSheetLines(
+        widget.project,
+        _bundle,
+        ignoreWorkspaceLyrics: true,
+      );
+
+  /// What both exports are handed: the page as it is being read, with the
+  /// recording's section names folded in so the chart carries the shape of
+  /// the song and not just its lines.
+  List<MusicianSheetLine> _linesToExport() => ChordSheetExport.withSectionNames(
+        _sheetLines(),
+        _bundle.reference?.structureSections ?? const <StructureSection>[],
+      );
+
+  Future<void> _printChart() async {
+    try {
+      await ChordSheetExport.printChart(
+        project: widget.project,
+        lines: _linesToExport(),
+        transpose: _shownTranspose,
+        musicalKey: _bundle.reference?.musicalKey,
+        bpm: _bundle.reference?.bpm,
+      );
+    } catch (error) {
+      _saySomethingWentWrong(error);
+    }
+  }
+
+  Future<void> _sendChordPro() async {
+    try {
+      await ChordSheetExport.shareChordPro(
+        project: widget.project,
+        lines: _linesToExport(),
+        transpose: _shownTranspose,
+        musicalKey: _bundle.reference?.musicalKey,
+        bpm: _bundle.reference?.bpm,
+      );
+    } catch (error) {
+      _saySomethingWentWrong(error);
+    }
+  }
+
+  void _saySomethingWentWrong(Object error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(reportAndDescribe(
+            error,
+            service: 'app',
+            stage: 'chart_export',
+            route: 'Song sheet',
+            projectId: widget.project.id,
+          )),
+        ),
+      );
+  }
 
   void _moveSelection(int delta) {
     final all = _chordsInOrder();
@@ -221,6 +293,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       setState(() {
         _bundle = updated;
         _chartRows = null;
+        _lines = null;
       });
       widget.onAnalysisChanged?.call(updated);
       // The cue keeps its id through a save, so the selection can follow it
@@ -368,8 +441,9 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       setState(() {
         _bundle = updated;
         // A corrected chord changes the bars too — the cached grid has to go
-        // with the cues it was built from.
+        // with the cues it was built from, and so do the sheet's lines.
         _chartRows = null;
+        _lines = null;
       });
       widget.onAnalysisChanged?.call(updated);
     } catch (error) {
@@ -387,6 +461,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   @override
   Widget build(BuildContext context) {
     final transpose = _shownTranspose;
+    final sheetLines = _sheetLines();
     final transposeLabel = transpose == 0
         ? 'Original key'
         : transpose > 0
@@ -606,7 +681,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             onKeyEvent: _onKey,
             child: MusicianSongSheet(
             title: widget.project.title,
-            lines: buildMusicianSheetLines(widget.project, _bundle, ignoreWorkspaceLyrics: true),
+            lines: sheetLines,
             musicalKey: _bundle.reference?.musicalKey,
             transpose: transpose,
             fontScale: _fontScale,
@@ -622,6 +697,64 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             },
           ),
           ),
+        // Taking the page with you. On its own row and spelled out, rather
+        // than behind an icon in the toolbar above: a fill-in player being
+        // handed a chart is one of the few moments this app has where
+        // somebody who does not use it gets something out of it, and it is
+        // not a thing anybody thinks to go looking for a menu for.
+        if (sheetLines.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 14),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const Key('print_chord_chart'),
+                  onPressed: () => unawaited(_printChart()),
+                  icon: const Icon(Icons.print_rounded, size: 17),
+                  // Not "Print chart". The segments above this call the bar
+                  // grid the Chart, so a button under it saying chart would
+                  // print the page somebody is not looking at and use the
+                  // same word for two different pages. This one says what
+                  // comes out of the printer.
+                  label: const Text(
+                    'Print chords and words',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              ),
+              // A browser has no share sheet for a file — see
+              // ChordSheetExport.shareChordPro. Off here with a sentence
+              // rather than a button that throws and files a fault.
+              if (!kIsWeb) ...<Widget>[
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('send_as_chordpro'),
+                    onPressed: () => unawaited(_sendChordPro()),
+                    icon: const Icon(Icons.ios_share_rounded, size: 17),
+                    label: const Text(
+                      'Send as ChordPro',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (kIsWeb) ...<Widget>[
+            const SizedBox(height: 7),
+            const Text(
+              key: Key('chordpro_web_note'),
+              'Sending the song as a ChordPro file needs the app. You can '
+              'still print from here.',
+              style: TextStyle(
+                color: AppColors.muted,
+                fontSize: 10.5,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ],
         const SizedBox(height: 14),
         Row(
           children: <Widget>[

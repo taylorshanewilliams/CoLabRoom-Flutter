@@ -3,6 +3,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../services/invite_link.dart';
+import '../../services/project_export_service.dart';
 
 /// A lesson link on paper, for the wall of a studio or a music shop.
 ///
@@ -165,11 +166,16 @@ abstract final class LessonPoster {
   /// people and can carry an emoji or a script the standard PDF fonts do not
   /// have; a poster missing one character is fine, a poster that will not
   /// print at all is not.
+  ///
+  /// The rule itself lives with the other printing, because this was the
+  /// second copy of it and the two disagreed: this one dropped the character,
+  /// the song print substituted a question mark, and a teacher's own name
+  /// came out two ways on two pages of the same app. The shared one also
+  /// folds a curly apostrophe to a straight one rather than deleting it,
+  /// which this quietly did to every name typed on a phone keyboard.
   static String printable(String text) =>
-      String.fromCharCodes(text.runes.where((rune) => rune >= 0x20 && rune <= 0xFF));
+      ProjectExportService.printable(text);
 
-  static String _fileName(String title) {
-    final cleaned = title.replaceAll(RegExp(r'[^A-Za-z0-9 _-]'), '').trim();
-    return cleaned.isEmpty ? 'lessons' : cleaned.replaceAll(' ', '-');
-  }
+  static String _fileName(String title) =>
+      ProjectExportService.fileName(title, fallback: 'lessons');
 }
