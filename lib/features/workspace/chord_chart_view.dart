@@ -6,8 +6,10 @@ import '../../services/set_aside.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../services/chord_chart.dart';
+import '../../services/number_reading.dart';
 import 'music_reference_sheets.dart';
-import 'musician_sheet_logic.dart' show chordAsPlayed, keyAsPlayed;
+import 'musician_sheet_logic.dart'
+    show chordAsPlayed, chordAsRead, keyAsPlayed;
 
 /// The song as bars.
 ///
@@ -21,7 +23,12 @@ import 'musician_sheet_logic.dart' show chordAsPlayed, keyAsPlayed;
 /// chords into one cue, so a chord held for four bars is one cue that starts
 /// in the first of them.
 /// What the sheet needs to know about the song a chord came from.
-typedef _SongContext = ({String? musicalKey, List<String> used, Set<String> roles});
+typedef _SongContext = ({
+  String? musicalKey,
+  List<String> used,
+  Set<String> roles,
+  NumberReading numbers,
+});
 
 /// The one line that says the chords are worth tapping.
 ///
@@ -45,6 +52,7 @@ class ChordChartView extends StatelessWidget {
     required this.rows,
     required this.transpose,
     required this.fontScale,
+    this.numbers = NumberReading.letters,
     this.musicalKey,
     this.roles = const <String>{},
     super.key,
@@ -53,6 +61,11 @@ class ChordChartView extends StatelessWidget {
   final List<ChartRow> rows;
   final int transpose;
   final double fontScale;
+
+  /// Whether the bars are filled with letters, Nashville numbers or Roman
+  /// numerals. Numbers are counted from [musicalKey] and do not move with
+  /// [transpose] -- see [chordAsRead].
+  final NumberReading numbers;
 
   /// The song's key, so a tapped chord can say where it sits rather than only
   /// what it is. Null when detection did not find one, which is a real
@@ -72,6 +85,7 @@ class ChordChartView extends StatelessWidget {
         musicalKey: musicalKey,
         used: _used,
         roles: roles,
+        numbers: numbers,
       );
 
   /// Every chord on this chart, so the sheet can say which of the key's
@@ -272,12 +286,24 @@ class _BarCell extends StatelessWidget {
     // One slot per beat, so a chord on beat 3 sits halfway across a 4/4 bar
     // without any arithmetic about pixel positions. It also stays right when
     // the bar isn't in four, which happens more than people expect.
-    final byBeat = <int, String>{};
+    // Both spellings of each chord: what is printed in the bar, and the
+    // letters behind it. A number has no shape and no notes in it, so the
+    // reference sheet a tap opens is always about the chord the number
+    // stands for.
+    final byBeat = <int, (String, String)>{};
     for (final chord in bar.chords) {
-      byBeat[chord.beat] = chordAsPlayed(
-        chord.chord,
-        transpose: transpose,
-        key: song.musicalKey,
+      byBeat[chord.beat] = (
+        chordAsRead(
+          chord.chord,
+          transpose: transpose,
+          key: song.musicalKey,
+          numbers: song.numbers,
+        ),
+        chordAsPlayed(
+          chord.chord,
+          transpose: transpose,
+          key: song.musicalKey,
+        ),
       );
     }
     return Container(
@@ -296,7 +322,8 @@ class _BarCell extends StatelessWidget {
           for (var beat = 1; beat <= bar.beatsInBar; beat += 1)
             Expanded(
               child: _BeatSlot(
-                  chord: byBeat[beat] ?? '',
+                  shown: byBeat[beat]?.$1 ?? '',
+                  chord: byBeat[beat]?.$2 ?? '',
                   transpose: transpose,
                   fontScale: fontScale,
                   song: song),
@@ -315,13 +342,18 @@ class _BarCell extends StatelessWidget {
 /// different tab, in a different key.
 class _BeatSlot extends StatelessWidget {
   const _BeatSlot({
+    required this.shown,
     required this.chord,
     required this.transpose,
     required this.fontScale,
     required this.song,
   });
 
-  /// Already transposed and spelled -- what is printed in the bar.
+  /// What is printed in the bar: a chord name, or the number it is of the
+  /// song's key.
+  final String shown;
+
+  /// The same chord in letters, which is what the reference sheet is about.
   final String chord;
   final int transpose;
   final double fontScale;
@@ -330,7 +362,7 @@ class _BeatSlot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Text(
-      chord,
+      shown,
       maxLines: 1,
       overflow: TextOverflow.visible,
       softWrap: false,
@@ -341,12 +373,12 @@ class _BeatSlot extends StatelessWidget {
         height: 1.1,
         // The same dotted underline the sheet uses, for the same reason:
         // without it a chord on a chart is ink, and nobody taps ink.
-        decoration: chord.isEmpty ? null : TextDecoration.underline,
+        decoration: shown.isEmpty ? null : TextDecoration.underline,
         decorationStyle: TextDecorationStyle.dotted,
         decorationColor: AppColors.cyan.withValues(alpha: 0.55),
       ),
     );
-    if (chord.isEmpty) return text;
+    if (shown.isEmpty) return text;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       // Asked in the key the chart is being read in. The chord in the bar is

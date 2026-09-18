@@ -197,6 +197,7 @@ class SongProject {
     this.analysisState,
     this.createdBy,
     this.songOrigin,
+    this.keyOverride,
   });
 
   final String id;
@@ -249,6 +250,33 @@ class SongProject {
   /// — and a cover's text exports carry the structure without the words.
   final SongOrigin? songOrigin;
 
+  /// The key the band says this song is in, or null because the detected one
+  /// is right — or because nobody has looked.
+  ///
+  /// A shared fact and not a reading. Key detection knows major and minor
+  /// only, so a Mixolydian song or one that opens on its IV gets named by the
+  /// wrong chord, and everything drawn from the key is then wrong with it:
+  /// the scale, the capo chart, the spelling of every chord, and the numbers
+  /// most of all (Every Musician, Same Song, 17 September 2026). A person's
+  /// transpose and capo are theirs; where the 1 is belongs to the song.
+  ///
+  /// Read through [songKey], never on its own, so nothing can accidentally
+  /// draw half a sheet from the detected key and half from this.
+  final String? keyOverride;
+
+  /// The key this song is in: what the band said, or what the analysis found.
+  ///
+  /// [detected] is the analysis's answer — `SongReference.musicalKey` — which
+  /// the override stands in front of everywhere a key is read. Null when
+  /// neither exists, which is a real outcome on plenty of recordings and
+  /// simply means fewer answers.
+  String? songKey(String? detected) {
+    final said = keyOverride?.trim();
+    if (said != null && said.isNotEmpty) return said;
+    final found = detected?.trim();
+    return found == null || found.isEmpty ? null : found;
+  }
+
   SongProject copyWith({
     String? roomId,
     String? title,
@@ -262,6 +290,7 @@ class SongProject {
     SongAnalysisState? analysisState,
     String? createdBy,
     SongOrigin? songOrigin,
+    Object? keyOverride = _unset,
   }) {
     return SongProject(
       id: id,
@@ -280,6 +309,11 @@ class SongProject {
       createdBy: createdBy ?? this.createdBy,
       // No clearing sentinel: an answer can be changed but never unasked.
       songOrigin: songOrigin ?? this.songOrigin,
+      // This one does clear. "Use the detected key" is a real answer, and it
+      // has to be able to put the song back the way the analysis left it.
+      keyOverride: identical(keyOverride, _unset)
+          ? this.keyOverride
+          : keyOverride as String?,
     );
   }
 }
