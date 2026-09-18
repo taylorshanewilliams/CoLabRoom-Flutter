@@ -386,6 +386,24 @@ class _TrackPage extends StatelessWidget {
               ),
             ),
           ],
+          // What somebody answering would be joining, in the asker's words:
+          // "Sa = C#, Rupak, Hindi". Under what the song wants, because it
+          // is the next thing a person deciding needs to know (Every
+          // Musician, Same Song, 17 September 2026).
+          if (track.askSungIn.trim().isNotEmpty) ...<Widget>[
+            const SizedBox(height: 10),
+            Text(
+              track.askSungIn.trim(),
+              key: const Key('feed_sung_in'),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.cyan,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
           if (track.askNote.trim().isNotEmpty) ...<Widget>[
             const SizedBox(height: 12),
             Text(

@@ -408,13 +408,15 @@ abstract interface class MusicRepository {
   /// and only they can do that.
   ///
   /// [terms] says what answering means, and is settled here: the database
-  /// refuses to change it once the ask has gone.
+  /// refuses to change it once the ask has gone. [sungIn] is what they would
+  /// be joining, in your words: "Sa = C#, Rupak, Hindi".
   Future<void> askMusician({
     required String projectId,
     required String profileId,
     String? part,
     String note,
     AskTerms terms,
+    String sungIn,
   });
 
   /// Open asks aimed at you by name.
@@ -504,12 +506,15 @@ abstract interface class MusicRepository {
   /// Turning yourself on or off in Open Mic, and what strangers may know.
   ///
   /// A null [city] leaves the existing one alone; an empty one removes it.
+  /// [singsIn] is the languages and traditions somebody declares, kept like
+  /// [soundsLike]: five at most, one spelling for one word.
   Future<void> setOpenMicPresence({
     required bool discoverable,
     String? city,
     String? locationVisibility,
     List<String>? plays,
     List<String>? soundsLike,
+    List<String>? singsIn,
   });
 
   /// People who play [part], optionally in [city].
@@ -600,12 +605,15 @@ abstract interface class MusicRepository {
   /// bandmate saying "this wants drums" is a normal thing to happen in a band.
   ///
   /// [terms] says what answering means, and is settled here: the database
-  /// refuses to change it once the ask has gone up.
+  /// refuses to change it once the ask has gone up. [sungIn] is what somebody
+  /// answering would be joining, in the asker's words: "Sa = C#, Rupak,
+  /// Hindi" (Every Musician, Same Song, 17 September 2026).
   Future<SongAsk> askFor({
     required String projectId,
     String? part,
     String note = '',
     AskTerms terms = AskTerms.play,
+    String sungIn = '',
   });
 
   /// Stop asking, because somebody answered or because it stopped mattering.

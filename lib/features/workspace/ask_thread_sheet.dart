@@ -30,6 +30,7 @@ Future<void> showAskThread(
   required String headline,
   required String askedBy,
   String note = '',
+  String sungIn = '',
   bool opinionsOpened = false,
 }) {
   return showThreadSheet(
@@ -40,6 +41,7 @@ Future<void> showAskThread(
       headline: headline,
       askedBy: askedBy,
       note: note,
+      sungIn: sungIn,
       opinionsOpened: opinionsOpened,
     ),
   );
@@ -52,6 +54,7 @@ class AskThreadSheet extends StatefulWidget {
     required this.headline,
     required this.askedBy,
     this.note = '',
+    this.sungIn = '',
     this.opinionsOpened = false,
     super.key,
   });
@@ -67,6 +70,13 @@ class AskThreadSheet extends StatefulWidget {
 
   /// What the asker said about it, if anything.
   final String note;
+
+  /// What somebody answering would be joining, in the asker's words: "Sa =
+  /// C#, Rupak, Hindi". Drawn under the headline, because this sheet is
+  /// where a bandmate reads the ask before answering it, and for a song
+  /// that is not on the Open Mic it is the only place the line is read at
+  /// all (Every Musician, Same Song, 17 September 2026). Usually empty.
+  final String sungIn;
 
   /// Whether the asker has already said they are ready to read opinions.
   /// Only matters when the asker is you.
@@ -139,6 +149,7 @@ class _AskThreadSheetState extends State<AskThreadSheet> {
       keyPrefix: 'ask_thread',
       stage: 'ask_thread',
       headline: widget.headline,
+      detail: widget.sungIn,
       note: widget.note,
       currentUserId: repository.currentUserId,
       changes: _reads,

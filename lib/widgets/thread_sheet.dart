@@ -89,6 +89,7 @@ class ThreadSheet extends StatefulWidget {
     required this.send,
     required this.takeBack,
     this.note = '',
+    this.detail = '',
     this.emptyLine = 'Nothing said yet.',
     this.keyPrefix = 'thread',
     this.stage = 'thread',
@@ -105,6 +106,13 @@ class ThreadSheet extends StatefulWidget {
 
   /// A second line under it, in the words the other side already used.
   final String note;
+
+  /// A fact about what the conversation is about, between the two: an ask
+  /// puts what the song is in here ("Sa = C#, Rupak, Hindi"), so whoever is
+  /// about to answer reads it where they answer. Plain, not quoted, because
+  /// it is a fact about the song and not something said in passing. Empty
+  /// for nothing, which is every other thread.
+  final String detail;
 
   /// Whose lines are "You" and can be taken back.
   final String currentUserId;
@@ -292,6 +300,18 @@ class _ThreadSheetState extends State<ThreadSheet> {
                       height: 1.3,
                     ),
                   ),
+                  if (widget.detail.trim().isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.detail.trim(),
+                      key: _key('detail'),
+                      style: const TextStyle(
+                        color: AppColors.cyan,
+                        fontSize: 12.5,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
                   if (widget.note.trim().isNotEmpty) ...<Widget>[
                     const SizedBox(height: 6),
                     Text(

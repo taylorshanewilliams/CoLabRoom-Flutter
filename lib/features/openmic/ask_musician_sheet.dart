@@ -6,6 +6,7 @@ import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../domain/musical_roles.dart';
+import '../../domain/sung_in.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/ask_terms_picker.dart';
 import '../../widgets/problem_report.dart';
@@ -55,6 +56,11 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
 
 
   final TextEditingController _note = TextEditingController();
+
+  /// What they would be joining, in the asker's words: a tonic, a cycle, a
+  /// language. Never filled in from either profile. Declared, never
+  /// inferred (Every Musician, Same Song, 17 September 2026).
+  final TextEditingController _sungIn = TextEditingController();
   List<OfferableSong>? _songs;
   String? _songId;
   late String? _part = widget.suggestedPart;
@@ -81,6 +87,7 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
   @override
   void dispose() {
     _note.dispose();
+    _sungIn.dispose();
     super.dispose();
   }
 
@@ -167,6 +174,7 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
         part: _part,
         note: _note.text.trim(),
         terms: _terms,
+        sungIn: _sungIn.text.trim(),
       );
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
@@ -293,6 +301,21 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
                 AskTermsPicker(
                   terms: _terms,
                   onChanged: (chosen) => setState(() => _terms = chosen),
+                ),
+                const SizedBox(height: 20),
+                // So somebody answering knows what they are joining before
+                // they say yes: the tonic, the cycle, the language.
+                const _Label("What it's in", note: 'optional'),
+                const SizedBox(height: 8),
+                TextField(
+                  key: const Key('ask_musician_sung_in'),
+                  controller: _sungIn,
+                  maxLength: sungInLineLength,
+                  decoration: const InputDecoration(
+                    hintText: 'Sa = C#, Rupak, Hindi',
+                    counterText: '',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
                 const SizedBox(height: 20),
                 const _Label('Anything to say', note: 'optional'),

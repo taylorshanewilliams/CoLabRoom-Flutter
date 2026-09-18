@@ -6,6 +6,7 @@ import '../../app/colabroom_theme.dart';
 import '../../domain/musical_roles.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
+import '../../domain/sung_in.dart';
 import '../../services/push_registration.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/ask_terms_picker.dart';
@@ -115,15 +116,23 @@ class _AskBarState extends State<AskBar> {
     if (_busy) return;
     final choice = await showModalBottomSheet<_AskChoice?>(
       context: context,
+      // The sheet has a line to type in now, so it rides above the keyboard
+      // the way the Open Mic settings sheet does, rather than under it.
+      isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: AppColors.deepNavy,
-      builder: (sheetContext) => _AskSheet(
-        alreadyAsked: <String>{
-          for (final ask in _asks ?? const <SongAsk>[])
-            if (ask.isSpecific) ask.part!.trim().toLowerCase(),
-        },
-        openAskStanding:
-            (_asks ?? const <SongAsk>[]).any((ask) => !ask.isSpecific),
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+        ),
+        child: _AskSheet(
+          alreadyAsked: <String>{
+            for (final ask in _asks ?? const <SongAsk>[])
+              if (ask.isSpecific) ask.part!.trim().toLowerCase(),
+          },
+          openAskStanding:
+              (_asks ?? const <SongAsk>[]).any((ask) => !ask.isSpecific),
+        ),
       ),
     );
     if (choice == null || !mounted) return;
@@ -136,6 +145,7 @@ class _AskBarState extends State<AskBar> {
         projectId: widget.projectId,
         part: choice.part.isEmpty ? null : choice.part,
         terms: choice.terms,
+        sungIn: choice.sungIn,
       );
       await _load();
       if (!mounted) return;
@@ -208,6 +218,10 @@ class _AskBarState extends State<AskBar> {
       headline: ask.headline,
       askedBy: ask.askedBy,
       note: ask.note,
+      // What the song is in, where a bandmate reads the ask before they
+      // answer it. For a song that is not on the Open Mic this sheet is the
+      // only place the line is read, by the asker included.
+      sungIn: ask.sungIn,
       opinionsOpened: ask.opinionsOpened,
     );
     if (mounted) await _load();
@@ -504,11 +518,15 @@ class _AskChip extends StatelessWidget {
 /// What the sheet hands back: what the song is asking for, and what
 /// answering it means.
 class _AskChoice {
-  const _AskChoice(this.part, this.terms);
+  const _AskChoice(this.part, this.terms, this.sungIn);
 
   /// Empty for "I don't know what this needs", which is the open ask.
   final String part;
   final AskTerms terms;
+
+  /// What somebody answering would be joining, as typed: "Sa = C#, Rupak,
+  /// Hindi". Empty when the asker did not say, which is most asks.
+  final String sungIn;
 }
 
 /// The sheet that asks what you're asking for.
@@ -538,6 +556,17 @@ class _AskSheetState extends State<_AskSheet> {
   /// Playing, until somebody says otherwise. Every ask this app has ever made
   /// is one of these (Every Musician, Same Song, 17 September 2026).
   AskTerms _terms = AskTerms.play;
+
+  /// What the song is in, in the asker's words: a tonic, a cycle, a
+  /// language. Never filled in for them. Declared, never inferred (Every
+  /// Musician, Same Song, 17 September 2026).
+  final TextEditingController _sungIn = TextEditingController();
+
+  @override
+  void dispose() {
+    _sungIn.dispose();
+    super.dispose();
+  }
 
   /// The one list, and a bug fixed by using it.
   ///
@@ -571,10 +600,28 @@ class _AskSheetState extends State<_AskSheet> {
               onChanged: (chosen) => setState(() => _terms = chosen),
             ),
             const SizedBox(height: 14),
+            // Above the parts for the reason the terms are: tapping a part
+            // sends the ask, so anything underneath would be read too late.
+            // Optional and empty, so the common ask is still one tap.
+            TextField(
+              key: const Key('ask_sung_in'),
+              controller: _sungIn,
+              maxLength: sungInLineLength,
+              textInputAction: TextInputAction.done,
+              style: const TextStyle(fontSize: 14),
+              decoration: const InputDecoration(
+                isDense: true,
+                labelText: "What it's in, if it helps",
+                hintText: 'Sa = C#, Rupak, Hindi',
+                counterText: '',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 14),
             if (!widget.openAskStanding)
               FilledButton(
-                onPressed: () =>
-                    Navigator.pop(context, _AskChoice('', _terms)),
+                onPressed: () => Navigator.pop(
+                    context, _AskChoice('', _terms, _sungIn.text.trim())),
                 style: FilledButton.styleFrom(
                   backgroundColor: AppColors.green,
                   foregroundColor: AppColors.ink,
@@ -618,8 +665,10 @@ class _AskSheetState extends State<_AskSheet> {
                 for (final part in _parts)
                   if (!widget.alreadyAsked.contains(part.value))
                     OutlinedButton(
-                      onPressed: () =>
-                          Navigator.pop(context, _AskChoice(part.value, _terms)),
+                      onPressed: () => Navigator.pop(
+                          context,
+                          _AskChoice(
+                              part.value, _terms, _sungIn.text.trim())),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.gold,
                         side: BorderSide(
