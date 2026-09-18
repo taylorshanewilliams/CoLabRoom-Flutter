@@ -61,12 +61,19 @@ class TakeCountIn {
 /// dropped, the same allowance [beatsInBar] makes, but an outro the tracker
 /// gave up on has no bar to be counted into, and moving somebody's punch-in
 /// back by ten seconds to find one is not what they pressed.
+///
+/// [barOne] is which downbeat the band counts as bar 1 (0161). It counts the
+/// bar in the song's own metre rather than the count-in's: the metre is the
+/// median gap between downbeats, which survives one dropped downbeat but not
+/// a count-in the beat tracker read as bars of its own, and four bars of a
+/// two-beat count on the front of a short recording outvote the song.
 TakeCountIn? takeCountInFor(
   ReferenceTrack? reference, {
   required int punchInMs,
+  int barOne = 1,
 }) {
   if (reference == null || punchInMs <= 0) return null;
-  final bar = countInForSong(reference);
+  final bar = countInForSong(reference, barOne: barOne);
   if (bar == null) return null;
   final downbeat = downbeatAtOrBefore(punchInMs, reference.downbeatsMs);
   if (downbeat == null) return null;

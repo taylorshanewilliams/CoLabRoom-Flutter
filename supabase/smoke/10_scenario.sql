@@ -9777,12 +9777,12 @@ reset role;
 -- send_song_to_students). This is the flow the whole thing was written for:
 -- a teacher fixes bar 1 on a song with a count-in on the front, sends it to
 -- the class, and everybody's numbers then agree with the printed part she is
--- holding. Ms Rivera and her lessons are 0149's, already set up above, with a
--- second song of her own so the send is a fresh copy rather than one that
--- is already there.
+-- holding. Ms Rivera and her lessons are 0149's, already set up above; this
+-- is a further song of hers, under an id of this block's own, so that the
+-- send makes a fresh copy rather than finding one already there.
 insert into public.projects (id, room_id, account_id, title, created_by,
                              bar_one_downbeat)
-values ('a5049149-0000-0000-0000-000000000031',
+values ('a5049149-0000-0000-0000-000000000161',
         'a5049149-0000-0000-0000-000000000010',
         'a5049149-0000-0000-0000-000000000001', 'Two Before One',
         'a5049149-0000-0000-0000-000000000001', 3);
@@ -9797,7 +9797,7 @@ declare
 begin
   select song_copy into copy_id
   from public.send_song_to_students(
-    'a5049149-0000-0000-0000-000000000031',
+    'a5049149-0000-0000-0000-000000000161',
     array['a5049149-0000-0000-0000-000000000011']::uuid[]);
   if copy_id is null then
     raise exception 'the song never reached the student';

@@ -5,6 +5,7 @@ import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/practice_mark.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
+import 'package:colabroom/features/layers/take_count_in.dart';
 import 'package:colabroom/features/rooms/setlist_pack.dart';
 import 'package:colabroom/features/workspace/chord_chart_view.dart';
 import 'package:colabroom/features/workspace/count_in.dart';
@@ -331,6 +332,35 @@ void main() {
       expect(
         setSongFacts(null, song.copyWith(barOneDownbeat: 5), sheet).countIn,
         'One bar of 4',
+      );
+    });
+
+    test('the bar counted in before a take is the song\'s bar', () {
+      // The same grid again, punching in on the third bar of the song. #382
+      // counts a bar in before a punched-in take; that bar is the song's
+      // metre, and it is read from bar 1 for the same reason every other
+      // metre here is.
+      const grid = <int>[0, 1000, 2000, 3000, 4000, 6000, 8000, 10000];
+      const reference = ReferenceTrack(
+        projectId: 'song-bar-one',
+        fileId: 'file',
+        storagePath: 'room/song-bar-one/reference.m4a',
+        displayName: 'Four Before One.m4a',
+        state: SongAnalysisState.ready,
+        bpm: 120,
+        durationMs: 12000,
+        downbeatsMs: grid,
+      );
+      expect(takeCountInFor(reference, punchInMs: 8500)?.bar.beats, 2);
+      expect(
+        takeCountInFor(reference, punchInMs: 8500, barOne: 5)?.bar.beats,
+        4,
+      );
+      // The take still lands on the top of the bar the playhead was in,
+      // whatever that bar is now called.
+      expect(
+        takeCountInFor(reference, punchInMs: 8500, barOne: 5)?.downbeatMs,
+        8000,
       );
     });
 

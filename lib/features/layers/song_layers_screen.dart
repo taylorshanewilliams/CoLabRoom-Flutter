@@ -1117,7 +1117,13 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // Every other take starts exactly as it did.
       _counted = Duration.zero;
       final countIn = hasBacking && _lastMixPath != null && !_loopingClick
-          ? takeCountInFor(_reference, punchInMs: _punchInAt.inMilliseconds)
+          ? takeCountInFor(
+              _reference,
+              punchInMs: _punchInAt.inMilliseconds,
+              // The song's own metre, counted from its bar 1, so the bar
+              // counted in here is the bar Perform counts (0161).
+              barOne: _barOne,
+            )
           : null;
       if (countIn != null) {
         // The take lands on the top of the bar the playhead was in, which is
