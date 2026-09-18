@@ -6091,7 +6091,9 @@ reset role;
 insert into auth.users (id, email, raw_user_meta_data) values
   ('cc153000-0000-0000-0000-000000000001', 'thecowriter@smoke.test',
    '{"display_name": "The Co-writer"}'),
-  ('cc153000-0000-0000-0000-000000000002', 'onlylooking@smoke.test',
+  -- Not 'onlylooking@': 0147's block already has that address, and
+  -- auth.users keeps emails unique.
+  ('cc153000-0000-0000-0000-000000000002', 'only.looking.here@smoke.test',
    '{"display_name": "Only Looking"}'),
   -- Never inserted into room_members anywhere.
   ('cc153000-0000-0000-0000-000000000003', 'notinthisroom@smoke.test',
