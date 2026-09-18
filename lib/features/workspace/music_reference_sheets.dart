@@ -81,6 +81,84 @@ Future<void> showKeyReference(
   );
 }
 
+/// The same choice, from somewhere with no key badge to hang it on.
+///
+/// The chart has no badge, and a song whose analysis never found a key has
+/// none on the sheet either — so on those the reading could be neither chosen
+/// nor cleared, which is the one control a horn player actually came for
+/// (review, 17 September 2026). With a key it opens the key sheet the badge
+/// opens, so there is one answer and not two; without one it opens the row on
+/// its own, because the chords still move even when nothing can be said about
+/// the key they are in.
+Future<void> showReadingChoice(
+  BuildContext context, {
+  String? keyLabel,
+  required HornReading reading,
+  required ValueChanged<HornReading> onReading,
+}) {
+  final key = keyLabel;
+  if (key != null && keyReference(key) != null) {
+    return showKeyReference(context, key, reading: reading,
+        onReading: onReading);
+  }
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    backgroundColor: AppColors.deepNavy,
+    builder: (_) => _ReadingChoiceSheet(
+      reading: reading,
+      onReading: onReading,
+    ),
+  );
+}
+
+/// The Read as row alone, for a song with no key to describe.
+class _ReadingChoiceSheet extends StatefulWidget {
+  const _ReadingChoiceSheet({required this.reading, required this.onReading});
+
+  final HornReading reading;
+  final ValueChanged<HornReading> onReading;
+
+  @override
+  State<_ReadingChoiceSheet> createState() => _ReadingChoiceSheetState();
+}
+
+class _ReadingChoiceSheetState extends State<_ReadingChoiceSheet> {
+  late HornReading _reading = widget.reading;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetFrame(
+      key: const Key('reading_choice_sheet'),
+      title: 'Read as',
+      // No key was found for this song, so there is no second key to name —
+      // only what the chords in front of you are written for.
+      subtitle: _reading == HornReading.concert
+          ? 'Chords as the band plays them'
+          : 'Chords written for ${_reading.label}',
+      children: <Widget>[
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: <Widget>[
+            for (final reading in HornReading.values)
+              _ReadingChip(
+                reading: reading,
+                selected: reading == _reading,
+                onTap: () {
+                  if (reading == _reading) return;
+                  setState(() => _reading = reading);
+                  widget.onReading(reading);
+                },
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _ChordReferenceSheet extends StatelessWidget {
   const _ChordReferenceSheet({required this.reference, this.help});
 
@@ -318,25 +396,33 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
             ],
           ),
         ),
-        const SizedBox(height: 14),
-        if (reference.capo.isEmpty)
-          const _Note(
-            'This key already sits under open chords — no capo needed.',
-          )
-        else
-          _Section(
-            heading: 'With a capo',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                for (final (fret, shapeKey) in reference.capo)
-                  _Row(
-                    label: 'Capo $fret',
-                    value: 'play the $shapeKey shapes',
-                  ),
-              ],
+        // Only in concert pitch. A capo is a guitar answer about the key the
+        // band is in; worked out from a written key it names frets that put
+        // the guitar a tone away from everybody else, and it means nothing at
+        // all to the instrument the reading was chosen for. The scale, the
+        // pentatonic and the chords above are right in the written key and
+        // stay (review, 17 September 2026).
+        if (_reading == HornReading.concert) ...<Widget>[
+          const SizedBox(height: 14),
+          if (reference.capo.isEmpty)
+            const _Note(
+              'This key already sits under open chords — no capo needed.',
+            )
+          else
+            _Section(
+              heading: 'With a capo',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  for (final (fret, shapeKey) in reference.capo)
+                    _Row(
+                      label: 'Capo $fret',
+                      value: 'play the $shapeKey shapes',
+                    ),
+                ],
+              ),
             ),
-          ),
+        ],
       ],
     );
   }

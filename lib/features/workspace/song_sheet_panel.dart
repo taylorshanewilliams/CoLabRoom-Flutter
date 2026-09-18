@@ -7,6 +7,7 @@ import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/chord_chart_view.dart';
 import 'package:colabroom/features/workspace/chord_editor_sheet.dart';
 import 'package:colabroom/features/workspace/chord_sheet_export.dart';
+import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/musician_song_sheet.dart';
 import 'package:colabroom/features/workspace/song_reading_store.dart';
@@ -144,6 +145,31 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       _reading = reading;
     });
     unawaited(SongReadingStore.save(widget.project.id, reading));
+  }
+
+  /// The song's own key, or null when the analysis never found one.
+  String? get _songKey {
+    final key = _bundle.reference?.musicalKey;
+    if (key == null || key.trim().isEmpty) return null;
+    return key;
+  }
+
+  /// The second way into the Read as choice.
+  ///
+  /// The key badge is where it belongs and where it stays, but the badge is
+  /// only on the lyric sheet and only on a song that has a key — so on the
+  /// chart, and on a song whose analysis found no key, the choice could be
+  /// neither made nor undone (review, 17 September 2026). The transpose label
+  /// is the control that is always there and is already about what key this
+  /// person reads in, so it opens the same sheet.
+  void _openReadingChoice() {
+    final key = _songKey;
+    unawaited(showReadingChoice(
+      context,
+      keyLabel: key == null ? null : keyAsPlayed(key, _shownTranspose),
+      reading: _shownReading,
+      onReading: _chooseReading,
+    ));
   }
 
   void _shiftTranspose(int delta) {
@@ -504,10 +530,16 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     // The chart has no key badge, so without this a horn reading chosen on
     // the sheet would move every chord on the chart with nothing on screen
     // saying why (interface direction: it hides brilliantly and announces
-    // nothing). One word on the control that is already there.
-    final transposeLabel = reading == HornReading.concert
-        ? baseLabel
-        : '$baseLabel · for ${reading.label}';
+    // nothing). On the chart it names both keys, because the concert key is
+    // what a horn player has to call the tune to everybody else and the
+    // badge that usually says it is not there. On the sheet the badge says
+    // both already, so this only names the part.
+    final songKey = _songKey;
+    final readingLine = reading == HornReading.concert
+        ? null
+        : _view == SongSheetView.chart && songKey != null
+            ? keyAsRead(songKey, transpose: transpose, reading: reading)
+            : 'For ${reading.label}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -529,13 +561,47 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
                     icon: const Icon(Icons.remove_rounded, size: 18),
                   ),
                   Expanded(
-                    child: Text(
-                      transposeLabel,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: AppColors.text,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
+                    // Underlined the way the key badge is, and for the same
+                    // reason: a label reads as a label, and nobody taps one.
+                    child: Semantics(
+                      button: !_editingChords,
+                      child: InkWell(
+                        key: const Key('song_sheet_read_as'),
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: _editingChords ? null : _openReadingChoice,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Text(
+                                baseLabel,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: AppColors.text,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  decoration: _editingChords
+                                      ? null
+                                      : TextDecoration.underline,
+                                  decorationStyle: TextDecorationStyle.dotted,
+                                  decorationColor: AppColors.muted,
+                                ),
+                              ),
+                              if (readingLine != null)
+                                Text(
+                                  readingLine,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: AppColors.muted,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.3,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),

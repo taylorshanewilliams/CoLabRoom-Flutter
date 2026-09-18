@@ -39,6 +39,7 @@ import '../rooms/setlist_detail_screen.dart';
 import '../workspace/song_workspace_screen.dart';
 import '../../services/song_search.dart';
 import '../workspace/song_analysis_screen.dart';
+import '../workspace/song_reading_store.dart';
 import '../workspace/song_transpose_store.dart';
 import 'song_sheet_queue.dart';
 import '../../services/user_facing_error.dart';
@@ -209,9 +210,11 @@ class _SongsScreenState extends State<SongsScreen> {
     unawaited(PlayLater.load().then((_) {
       if (mounted) setState(() {});
     }));
-    // The keys songs are kept in on this phone, for the Tonight card. The
-    // strip listens for them, so there is nothing to redraw here.
+    // The keys songs are kept in on this phone, and the parts they are read
+    // for, for the Tonight card. The strip listens for both, so there is
+    // nothing to redraw here.
     unawaited(SongTransposeStore.warm());
+    unawaited(SongReadingStore.warm());
   }
 
   @override
@@ -467,10 +470,14 @@ class _SongsScreenState extends State<SongsScreen> {
       ),
       seen: (id) => SetAside.has(SetAside.tonight, id),
       // The key the song's sheet opens in on this phone, so the chord the
-      // card suggests is the one the sheet will show.
+      // card suggests is the one the sheet will show. The instrument's part
+      // goes with it: a trumpet player's sheet opens a tone up from the
+      // band's key, and a card naming the band's chord would send them to a
+      // page that has never heard of it (review, 17 September 2026).
       songTranspose: tonightSong == null
           ? 0
-          : SongTransposeStore.held(tonightSong.projectId),
+          : SongTransposeStore.held(tonightSong.projectId) +
+              SongReadingStore.held(tonightSong.projectId).semitones,
     );
     for (final tonight in tonightCards) {
       items.add(WaitingItem(
@@ -1024,14 +1031,17 @@ class _SongsScreenState extends State<SongsScreen> {
             // from each side would clip the card that is peeking, which is
             // the one thing telling you the row goes sideways.
             padding: const EdgeInsets.only(top: 10),
-            // Redrawn when a song's kept key changes: on a desk the song is
-            // open beside this strip, and its transpose buttons change the
-            // chord the Tonight card names.
+            // Redrawn when a song's kept key or part changes: on a desk the
+            // song is open beside this strip, and its transpose buttons and
+            // its Read as choice both change the chord the Tonight card
+            // names.
             sliver: SliverToBoxAdapter(
-              child: ValueListenableBuilder<int>(
-                valueListenable: SongTransposeStore.changes,
-                builder: (_, revision, child) =>
-                    WaitingOnYou(items: _waiting()),
+              child: AnimatedBuilder(
+                animation: Listenable.merge(<Listenable>[
+                  SongTransposeStore.changes,
+                  SongReadingStore.changes,
+                ]),
+                builder: (_, child) => WaitingOnYou(items: _waiting()),
               ),
             ),
           ),

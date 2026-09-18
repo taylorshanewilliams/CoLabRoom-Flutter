@@ -151,6 +151,35 @@ void main() {
       expect(await SongReadingStore.load('song-c'), HornReading.concert);
     });
 
+    test('Home has the part before it draws, and follows a change', () async {
+      // Home's Tonight card names a chord in the middle of a build, so it
+      // cannot wait on a disk read -- the same reason the transpose is held.
+      // Without this the card named the band's chord on a song whose sheet
+      // opens a tone up (review, 17 September 2026).
+      SongReadingStore.resetForTesting();
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'song_reading_song-held': 'Bb',
+        'song_reading_song-unknown': 'contrabass clarinet',
+      });
+      expect(SongReadingStore.held('song-held'), HornReading.concert);
+
+      await SongReadingStore.warm();
+      expect(SongReadingStore.held('song-held'), HornReading.bFlat);
+      expect(SongReadingStore.held('song-unknown'), HornReading.concert);
+
+      var ticks = 0;
+      void listener() => ticks += 1;
+      SongReadingStore.changes.addListener(listener);
+      addTearDown(() => SongReadingStore.changes.removeListener(listener));
+      await SongReadingStore.save('song-held', HornReading.f);
+      expect(SongReadingStore.held('song-held'), HornReading.f);
+      expect(ticks, 1);
+      // Choosing the same part again is not a change.
+      await SongReadingStore.save('song-held', HornReading.f);
+      expect(ticks, 1);
+      SongReadingStore.resetForTesting();
+    });
+
     test('the tuner reference is kept, clamped, and 440 is kept as nothing',
         () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -231,9 +260,9 @@ void main() {
     expect(find.text('A'), findsOneWidget);
     expect(find.text('concert G'), findsOneWidget);
     expect(find.text('A/C#'), findsOneWidget);
-    // The chart has no badge, so the control that is always on screen says
-    // which part is being read.
-    expect(find.text('Original key · for B♭'), findsOneWidget);
+    // The control that is always on screen says which part is being read.
+    expect(find.text('Original key'), findsOneWidget);
+    expect(find.text('For B♭'), findsOneWidget);
 
     // The choice lives where the key does.
     await tester.tap(find.byKey(const Key('song_sheet_key_badge')));
@@ -339,6 +368,210 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
   });
+
+  testWidgets('the chart names both keys, and the choice is reachable there',
+      (tester) async {
+    // The chart has no key badge to hang the choice on, and a horn player
+    // reading from it still has to know what to call the tune to everybody
+    // else (review, 17 September 2026).
+    SongReadingStore.resetForTesting();
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'song_reading_song-chart': 'Bb',
+    });
+    tester.view.physicalSize = const Size(520, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData.dark(),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: SongSheetPanel(
+            project: _project('song-chart'),
+            bundle: _analysis('song-chart'),
+            onReviewLyrics: null,
+            onOpenLive: null,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.text('Chart'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('song_sheet_key_badge')), findsNothing);
+    expect(find.text('For B♭ · written in A · concert G'), findsOneWidget);
+
+    // And the same control opens the same choice, so the part can be put
+    // back without leaving the chart.
+    await tester.tap(find.byKey(const Key('song_sheet_read_as')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('key_reference_sheet')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('read_as_concert')));
+    await tester.pumpAndSettle();
+    expect(await SongReadingStore.load('song-chart'), HornReading.concert);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    SongReadingStore.resetForTesting();
+  });
+
+  testWidgets('a song with no key can still be read for a horn',
+      (tester) async {
+    // Key detection falls back on plenty of real recordings. The chords are
+    // still chords, and they still have to be written for the part.
+    SongReadingStore.resetForTesting();
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    tester.view.physicalSize = const Size(520, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData.dark(),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: SongSheetPanel(
+            project: _project('song-nokey'),
+            bundle: _analysis('song-nokey', musicalKey: null),
+            onReviewLyrics: null,
+            onOpenLive: null,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('song_sheet_key_badge')), findsNothing);
+    await tester.tap(find.byKey(const Key('song_sheet_read_as')));
+    await tester.pumpAndSettle();
+    // No key to describe, so the row comes on its own.
+    expect(find.byKey(const Key('reading_choice_sheet')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('read_as_bFlat')));
+    await tester.pumpAndSettle();
+    expect(await SongReadingStore.load('song-nokey'), HornReading.bFlat);
+    expect(find.text('Chords written for B♭'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    SongReadingStore.resetForTesting();
+  });
+
+  testWidgets('a capo chart is only offered in concert pitch', (tester) async {
+    // A capo is a guitar answer about the key the band is in. Worked out
+    // from a written key it names frets a tone away from everybody else, and
+    // it says nothing at all to the instrument the reading was for.
+    SongReadingStore.resetForTesting();
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    tester.view.physicalSize = const Size(520, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData.dark(),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: SongSheetPanel(
+            project: _project('song-capo'),
+            bundle: _analysis('song-capo'),
+            onReviewLyrics: null,
+            onOpenLive: null,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('song_sheet_key_badge')));
+    await tester.pumpAndSettle();
+    expect(find.text('WITH A CAPO'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('read_as_bFlat')));
+    await tester.pumpAndSettle();
+    expect(find.text('A major'), findsOneWidget);
+    expect(find.text('WITH A CAPO'), findsNothing);
+    expect(
+      find.text('This key already sits under open chords — no capo needed.'),
+      findsNothing,
+    );
+    // The scale is still there: it is right in the written key.
+    expect(find.text('THE SCALE'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    SongReadingStore.resetForTesting();
+  });
+
+  testWidgets('Sing along is named the way the part is, and still hears '
+      'concert pitch', (tester) async {
+    // One screen, one language. The note names under the words ride the same
+    // move as the chords over them, so the row underneath has to as well --
+    // otherwise the same pitch is called two things at once. Both sides move
+    // by the same amount, so what is compared never changes (review, 17
+    // September 2026).
+    SongReadingStore.resetForTesting();
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'song_reading_song-sing': 'Bb',
+    });
+    final mic = StreamController<Uint8List>();
+    tester.view.physicalSize = const Size(400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData.dark(),
+      home: LivePerformanceScreen(
+        project: _project('song-sing'),
+        analysis: _withTune('song-sing'),
+        openMicrophone: () async => mic.stream,
+      ),
+    ));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('live_sing')));
+    await tester.pump();
+    await tester.pump();
+
+    // The recording's A4, written for a trumpet, is a B4 -- which is exactly
+    // what the note under the word says, through noteAsPlayed on the same
+    // move.
+    expect(noteAsPlayed(69, transpose: HornReading.bFlat.semitones, key: 'G'),
+        'B4');
+    expect(
+      tester.widget<Text>(find.byKey(const Key('live_song_note'))).data,
+      'B4',
+    );
+
+    // Sing the concert A the recording actually sang and it is on it: the
+    // microphone is still being compared against the song in concert pitch.
+    for (var i = 0; i < 3; i++) {
+      mic.add(_pcm16(_tone(440)));
+      await tester.pump();
+    }
+    await tester.pump();
+    expect(
+      tester.widget<Text>(find.byKey(const Key('live_you_note'))).data,
+      'B4',
+    );
+    expect(
+      tester.widget<Text>(find.byKey(const Key('live_sing_hint'))).data,
+      'On it.',
+    );
+
+    // Not awaited: a closed controller's done future lives in the root zone,
+    // which the test's clock never runs. See you_and_the_song_test.dart.
+    unawaited(mic.close());
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    SongReadingStore.resetForTesting();
+  });
 }
 
 String _noteOnScreen(WidgetTester tester) => tester
@@ -387,7 +620,35 @@ SongProject _project(String id) {
   );
 }
 
-SongAnalysisBundle _analysis(String id) => SongAnalysisBundle(
+/// The same song with a tune in it, for the Sing along row.
+SongAnalysisBundle _withTune(String id) => SongAnalysisBundle(
+      reference: ReferenceTrack(
+        projectId: id,
+        fileId: 'file',
+        storagePath: 'room/$id/reference.m4a',
+        displayName: 'Weathervane.m4a',
+        state: SongAnalysisState.ready,
+        durationMs: 6000,
+        musicalKey: 'G',
+        transcriptText: 'turning in the wind',
+        transcriptWords: const <TranscriptWord>[
+          TranscriptWord(word: 'turning', startMs: 0, endMs: 800),
+          TranscriptWord(word: 'in', startMs: 800, endMs: 1100),
+          TranscriptWord(word: 'the', startMs: 1100, endMs: 1400),
+          TranscriptWord(word: 'wind', startMs: 1400, endMs: 2200),
+        ],
+        // An A held through the whole first line, so the note the song wants
+        // at the top is A4 before anybody moves it.
+        melody: const Melody(notes: <MelodyNote>[
+          MelodyNote(startMs: 0, endMs: 2200, midi: 69),
+        ]),
+      ),
+      lyricCues: const <LyricSyncCue>[],
+      chordCues: const <ChordCue>[],
+    );
+
+SongAnalysisBundle _analysis(String id, {String? musicalKey = 'G'}) =>
+    SongAnalysisBundle(
       reference: ReferenceTrack(
         projectId: id,
         fileId: 'file',
@@ -395,7 +656,7 @@ SongAnalysisBundle _analysis(String id) => SongAnalysisBundle(
         displayName: 'Weathervane.m4a',
         state: SongAnalysisState.ready,
         durationMs: 20000,
-        musicalKey: 'G',
+        musicalKey: musicalKey,
         transcriptText: 'turning in the wind again',
         transcriptWords: const <TranscriptWord>[
           TranscriptWord(word: 'turning', startMs: 5000, endMs: 5800),

@@ -70,6 +70,12 @@ class _TunerSheetState extends State<TunerSheet> {
   /// What this tuner calls A, kept on this device. See TunerReferenceStore.
   int _a4 = TunerReferenceStore.standard;
 
+  /// Whether the reference was moved before the kept one arrived, so a slow
+  /// read cannot undo the press. The same guard the sheet's transpose has:
+  /// on a cold launch the first press can land before preferences have
+  /// opened, and the screen must not then disagree with what is stored.
+  bool _referenceTouched = false;
+
   /// Whether the note is named the way this person's instrument writes it.
   /// Off until asked for: the note that is sounding is the true answer, and
   /// the written name is the convenience on top of it.
@@ -88,7 +94,7 @@ class _TunerSheetState extends State<TunerSheet> {
 
   Future<void> _loadReference() async {
     final kept = await TunerReferenceStore.load();
-    if (!mounted || kept == _a4) return;
+    if (!mounted || _referenceTouched || kept == _a4) return;
     setState(() => _a4 = kept);
   }
 
@@ -97,7 +103,10 @@ class _TunerSheetState extends State<TunerSheet> {
         .clamp(TunerReferenceStore.lowest, TunerReferenceStore.highest)
         .toInt();
     if (next == _a4) return;
-    setState(() => _a4 = next);
+    setState(() {
+      _referenceTouched = true;
+      _a4 = next;
+    });
     unawaited(TunerReferenceStore.save(next));
   }
 
