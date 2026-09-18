@@ -17,6 +17,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
+import '../../domain/loop_round.dart';
 import '../../domain/moment_note.dart';
 import '../../domain/music_models.dart';
 import '../../services/click_player.dart';
@@ -41,6 +42,8 @@ import 'sending_a_take.dart';
 import 'take_count_in.dart';
 import 'take_lane.dart';
 import 'take_prompt.dart';
+import 'take_turns.dart';
+import 'take_turns_card.dart';
 import 'then_and_now.dart';
 import 'timeline_ruler.dart';
 import '../../widgets/problem_report.dart';
@@ -219,6 +222,26 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
 
   /// Which half is sounding, for the line under the chip.
   ThenOrNow _half = ThenOrNow.then;
+
+  /// The rounds on this song, newest first: a passage going round the room
+  /// in turns (0159). Every Musician, Same Song, 17 September 2026.
+  ///
+  /// Read from the repository, like the notes: they are rows about a song.
+  /// Each turn in one is an ordinary take in [_layers], which is why nothing
+  /// else on this screen had to learn what a turn is.
+  List<LoopRound> _rounds = const <LoopRound>[];
+
+  /// The round a turn is being recorded for, from Record my turn until the
+  /// take is saved. While it is set the recording starts on the passage,
+  /// stops at its end, and is made against the loop without anybody else's
+  /// turn in it.
+  LoopRound? _turnFor;
+
+  /// Rung when this screen is about to play or record, so a round's
+  /// conversation -- which plays on the card's own player, clear of the mix
+  /// -- stops first. One thing sounding at a time, and never a bandmate's
+  /// turn going down the microphone under yours.
+  final ValueNotifier<int> _hushTurns = ValueNotifier<int>(0);
 
   /// Whether the note a notification sent us to has already been opened.
   ///
@@ -400,6 +423,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     unawaited(_player.dispose());
     unawaited(_countClick?.dispose());
     unawaited(_voice?.dispose());
+    _hushTurns.dispose();
     // Every other screen in the app is a player, not a recorder.
     unawaited(OverdubSession.end());
     super.dispose();
@@ -450,6 +474,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         );
       }
 
+      // Asked for beside the takes, because it decides which of them start
+      // switched on, and never holding them up: _readRounds does not throw,
+      // and a song whose rounds will not load still plays.
+      final reading = _readRounds();
       final layers = await _service.listLayers(widget.projectId);
       for (final layer in layers) {
         // Everything on by default. Somebody opening a song wants to hear the
@@ -457,6 +485,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         _enabled.add(layer.id);
         _localPaths[layer.id] = await _service.ensureLocal(layer);
       }
+      // Except the turns of a round. Every one of them sits on the same few
+      // bars, so switched on together they are four solos at once, which
+      // nobody played. They are heard in order from the round's card, and a
+      // lane can still be switched on by hand. Taken out after the loop
+      // rather than skipped in it, so a draft that was on before it was
+      // handed in goes quiet with the rest.
+      final rounds = await reading;
+      _enabled.removeAll(TakeTurns.turnIds(rounds));
+      _rounds = rounds;
       // Best-effort: failing to record that somebody listened must never stop
       // them listening. It only feeds retention, which is generous enough to
       // survive a missed update.
@@ -833,7 +870,13 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     // only here, so recording against the mix gets it too (the choir's
     // "everyone but me" is the backing track for an alto's take) and the
     // lanes, the desk and Save keep showing the shared mix as it is.
-    final takes = MyPartMix.apply(_takes, _myPart);
+    var takes = MyPartMix.apply(_takes, _myPart);
+    // A turn is recorded against the loop, not against the turns before it:
+    // they are heard first, the way the person before you is heard in a
+    // circle, and then it is yours. A lane somebody switched on by hand
+    // would otherwise play under them and go down the microphone.
+    final turn = _turnFor;
+    if (turn != null) takes = TakeTurns.withoutTurns(takes, turn.turnLayerIds);
     final anythingToPlay = takes.any((take) => take.enabled);
     // A click with nothing under it is still something to play against — it
     // is how the first take of a song with no recording gets a tempo.
@@ -1041,6 +1084,293 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     });
   }
 
+  // -------------------------------------------------------------------
+  // Take turns on the loop. Every Musician, Same Song, 17 September 2026.
+  // -------------------------------------------------------------------
+
+  /// The rounds on this song, or what was already known when they will not
+  /// load. Best-effort, like the notes: a song whose rounds cannot be read
+  /// still plays and still records.
+  Future<List<LoopRound>> _readRounds() async {
+    // The repository is found through the context, which is gone once the
+    // screen is: a take that finishes saving after somebody has left still
+    // reloads (see _stop), and must not throw on the way.
+    if (!mounted) return _rounds;
+    final repository = _repository;
+    if (repository == null) return const <LoopRound>[];
+    try {
+      return await repository.loadLoopRounds(widget.projectId);
+    } catch (error) {
+      reportAndDescribe(
+        error,
+        service: 'layers',
+        stage: 'takes.turns',
+        projectId: widget.projectId,
+      );
+      return _rounds;
+    }
+  }
+
+  /// The round the card shows: the one going, or else the last one that
+  /// was, which can still be heard.
+  LoopRound? get _round {
+    for (final round in _rounds) {
+      if (!round.ended) return round;
+    }
+    return _rounds.isEmpty ? null : _rounds.first;
+  }
+
+  /// Does [move] and reads the rounds again, whatever came of it: a refusal
+  /// usually means the round moved on while this screen was open, and the
+  /// card should say where it is now. The sentence is the server's.
+  /// Answers whether it went through.
+  Future<bool> _moveRound(
+    Future<void> Function(MusicRepository repository) move, {
+    required String stage,
+  }) async {
+    final repository = _repository;
+    if (repository == null) return false;
+    setState(() => _error = null);
+    var moved = true;
+    try {
+      await move(repository);
+    } catch (error) {
+      moved = false;
+      if (mounted) {
+        setState(() => _error = reportAndDescribe(
+              error,
+              service: 'layers',
+              stage: stage,
+              route: 'Takes',
+              projectId: widget.projectId,
+            ));
+      }
+    }
+    final rounds = await _readRounds();
+    if (!mounted) return false;
+    setState(() => _rounds = rounds);
+    return moved;
+  }
+
+  /// Asks for the passage and the order, and starts the round.
+  ///
+  /// The passage is offered from where the playhead is, so parking on the
+  /// eight bars everybody wants a go at and pressing Take turns offers those
+  /// eight bars. The order is whoever in the room can record.
+  Future<void> _startTurns() async {
+    if (_busy || _recording) return;
+    final room =
+        BetaScope.maybeOf(context, listen: false)?.roomById(widget.roomId);
+    if (room == null) return;
+    final reference = _reference;
+    final sections =
+        reference?.structureSections ?? const <StructureSection>[];
+    final downbeats = reference?.downbeatsMs ?? const <int>[];
+    final chosen = await askForTurns(
+      context,
+      offered: TakeTurns.offeredPassage(
+        atMs: _position.inMilliseconds,
+        sections: sections,
+        downbeatsMs: downbeats,
+        songEndMs: reference?.durationMs,
+      ),
+      people: <RoomMember>[
+        for (final member in room.members)
+          if (room.canEditSongs(member.userId)) member,
+      ],
+      me: _me,
+      sections: sections,
+      downbeatsMs: downbeats,
+      songEndMs: reference?.durationMs,
+    );
+    if (chosen == null || !mounted) return;
+    await _moveRound(
+      (repository) => repository.startLoopRound(
+        projectId: widget.projectId,
+        startMs: chosen.passage.startMs,
+        endMs: chosen.passage.endMs,
+        order: chosen.order,
+      ),
+      stage: 'takes.turns.start',
+    );
+  }
+
+  /// Records a turn: from the first millisecond of the passage, against the
+  /// loop alone, stopping on its own where the passage ends.
+  ///
+  /// What comes out is an ordinary take and a draft like any other (0057):
+  /// only its player can hear it, and they can go again as often as they
+  /// like before handing one in.
+  Future<void> _recordMyTurn(LoopRound round) async {
+    if (_busy || _recording) return;
+    if (_playing) await _togglePlay();
+    if (_thenAndNow != null) await _stopThenAndNow();
+    if (!mounted) return;
+    final from = Duration(milliseconds: round.startMs);
+    setState(() {
+      _turnFor = round;
+      _noteLoop = null;
+      _position = from;
+    });
+    await _record(at: from);
+    // It never started: the microphone was refused, or would not open.
+    if (!_recording) _turnFor = null;
+  }
+
+  /// Hands a draft in as this person's turn, which shares it with the room.
+  ///
+  /// Asked the way sharing any take is asked (see confirmSharing), because
+  /// it is the same act with the same consequence: the room is told, and it
+  /// plays for them from now on.
+  Future<void> _handInMyTurn(LoopRound round, SharedLayer draft) async {
+    if (_busy || _recording) return;
+    final confirmed = await confirmSharing(context, teacher: _sendTo);
+    if (!confirmed || !mounted) return;
+    final handedIn = await _moveRound(
+      (repository) =>
+          repository.handInMyTurn(roundId: round.id, layerId: draft.id),
+      stage: 'takes.turns.hand_in',
+    );
+    // Refused: the sentence is on screen, and reloading would wipe it.
+    if (!handedIn || !mounted) return;
+    // The take is the room's now, and a turn, so it leaves the ordinary mix
+    // for the conversation (see _load).
+    await _load();
+    try {
+      await _applyMixChange();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = reportAndDescribe(
+            error,
+            service: 'layers',
+            stage: 'takes.turns.mix',
+            route: 'Takes',
+            projectId: widget.projectId,
+          ));
+    }
+  }
+
+  /// Writes the conversation for the round's card to play.
+  Future<TurnsTrack> _writeConversation(LoopRound round) async {
+    final reference = _reference;
+    final playable = <String>{
+      for (final layer in _layers ?? const <SharedLayer>[])
+        if (_localPaths[layer.id] != null) layer.id,
+    };
+    return TakeTurns.write(
+      takes: MyPartMix.apply(_takes, _myPart),
+      round: round,
+      passage: TakeTurns.passageOf(
+        round,
+        sections: reference?.structureSections ?? const <StructureSection>[],
+        downbeatsMs: reference?.downbeatsMs ?? const <int>[],
+      ),
+      turns: TakeTurns.conversation(round, playable: playable),
+      outputPath: await _nextMixPath(kind: 'mix_turns'),
+    );
+  }
+
+  /// Taking turns: the control that starts a round, or the round itself.
+  ///
+  /// One round at a time on a song, so this is one thing or the other. With
+  /// a round going the card is here for everybody in the room; without one,
+  /// the chip is offered to anybody who can record. Under the part chips,
+  /// because it is the same kind of thing: a way of hearing and adding to
+  /// the song that is chosen from here, with nothing said about it until
+  /// somebody taps it.
+  Widget _takeTurnsRow({required bool canRecord}) {
+    final round = _round;
+    final me = _me;
+    final layers = _layers ?? const <SharedLayer>[];
+    final canStart = canRecord &&
+        _repository != null &&
+        BetaScope.maybeOf(context)?.roomById(widget.roomId) != null;
+    final start = Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ActionChip(
+          key: const Key('take_turns_start'),
+          avatar: const Icon(Icons.loop_rounded, size: 16, color: AppColors.cyan),
+          label: const Text(TakeTurns.startLabel),
+          backgroundColor: AppColors.raised,
+          labelStyle: const TextStyle(color: AppColors.text, fontSize: 12.5),
+          side: BorderSide(color: AppColors.cyan.withValues(alpha: 0.25)),
+          visualDensity: VisualDensity.compact,
+          onPressed:
+              _busy || _recording ? null : () => unawaited(_startTurns()),
+        ),
+      ),
+    );
+    if (round == null) return canStart ? start : const SizedBox.shrink();
+
+    final reference = _reference;
+    final room = BetaScope.maybeOf(context)?.roomById(widget.roomId);
+    final owner = me != null &&
+        (room?.members.any((member) =>
+                member.userId == me && member.role == RoomRole.owner) ??
+            false);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        TakeTurnsCard(
+          // A new round is a new card, so a conversation that was playing
+          // from the last one does not carry on under this one.
+          key: ValueKey<String>('round_${round.id}'),
+          round: round,
+          passage: TakeTurns.passageOf(
+            round,
+            sections:
+                reference?.structureSections ?? const <StructureSection>[],
+            downbeatsMs: reference?.downbeatsMs ?? const <int>[],
+          ),
+          me: me,
+          conversation: TakeTurns.conversation(
+            round,
+            playable: <String>{
+              for (final layer in layers)
+                if (_localPaths[layer.id] != null) layer.id,
+            },
+          ),
+          draft: TakeTurns.draftFor(
+            round,
+            layers,
+            me: me,
+            alreadyTurns: TakeTurns.turnIds(_rounds),
+          ),
+          canSit: canRecord,
+          canRecordHere: !kIsWeb,
+          canHear: !kIsWeb,
+          canEnd: me != null && (round.startedBy == me || owner),
+          busy: _busy || _recording,
+          onRecord: () => unawaited(_recordMyTurn(round)),
+          onHandIn: (draft) => unawaited(_handInMyTurn(round, draft)),
+          onSkip: () => unawaited(_moveRound(
+            (repository) => repository.skipMyTurn(round.id),
+            stage: 'takes.turns.skip',
+          )),
+          onJoin: () => unawaited(_moveRound(
+            (repository) => repository.joinLoopRound(round.id),
+            stage: 'takes.turns.join',
+          )),
+          onEnd: () => unawaited(_moveRound(
+            (repository) => repository.endLoopRound(round.id),
+            stage: 'takes.turns.end',
+          )),
+          writeConversation: () => _writeConversation(round),
+          hush: _hushTurns,
+          onWillHear: () async {
+            // One thing sounding at a time: the song stops for the round.
+            if (_thenAndNow != null) await _stopThenAndNow();
+            if (_playing && !_recording) await _togglePlay();
+          },
+        ),
+        // The last round is over: the next one starts from here.
+        if (round.ended && canStart) start,
+      ],
+    );
+  }
+
   /// Plays the current mix, looping it when it is only a click.
   Future<void> _playMix({Duration from = Duration.zero}) async {
     final path = _lastMixPath;
@@ -1073,8 +1403,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// (Every Musician, Same Song, 17 September 2026).
   MyPart? _myPart;
 
-  Future<void> _record() async {
+  /// [at] is where the take lands, for a recording that has to start on
+  /// an exact place -- a turn, on the first millisecond of its passage --
+  /// rather than wherever the playhead was last reported to be.
+  Future<void> _record({Duration? at}) async {
     if (_busy || _recording) return;
+    _hushTurns.value += 1;
     final allowed = await MicrophoneAccess.ensureGranted(
       context,
       purpose: 'to add a take to this song',
@@ -1106,7 +1440,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // here so the mix, not that file, is what plays under the recording.
       // The playhead stays where it was, which is somewhere on those bars.
       if (_thenAndNow != null) await _stopThenAndNow();
-      _punchInAt = _position;
+      _punchInAt = at ?? _position;
       final hasBacking = await _rebuildMix();
       // A punch-in into a song with a beat of its own is counted in: one bar
       // of the song's time, and the song back in on the downbeat (Every
@@ -1128,7 +1462,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       if (countIn != null) {
         // The take lands on the top of the bar the playhead was in, which is
         // where the count hands over: see TakeCountIn.downbeatMs.
-        _punchInAt = Duration(milliseconds: countIn.downbeatMs);
+        //
+        // Except a turn, which lands on the first millisecond of its passage
+        // and nowhere else. That is the one everybody in the round is
+        // playing from, so it is where the count hands over; and a turn that
+        // began a beat earlier is not on the bars the round is on -- 0159
+        // refuses to take it, and the card would never find it to hand in.
+        if (_turnFor == null) {
+          _punchInAt = Duration(milliseconds: countIn.downbeatMs);
+        }
         // Before the recorder starts, so none of the getting ready is on the
         // front of the take and the recorder's head start stays as quiet as
         // it has always been.
@@ -1181,6 +1523,13 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       _elapsed = Duration.zero;
       _timer = Timer.periodic(const Duration(milliseconds: 200), (_) {
         if (mounted) setState(() => _elapsed += const Duration(milliseconds: 200));
+        // A turn ends where its passage does, on its own. The next player
+        // comes in on the one, and nobody has to reach for the phone in
+        // the last bar of their solo.
+        final turn = _turnFor;
+        if (turn != null && _elapsed.inMilliseconds >= turn.lengthMs) {
+          unawaited(_stop());
+        }
       });
       if (mounted) {
         setState(() {
@@ -1442,7 +1791,22 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       } catch (_) {
         // An orphan in the app's own directory, not worth failing an upload.
       }
+      // A turn is recorded against the loop alone (see _rebuildMix). Let go
+      // of it before anything is mixed again, so what plays next is the song
+      // as this person hears it.
+      _turnFor = null;
       await _load();
+      // The mix on disk is the one this take was recorded against, so it
+      // does not have the take in it, and Play only builds a mix when there
+      // is none. Without this the first thing somebody hears after recording
+      // is the song without what they just played -- and for a turn, "Go
+      // again" or "Hand it in" is a choice made by listening.
+      //
+      // Busy again while it is written, because _load has just said
+      // otherwise and Play is only held back by that: a press in the second
+      // this takes would start the old file as it is being replaced.
+      if (mounted) setState(() => _busy = true);
+      await _rebuildMix();
 
       // Rewind to just before the punch, the way a desk does.
       //
@@ -1478,6 +1842,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       ));
       if (mounted) setState(() => _error = reportAndDescribe(error, service: 'layers', route: 'Takes'));
     } finally {
+      // Whatever happened, the turn is no longer being recorded.
+      _turnFor = null;
       if (mounted) {
         setState(() {
           _busy = false;
@@ -1594,6 +1960,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
 
   Future<void> _togglePlay() async {
     if (_recording) return;
+    if (!_playing) _hushTurns.value += 1;
     // Then and now stops rather than pauses. It is a passage, and the way
     // back in is the chip, or Play, which lands on the same bars.
     if (_thenAndNow != null) {
@@ -2101,6 +2468,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
                       children: <Widget>[
                         if (!hasSomethingToHear) _EmptyState(),
+                        // A round started on a song with nothing on it yet. The
+                        // card has to be here or the first person up could never
+                        // take their turn; the chip that starts one waits for
+                        // there to be something to go round.
+                        if (!hasSomethingToHear && _round != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 14),
+                            child: _takeTurnsRow(canRecord: canRecord),
+                          ),
                         // What a browser cannot do, said before somebody presses
                         // a fader and wonders why nothing moved.
                         //
@@ -2201,6 +2577,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                           // a part more than once. Not in a browser, for the
                           // same reason: there is no mix to build it from.
                           if (!kIsWeb) _thenAndNowRow(),
+                          // Taking turns on a passage. In a browser too: the
+                          // order, Skip me and I'm in are rows, and only hearing
+                          // it back and recording need the app.
+                          _takeTurnsRow(canRecord: canRecord),
                           const SizedBox(height: 14),
                           _timeline(),
                           if (_notes.isNotEmpty) ...<Widget>[

@@ -9812,6 +9812,603 @@ end $$;
 
 reset role;
 
+-- ---------------------------------------------------------------------
+-- Take turns on the loop (0159).
+--
+-- Every Musician, Same Song, 17 September 2026, slice 33. Five things have
+-- to hold. Only the room can start, join, read or end a round, and a viewer
+-- can read one and never sit in it. Turns advance in the order given, and a
+-- take handed in out of turn stays the draft it was. A skip is silent: the
+-- next person gets the same two lines they would have got anyway, with no
+-- actor on them, nobody else is told anything, and the seat is gone from
+-- everybody's reading of the round but the skipper's own -- at the table as
+-- well as through the function. A turn nobody takes passes the same way,
+-- but never on the look of the person whose turn it is. And the result
+-- waits for everybody in it: handing a turn in shares the take, so 0155's
+-- gate counts it without having heard of rounds.
+--
+-- Fresh actors and a fresh room, as 0155's block.
+-- ---------------------------------------------------------------------
+
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('a0a0a159-0000-0000-0000-00000000000b', 'secondverse@smoke.test',
+   '{"display_name": "Second Verse"}'),
+  ('a0a0a159-0000-0000-0000-00000000000c', 'thirdchair@smoke.test',
+   '{"display_name": "Third Chair"}'),
+  -- In the room, and only listening.
+  ('a0a0a159-0000-0000-0000-00000000000d', 'justlistening@smoke.test',
+   '{"display_name": "Just Listening"}'),
+  -- Never in the room.
+  ('a0a0a159-0000-0000-0000-00000000000e', 'nextdoor@smoke.test',
+   '{"display_name": "Next Door"}');
+
+insert into public.rooms (id, account_id, name)
+values ('a0a0a159-0000-0000-0000-000000000001',
+        '11111111-1111-1111-1111-111111111111', 'The Cypher Room');
+
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('a0a0a159-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
+   'The Writer', 'owner', 4294937166),
+  ('a0a0a159-0000-0000-0000-000000000001', 'a0a0a159-0000-0000-0000-00000000000b',
+   'Second Verse', 'editor', 4283215698),
+  ('a0a0a159-0000-0000-0000-000000000001', 'a0a0a159-0000-0000-0000-00000000000c',
+   'Third Chair', 'editor', 4283215699),
+  ('a0a0a159-0000-0000-0000-000000000001', 'a0a0a159-0000-0000-0000-00000000000d',
+   'Just Listening', 'viewer', 4283215700);
+
+insert into public.projects (id, room_id, account_id, title, created_by, song_origin) values
+  ('a0a0a159-0000-0000-0000-000000000002', 'a0a0a159-0000-0000-0000-000000000001',
+   '11111111-1111-1111-1111-111111111111', 'Round The Room',
+   '11111111-1111-1111-1111-111111111111', 'ours');
+
+-- Every one a draft. The passage will be 8 to 24 seconds; three takes start
+-- on it and two start at the top of the song.
+insert into public.song_layers
+  (id, project_id, recorded_by, storage_path, label, part, duration_ms, start_ms, shared_at)
+values
+  ('a0a0a159-0000-0000-0000-0000000000a1', 'a0a0a159-0000-0000-0000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'a0a0a159-0000-0000-0000-000000000001/a0a0a159-0000-0000-0000-000000000002/layers/turn-one.m4a',
+   'Turn', 'lead', 16000, 8000, null),
+  ('a0a0a159-0000-0000-0000-0000000000a2', 'a0a0a159-0000-0000-0000-000000000002',
+   'a0a0a159-0000-0000-0000-00000000000b',
+   'a0a0a159-0000-0000-0000-000000000001/a0a0a159-0000-0000-0000-000000000002/layers/turn-two.m4a',
+   'Turn', 'lead', 16000, 8000, null),
+  ('a0a0a159-0000-0000-0000-0000000000a3', 'a0a0a159-0000-0000-0000-000000000002',
+   'a0a0a159-0000-0000-0000-00000000000c',
+   'a0a0a159-0000-0000-0000-000000000001/a0a0a159-0000-0000-0000-000000000002/layers/turn-three.m4a',
+   'Turn', 'lead', 16000, 8000, null),
+  ('a0a0a159-0000-0000-0000-0000000000a4', 'a0a0a159-0000-0000-0000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'a0a0a159-0000-0000-0000-000000000001/a0a0a159-0000-0000-0000-000000000002/layers/intro.m4a',
+   'Intro idea', 'lead', 4000, 0, null),
+  ('a0a0a159-0000-0000-0000-0000000000a5', 'a0a0a159-0000-0000-0000-000000000002',
+   '11111111-1111-1111-1111-111111111111',
+   'a0a0a159-0000-0000-0000-000000000001/a0a0a159-0000-0000-0000-000000000002/layers/again.m4a',
+   'Turn again', 'lead', 16000, 8000, null);
+
+-- Somebody outside the room cannot start one, and is told what they would
+-- be told about a song that does not exist.
+set local request.jwt.claims = '{"sub": "a0a0a159-0000-0000-0000-00000000000e"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.start_loop_round(
+      'a0a0a159-0000-0000-0000-000000000002', 8000, 24000, null);
+    raise exception 'somebody outside the room started a round in it';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+-- Nor can somebody who is only listening.
+reset role;
+set local request.jwt.claims = '{"sub": "a0a0a159-0000-0000-0000-00000000000d"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.start_loop_round(
+      'a0a0a159-0000-0000-0000-000000000002', 8000, 24000, null);
+    raise exception 'a viewer started a round';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- The owner starts it: the passage, and the order of whoever wants in.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.start_loop_round(
+      'a0a0a159-0000-0000-0000-000000000002', 8000, 24000,
+      array['11111111-1111-1111-1111-111111111111',
+            'a0a0a159-0000-0000-0000-00000000000d']::uuid[]);
+    raise exception 'a viewer was given a turn they could never take';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.start_loop_round(
+      'a0a0a159-0000-0000-0000-000000000002', 8000, 24000,
+      array['11111111-1111-1111-1111-111111111111',
+            'a0a0a159-0000-0000-0000-00000000000e']::uuid[]);
+    raise exception 'somebody outside the room was put in the order';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.start_loop_round(
+      'a0a0a159-0000-0000-0000-000000000002', 24000, 8000, null);
+    raise exception 'a passage that ends before it starts was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- Second Verse is named twice and sits once, where they were first named.
+  perform set_config('smoke.round', public.start_loop_round(
+    'a0a0a159-0000-0000-0000-000000000002', 8000, 24000,
+    array['11111111-1111-1111-1111-111111111111',
+          'a0a0a159-0000-0000-0000-00000000000b',
+          'a0a0a159-0000-0000-0000-00000000000c',
+          'a0a0a159-0000-0000-0000-00000000000b']::uuid[])::text, true);
+
+  begin
+    perform public.start_loop_round(
+      'a0a0a159-0000-0000-0000-000000000002', 0, 8000, null);
+    raise exception 'a second round started while somebody was still waiting on the first';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select array_agg(s.user_id order by s.place) from public.loop_seats s
+        where s.round_id = current_setting('smoke.round')::uuid)
+     is distinct from array[
+       '11111111-1111-1111-1111-111111111111',
+       'a0a0a159-0000-0000-0000-00000000000b',
+       'a0a0a159-0000-0000-0000-00000000000c']::uuid[] then
+    raise exception 'the order was not the order given';
+  end if;
+
+  -- Everybody in the order but the person who started it is told once, and
+  -- told that skipping is free. Nobody is told it is their turn: the person
+  -- who is up is the one who pressed the button.
+  if (select count(*) from public.notifications
+      where project_id = 'a0a0a159-0000-0000-0000-000000000002'
+        and title = 'The Writer started taking turns on Round The Room'
+        and body like '%Skipping is free%'
+        and user_id in ('a0a0a159-0000-0000-0000-00000000000b',
+                        'a0a0a159-0000-0000-0000-00000000000c')) <> 2 then
+    raise exception 'the people in the order were not told they were in it';
+  end if;
+  if exists (select 1 from public.notifications
+             where project_id = 'a0a0a159-0000-0000-0000-000000000002'
+               and user_id = '11111111-1111-1111-1111-111111111111') then
+    raise exception 'the person who started the round was told about it';
+  end if;
+end $$;
+
+-- A stranger reads nothing, here or at the tables, and can do nothing.
+set local request.jwt.claims = '{"sub": "a0a0a159-0000-0000-0000-00000000000e"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.loop_rounds_for('a0a0a159-0000-0000-0000-000000000002')) then
+    raise exception 'somebody outside the room read its round';
+  end if;
+  if exists (select 1 from public.loop_rounds) then
+    raise exception 'somebody outside the room read the rounds table';
+  end if;
+  if exists (select 1 from public.loop_seats) then
+    raise exception 'somebody with no seat read the seats table';
+  end if;
+  begin
+    perform public.join_loop_round(current_setting('smoke.round')::uuid);
+    raise exception 'somebody outside the room joined its round';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.hand_in_my_turn(
+      current_setting('smoke.round')::uuid, 'a0a0a159-0000-0000-0000-0000000000a1');
+    raise exception 'somebody outside the room handed in a turn';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.skip_my_turn(current_setting('smoke.round')::uuid);
+    raise exception 'somebody outside the room skipped a turn';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.end_loop_round(current_setting('smoke.round')::uuid);
+    raise exception 'somebody outside the room ended its round';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+-- A viewer hears it like the rest of the room, and cannot sit in it.
+reset role;
+set local request.jwt.claims = '{"sub": "a0a0a159-0000-0000-0000-00000000000d"}';
+set local role authenticated;
+
+do $$
+begin
+  if not exists (select 1 from public.loop_rounds_for('a0a0a159-0000-0000-0000-000000000002')) then
+    raise exception 'somebody in the room could not read its round';
+  end if;
+  begin
+    perform public.join_loop_round(current_setting('smoke.round')::uuid);
+    raise exception 'a viewer joined a round';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Out of turn: refused, and the take stays the draft it was.
+reset role;
+set local request.jwt.claims = '{"sub": "a0a0a159-0000-0000-0000-00000000000b"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.hand_in_my_turn(
+      current_setting('smoke.round')::uuid, 'a0a0a159-0000-0000-0000-0000000000a2');
+    raise exception 'a turn was handed in ahead of the person before';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select shared_at from public.song_layers
+        where id = 'a0a0a159-0000-0000-0000-0000000000a2') is not null then
+    raise exception 'a refused turn was shared with the room anyway';
+  end if;
+end $$;
+
+-- The owner's turn. Not somebody else's take, not a take from the top of
+-- the song; then their own, which shares it and moves the turn on.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  heard record;
+begin
+  begin
+    perform public.hand_in_my_turn(
+      current_setting('smoke.round')::uuid, 'a0a0a159-0000-0000-0000-0000000000a2');
+    raise exception 'somebody else''s take was handed in as a turn';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.hand_in_my_turn(
+      current_setting('smoke.round')::uuid, 'a0a0a159-0000-0000-0000-0000000000a4');
+    raise exception 'a take that is not on the passage was handed in';
+  exception when invalid_parameter_value then null;
+  end;
+
+  perform public.hand_in_my_turn(
+    current_setting('smoke.round')::uuid, 'a0a0a159-0000-0000-0000-0000000000a1');
+
+  select * into heard
+  from public.loop_rounds_for('a0a0a159-0000-0000-0000-000000000002')
+  where id = current_setting('smoke.round')::uuid;
+  if heard.up is distinct from 'a0a0a159-0000-0000-0000-00000000000b' then
+    raise exception 'the turn did not move to the next person in the order (%)', heard.up;
+  end if;
+  if heard.seats -> 0 ->> 'state' is distinct from 'played'
+     or heard.seats -> 0 ->> 'layer_id' is distinct from 'a0a0a159-0000-0000-0000-0000000000a1' then
+    raise exception 'the first seat does not carry the turn handed in: %', heard.seats;
+  end if;
+
+  -- One turn each: the turn has moved, so a second take is refused.
+  begin
+    perform public.hand_in_my_turn(
+      current_setting('smoke.round')::uuid, 'a0a0a159-0000-0000-0000-0000000000a5');
+    raise exception 'a second turn was handed in by the same person';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select shared_at from public.song_layers
+        where id = 'a0a0a159-0000-0000-0000-0000000000a1') is null then
+    raise exception 'a turn handed in was not shared with the room';
+  end if;
+  if (select count(*) from public.notifications
+      where user_id = 'a0a0a159-0000-0000-0000-00000000000b'
+        and title = 'Your turn on Round The Room'
+        and actor_id is null) <> 1 then
+    raise exception 'the next person was not told, once, that it is their turn';
+  end if;
+  if exists (select 1 from public.notifications
+             where user_id = 'a0a0a159-0000-0000-0000-00000000000c'
+               and title = 'Your turn on Round The Room') then
+    raise exception 'somebody was told it was their turn when it was not';
+  end if;
+end $$;
+
+-- Skip me. The skipper still reads their own seat.
+set local request.jwt.claims = '{"sub": "a0a0a159-0000-0000-0000-00000000000b"}';
+set local role authenticated;
+
+do $$
+declare
+  heard record;
+begin
+  perform public.skip_my_turn(current_setting('smoke.round')::uuid);
+  -- Twice is not an error and says nothing new.
+  perform public.skip_my_turn(current_setting('smoke.round')::uuid);
+
+  select * into heard
+  from public.loop_rounds_for('a0a0a159-0000-0000-0000-000000000002')
+  where id = current_setting('smoke.round')::uuid;
+  if not (heard.seats @> '[{"id": "a0a0a159-0000-0000-0000-00000000000b", "state": "out"}]'::jsonb) then
+    raise exception 'somebody who skipped cannot see that they are sitting out: %', heard.seats;
+  end if;
+end $$;
+
+-- Nobody else can. Not through the function, not at the table.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  heard record;
+begin
+  select * into heard
+  from public.loop_rounds_for('a0a0a159-0000-0000-0000-000000000002')
+  where id = current_setting('smoke.round')::uuid;
+  if heard.up is distinct from 'a0a0a159-0000-0000-0000-00000000000c' then
+    raise exception 'a skip did not pass the turn on (%)', heard.up;
+  end if;
+  if jsonb_array_length(heard.seats) <> 2
+     or heard.seats @> '[{"id": "a0a0a159-0000-0000-0000-00000000000b"}]'::jsonb then
+    raise exception 'a skipped seat was still in a bandmate''s reading of the round: %', heard.seats;
+  end if;
+  if exists (select 1 from public.loop_seats
+             where user_id is distinct from '11111111-1111-1111-1111-111111111111') then
+    raise exception 'a bandmate could read somebody else''s seat at the table';
+  end if;
+end $$;
+
+reset role;
+do $$
+begin
+  -- The next person gets the same two lines, with nobody's name on them.
+  if (select count(*) from public.notifications
+      where user_id = 'a0a0a159-0000-0000-0000-00000000000c'
+        and title = 'Your turn on Round The Room'
+        and actor_id is null) <> 1 then
+    raise exception 'the person after a skip was not told, once, that it is their turn';
+  end if;
+  -- And that is all anybody is told. The skipper has caused no notification
+  -- at all, and the owner has still heard nothing about this round.
+  if exists (select 1 from public.notifications
+             where project_id = 'a0a0a159-0000-0000-0000-000000000002'
+               and actor_id = 'a0a0a159-0000-0000-0000-00000000000b') then
+    raise exception 'a skip was announced';
+  end if;
+  if exists (select 1 from public.notifications
+             where project_id = 'a0a0a159-0000-0000-0000-000000000002'
+               and user_id = '11111111-1111-1111-1111-111111111111') then
+    raise exception 'the owner was told something when a bandmate skipped';
+  end if;
+
+  -- Four days go by and Third Chair has not played.
+  update public.loop_rounds
+  set turn_since = now() - interval '4 days'
+  where id = current_setting('smoke.round')::uuid;
+end $$;
+
+-- Their own look never takes the turn away from them.
+set local request.jwt.claims = '{"sub": "a0a0a159-0000-0000-0000-00000000000c"}';
+set local role authenticated;
+
+do $$
+declare
+  heard record;
+begin
+  select * into heard
+  from public.loop_rounds_for('a0a0a159-0000-0000-0000-000000000002')
+  where id = current_setting('smoke.round')::uuid;
+  if heard.up is distinct from 'a0a0a159-0000-0000-0000-00000000000c' then
+    raise exception 'somebody opened the app to take their turn and watched it leave';
+  end if;
+end $$;
+
+-- Anybody else's look passes it, the way a skip does.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  heard record;
+begin
+  select * into heard
+  from public.loop_rounds_for('a0a0a159-0000-0000-0000-000000000002')
+  where id = current_setting('smoke.round')::uuid;
+  if heard.up is not null then
+    raise exception 'a turn nobody took did not pass (%)', heard.up;
+  end if;
+  if jsonb_array_length(heard.seats) <> 1 then
+    raise exception 'a passed seat was still in a bandmate''s reading of the round: %', heard.seats;
+  end if;
+end $$;
+
+reset role;
+do $$
+begin
+  if exists (select 1 from public.notifications
+             where project_id = 'a0a0a159-0000-0000-0000-000000000002'
+               and (actor_id = 'a0a0a159-0000-0000-0000-00000000000c'
+                    or user_id = '11111111-1111-1111-1111-111111111111')) then
+    raise exception 'a turn that passed on its own was announced';
+  end if;
+end $$;
+
+-- Count me back in: the end of the order, and the turn, since nobody else
+-- is waiting.
+set local request.jwt.claims = '{"sub": "a0a0a159-0000-0000-0000-00000000000b"}';
+set local role authenticated;
+
+do $$
+declare
+  heard record;
+begin
+  perform public.join_loop_round(current_setting('smoke.round')::uuid);
+  select * into heard
+  from public.loop_rounds_for('a0a0a159-0000-0000-0000-000000000002')
+  where id = current_setting('smoke.round')::uuid;
+  if heard.up is distinct from 'a0a0a159-0000-0000-0000-00000000000b' then
+    raise exception 'somebody who came back in did not get a turn (%)', heard.up;
+  end if;
+  perform public.hand_in_my_turn(
+    current_setting('smoke.round')::uuid, 'a0a0a159-0000-0000-0000-0000000000a2');
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "a0a0a159-0000-0000-0000-00000000000c"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.join_loop_round(current_setting('smoke.round')::uuid);
+  perform public.hand_in_my_turn(
+    current_setting('smoke.round')::uuid, 'a0a0a159-0000-0000-0000-0000000000a3');
+end $$;
+
+-- The conversation, in the order it was had; and the result waits for
+-- everybody in it, because every turn is a shared take (0155).
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  heard record;
+begin
+  select * into heard
+  from public.loop_rounds_for('a0a0a159-0000-0000-0000-000000000002')
+  where id = current_setting('smoke.round')::uuid;
+  if heard.seats -> 0 ->> 'layer_id' is distinct from 'a0a0a159-0000-0000-0000-0000000000a1'
+     or heard.seats -> 1 ->> 'layer_id' is distinct from 'a0a0a159-0000-0000-0000-0000000000a2'
+     or heard.seats -> 2 ->> 'layer_id' is distinct from 'a0a0a159-0000-0000-0000-0000000000a3'
+     or jsonb_array_length(heard.seats) <> 3 then
+    raise exception 'the turns did not come back in the order they were taken: %', heard.seats;
+  end if;
+
+  if public.put_on_open_mic('a0a0a159-0000-0000-0000-000000000002') is not null then
+    raise exception 'a round went in front of strangers before everybody in it said yes';
+  end if;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select count(*) from public.take_consents
+      where layer_id in ('a0a0a159-0000-0000-0000-0000000000a2',
+                         'a0a0a159-0000-0000-0000-0000000000a3')
+        and answered_at is null) <> 2 then
+    raise exception 'the people in the round were not each asked about their turn';
+  end if;
+end $$;
+
+-- Each can pull their slot: taking the take back from the room empties the
+-- seat, and so does deleting it.
+set local request.jwt.claims = '{"sub": "a0a0a159-0000-0000-0000-00000000000b"}';
+set local role authenticated;
+select public.unshare_layer('a0a0a159-0000-0000-0000-0000000000a2');
+
+reset role;
+delete from public.song_layers where id = 'a0a0a159-0000-0000-0000-0000000000a3';
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  heard record;
+begin
+  select * into heard
+  from public.loop_rounds_for('a0a0a159-0000-0000-0000-000000000002')
+  where id = current_setting('smoke.round')::uuid;
+  if jsonb_array_length(heard.seats) <> 1
+     or heard.seats -> 0 ->> 'layer_id' is distinct from 'a0a0a159-0000-0000-0000-0000000000a1' then
+    raise exception 'a pulled turn was still in the conversation: %', heard.seats;
+  end if;
+end $$;
+
+-- Ending it belongs to whoever started it, or the room's owner.
+reset role;
+set local request.jwt.claims = '{"sub": "a0a0a159-0000-0000-0000-00000000000c"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.end_loop_round(current_setting('smoke.round')::uuid);
+    raise exception 'a bandmate ended a round they did not start';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.end_loop_round(current_setting('smoke.round')::uuid);
+  -- The next one can start now. Nobody named: the order is the starter.
+  perform set_config('smoke.round_two', public.start_loop_round(
+    'a0a0a159-0000-0000-0000-000000000002', 0, 8000, null)::text, true);
+  -- They skip, so nobody is waiting on it.
+  perform public.skip_my_turn(current_setting('smoke.round_two')::uuid);
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "a0a0a159-0000-0000-0000-00000000000b"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.join_loop_round(current_setting('smoke.round')::uuid);
+    raise exception 'somebody joined a round that was over';
+  exception when invalid_parameter_value then null;
+  end;
+  -- A round nobody is waiting on makes way for the next without being ended.
+  perform public.start_loop_round(
+    'a0a0a159-0000-0000-0000-000000000002', 0, 8000,
+    array['a0a0a159-0000-0000-0000-00000000000b']::uuid[]);
+end $$;
+
+reset role;
+do $$
+begin
+  if (select count(*) from public.loop_rounds
+      where project_id = 'a0a0a159-0000-0000-0000-000000000002') <> 3 then
+    raise exception 'expected three rounds on the song';
+  end if;
+  if (select count(*) from public.loop_rounds
+      where project_id = 'a0a0a159-0000-0000-0000-000000000002'
+        and ended_at is null) <> 1 then
+    raise exception 'a song has more than one round going, or none';
+  end if;
+end $$;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 -- ---------------------------------------------------------------------
