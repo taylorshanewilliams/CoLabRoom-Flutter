@@ -128,11 +128,13 @@ Duration countInBeatAt(CountIn countIn, int beat) => countIn.beat * (beat - 1);
 /// counting. The rate is applied after the range check, because a song
 /// slowed to half speed really is going to arrive at half the tempo.
 /// [barOne] is which downbeat the band says is bar 1 (0161). The metre is
-/// counted from there rather than from the top of the recording, because what
-/// sits in front of bar 1 is the very thing that is not a bar of this song: a
-/// count-in somebody left on the front, or a pickup phrase shorter than a
-/// bar. Measured across the whole grid, one short lead-in can drag the median
-/// gap down and count a band in on three when the song is in four.
+/// counted from there rather than across the whole grid, because what sits in
+/// front of bar 1 is the one stretch that is not a bar of this song: a
+/// count-in somebody left on the recording, or a pickup phrase. The median
+/// above is a defence against one downbeat the tracker dropped; it was never
+/// a defence against a count-in the tracker read as bars of its own, and four
+/// bars of a two-beat count on the front of a short recording will outvote
+/// the song and count the band in on two.
 CountIn? countInFor({
   double? bpm,
   int? beatsPerBar,
