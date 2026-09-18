@@ -756,6 +756,37 @@ abstract interface class MusicRepository {
   /// and to the teacher whose link made it.
   Future<bool> isLessonRoom(String roomId);
 
+  /// The rooms made by this person's own lesson links (0129), by id: one a
+  /// student, every student they teach. Empty for somebody who teaches
+  /// nobody, which is nearly everybody.
+  ///
+  /// Safe for the same reason [isLessonRoom] is: a room is listed only for
+  /// the teacher whose link made it, so somebody's own lessons as a student
+  /// are not among them.
+  Future<List<String>> lessonRoomsTaught();
+
+  /// Sends a copy of the song into each of [roomIds], every one a lesson
+  /// this person teaches, and returns the rooms that received a copy now
+  /// (0149).
+  ///
+  /// Every Musician, Same Song, 17 September 2026: copied, never shared,
+  /// so each student works on their own copy where only the two of them can
+  /// hear it. Only the owner of the room the song lives in may send it: a
+  /// song leaving its room is the room owner's decision, as putting it on
+  /// the Open Mic is (0142), and an editor of a band room is refused. What
+  /// goes is the words with their writers, the chords, and -- for a song
+  /// marked ours or public domain -- the recording, copied to an object of
+  /// the copy's own with its analysis, so nothing is analysed again.
+  /// Somebody else's song travels without its recording. A room that
+  /// already holds a copy is skipped rather than given a second, and is not
+  /// counted even when sending again finishes a recording that never
+  /// arrived on it. A lesson whose student has left is skipped; one room
+  /// that is not a lesson of theirs refuses the whole send.
+  Future<List<String>> sendSongToStudents({
+    required String projectId,
+    required List<String> roomIds,
+  });
+
   /// Your code for meeting in person (0130), made the first time you ask.
   Future<String> myMeetingCode();
 

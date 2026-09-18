@@ -90,6 +90,21 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   StreamSubscription<void>? _changesSubscription;
   Timer? _reloadDebounce;
 
+  /// The lesson rooms this person teaches (0129), by id, asked of the
+  /// repository once per [load] rather than once per song opened: nearly
+  /// everybody teaches nobody, and the answer changes only when a student
+  /// joins, which is when the rooms themselves change and are read again.
+  /// A failed ask is not kept, so the next song asks afresh.
+  List<String>? _taught;
+
+  Future<List<String>> lessonRoomsTaught() async {
+    final known = _taught;
+    if (known != null) return known;
+    final taught = await repository.lessonRoomsTaught();
+    _taught = taught;
+    return taught;
+  }
+
   // Room logos / song covers are stored privately and fetched by storage
   // path on demand, then kept here so every tile rebuild doesn't re-hit
   // storage — cleared for a path once its Room/Song's logo/cover changes.
@@ -352,6 +367,7 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     if (_loading) return;
     _loading = true;
     _error = null;
+    _taught = null;
     notifyListeners();
     try {
       // The first call carries the token past the server for the first time
