@@ -10002,7 +10002,7 @@ begin
   if exists (select 1 from public.loop_rounds_for('a0a0a159-0000-0000-0000-000000000002')) then
     raise exception 'somebody outside the room read its round';
   end if;
-  if exists (select 1 from public.loop_rounds) then
+  if exists (select r.id from public.loop_rounds r) then
     raise exception 'somebody outside the room read the rounds table';
   end if;
   if exists (select 1 from public.loop_seats) then
@@ -10180,6 +10180,13 @@ begin
              where user_id is distinct from '11111111-1111-1111-1111-111111111111') then
     raise exception 'a bandmate could read somebody else''s seat at the table';
   end if;
+  -- Nor when the turn last moved, which with no take shared against it is
+  -- exactly when somebody skipped. It is not in the select grant.
+  begin
+    perform r.turn_since from public.loop_rounds r;
+    raise exception 'a bandmate could read when the turn last moved';
+  exception when insufficient_privilege then null;
+  end;
 end $$;
 
 reset role;
@@ -10406,6 +10413,77 @@ begin
       where project_id = 'a0a0a159-0000-0000-0000-000000000002'
         and ended_at is null) <> 1 then
     raise exception 'a song has more than one round going, or none';
+  end if;
+
+  -- The one Second Verse just started, and what Third Chair has been told
+  -- so far, for the last thing this block has to show.
+  perform set_config('smoke.round_last',
+    (select r.id::text from public.loop_rounds r
+      where r.project_id = 'a0a0a159-0000-0000-0000-000000000002'
+        and r.ended_at is null), true);
+  perform set_config('smoke.told_third',
+    (select count(*)::text from public.notifications
+      where user_id = 'a0a0a159-0000-0000-0000-00000000000c'
+        and title = 'Your turn on Round The Room'), true);
+end $$;
+
+-- A turn can move with nobody moving it: whoever is up leaves the room, or
+-- is made a viewer, and loop_round_up steps over them. Nothing runs at that
+-- moment, so without told_up the next look would find a turn that had been
+-- sitting for days and pass it -- taking it from somebody who was never
+-- told they had one.
+set local request.jwt.claims = '{"sub": "a0a0a159-0000-0000-0000-00000000000c"}';
+set local role authenticated;
+select public.join_loop_round(current_setting('smoke.round_last')::uuid);
+
+-- Second Verse, who is up, can no longer record here; and nobody has looked
+-- at the song for four days.
+reset role;
+update public.room_members set role = 'viewer'
+where room_id = 'a0a0a159-0000-0000-0000-000000000001'
+  and user_id = 'a0a0a159-0000-0000-0000-00000000000b';
+update public.loop_rounds
+set turn_since = now() - interval '4 days'
+where id = current_setting('smoke.round_last')::uuid;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  heard record;
+begin
+  select * into heard
+  from public.loop_rounds_for('a0a0a159-0000-0000-0000-000000000002')
+  where id = current_setting('smoke.round_last')::uuid;
+  if heard.up is distinct from 'a0a0a159-0000-0000-0000-00000000000c' then
+    raise exception 'the turn did not reach the next person when the one before it left (%)',
+      heard.up;
+  end if;
+  if not (heard.seats @> '[{"id": "a0a0a159-0000-0000-0000-00000000000c", "state": "waiting"}]'::jsonb) then
+    raise exception 'somebody was passed over for a turn they were never told about: %',
+      heard.seats;
+  end if;
+
+  -- And their three days start where it reached them: the next look leaves
+  -- it theirs.
+  select * into heard
+  from public.loop_rounds_for('a0a0a159-0000-0000-0000-000000000002')
+  where id = current_setting('smoke.round_last')::uuid;
+  if heard.up is distinct from 'a0a0a159-0000-0000-0000-00000000000c' then
+    raise exception 'a turn that had only just arrived was passed on the next look';
+  end if;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select count(*) from public.notifications
+      where user_id = 'a0a0a159-0000-0000-0000-00000000000c'
+        and title = 'Your turn on Round The Room'
+        and actor_id is null)
+     is distinct from current_setting('smoke.told_third')::integer + 1 then
+    raise exception 'the person a turn reached was not told, once, that it was theirs';
   end if;
 end $$;
 

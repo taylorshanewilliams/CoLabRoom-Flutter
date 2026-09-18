@@ -1096,15 +1096,21 @@ class InMemoryMusicRepository implements MusicRepository {
   final List<({String to, AppNotification notification})> told =
       <({String to, AppNotification notification})>[];
 
-  /// Puts somebody else in a room. For a test that needs more people than
-  /// the seed has: an order of two cannot show that a skip passes to the
-  /// next person rather than back to the first, and nobody seeded is a
-  /// viewer.
+  /// Puts somebody in a room, or changes how they are in it. For a test that
+  /// needs more people than the seed has -- an order of two cannot show that
+  /// a skip passes to the next person rather than back to the first, and
+  /// nobody seeded is a viewer -- or that needs somebody's part in a room to
+  /// change while a round is going.
   void addToRoom(String roomId, RoomMember member) {
     final room = _rooms.firstWhere((room) => room.id == roomId);
-    _replaceRoom(room.copyWith(
-      members: <RoomMember>[...room.members, member],
-    ));
+    final members = <RoomMember>[...room.members];
+    final at = members.indexWhere((who) => who.userId == member.userId);
+    if (at < 0) {
+      members.add(member);
+    } else {
+      members[at] = member;
+    }
+    _replaceRoom(room.copyWith(members: members));
   }
 
   /// Adds a take to a song. For a test that needs a shape the seed does not
@@ -1225,6 +1231,9 @@ class InMemoryMusicRepository implements MusicRepository {
   /// there, with no actor on them, and never to the person looking.
   void _tellWhoseTurn(_Round round) {
     final up = _upOn(round);
+    // Whoever is up has been told: by this, or by being the person looking
+    // at the card they just changed.
+    round.toldUp = up;
     if (up == null || up == currentUserId) return;
     _tell(
       up,
@@ -1239,9 +1248,19 @@ class InMemoryMusicRepository implements MusicRepository {
   /// `private.settle_loop_round`: one turn at most, and never the caller's.
   void _settle(_Round round) {
     if (round.ended) return;
-    if (DateTime.now().difference(round.turnSince) < _turnPatience) return;
     final holding = _upOn(round);
-    if (holding == null || holding == currentUserId) return;
+    if (holding == null) return;
+    // The turn reached them because somebody left the room or was made a
+    // viewer, not because anybody moved it. Their three days start now and
+    // they are told, rather than being passed over for a turn nobody ever
+    // said was theirs.
+    if (round.toldUp != holding) {
+      round.turnSince = DateTime.now();
+      _tellWhoseTurn(round);
+      return;
+    }
+    if (holding == currentUserId) return;
+    if (DateTime.now().difference(round.turnSince) < _turnPatience) return;
     round.seats.firstWhere((seat) => seat.userId == holding).state = 'out';
     round.turnSince = DateTime.now();
     _tellWhoseTurn(round);
@@ -1403,7 +1422,13 @@ class InMemoryMusicRepository implements MusicRepository {
         ..state = 'waiting'
         ..layerId = null;
     }
-    if (wasUp == null) round.turnSince = DateTime.now();
+    if (wasUp == null) {
+      round.turnSince = DateTime.now();
+      // Says nothing to the person who just pressed it; it records that
+      // they know, so the quiet pass does not read this as a turn that
+      // arrived with nobody told.
+      _tellWhoseTurn(round);
+    }
   }
 
   @override
@@ -4012,6 +4037,12 @@ class _Round {
 
   /// When the turn last moved. Read by the quiet pass and nothing else.
   DateTime turnSince;
+
+  /// Who was last told it was their turn, or was looking when it reached
+  /// them. The turn can move with nobody moving it -- somebody who was up
+  /// leaves the room or is made a viewer -- and this is how the quiet pass
+  /// tells that from a turn that has been sitting.
+  String? toldUp;
   bool ended = false;
 }
 

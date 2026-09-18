@@ -13,6 +13,7 @@ import '../../services/click_player.dart';
 import '../../services/follow_me.dart';
 import 'package:flutter/services.dart';
 
+import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../domain/practice_mark.dart';
@@ -33,6 +34,7 @@ import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
 import '../layers/my_part.dart';
 import '../layers/song_level_store.dart';
+import '../layers/take_turns.dart';
 import 'count_in.dart';
 import 'follow_me_bar.dart';
 import 'live_countdown_store.dart';
@@ -383,6 +385,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   List<SharedLayer> _layers = const <SharedLayer>[];
   final Map<String, String> _localTakes = <String, String>{};
   MyPart? _myPart;
+
+  /// The takes that are turns of a round (0159), which are left out here for
+  /// the reason the takes screen leaves them out: they all sit on the same
+  /// few bars, so a mix with every one of them switched on is four solos
+  /// playing at once, which nobody played. A round is heard in order, from
+  /// its own card on the takes screen. Every Musician, Same Song, 17
+  /// September 2026.
+  Set<String> _turns = const <String>{};
 
   /// Done once the recording is local, or has failed to be. A part kept
   /// from last time is restored after this, so the mix is built with the
@@ -1714,7 +1724,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       if (reference != null)
         _referenceTake(reference, path: _referencePath ?? '', level: 1),
       for (final layer in _layers)
-        layer.toTake(_localTakes[layer.id] ?? '', enabled: true),
+        // Not a turn of a round: it is not a part somebody plays through the
+        // song, it is one of several goes at the same few bars, and a chip
+        // for each would offer to bring one of them forward over the rest.
+        if (!_turns.contains(layer.id))
+          layer.toTake(_localTakes[layer.id] ?? '', enabled: true),
     ];
     return MyPartMix.offered(takes, referenceId: _referenceTakeId);
   }
@@ -1738,9 +1752,16 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     } catch (_) {
       return;
     }
+    // Which of them are turns, on the same terms as the takes: a song whose
+    // rounds will not load still performs. Read before the first mix is
+    // built, because it decides what goes in one.
+    final turns = await _readTurns();
     final kept = await MyPartStore.load(widget.project.id);
     if (!mounted) return;
-    setState(() => _layers = layers);
+    setState(() {
+      _layers = layers;
+      _turns = turns;
+    });
     if (kept == null || !_partTakes.any((take) => take.id == kept.takeId)) return;
     await _referenceReady.future;
     // Somebody was quicker than the recording, or the recording never came:
@@ -1749,6 +1770,21 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     if (!mounted || _myPart != null || _without != null) return;
     if (widget.analysis?.reference != null && _referencePath == null) return;
     await _setMyPart(kept);
+  }
+
+  /// The takes that are turns of a round on this song, or none when there
+  /// is no repository above this screen (a widget test) or the rounds will
+  /// not load. Never throws: see [_loadTakes].
+  Future<Set<String>> _readTurns() async {
+    if (!mounted) return const <String>{};
+    final repository = BetaScope.maybeOf(context, listen: false)?.repository;
+    if (repository == null) return const <String>{};
+    try {
+      return TakeTurns.turnIds(
+          await repository.loadLoopRounds(widget.project.id));
+    } catch (_) {
+      return const <String>{};
+    }
   }
 
   /// Every take as this listener hears it, each one local, with the song's
@@ -1765,6 +1801,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
           path: path, level: await SongLevelStore.load(widget.project.id)));
     }
     for (final layer in _layers) {
+      // A turn of a round is not fetched and not switched on. The mixer
+      // skips a take that is off, so it needs no file -- and nobody should
+      // pay for downloading a solo they are not going to hear.
+      if (_turns.contains(layer.id)) {
+        takes.add(layer.toTake(_localTakes[layer.id] ?? '', enabled: false));
+        continue;
+      }
       var local = _localTakes[layer.id];
       if (local == null) {
         final name = TakeNaming.partAndPerson(layer.toTake('', enabled: true));

@@ -159,34 +159,63 @@ abstract final class TakeTurns {
   /// not a turn.
   static const int turnSlackMs = 1500;
 
-  /// The draft somebody recorded for their turn and has not handed in: their
-  /// latest take that starts on the passage and runs no longer than it, is
-  /// still theirs alone, was recorded since the round started and is not
-  /// already a turn.
+  /// Every go somebody has had at their turn and not handed in: their takes
+  /// that start on the passage and run no longer than it, are still theirs
+  /// alone, were recorded since the round started and are not already a
+  /// turn. Oldest first, so the last one is the one they just played.
   ///
   /// Found rather than remembered, so leaving the screen between recording
   /// a turn and handing it in loses nothing, and nothing has to be kept on
   /// the phone to say which take was meant.
-  static SharedLayer? draftFor(
+  static List<SharedLayer> draftsFor(
     LoopRound round,
     Iterable<SharedLayer> layers, {
     required String? me,
     Set<String> alreadyTurns = const <String>{},
   }) {
-    if (me == null) return null;
-    SharedLayer? latest;
+    if (me == null) return const <SharedLayer>[];
+    final mine = <SharedLayer>[];
     for (final layer in layers) {
       if (layer.recordedBy != me || layer.isShared) continue;
       if (layer.startMs != round.startMs) continue;
       if (layer.durationMs > round.lengthMs + turnSlackMs) continue;
       if (layer.createdAt.isBefore(round.startedAt)) continue;
       if (alreadyTurns.contains(layer.id)) continue;
-      if (latest == null || layer.createdAt.isAfter(latest.createdAt)) {
-        latest = layer;
-      }
+      mine.add(layer);
     }
-    return latest;
+    mine.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return mine;
   }
+
+  /// The one this person would hand in: the latest of [draftsFor].
+  static SharedLayer? draftFor(
+    LoopRound round,
+    Iterable<SharedLayer> layers, {
+    required String? me,
+    Set<String> alreadyTurns = const <String>{},
+  }) =>
+      draftsFor(round, layers, me: me, alreadyTurns: alreadyTurns).lastOrNull;
+
+  /// Everything that must not sound under a turn of [round]: the turns
+  /// already handed in, and this person's own earlier goes at their own.
+  ///
+  /// A go somebody thought better of is an ordinary private take on exactly
+  /// these bars, so without this it plays under the next attempt -- down the
+  /// microphone on a speaker -- and stacks up under every turn of the
+  /// conversation on the phone of the person who recorded it, where nobody
+  /// else can hear what they are hearing.
+  static Set<String> quietUnder(
+    LoopRound round,
+    Iterable<SharedLayer> layers, {
+    required String? me,
+    Set<String> alreadyTurns = const <String>{},
+  }) =>
+      <String>{
+        ...round.turnLayerIds,
+        for (final draft
+            in draftsFor(round, layers, me: me, alreadyTurns: alreadyTurns))
+          draft.id,
+      };
 
   /// The one line under the passage: whose turn it is, in words.
   ///
@@ -272,16 +301,19 @@ abstract final class TakeTurns {
   /// multitrack.dart: one file has nothing to drift against and nothing to
   /// wait for between players. [takes] are the song's takes as this person
   /// hears them; [turns] is [conversation]. The loop under every turn is the
-  /// same mix -- everything that is not a turn of this round -- so it is
-  /// mixed once, and each turn is laid over its own copy of the passage.
+  /// same mix -- everything that is not a turn of this round, and none of
+  /// this person's own goes at theirs ([quietUnder]) -- so it is mixed once,
+  /// and each turn is laid over its own copy of the passage.
   static Future<TurnsTrack> write({
     required List<Take> takes,
     required LoopRound round,
     required PracticeLoop passage,
     required List<LoopSeat> turns,
     required String outputPath,
+    Set<String> drafts = const <String>{},
   }) async {
-    final backingTakes = withoutTurns(takes, round.turnLayerIds);
+    final backingTakes =
+        withoutTurns(takes, <String>{...round.turnLayerIds, ...drafts});
     final heard = <String>{for (final seat in turns) seat.layerId!};
     // Decoded once per take. samplesFor caches beside the file, so for
     // anything the ordinary mix already used this is a read.

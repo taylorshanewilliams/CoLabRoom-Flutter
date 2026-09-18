@@ -492,7 +492,20 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // rather than skipped in it, so a draft that was on before it was
       // handed in goes quiet with the rest.
       final rounds = await reading;
-      _enabled.removeAll(TakeTurns.turnIds(rounds));
+      final turns = TakeTurns.turnIds(rounds);
+      _enabled.removeAll(turns);
+      // And every go at a turn but the last one. They sit on the same bars
+      // as each other, so all of them switched on is one person playing
+      // over themselves, and the take somebody is deciding about is the one
+      // they just recorded. Only theirs go quiet -- nobody else can hear a
+      // draft anyway -- and any of them can be switched on by hand.
+      for (final round in rounds) {
+        final drafts = TakeTurns.draftsFor(round, layers,
+            me: _me, alreadyTurns: turns);
+        for (var i = 0; i + 1 < drafts.length; i += 1) {
+          _enabled.remove(drafts[i].id);
+        }
+      }
       _rounds = rounds;
       // Best-effort: failing to record that somebody listened must never stop
       // them listening. It only feeds retention, which is generous enough to
@@ -874,9 +887,11 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     // A turn is recorded against the loop, not against the turns before it:
     // they are heard first, the way the person before you is heard in a
     // circle, and then it is yours. A lane somebody switched on by hand
-    // would otherwise play under them and go down the microphone.
+    // would otherwise play under them and go down the microphone -- and so
+    // would the go they have just had at this same turn, which is an
+    // ordinary private take on exactly these bars (see quietUnder).
     final turn = _turnFor;
-    if (turn != null) takes = TakeTurns.withoutTurns(takes, turn.turnLayerIds);
+    if (turn != null) takes = TakeTurns.withoutTurns(takes, _quietUnder(turn));
     final anythingToPlay = takes.any((take) => take.enabled);
     // A click with nothing under it is still something to play against — it
     // is how the first take of a song with no recording gets a tempo.
@@ -1111,6 +1126,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     }
   }
 
+  /// What must not sound under a turn of [round]: the turns handed in, and
+  /// this person's own earlier goes at their own.
+  Set<String> _quietUnder(LoopRound round) => TakeTurns.quietUnder(
+        round,
+        _layers ?? const <SharedLayer>[],
+        me: _me,
+        alreadyTurns: TakeTurns.turnIds(_rounds),
+      );
+
   /// The round the card shows: the one going, or else the last one that
   /// was, which can still be heard.
   LoopRound? get _round {
@@ -1266,6 +1290,19 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         downbeatsMs: reference?.downbeatsMs ?? const <int>[],
       ),
       turns: TakeTurns.conversation(round, playable: playable),
+      // This person's own unhanded-in goes at their turn sit on the same
+      // bars as everybody else's turns, so without this they would sound
+      // under the whole conversation -- on their phone alone, which is the
+      // hardest kind of wrong to work out.
+      drafts: <String>{
+        for (final draft in TakeTurns.draftsFor(
+          round,
+          _layers ?? const <SharedLayer>[],
+          me: _me,
+          alreadyTurns: TakeTurns.turnIds(_rounds),
+        ))
+          draft.id,
+      },
       outputPath: await _nextMixPath(kind: 'mix_turns'),
     );
   }
@@ -1805,8 +1842,26 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // Busy again while it is written, because _load has just said
       // otherwise and Play is only held back by that: a press in the second
       // this takes would start the old file as it is being replaced.
+      //
+      // Caught on its own. The take is on the server by now, and everything
+      // below this line used to be unable to throw, so anything from here
+      // reaching the handler underneath would say "Saving a take failed" and
+      // report an upload that worked -- which is how somebody records the
+      // same thing twice and how triage grows a row that is not true.
       if (mounted) setState(() => _busy = true);
-      await _rebuildMix();
+      try {
+        await _rebuildMix();
+      } catch (error) {
+        if (mounted) {
+          setState(() => _error = reportAndDescribe(
+                error,
+                service: 'layers',
+                stage: 'takes.mix_after_take',
+                route: 'Takes',
+                projectId: widget.projectId,
+              ));
+        }
+      }
 
       // Rewind to just before the punch, the way a desk does.
       //

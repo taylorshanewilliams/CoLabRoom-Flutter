@@ -40,7 +40,10 @@
 -- turn it is, who would otherwise open the app to play and watch the turn
 -- leave. Nobody is shown a timer, a deadline or how long anybody took, and
 -- one look passes one turn at most, so nobody is passed over for a turn
--- they were never told about.
+-- they were never told about. That last promise is why a round remembers
+-- who it last told: the turn can also move with nobody moving it, when the
+-- person who was up leaves the room or is made a viewer, and whoever it
+-- lands on then gets their three days from the moment it landed.
 --
 -- **Publishing the result** needs nothing new, which is the point of a turn
 -- being an ordinary take: handing a turn in shares it with the room, and
@@ -65,8 +68,17 @@ create table if not exists public.loop_rounds (
   end_ms integer not null,
   created_at timestamptz not null default now(),
   -- When the turn last moved. Read by the quiet pass and by nothing else;
-  -- it is never returned to anybody.
+  -- it is never returned to anybody, and it is not in the select grant
+  -- below, because when a turn moved with no take shared at that moment is
+  -- when somebody skipped.
   turn_since timestamptz not null default now(),
+  -- Who was last told it was their turn, or who was looking at the screen
+  -- when the turn reached them. Also the quiet pass's own bookkeeping: the
+  -- turn can move with nobody moving it -- the person who was up leaves the
+  -- room, or is made a viewer, and loop_round_up steps over them -- and
+  -- whoever it lands on must be told and given their three days rather than
+  -- passed over for a turn they never heard about.
+  told_up uuid references public.profiles(id) on delete set null,
   ended_at timestamptz,
   check (end_ms > start_ms)
 );
@@ -132,7 +144,13 @@ for select to authenticated using (user_id = (select auth.uid()));
 
 revoke all on table public.loop_rounds from public, anon, authenticated;
 revoke all on table public.loop_seats from public, anon, authenticated;
-grant select on table public.loop_rounds to authenticated;
+-- By column, leaving out the two the quiet pass keeps for itself. The app
+-- reads this table through loop_rounds_for and never directly, so this is
+-- only what PostgREST would otherwise offer: turn_since is when the turn
+-- last moved, and a move with no take shared against it is somebody's skip,
+-- which is the one thing this whole file is arranged to keep quiet.
+grant select (id, project_id, started_by, start_ms, end_ms, created_at, ended_at)
+  on table public.loop_rounds to authenticated;
 grant select on table public.loop_seats to authenticated;
 
 -- ---------------------------------------------------------------------
@@ -203,6 +221,12 @@ declare
   next_up uuid := private.loop_round_up(target_round);
   song record;
 begin
+  -- Whoever is up has been told, one way or the other: by the notification
+  -- below, or by being the person who just did the thing that moved the turn
+  -- to them, who is looking at the card as it changes. Kept so the quiet
+  -- pass can tell a turn that has sat from one that has only just arrived.
+  update public.loop_rounds set told_up = next_up where id = target_round;
+
   if next_up is null or next_up is not distinct from auth.uid() then
     return;
   end if;
@@ -232,7 +256,11 @@ revoke all on function private.tell_whose_turn(uuid)
 -- round, so there is no job to schedule and nothing happens while nobody
 -- is looking. One turn at most, and the clock starts again for whoever is
 -- next: they are told now, so their three days start now. Never the
--- caller's own turn -- see the top of this file.
+-- caller's own turn -- see the top of this file -- and never a turn that
+-- has only just arrived, which is what told_up is for: when the turn moved
+-- because somebody left the room rather than because anybody played, the
+-- person it landed on is told here and given their three days, instead of
+-- being passed over for a turn nobody ever said was theirs.
 create or replace function private.settle_loop_round(target_round uuid)
 returns void
 language plpgsql
@@ -242,7 +270,7 @@ declare
   the_round record;
   holding uuid;
 begin
-  select r.id, r.turn_since, r.ended_at into the_round
+  select r.id, r.turn_since, r.ended_at, r.told_up into the_round
   from public.loop_rounds r
   where r.id = target_round
   for update;
@@ -250,12 +278,28 @@ begin
   if the_round.id is null or the_round.ended_at is not null then
     return;
   end if;
-  if the_round.turn_since > now() - interval '3 days' then
+
+  holding := private.loop_round_up(target_round);
+  if holding is null then
     return;
   end if;
 
-  holding := private.loop_round_up(target_round);
-  if holding is null or holding is not distinct from auth.uid() then
+  -- The turn reached this person with nobody moving it: whoever was up left
+  -- the room or was made a viewer, and loop_round_up stepped over them. They
+  -- have not been told and turn_since is still the last person's, so passing
+  -- on it here would take a turn from somebody who never heard they had one.
+  -- Their three days start now instead, and they are told -- or, when they
+  -- are the one looking, they can see it.
+  if the_round.told_up is distinct from holding then
+    update public.loop_rounds set turn_since = now() where id = target_round;
+    perform private.tell_whose_turn(target_round);
+    return;
+  end if;
+
+  if holding is not distinct from auth.uid() then
+    return;
+  end if;
+  if the_round.turn_since > now() - interval '3 days' then
     return;
   end if;
 
@@ -476,8 +520,12 @@ begin
     set place = excluded.place, state = 'waiting', layer_id = null;
 
   -- Nobody was up, so the person who just joined is: their turn starts now.
+  -- tell_whose_turn says nothing to somebody who is looking at the card they
+  -- just pressed; it is here to record that they know, so the quiet pass
+  -- does not later read this as a turn that arrived unannounced.
   if was_up is null then
     update public.loop_rounds set turn_since = now() where id = target_round;
+    perform private.tell_whose_turn(target_round);
   end if;
 end;
 $fn$;

@@ -110,6 +110,13 @@ class _TakeTurnsCardState extends State<TakeTurnsCard> {
   TurnsTrack? _track;
   LoopSeat? _sounding;
   bool _writing = false;
+
+  /// A hush rung while the file was still being written. There was nothing
+  /// playing to stop, so it is remembered instead: writing a whole-song mix
+  /// takes seconds on a phone, and somebody who presses Record in those
+  /// seconds must not have the band's turns start up under the microphone
+  /// when it finishes.
+  bool _hushedWhileWriting = false;
   String? _problem;
 
   @override
@@ -128,6 +135,7 @@ class _TakeTurnsCardState extends State<TakeTurnsCard> {
   }
 
   void _hushed() {
+    if (_writing) _hushedWhileWriting = true;
     if (_track != null) unawaited(_stop());
   }
 
@@ -148,12 +156,20 @@ class _TakeTurnsCardState extends State<TakeTurnsCard> {
     }
     setState(() {
       _writing = true;
+      _hushedWhileWriting = false;
       _problem = null;
     });
     try {
       await widget.onWillHear?.call();
       final track = await widget.writeConversation();
       if (!mounted) return;
+      // The screen started playing or recording while this was being
+      // written. Nothing is said about it: the file is simply not played,
+      // and the button is back where it was.
+      if (_hushedWhileWriting) {
+        setState(() => _writing = false);
+        return;
+      }
       final player = _player ??= AudioPlayer();
       _done ??= player.onPlayerComplete.listen((_) {
         if (mounted) {

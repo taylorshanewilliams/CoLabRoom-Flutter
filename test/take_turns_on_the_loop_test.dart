@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:colabroom/app/beta_scope.dart';
@@ -9,6 +10,7 @@ import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/layers/song_layers_screen.dart';
 import 'package:colabroom/features/layers/take_turns.dart';
 import 'package:colabroom/features/layers/take_turns_card.dart';
+import 'package:colabroom/features/workspace/live_performance_screen.dart';
 import 'package:colabroom/features/workspace/practice_rules.dart';
 import 'package:colabroom/services/multitrack.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
@@ -411,6 +413,45 @@ void main() {
       expect(_names(await _read(repo, _taylor)), <String>['Taylor', 'Sam', 'Jess']);
     });
 
+    test('a turn that moves because somebody left is not passed over', () async {
+      // The turn can move with nobody moving it: whoever was up is made a
+      // viewer, or leaves, and the round steps over them. The person it
+      // lands on has been told nothing, so their three days start there --
+      // otherwise the next look passes a turn they never heard about.
+      final repo = _room();
+      final id = await repo.startLoopRound(
+        projectId: _song,
+        startMs: 8000,
+        endMs: 24000,
+        order: <String>[_jess, _sam, _taylor],
+      );
+      expect((await _read(repo, _taylor)).upId, _jess);
+      final before = repo.told.length;
+
+      repo.addToRoom(
+        'room-1',
+        const RoomMember(
+          userId: _jess,
+          displayName: 'Jess',
+          role: RoomRole.viewer,
+          colorValue: 0xFF7C5CFF,
+        ),
+      );
+      repo.letTheTurnSit(id, const Duration(days: 4));
+
+      final round = await _read(repo, _taylor);
+      expect(round.upId, _sam);
+      final after = repo.told.sublist(before);
+      expect(after, hasLength(1));
+      expect(after.single.to, _sam);
+      expect(after.single.notification.title, 'Your turn on Midnight Signal');
+      expect(after.single.notification.actorId, isNull);
+
+      // And Sam's three days start there: the next look leaves it his.
+      expect((await _read(repo, _taylor)).upId, _sam);
+      expect(repo.told.length, before + 1);
+    });
+
     test('somebody outside the room is refused, and reads nothing', () async {
       final repo = _room();
       final id = await repo.startLoopRound(
@@ -656,6 +697,70 @@ void main() {
           'rhythm': false,
           'turn-t': false,
           'turn-j': false,
+        },
+      );
+    });
+
+    test('the loop has none of your own goes at this turn in it either', () {
+      // A go somebody thought better of is an ordinary take only they can
+      // hear, on exactly these bars. Left in, it plays under the next
+      // attempt -- down the microphone on a speaker -- and stacks up under
+      // every turn of the conversation on their phone and nobody else's.
+      final round = _round(
+        startedAt: DateTime(2026, 9, 18, 12),
+        seats: <LoopSeat>[
+          _seat(_jess, 'Jess', SeatState.played, 'turn-j'),
+          _seat(_taylor, 'Taylor', SeatState.waiting),
+        ],
+        up: _taylor,
+      );
+      final layers = <SharedLayer>[
+        _layer('bass', who: _jess, whoName: 'Jess', startMs: 0, shared: true),
+        _layer('turn-j',
+            who: _jess, whoName: 'Jess', shared: true,
+            at: DateTime(2026, 9, 18, 12, 30)),
+        _layer('second-go', at: DateTime(2026, 9, 18, 14)),
+        _layer('first-go', at: DateTime(2026, 9, 18, 13)),
+        // Last week, and the top of the song: not goes at this turn.
+        _layer('old', at: DateTime(2026, 9, 11)),
+        _layer('intro', startMs: 0, at: DateTime(2026, 9, 18, 15)),
+      ];
+
+      // Oldest first, so the last one is the one they just played.
+      expect(
+        TakeTurns.draftsFor(round, layers, me: _taylor).map((take) => take.id),
+        <String>['first-go', 'second-go'],
+      );
+      expect(TakeTurns.draftFor(round, layers, me: _taylor)?.id, 'second-go');
+      expect(
+        TakeTurns.quietUnder(round, layers, me: _taylor),
+        <String>{'turn-j', 'first-go', 'second-go'},
+      );
+      // Somebody else's phone knows about the turn and nothing else: a
+      // draft is not theirs to hear.
+      expect(
+        TakeTurns.quietUnder(round, layers, me: _jess),
+        <String>{'turn-j'},
+      );
+
+      final loop = TakeTurns.withoutTurns(
+        <Take>[
+          _take('bass'),
+          _take('turn-j'),
+          _take('second-go'),
+          _take('first-go'),
+          _take('intro'),
+        ],
+        TakeTurns.quietUnder(round, layers, me: _taylor),
+      );
+      expect(
+        <String, bool>{for (final take in loop) take.id: take.enabled},
+        <String, bool>{
+          'bass': true,
+          'turn-j': false,
+          'second-go': false,
+          'first-go': false,
+          'intro': true,
         },
       );
     });
@@ -1074,6 +1179,222 @@ void main() {
       expect(find.text('Skip me'), findsNothing);
       saysNoTally(tester);
       expect(find.byKey(const Key('take_turns_start')), findsOneWidget);
+    });
+
+    testWidgets('the go before the one you kept does not play with the song',
+        (tester) async {
+      // Two goes at the same turn sit on the same bars, so both switched on
+      // is one person playing over themselves. The latest is the one being
+      // decided about, and it is the one that plays.
+      final seeded = _room(withSam: false);
+      await seeded.startLoopRound(
+        projectId: _song,
+        startMs: 0,
+        endMs: 16000,
+        order: <String>[_taylor, _jess],
+      );
+      final now = DateTime.now();
+      await open(tester, repo: seeded, layers: <SharedLayer>[
+        jessBass,
+        _layer('first-go',
+            startMs: 0,
+            label: 'First go',
+            at: now.add(const Duration(minutes: 1))),
+        _layer('second-go',
+            startMs: 0,
+            label: 'Second go',
+            at: now.add(const Duration(minutes: 2))),
+      ]);
+
+      expect(find.byTooltip('Mute Bass line'), findsOneWidget);
+      expect(find.byTooltip('Mute Second go'), findsOneWidget);
+      expect(find.byTooltip('Unmute First go'), findsOneWidget);
+      // Still one thing to hand in, and it is the last one played.
+      expect(find.text('Hand it in'), findsOneWidget);
+    });
+  });
+
+  group('hearing it back', () {
+    testWidgets('a hush while the file is being written stops it playing',
+        (tester) async {
+      // Writing a whole-song mix takes seconds on a phone. Record pressed in
+      // those seconds must not leave the band's turns to start up under the
+      // microphone when the file lands.
+      final hush = ValueNotifier<int>(0);
+      addTearDown(hush.dispose);
+      final writing = Completer<TurnsTrack>();
+      var asked = 0;
+      const passage =
+          PracticeLoop(startMs: 0, endMs: 16000, label: '0:00–0:16');
+      final turns = <LoopSeat>[_seat(_jess, 'Jess', SeatState.played, 'turn-j')];
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: TakeTurnsCard(
+            round: _round(
+              seats: <LoopSeat>[
+                ...turns,
+                _seat(_taylor, 'Taylor', SeatState.waiting),
+              ],
+              up: _taylor,
+              startMs: 0,
+              endMs: 16000,
+            ),
+            passage: passage,
+            me: _taylor,
+            conversation: turns,
+            draft: null,
+            canSit: true,
+            canRecordHere: true,
+            canHear: true,
+            canEnd: false,
+            busy: false,
+            onRecord: () {},
+            onHandIn: (_) {},
+            onSkip: () {},
+            onJoin: () {},
+            onEnd: () {},
+            writeConversation: () {
+              asked += 1;
+              return writing.future;
+            },
+            hush: hush,
+          ),
+        ),
+      ));
+
+      await tester.tap(find.byKey(const Key('take_turns_hear')));
+      await tester.pump();
+      // Record is pressed on the screen while the file is still being made.
+      hush.value += 1;
+      writing.complete(TurnsTrack(
+        path: '/tmp/turns.wav',
+        roundId: 'round-1',
+        passage: passage,
+        turns: turns,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(asked, 1);
+      // Nothing sounded, and nothing was said about it.
+      expect(find.text('Hear it'), findsOneWidget);
+      expect(find.text('Stop'), findsNothing);
+      expect(find.textContaining('would not play'), findsNothing);
+      // And it can be asked for again.
+      expect(
+        tester.widget<TextButton>(find.ancestor(
+          of: find.text('Hear it'),
+          matching: find.byType(TextButton),
+        )).onPressed,
+        isNotNull,
+      );
+    });
+  });
+
+  group('in Perform', () {
+    Future<List<List<Take>>> boot(
+      WidgetTester tester, {
+      required InMemoryMusicRepository repo,
+      required List<SharedLayer> layers,
+      required String keptPart,
+    }) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'my_part_$_song': keptPart,
+      });
+      final controller = MusicBetaController(repo);
+      await controller.load();
+      addTearDown(controller.dispose);
+      final project = (await repo.loadRooms())
+          .first
+          .projects
+          .firstWhere((project) => project.id == _song);
+      final mixes = <List<Take>>[];
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(BetaScope(
+        controller: controller,
+        child: MaterialApp(
+          home: LivePerformanceScreen(
+            project: project,
+            layerService: _Recorded(layers),
+            analysisService: _NoAnalysis(),
+            partMixer: (takes, onProgress) async {
+              mixes.add(takes);
+              return '/tmp/part-mix-${mixes.length}.wav';
+            },
+          ),
+        ),
+      ));
+      for (var i = 0; i < 8; i += 1) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      return mixes;
+    }
+
+    /// A round with one turn handed in, and the song's other takes.
+    Future<({InMemoryMusicRepository repo, String turn})> withARound() async {
+      final repo = _room(withSam: false);
+      final id = await repo.startLoopRound(
+        projectId: _song,
+        startMs: 0,
+        endMs: 16000,
+        order: <String>[_jess, _taylor],
+      );
+      final turn = await _play(repo, id, _jess, startMs: 0);
+      repo.currentUserId = _taylor;
+      return (repo: repo, turn: turn);
+    }
+
+    testWidgets('a turn is not summed into the part mix', (tester) async {
+      // Perform builds its own mix, and knew nothing about rounds: four
+      // turns on the same chorus would have played at once behind whoever
+      // asked for their part forward.
+      final made = await withARound();
+      final mixes = await boot(
+        tester,
+        repo: made.repo,
+        layers: <SharedLayer>[
+          _layer('bass',
+              who: _jess, whoName: 'Jess', startMs: 0, shared: true,
+              label: 'Bass line'),
+          _layer('gtr', startMs: 0, shared: true, label: 'Guitar'),
+          _layer(made.turn,
+              who: _jess, whoName: 'Jess', startMs: 0, shared: true,
+              label: 'Jess turn'),
+        ],
+        keptPart: 'forward:gtr',
+      );
+
+      expect(mixes, hasLength(1));
+      final heard = <String, Take>{
+        for (final take in mixes.single) take.id: take,
+      };
+      expect(heard['bass']?.enabled, isTrue);
+      expect(heard['gtr']?.enabled, isTrue);
+      expect(heard[made.turn]?.enabled, isFalse);
+    });
+
+    testWidgets('and is not a part anybody can bring forward', (tester) async {
+      // A turn is not a part somebody plays through the song; it is one of
+      // several goes at the same few bars. A choice kept from before the
+      // round is simply not put back.
+      final made = await withARound();
+      final mixes = await boot(
+        tester,
+        repo: made.repo,
+        layers: <SharedLayer>[
+          _layer('bass',
+              who: _jess, whoName: 'Jess', startMs: 0, shared: true,
+              label: 'Bass line'),
+          _layer('gtr', startMs: 0, shared: true, label: 'Guitar'),
+          _layer(made.turn,
+              who: _jess, whoName: 'Jess', startMs: 0, shared: true,
+              label: 'Jess turn'),
+        ],
+        keptPart: 'forward:${made.turn}',
+      );
+      expect(mixes, isEmpty);
     });
   });
 }
