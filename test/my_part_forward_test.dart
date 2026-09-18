@@ -358,6 +358,46 @@ void main() {
       expect(layers.writes, isEmpty);
     });
 
+    testWidgets('muting the lane of a part that is forward lets the choice go',
+        (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      tester.view.physicalSize = const Size(600, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final layers = _ChoirLayers(<SharedLayer>[
+        _layer('alto', 'Alto 2', 'Jess'),
+        _layer('tenor', 'Tenor', 'Marcus'),
+      ]);
+      await tester.pumpWidget(screen(layers: layers));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('my_part_forward_alto')));
+      await tester.pumpAndSettle();
+      expect(await MyPartStore.load('project-1'), isNotNull);
+
+      // The mute came second, so it wins: the chip goes off with the lane
+      // rather than saying forward over a part that is silent.
+      await tester.tap(find.byTooltip('Mute Alto 2'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.widget<ChoiceChip>(find.byKey(const Key('my_part_forward_alto'))).selected,
+        isFalse,
+      );
+      expect(find.byKey(const Key('my_part_note')), findsNothing);
+      expect(await MyPartStore.load('project-1'), isNull);
+      // Muting the other lane while "everyone but" is on is no conflict.
+      await tester.tap(find.byKey(const Key('my_part_without_alto')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Mute Tenor'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<ChoiceChip>(find.byKey(const Key('my_part_without_alto'))).selected,
+        isTrue,
+      );
+      expect(layers.writes, isEmpty);
+    });
+
     testWidgets('a song with one take offers nothing, recording or not',
         (tester) async {
       SharedPreferences.setMockInitialValues(<String, Object>{});

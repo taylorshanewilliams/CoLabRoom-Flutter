@@ -563,8 +563,22 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   void _toggle(String id) {
     setState(() {
       if (!_enabled.remove(id)) _enabled.add(id);
+      _letGoOfMutedPart();
     });
     unawaited(_applyMixChange());
+  }
+
+  /// Muting the lane of a part that is forward lets the choice go.
+  ///
+  /// The mute came second, so it wins. Otherwise the chip says forward over
+  /// a lane that says off, and MyPartMix.apply, which keeps a forward part
+  /// audible, plays it anyway with everyone else turned down under it.
+  void _letGoOfMutedPart() {
+    final part = _myPart;
+    if (part == null || part.way != MyPartWay.forward) return;
+    if (_enabled.contains(part.takeId)) return;
+    _myPart = null;
+    unawaited(MyPartStore.save(widget.projectId, null));
   }
 
   /// Silences a whole group, or brings all of it back.
@@ -582,6 +596,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           _enabled.add(take.id);
         }
       }
+      _letGoOfMutedPart();
     });
     unawaited(_applyMixChange());
   }

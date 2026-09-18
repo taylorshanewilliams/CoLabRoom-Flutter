@@ -940,6 +940,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     unawaited(_audioPositionSub?.cancel());
     unawaited(_audioCompleteSub?.cancel());
     unawaited(_audioPlayer?.dispose());
+    // The part mix under the words, if there was one: a whole song as WAV
+    // that nothing will play again. The stems' mix stays -- PlayAlong keeps
+    // that one on purpose, under a name it finds again next time.
+    final partMix = _lastPartMixPath;
+    if (partMix != null) unawaited(_deleteQuietly(partMix));
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     super.dispose();
   }
@@ -1672,7 +1677,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final takes = <Take>[];
     if (reference != null) {
       final path = _referencePath;
-      if (path == null) throw StateError('The recording has not loaded yet.');
+      if (path == null) throw StateError('The recording could not be loaded.');
       takes.add(_referenceTake(reference,
           path: path, level: await SongLevelStore.load(widget.project.id)));
     }
@@ -1708,10 +1713,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _controlsVisible = true;
     });
     try {
+      // The chips are up as soon as the list of takes is, which can be
+      // before the recording has come down. A tap then waits for it rather
+      // than being told it is not here yet: _mixing keeps a second tap out
+      // meanwhile, and the note above says which part is on its way.
+      await _referenceReady.future;
       final String path;
       if (leaving && widget.analysis?.reference != null) {
         final reference = _referencePath;
-        if (reference == null) throw StateError('The recording has not loaded yet.');
+        if (reference == null) throw StateError('The recording could not be loaded.');
         path = reference;
       } else {
         final mixer = widget.partMixer ?? _defaultPartMixer;
@@ -1748,6 +1758,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     void Function(String stage) onProgress,
   ) async {
     final directory = await getTemporaryDirectory();
+    if (!_sweptOldPartMixes) {
+      _sweptOldPartMixes = true;
+      await _sweepOldPartMixes(directory);
+    }
     final stamp = DateTime.now().microsecondsSinceEpoch;
     final path = '${directory.path}/colabroom_mypart_${widget.project.id}_$stamp.wav';
     onProgress('Mixing…');
@@ -1755,15 +1769,38 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     if (result == null) throw StateError('None of the parts could be read.');
     final previous = _lastPartMixPath;
     _lastPartMixPath = path;
-    if (previous != null) {
-      try {
-        final stale = File(previous);
-        if (await stale.exists()) await stale.delete();
-      } catch (_) {
-        // Clutter in a temporary directory, not a failure worth a sentence.
-      }
-    }
+    if (previous != null) await _deleteQuietly(previous);
     return path;
+  }
+
+  bool _sweptOldPartMixes = false;
+
+  /// Part mixes left behind by earlier visits, which nothing will play
+  /// again. Each is a whole song as WAV, and the last one built survived
+  /// the screen being closed, so one song a visit was quietly filling the
+  /// phone. Swept the way the takes screen sweeps its own, the first time
+  /// there is a mix to write; a mix this screen is playing is left alone.
+  Future<void> _sweepOldPartMixes(Directory directory) async {
+    try {
+      await for (final entry in directory.list()) {
+        if (entry is! File) continue;
+        final name = entry.uri.pathSegments.last;
+        if (!name.startsWith('colabroom_mypart_') || !name.endsWith('.wav')) continue;
+        if (entry.path == _lastPartMixPath) continue;
+        await entry.delete();
+      }
+    } catch (_) {
+      // Clutter, not a failure worth showing anybody.
+    }
+  }
+
+  static Future<void> _deleteQuietly(String path) async {
+    try {
+      final stale = File(path);
+      if (await stale.exists()) await stale.delete();
+    } catch (_) {
+      // Clutter in a temporary directory, not a failure worth a sentence.
+    }
   }
 
   /// Puts [path] under the player at the current moment, keeping the speed
