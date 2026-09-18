@@ -1381,6 +1381,17 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           practise: practise,
           ownMarkId: ownPracticeMarkId(controller.practiceMarks, projectId: project.id, me: me),
           keepPractice: (mark) => unawaited(controller.keepPracticeMark(mark)),
+          // Where bar 1 is, when this person is one of the two who may say it
+          // (0161). Somebody the room only lets look counts from the bars the
+          // room counts and is offered no way to move them.
+          onSayBarOne:
+              (controller.roomById(project.roomId)?.canEditSongs(me) ?? false)
+                  ? (downbeat) async {
+                      await controller.repository
+                          .setBarOne(project.id, downbeat);
+                      await controller.refreshProject(project.id);
+                    }
+                  : null,
         ),
         fullscreenDialog: true,
       ),

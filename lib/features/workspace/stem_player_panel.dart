@@ -30,6 +30,7 @@ class StemPlayerPanel extends StatefulWidget {
     required this.stems,
     required this.ensureLocalStem,
     this.downbeatsMs = const <int>[],
+    this.barOne = 1,
     super.key,
   });
 
@@ -45,6 +46,11 @@ class StemPlayerPanel extends StatefulWidget {
   /// from a stopwatch reading into a position in the song — which is what you
   /// want when the thing you're trying to learn is "the fill in bar 33".
   final List<int> downbeatsMs;
+
+  /// Which downbeat the band counts as bar 1 (0161), so the number under the
+  /// playhead here is the number on the chart and in Perform. Nothing at all
+  /// on a song nobody has corrected, which is most of them.
+  final int barOne;
 
   @override
   State<StemPlayerPanel> createState() => _StemPlayerPanelState();
@@ -204,6 +210,7 @@ class _StemPlayerPanelState extends State<StemPlayerPanel> {
             positionMs: _scrubbingMs ?? _position.inMilliseconds,
             durationMs: _duration.inMilliseconds,
             downbeatsMs: widget.downbeatsMs,
+            barOne: widget.barOne,
             onPlayPause: _togglePlayPause,
             onScrub: (milliseconds) => setState(() => _scrubbingMs = milliseconds),
             onScrubEnd: _seekTo,
@@ -234,6 +241,7 @@ class _StemTransport extends StatelessWidget {
     required this.positionMs,
     required this.durationMs,
     required this.downbeatsMs,
+    required this.barOne,
     required this.onPlayPause,
     required this.onScrub,
     required this.onScrubEnd,
@@ -244,6 +252,7 @@ class _StemTransport extends StatelessWidget {
   final int positionMs;
   final int durationMs;
   final List<int> downbeatsMs;
+  final int barOne;
   final Future<void> Function() onPlayPause;
   final ValueChanged<int> onScrub;
   final ValueChanged<int> onScrubEnd;
@@ -254,7 +263,7 @@ class _StemTransport extends StatelessWidget {
     // the bar sits inert rather than jumping about at a made-up length.
     final ready = durationMs > 0;
     final value = positionMs.clamp(0, math.max(1, durationMs)).toDouble();
-    final bar = barNumberAt(positionMs, downbeatsMs);
+    final bar = barNumberAt(positionMs, downbeatsMs, barOne: barOne);
     return Container(
       padding: const EdgeInsets.fromLTRB(4, 4, 12, 4),
       decoration: BoxDecoration(

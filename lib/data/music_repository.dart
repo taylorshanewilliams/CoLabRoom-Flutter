@@ -359,6 +359,16 @@ abstract interface class MusicRepository {
   /// null [key] hands the song back to the detected one.
   Future<void> setSongKey(String projectId, String? key);
 
+  /// Says which downbeat of the analysis is bar 1.
+  ///
+  /// Owner or editor, and shared with the room for the same reason the key
+  /// is: a song with a pickup phrase, or a count-in left on the recording, is
+  /// numbered a bar off the printed music a teacher is holding, and
+  /// everybody's bar numbers have to name the same passage (Every Musician,
+  /// Same Song, 17 September 2026). Counts from one. A null [downbeat] hands
+  /// the song back to the detected bars.
+  Future<void> setBarOne(String projectId, int? downbeat);
+
   /// The room a recording lands in when nobody has said where it goes.
   ///
   /// Created on first use rather than at signup, so an account that never

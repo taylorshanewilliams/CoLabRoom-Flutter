@@ -165,7 +165,8 @@ class _MemoryKept extends KeptSongs {
 
 final DateTime _when = DateTime(2026, 9, 18);
 
-SongProject _project(String id, {String? keyOverride}) => SongProject(
+SongProject _project(String id, {String? keyOverride, int? barOneDownbeat}) =>
+    SongProject(
       id: id,
       roomId: 'room-1',
       accountId: 'preview-user',
@@ -174,6 +175,7 @@ SongProject _project(String id, {String? keyOverride}) => SongProject(
       updatedAt: _when,
       songOrigin: SongOrigin.ours,
       keyOverride: keyOverride,
+      barOneDownbeat: barOneDownbeat,
       hasAudioReference: true,
       analysisState: SongAnalysisState.ready,
       contributions: <Contribution>[
@@ -387,7 +389,9 @@ void main() {
       final kept = _keptIn(bucket);
       final stages = <String>[];
 
-      await kept.keep(_project('song-1', keyOverride: 'D major'), _analysis('song-1'),
+      await kept.keep(
+          _project('song-1', keyOverride: 'D major', barOneDownbeat: 3),
+          _analysis('song-1'),
           onProgress: stages.add);
 
       expect(stages, <String>['Fetching the recording…', 'Fetching the vocals…']);
@@ -402,6 +406,12 @@ void main() {
       expect(back.project.title, 'Midnight Signal');
       expect(back.project.roomId, 'room-1');
       expect(back.project.keyOverride, 'D major');
+      // Where bar 1 is, beside the band's key: both are facts about the song,
+      // so the copy practised on the train counts its bars the way the room
+      // does (0161). Without it the student's chip says "Bars 11–12" for what
+      // the teacher calls "Bars 9–10".
+      expect(back.project.barOneDownbeat, 3);
+      expect(back.project.barOne, 3);
       expect(back.project.songOrigin, SongOrigin.ours);
       expect(back.project.analysisState, SongAnalysisState.ready);
       expect(back.project.contributions.map((line) => line.body), <String>[

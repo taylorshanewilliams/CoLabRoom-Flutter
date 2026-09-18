@@ -79,14 +79,45 @@ int? beatIndexAt(int ms, List<int> beatsMs) {
   return index < 0 ? null : index;
 }
 
-/// The 1-indexed bar containing [ms].
+/// Where bar 1 sits in [downbeatsMs]: the 0-indexed place of the downbeat the
+/// band counts as bar 1, clamped into the grid there actually is.
 ///
-/// Null before the first downbeat. A pickup phrase sits ahead of bar 1, and
+/// [barOne] counts from one, and one is the default — bar 1 is the first
+/// downbeat, which is what this app did before anybody could say otherwise.
+/// It is clamped rather than trusted because it is stored on the song and the
+/// downbeats come from the recording: a re-analysis that finds a shorter grid
+/// would otherwise leave a song with a bar 1 past the end of itself (Every
+/// Musician, Same Song, 17 September 2026 — see migration 0161).
+int barOneIndex(int barOne, int downbeatCount) =>
+    downbeatCount <= 0 ? 0 : (barOne - 1).clamp(0, downbeatCount - 1).toInt();
+
+/// How many numbered bars a grid holds once the pickup is taken off the
+/// front. The bars ahead of bar 1 are the pickup and are not numbered.
+int numberedBarCount(int barOne, int downbeatCount) =>
+    downbeatCount <= 0 ? 0 : downbeatCount - barOneIndex(barOne, downbeatCount);
+
+/// The 0-indexed downbeat printed bar [bar] starts on, clamped into the grid.
+int downbeatIndexOfBar(int bar, int barOne, int downbeatCount) {
+  if (downbeatCount <= 0) return 0;
+  final first = barOneIndex(barOne, downbeatCount);
+  final at = first + (bar < 1 ? 0 : bar - 1);
+  return at.clamp(first, downbeatCount - 1).toInt();
+}
+
+/// The 1-indexed bar containing [ms], counting bar 1 from the [barOne]th
+/// downbeat.
+///
+/// Null before bar 1. A pickup phrase sits ahead of it — either ahead of the
+/// whole grid, or on the downbeats the band has said are a count-in — and
 /// both "bar 0" and rounding it up into bar 1 would be claiming something
-/// untrue about where it starts.
-int? barNumberAt(int ms, List<int> downbeatsMs) {
-  if (downbeatsMs.isEmpty || ms < downbeatsMs.first) return null;
-  var low = 0;
+/// untrue about where it starts. The pickup is asked for by name instead
+/// (see pickupLoop in practice_rules.dart), which is also why no bar number
+/// this app prints is ever less than 1.
+int? barNumberAt(int ms, List<int> downbeatsMs, {int barOne = 1}) {
+  if (downbeatsMs.isEmpty) return null;
+  final first = barOneIndex(barOne, downbeatsMs.length);
+  if (ms < downbeatsMs[first]) return null;
+  var low = first;
   var high = downbeatsMs.length - 1;
   while (low < high) {
     final mid = (low + high + 1) >> 1;
@@ -96,7 +127,7 @@ int? barNumberAt(int ms, List<int> downbeatsMs) {
       high = mid - 1;
     }
   }
-  return low + 1;
+  return low - first + 1;
 }
 
 /// Moves every chord change onto the nearest beat it could plausibly have
@@ -182,7 +213,9 @@ class ChordBar {
     required this.chords,
   });
 
-  /// 1-indexed, counting from the first downbeat.
+  /// 1-indexed, counting from wherever the band says bar 1 is, or 0 for the
+  /// pickup — everything ahead of bar 1, gathered as one, because it is one
+  /// thing a player asks for rather than a run of numbered bars.
   final int number;
   final int startMs;
   final int endMs;
@@ -192,32 +225,50 @@ class ChordBar {
 /// Chords grouped into the bar each one starts in — the shape a chord chart
 /// is actually read in, rather than a flat run of changes.
 ///
-/// Chords starting before the first downbeat are put in bar 1 rather than
-/// dropped. A chord ringing over a pickup is still a chord you play, and
-/// losing it off the top of the chart would be worse than showing it a
-/// fraction early.
+/// Chords ahead of bar 1 are kept rather than dropped. A chord ringing over a
+/// pickup is still a chord you play, and losing it off the top of the chart
+/// would be worse than showing it early. With nothing said about where bar 1
+/// is they go in bar 1, which is what this always did; once the band has said
+/// the song starts a few downbeats in, they gather into the pickup instead
+/// (number 0), because at that point they are a real stretch of music and
+/// folding several bars of it into bar 1 would be a different kind of wrong.
 ///
 /// Bars with no chord in them are absent, not empty: this is a list of where
 /// the chords are, and inventing a row for every silent bar of a four-minute
 /// song would bury them.
-List<ChordBar> groupChordsIntoBars(List<ChordCue> cues, List<int> downbeatsMs) {
+List<ChordBar> groupChordsIntoBars(
+  List<ChordCue> cues,
+  List<int> downbeatsMs, {
+  int barOne = 1,
+}) {
   if (cues.isEmpty || downbeatsMs.isEmpty) return const <ChordBar>[];
   final downbeats = List<int>.of(downbeatsMs)..sort();
+  final first = barOneIndex(barOne, downbeats.length);
   final byBar = <int, List<ChordCue>>{};
   for (final cue in cues) {
-    final bar = barNumberAt(cue.startMs, downbeats) ?? 1;
+    final counted = barNumberAt(cue.startMs, downbeats, barOne: barOne);
+    final bar = counted ?? (first > 0 ? 0 : 1);
     byBar.putIfAbsent(bar, () => <ChordCue>[]).add(cue);
   }
   final numbers = byBar.keys.toList(growable: false)..sort();
   return <ChordBar>[
     for (final number in numbers)
-      ChordBar(
-        number: number,
-        startMs: downbeats[number - 1],
-        endMs: number < downbeats.length
-            ? downbeats[number]
-            : byBar[number]!.last.endMs,
-        chords: List<ChordCue>.unmodifiable(byBar[number]!),
-      ),
+      if (number < 1)
+        // The whole pickup as one, ending where bar 1 begins.
+        ChordBar(
+          number: 0,
+          startMs: downbeats.first,
+          endMs: downbeats[first],
+          chords: List<ChordCue>.unmodifiable(byBar[number]!),
+        )
+      else
+        ChordBar(
+          number: number,
+          startMs: downbeats[first + number - 1],
+          endMs: first + number < downbeats.length
+              ? downbeats[first + number]
+              : byBar[number]!.last.endMs,
+          chords: List<ChordCue>.unmodifiable(byBar[number]!),
+        ),
   ];
 }

@@ -503,6 +503,11 @@ class KeptSongs {
         'created_by': project.createdBy,
         'song_origin': project.songOrigin?.wireName,
         'key_override': project.keyOverride,
+        // Where bar 1 is, beside the band's key: both are facts about the
+        // song rather than settings on a phone, and a copy kept for the
+        // train that counted from a different bar 1 than the room would
+        // have a student reading numbers nobody else can see (0161).
+        'bar_one_downbeat': project.barOneDownbeat,
         // A line's voice note is somebody talking, which Perform never
         // plays, so it is the one thing on a line that is not kept.
         'contributions': <Map<String, dynamic>>[
@@ -539,6 +544,13 @@ class KeptSongs {
       createdBy: json['created_by'] as String?,
       songOrigin: SongOrigin.fromWireName(json['song_origin'] as String?),
       keyOverride: json['key_override'] as String?,
+      // A number below 1 is not a downbeat anybody can count from, so it is
+      // read as nothing said — the same thing SongProject.barOne does with
+      // one that somehow got through (0161).
+      barOneDownbeat: switch ((json['bar_one_downbeat'] as num?)?.toInt()) {
+        final int said when said >= 1 => said,
+        _ => null,
+      },
       contributions: <Contribution>[
         for (final value in json['contributions'] as List<dynamic>? ?? const <dynamic>[])
           _lineFromJson(Map<String, dynamic>.from(value as Map)),

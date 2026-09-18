@@ -1,5 +1,6 @@
 import '../../domain/song_analysis_models.dart';
-import '../../services/chord_beat_grid.dart' show barNumberAt;
+import '../../services/chord_beat_grid.dart'
+    show barNumberAt, barOneIndex, downbeatIndexOfBar, numberedBarCount;
 import 'musician_sheet_logic.dart' show noteAsPlayed;
 
 /// The rules of practising a song, kept out of the screen so they can be
@@ -154,19 +155,34 @@ List<PracticeLoop> sectionLoops(List<StructureSection> sections) {
   ];
 }
 
+/// What the beats ahead of bar 1 are called, everywhere they are named.
+///
+/// One word for the whole of it rather than a run of numbers. A pickup is one
+/// thing a player asks for — "from the pickup" — and counting backwards into
+/// bar 0 and bar -1 is arithmetic nobody does on a stand (Every Musician,
+/// Same Song, 17 September 2026).
+const String pickupLabel = 'Pickup';
+
 /// "Bars 9–12", or "Bar 9" when it is one.
-String barsLabel(int firstBar, int lastBar) =>
-    firstBar == lastBar ? 'Bar $firstBar' : 'Bars $firstBar–$lastBar';
+///
+/// A number below 1 is the pickup, which happens when the band has said the
+/// song starts a few downbeats into the recording.
+String barsLabel(int firstBar, int lastBar) {
+  if (lastBar < 1) return pickupLabel;
+  if (firstBar < 1) return '$pickupLabel–bar $lastBar';
+  return firstBar == lastBar ? 'Bar $firstBar' : 'Bars $firstBar–$lastBar';
+}
 
 /// Where bar [bar] starts: the downbeat it begins on.
 ///
-/// Bar 1 is the first downbeat, for now. A pickup phrase ahead of it is not
-/// bar 0 and not bar 1 either (see barNumberAt), so a loop simply cannot
-/// start before the recording's own count does. [downbeatsMs] is ascending,
+/// Bar 1 is the [barOne]th downbeat — the first one unless the band has said
+/// the recording opens with a pickup or a count-in (migration 0161). What is
+/// ahead of bar 1 is the pickup and has no number, so a loop over bars simply
+/// cannot start before the song's own count does. [downbeatsMs] is ascending,
 /// which is how the beat tracker emits it.
-int barStartMs(int bar, List<int> downbeatsMs) {
+int barStartMs(int bar, List<int> downbeatsMs, {int barOne = 1}) {
   if (downbeatsMs.isEmpty) return 0;
-  return downbeatsMs[bar.clamp(1, downbeatsMs.length).toInt() - 1];
+  return downbeatsMs[downbeatIndexOfBar(bar, barOne, downbeatsMs.length)];
 }
 
 /// Where bar [bar] ends: the next downbeat, or the end of the recording for
@@ -176,11 +192,11 @@ int barStartMs(int bar, List<int> downbeatsMs) {
 /// last bar is given the length of the one before it, which is the only
 /// honest guess available and is never used to decide anything a musician
 /// can see except where a loop over the final bar turns round.
-int barEndMs(int bar, List<int> downbeatsMs, {int? songEndMs}) {
+int barEndMs(int bar, List<int> downbeatsMs, {int? songEndMs, int barOne = 1}) {
   final count = downbeatsMs.length;
   if (count == 0) return 0;
-  final at = bar.clamp(1, count).toInt();
-  if (at < count) return downbeatsMs[at];
+  final at = downbeatIndexOfBar(bar, barOne, count);
+  if (at + 1 < count) return downbeatsMs[at + 1];
   final last = downbeatsMs[count - 1];
   if (songEndMs != null && songEndMs > last) return songEndMs;
   final one = count >= 2 ? last - downbeatsMs[count - 2] : 0;
@@ -198,18 +214,21 @@ PracticeLoop? barLoop({
   required int lastBar,
   required List<int> downbeatsMs,
   int? songEndMs,
+  int barOne = 1,
 }) {
   final count = downbeatsMs.length;
   if (count == 0) return null;
-  var first = firstBar.clamp(1, count).toInt();
-  var last = lastBar.clamp(1, count).toInt();
+  final bars = numberedBarCount(barOne, count);
+  var first = firstBar.clamp(1, bars).toInt();
+  var last = lastBar.clamp(1, bars).toInt();
   if (last < first) {
     final held = first;
     first = last;
     last = held;
   }
-  final start = barStartMs(first, downbeatsMs);
-  final end = barEndMs(last, downbeatsMs, songEndMs: songEndMs);
+  final start = barStartMs(first, downbeatsMs, barOne: barOne);
+  final end =
+      barEndMs(last, downbeatsMs, songEndMs: songEndMs, barOne: barOne);
   if (end <= start) return null;
   return PracticeLoop(
     startMs: start,
@@ -217,6 +236,33 @@ PracticeLoop? barLoop({
     label: barsLabel(first, last),
     firstBar: first,
     lastBar: last,
+  );
+}
+
+/// The pickup on its own: everything from the first downbeat up to bar 1.
+///
+/// Null when the band has said nothing, because then bar 1 *is* the first
+/// downbeat and there is nothing ahead of it to play. Until 0161 this stretch
+/// could not be put on repeat at all — it had no bar number, so there was no
+/// way to ask for it — which is exactly the phrase a teacher drills on a song
+/// that starts with one.
+///
+/// Its ends are numbered 0 so that a loop reopened from a practice mark or a
+/// heartbeat is recognised as the pickup rather than as bars; no bar number
+/// this app prints is ever 0, because [barsLabel] turns it back into a word.
+PracticeLoop? pickupLoop(List<int> downbeatsMs, {int barOne = 1}) {
+  if (downbeatsMs.isEmpty) return null;
+  final first = barOneIndex(barOne, downbeatsMs.length);
+  if (first < 1) return null;
+  final start = downbeatsMs.first;
+  final end = downbeatsMs[first];
+  if (end <= start) return null;
+  return PracticeLoop(
+    startMs: start,
+    endMs: end,
+    label: pickupLabel,
+    firstBar: 0,
+    lastBar: 0,
   );
 }
 
@@ -235,6 +281,7 @@ PracticeLoop? loopFor(
   int? endMs, {
   List<StructureSection> sections = const <StructureSection>[],
   List<int> downbeatsMs = const <int>[],
+  int barOne = 1,
 }) {
   if (startMs == null || endMs == null || endMs <= startMs) return null;
   final labels = sectionChipLabels(sections);
@@ -243,11 +290,31 @@ PracticeLoop? loopFor(
       return PracticeLoop(startMs: startMs, endMs: endMs, label: labels[i]);
     }
   }
-  final first = barNumberAt(startMs, downbeatsMs);
+  // The pickup has no bar numbers to be worked out from, so it is recognised
+  // by its own two edges — the same way a section is, and exact for the same
+  // reason: both ends came from this grid in the first place.
+  final pickup = pickupLoop(downbeatsMs, barOne: barOne);
+  if (pickup != null &&
+      pickup.startMs == startMs &&
+      pickup.endMs == endMs) {
+    return pickup;
+  }
+  var first = barNumberAt(startMs, downbeatsMs, barOne: barOne);
   // The end is where the loop turns round rather than a moment it plays, so
   // the last bar is the one the instant just before it sits in.
-  final last = barNumberAt(endMs - 1, downbeatsMs);
-  if (first == null || last == null || last < first) return null;
+  final last = barNumberAt(endMs - 1, downbeatsMs, barOne: barOne);
+  if (last == null) return null;
+  // A loop that starts inside the pickup and runs on into numbered bars.
+  // This is what somebody already looping the first few bars is left holding
+  // the moment they say bar 1 is further in, and it has a name — "Pickup–bar
+  // 4" — so it keeps playing under that name rather than vanishing without a
+  // word (review, 18 September 2026). Its first bar is 0, the same internal
+  // marker the pickup itself uses, and barsLabel turns that back into the
+  // word, so no number below 1 is ever printed.
+  if (first == null && downbeatsMs.isNotEmpty && startMs >= downbeatsMs.first) {
+    first = 0;
+  }
+  if (first == null || last < first) return null;
   return PracticeLoop(
     startMs: startMs,
     endMs: endMs,

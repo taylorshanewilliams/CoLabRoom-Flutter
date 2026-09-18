@@ -7,7 +7,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../services/audio_source_for.dart';
-import '../../services/chord_beat_grid.dart' show barNumberAt;
+import '../../services/chord_beat_grid.dart'
+    show barNumberAt, downbeatIndexOfBar, numberedBarCount;
 import '../../services/click_player.dart';
 import '../../services/follow_me.dart';
 import 'package:flutter/services.dart';
@@ -104,8 +105,20 @@ class LivePerformanceScreen extends StatefulWidget {
     this.practise,
     this.click,
     this.missing,
+    this.onSayBarOne,
     super.key,
   });
+
+  /// Says which downbeat of the analysis is bar 1, or hands the song back to
+  /// the detected bars with a null.
+  ///
+  /// A shared fact, not a reading: it moves everybody's bar numbers, so only
+  /// the room's owner and its editors may write it (0161). Null for somebody
+  /// who may only look, and for a door that has no room to ask — the songs
+  /// kept on this phone, which are opened with no network. The picker then
+  /// offers no way to move bar 1, and simply counts from wherever the song
+  /// already says.
+  final Future<void> Function(int? downbeat)? onSayBarOne;
 
   /// What counts the band in on the song's own bar. Production leaves this
   /// null and uses the metronome's click; a test hands in a silent one.
@@ -396,6 +409,17 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   List<int> get _downbeats =>
       widget.analysis?.reference?.downbeatsMs ?? const <int>[];
 
+  /// Which downbeat the band counts as bar 1 (0161), and whether that is the
+  /// analysis's own answer or one somebody gave.
+  ///
+  /// Kept here as well as on the song because this screen is pushed with a
+  /// copy of the song and never handed another one: saying it in the bar
+  /// picker has to move the numbers on this screen at once, and the song in
+  /// the rooms catches up behind it.
+  late int? _barOneSaid = widget.project.barOneDownbeat;
+
+  int get _barOne => _barOneSaid == null || _barOneSaid! < 1 ? 1 : _barOneSaid!;
+
   /// Where the recording stops, for the one bar that has no next downbeat to
   /// end on. Not [_songDuration], which a manual "song time" can set to
   /// something the recording is not.
@@ -566,6 +590,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       loopStartMs: synced ? loop?.startMs : null,
       loopEndMs: synced ? loop?.endMs : null,
       lineKey: synced ? null : _lineOnAnchor(),
+      // Where bar 1 is goes with it, whether or not the song is the clock: a
+      // loop sent as two times is named on the other phone, and it can only
+      // be named in the same numbers if the other phone counts from the same
+      // bar 1 (0161). Sent as 0 when nobody has said, so that clearing it
+      // reaches the followers too.
+      barOne: _barOneSaid ?? 0,
     );
   }
 
@@ -587,6 +617,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _markLeaderId = leader.userId.isEmpty ? null : leader.userId;
     }
     _cancelCountdown();
+    // Before anything is named. This screen was handed its copy of the song
+    // once, when it was pushed, so a bar 1 said in the middle of the lesson
+    // never reaches it any other way — and the middle of the lesson is
+    // exactly when somebody notices the count-in (0161; review, 18 September
+    // 2026). A message from a build that does not say leaves it alone.
+    final saidBarOne = state.barOne;
+    if (saidBarOne != null) {
+      _barOneSaid = saidBarOne < 1 ? null : saidBarOne;
+    }
     final source = state.sheet && _sheetLines.isNotEmpty
         ? LiveLyricSource.songSheet
         : LiveLyricSource.workspace;
@@ -672,6 +711,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         endMs,
         sections: _sections,
         downbeatsMs: _downbeats,
+        // One funnel for every name a stretch of this song gets: the chip,
+        // the follower's chip, and what a practice mark remembers. They agree
+        // because they all come through here (0161).
+        barOne: _barOne,
       );
 
   /// Following ended. Whatever was worked on is kept, with the leader's
@@ -1283,7 +1326,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       return;
     }
     if (!_playing && _countdownEnabled) {
-      final countIn = countInForSong(widget.analysis?.reference, rate: _rate);
+      // The metre is counted from bar 1, so a count-in left on the front of
+      // the recording cannot decide how many beats are in a bar of the song
+      // it is counting into (0161).
+      final countIn = countInForSong(
+        widget.analysis?.reference,
+        rate: _rate,
+        barOne: _barOne,
+      );
       if (countIn == null) {
         _startCountdown();
       } else {
@@ -1955,7 +2005,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     if (downbeats.length < 2) return;
     _showControls();
     final current = _loop;
-    final here = barNumberAt(_elapsedNow.inMilliseconds, downbeats) ?? 1;
+    final bars = numberedBarCount(_barOne, downbeats.length);
+    final here =
+        barNumberAt(_elapsedNow.inMilliseconds, downbeats, barOne: _barOne) ?? 1;
     unawaited(showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppColors.deepNavy,
@@ -1967,10 +2019,28 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       builder: (sheetContext) => _BarLoopSheet(
-        barCount: downbeats.length,
+        barCount: bars,
         firstBar: current?.firstBar ?? here,
-        lastBar: current?.lastBar ?? math.min(here + 3, downbeats.length),
+        lastBar: current?.lastBar ?? math.min(here + 3, bars),
         looping: current?.isBars ?? false,
+        hasPickup: pickupLoop(downbeats, barOne: _barOne) != null,
+        barOneSaid: _barOneSaid != null,
+        // The sheet counts in printed bar numbers; the song is told in
+        // downbeats, which is the one thing that does not move when bar 1
+        // does. Null goes straight through: it is "use the detected bars".
+        onSayBarOne: widget.onSayBarOne == null
+            ? null
+            : (bar) {
+                Navigator.of(sheetContext).pop();
+                unawaited(_sayBarOne(bar == null
+                    ? null
+                    : downbeatIndexOfBar(bar, _barOne, downbeats.length) + 1));
+              },
+        onPickup: () {
+          Navigator.of(sheetContext).pop();
+          final pickup = pickupLoop(downbeats, barOne: _barOne);
+          if (pickup != null && pickup != _loop) _setLoop(pickup);
+        },
         onChoose: (first, last) {
           Navigator.of(sheetContext).pop();
           final chosen = barLoop(
@@ -1978,6 +2048,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
             lastBar: last,
             downbeatsMs: downbeats,
             songEndMs: _recordingEndMs,
+            barOne: _barOne,
           );
           if (chosen == null) return;
           // Named the way it will be named when it comes back from a
@@ -1993,6 +2064,42 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         },
       ),
     ));
+  }
+
+  /// "This is bar 1", from the bar picker, or the detected bars put back.
+  ///
+  /// The numbers on this screen move first and the write follows, because
+  /// the person is looking at a picker that has to answer the tap. A refusal
+  /// puts them back: the room is where this is decided, and a screen that
+  /// kept counting from a bar 1 the room refused would be lying quietly.
+  Future<void> _sayBarOne(int? downbeat) async {
+    final write = widget.onSayBarOne;
+    if (write == null) return;
+    final before = _barOneSaid;
+    setState(() {
+      _barOneSaid = downbeat;
+      // Whatever was on repeat was named in the old numbering, and its bars
+      // are not the same bars any more.
+      _loop = _loopFor(_loop?.startMs, _loop?.endMs);
+    });
+    try {
+      await write(downbeat);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _barOneSaid = before;
+        _loop = _loopFor(_loop?.startMs, _loop?.endMs);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(reportAndDescribe(
+          error,
+          service: 'app',
+          stage: 'set_bar_one',
+          route: 'Perform',
+          projectId: widget.project.id,
+        )),
+      ));
+    }
   }
 
   @override
@@ -2278,7 +2385,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         seconds: _countdownSeconds,
         // The seconds are for songs with no beat of their own. This one has
         // one, so a slider setting how long it is would set nothing.
-        onTheBeat: countInForSong(widget.analysis?.reference) != null,
+        onTheBeat:
+            countInForSong(widget.analysis?.reference, barOne: _barOne) != null,
         onChanged: (enabled, seconds) {
           setState(() {
             _countdownEnabled = enabled;
@@ -3370,6 +3478,10 @@ class _BarLoopSheet extends StatefulWidget {
     required this.looping,
     required this.onChoose,
     required this.onStop,
+    this.hasPickup = false,
+    this.barOneSaid = false,
+    this.onSayBarOne,
+    this.onPickup,
   });
 
   final int barCount;
@@ -3378,6 +3490,23 @@ class _BarLoopSheet extends StatefulWidget {
 
   /// A run of bars is already on repeat, so there is a way back out of it.
   final bool looping;
+
+  /// Whether anything is played ahead of bar 1 — which only happens once
+  /// somebody has said the song starts a few downbeats in (0161).
+  final bool hasPickup;
+
+  /// Whether that somebody has already said it, so the detected bars can be
+  /// put back.
+  final bool barOneSaid;
+
+  /// Says that a bar shown here — by the number this sheet is printing — is
+  /// bar 1, or hands the song back to the detected bars with a null. Itself
+  /// null for somebody who may not say (see
+  /// LivePerformanceScreen.onSayBarOne).
+  final void Function(int? bar)? onSayBarOne;
+
+  /// Puts the pickup on repeat on its own.
+  final VoidCallback? onPickup;
 
   final void Function(int firstBar, int lastBar) onChoose;
   final VoidCallback onStop;
@@ -3448,20 +3577,24 @@ class _BarLoopSheetState extends State<_BarLoopSheet> {
                   fontWeight: FontWeight.w900,
                 ),
               ),
-              RangeSlider(
-                key: const Key('live_bar_range'),
-                values: RangeValues(_first.toDouble(), _last.toDouble()),
-                min: 1,
-                max: widget.barCount.toDouble(),
-                divisions: widget.barCount - 1,
-                activeColor: AppColors.gold,
-                inactiveColor: AppColors.line,
-                labels: RangeLabels('$_first', '$_last'),
-                onChanged: (values) => _move(
-                  first: values.start.round(),
-                  last: values.end.round(),
+              // Only with two bars to choose between. A song whose bar 1 is
+              // its last downbeat has one numbered bar, and a slider from 1
+              // to 1 has no divisions to lay out.
+              if (widget.barCount > 1)
+                RangeSlider(
+                  key: const Key('live_bar_range'),
+                  values: RangeValues(_first.toDouble(), _last.toDouble()),
+                  min: 1,
+                  max: widget.barCount.toDouble(),
+                  divisions: widget.barCount - 1,
+                  activeColor: AppColors.gold,
+                  inactiveColor: AppColors.line,
+                  labels: RangeLabels('$_first', '$_last'),
+                  onChanged: (values) => _move(
+                    first: values.start.round(),
+                    last: values.end.round(),
+                  ),
                 ),
-              ),
               // The slider crosses the whole song, so on a long one a bar is
               // a couple of pixels wide and a thumb lands near the bars you
               // meant rather than on them. These land on them: drag to the
@@ -3487,6 +3620,48 @@ class _BarLoopSheetState extends State<_BarLoopSheet> {
                   ),
                 ],
               ),
+              // On the first bar shown, because that is the bar somebody has
+              // just walked to with the arrows while counting along a printed
+              // part: "this one, the one I am looking at, is bar 1". Said
+              // small and in passing rather than explained — the picker
+              // closes and the numbers behind it have moved, which is the
+              // whole of the teaching (Every Musician, Same Song,
+              // 17 September 2026).
+              if (widget.onSayBarOne != null)
+                Wrap(
+                  spacing: 6,
+                  children: <Widget>[
+                    TextButton(
+                      key: const Key('live_this_is_bar_one'),
+                      onPressed: () => widget.onSayBarOne!(_first),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        foregroundColor: AppColors.muted,
+                      ),
+                      // The size on the label, not on the style: styleFrom
+                      // replaces the resolved text style outright and takes
+                      // the font family with it (see
+                      // button_labels_keep_their_font_test).
+                      child: const Text(
+                        'This is bar 1',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    if (widget.barOneSaid)
+                      TextButton(
+                        key: const Key('live_use_detected_bars'),
+                        onPressed: () => widget.onSayBarOne!(null),
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          foregroundColor: AppColors.muted,
+                        ),
+                        child: const Text(
+                          'Use the detected bars',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                  ],
+                ),
               const SizedBox(height: 10),
               // Wrapped rather than a row with a spacer: at the text sizes
               // somebody reading from a music stand actually uses, the two
@@ -3499,6 +3674,16 @@ class _BarLoopSheetState extends State<_BarLoopSheet> {
                   spacing: 8,
                   runSpacing: 4,
                   children: <Widget>[
+                    // What is played before bar 1, on its own. Until bar 1
+                    // could be moved this stretch had no number, so there was
+                    // no way to ask for it — and a pickup phrase is exactly
+                    // the bar a teacher drills on a song that has one (0161).
+                    if (widget.hasPickup && widget.onPickup != null)
+                      TextButton(
+                        key: const Key('live_bar_loop_pickup'),
+                        onPressed: widget.onPickup,
+                        child: const Text('Loop the pickup'),
+                      ),
                     if (widget.looping)
                       TextButton(
                         key: const Key('live_bar_loop_stop'),

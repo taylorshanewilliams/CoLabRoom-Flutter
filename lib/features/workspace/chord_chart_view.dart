@@ -55,12 +55,23 @@ class ChordChartView extends StatelessWidget {
     this.numbers = NumberReading.letters,
     this.musicalKey,
     this.roles = const <String>{},
+    this.barOneSaid = false,
+    this.onSayBarOne,
     super.key,
   });
 
   final List<ChartRow> rows;
   final int transpose;
   final double fontScale;
+
+  /// Whether somebody has already said where bar 1 is, so the long press can
+  /// offer to put the detected bars back.
+  final bool barOneSaid;
+
+  /// Says which downbeat is bar 1, or hands the song back to the detected
+  /// bars with a null. Null for somebody the room only lets look: this is the
+  /// one thing on the chart that is not theirs alone to change (0161).
+  final Future<void> Function(int? downbeat)? onSayBarOne;
 
   /// Whether the bars are filled with letters, Nashville numbers or Roman
   /// numerals. Numbers are counted from [musicalKey] and do not move with
@@ -185,7 +196,9 @@ class ChordChartView extends StatelessWidget {
               row: row,
               transpose: transpose,
               fontScale: fontScale,
-              song: _song),
+              song: _song,
+              barOneSaid: barOneSaid,
+              onSayBarOne: onSayBarOne),
         ],
       ],
     );
@@ -198,12 +211,16 @@ class _ChartRowView extends StatelessWidget {
     required this.transpose,
     required this.fontScale,
     required this.song,
+    required this.barOneSaid,
+    this.onSayBarOne,
   });
 
   final ChartRow row;
   final int transpose;
   final double fontScale;
   final _SongContext song;
+  final bool barOneSaid;
+  final Future<void> Function(int? downbeat)? onSayBarOne;
 
   @override
   Widget build(BuildContext context) {
@@ -229,13 +246,14 @@ class _ChartRowView extends StatelessWidget {
         children: <Widget>[
           // The bar number in the margin, like a printed chart. Only on the
           // first bar of the line — numbering every bar turns the page into
-          // arithmetic.
+          // arithmetic. Blank while the line is still in the pickup: those
+          // bars are played and drawn, they simply have no number (0161).
           SizedBox(
             width: 24 * fontScale,
             child: Padding(
               padding: const EdgeInsets.only(top: 12, right: 4),
               child: Text(
-                '${row.firstBarNumber}',
+                row.firstBarNumber < 1 ? '' : '${row.firstBarNumber}',
                 textAlign: TextAlign.right,
                 style: TextStyle(
                   color: AppColors.muted,
@@ -255,6 +273,8 @@ class _ChartRowView extends StatelessWidget {
                 // Every bar draws its own opening line, so the last one has to
                 // close the row or it hangs open.
                 closing: i == row.bars.length - 1,
+                barOneSaid: barOneSaid,
+                onSayBarOne: onSayBarOne,
               ),
             ),
         ],
@@ -270,6 +290,8 @@ class _BarCell extends StatelessWidget {
     required this.fontScale,
     required this.closing,
     required this.song,
+    required this.barOneSaid,
+    this.onSayBarOne,
   });
 
   final ChartBar bar;
@@ -280,6 +302,9 @@ class _BarCell extends StatelessWidget {
   /// Whether this is the last bar of its row, and so draws the line that
   /// closes it.
   final bool closing;
+
+  final bool barOneSaid;
+  final Future<void> Function(int? downbeat)? onSayBarOne;
 
   @override
   Widget build(BuildContext context) {
@@ -306,7 +331,7 @@ class _BarCell extends StatelessWidget {
         ),
       );
     }
-    return Container(
+    final cell = Container(
       decoration: BoxDecoration(
         border: Border(
           left: const BorderSide(color: AppColors.line, width: 1.5),
@@ -328,6 +353,93 @@ class _BarCell extends StatelessWidget {
                   fontScale: fontScale,
                   song: song),
             ),
+        ],
+      ),
+    );
+    final say = onSayBarOne;
+    if (say == null || bar.downbeat < 1) return cell;
+    // Held down on the bar the printed part calls bar 1. No hint, no banner:
+    // a long press on a bar of a chart is the one gesture the chart has
+    // nothing else doing, and somebody counting along a page they are holding
+    // is the only person who will ever go looking for it (Every Musician,
+    // Same Song, 17 September 2026 — teach by being used).
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPress: () => unawaited(showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: AppColors.deepNavy,
+        showDragHandle: true,
+        builder: (sheetContext) => _WhereBarOneIs(
+          bar: bar,
+          said: barOneSaid,
+          onSay: (downbeat) {
+            Navigator.of(sheetContext).pop();
+            unawaited(say(downbeat));
+          },
+        ),
+      )),
+      child: cell,
+    );
+  }
+}
+
+/// What a long press on a bar of the chart offers: this is bar 1, or put the
+/// detected bars back.
+///
+/// The count on a recording is not always the count on the page — a pickup
+/// phrase, or a count-in nobody trimmed off the front — and until this the
+/// numbers in the margin could not be moved to agree with the part in
+/// somebody's hands (Every Musician, Same Song, 17 September 2026; migration
+/// 0161). It says what it will do rather than asking a question, because the
+/// answer is undone by the same long press on any other bar.
+class _WhereBarOneIs extends StatelessWidget {
+  const _WhereBarOneIs({
+    required this.bar,
+    required this.said,
+    required this.onSay,
+  });
+
+  final ChartBar bar;
+
+  /// Whether somebody has already moved bar 1 on this song.
+  final bool said;
+
+  final void Function(int? downbeat) onSay;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          ListTile(
+            key: const Key('chart_this_is_bar_one'),
+            leading: const Icon(Icons.first_page_rounded,
+                size: 20, color: AppColors.text),
+            title: const Text(
+              'This is bar 1',
+              style: TextStyle(color: AppColors.text, fontSize: 14),
+            ),
+            subtitle: const Text(
+              'Everybody in the room counts from here.',
+              style: TextStyle(color: AppColors.muted, fontSize: 11.5),
+            ),
+            onTap: () => onSay(bar.downbeat),
+          ),
+          if (said)
+            ListTile(
+              key: const Key('chart_use_detected_bars'),
+              leading: const Icon(Icons.undo_rounded,
+                  size: 20, color: AppColors.text),
+              title: const Text(
+                'Use the detected bars',
+                style: TextStyle(color: AppColors.text, fontSize: 14),
+              ),
+              onTap: () => onSay(null),
+            ),
+          const SizedBox(height: 8),
         ],
       ),
     );

@@ -198,6 +198,7 @@ class SongProject {
     this.createdBy,
     this.songOrigin,
     this.keyOverride,
+    this.barOneDownbeat,
   });
 
   final String id;
@@ -277,6 +278,32 @@ class SongProject {
     return found == null || found.isEmpty ? null : found;
   }
 
+  /// Which downbeat of the analysis the band counts as bar 1, or null because
+  /// the first one is right — or because nobody has looked.
+  ///
+  /// The other shared fact, and it is shared for the same reason the key is:
+  /// a song with a pickup phrase, or a count-in left on the front of the
+  /// recording, is numbered one bar off the printed music, and "bars nine to
+  /// twelve" then means two different passages in the same room (Every
+  /// Musician, Same Song, 17 September 2026; migration 0161). A person's
+  /// transpose, capo and horn part are theirs; where bar 1 is belongs to the
+  /// song.
+  ///
+  /// Read through [barOne], never on its own, so nothing can count half a
+  /// page from one bar 1 and half from another.
+  final int? barOneDownbeat;
+
+  /// Where bar 1 is on this song, counting downbeats from one.
+  ///
+  /// One when nobody has said, which is what this app did before anybody
+  /// could. Never less: there is no downbeat before the first one. The upper
+  /// end is left to whoever holds the grid, because the grid comes from the
+  /// recording and this comes from the song — see barOneIndex.
+  int get barOne {
+    final said = barOneDownbeat;
+    return said == null || said < 1 ? 1 : said;
+  }
+
   SongProject copyWith({
     String? roomId,
     String? title,
@@ -291,6 +318,7 @@ class SongProject {
     String? createdBy,
     SongOrigin? songOrigin,
     Object? keyOverride = _unset,
+    Object? barOneDownbeat = _unset,
   }) {
     return SongProject(
       id: id,
@@ -314,6 +342,11 @@ class SongProject {
       keyOverride: identical(keyOverride, _unset)
           ? this.keyOverride
           : keyOverride as String?,
+      // And so does this one, for the same reason: "Use the detected bars"
+      // has to be able to put the song back the way the analysis left it.
+      barOneDownbeat: identical(barOneDownbeat, _unset)
+          ? this.barOneDownbeat
+          : barOneDownbeat as int?,
     );
   }
 }

@@ -66,6 +66,7 @@ class TakeExport {
     List<StructureSection> sections = const <StructureSection>[],
     List<int> downbeatsMs = const <int>[],
     int? beatsPerBar,
+    int barOne = 1,
   }) async {
     if (takes.isEmpty) return null;
 
@@ -80,6 +81,10 @@ class TakeExport {
             bpm: bpm,
             downbeatsMs: downbeatsMs,
             beatsPerBar: beatsPerBar,
+            // Where the band says the song starts, so the count-in on the
+            // front of the recording lands in the pickup bar and the DAW's
+            // bar 1 is the band's (0161).
+            barOne: barOne,
           )
         : null;
 

@@ -1,6 +1,6 @@
 import '../../domain/song_analysis_models.dart';
 import '../../services/chord_beat_grid.dart'
-    show barNumberAt, medianBeatIntervalMs;
+    show barNumberAt, barOneIndex, medianBeatIntervalMs;
 import 'practice_rules.dart' show maxBpm, minBpm;
 
 /// Counting a band in on the song's own beat, rather than in seconds.
@@ -127,24 +127,39 @@ Duration countInBeatAt(CountIn countIn, int beat) => countIn.beat * (beat - 1);
 /// Counting at a hundred and coming in at seventy-five is worse than not
 /// counting. The rate is applied after the range check, because a song
 /// slowed to half speed really is going to arrive at half the tempo.
+/// [barOne] is which downbeat the band says is bar 1 (0161). The metre is
+/// counted from there rather than across the whole grid, because what sits in
+/// front of bar 1 is the one stretch that is not a bar of this song: a
+/// count-in somebody left on the recording, or a pickup phrase. The median
+/// above is a defence against one downbeat the tracker dropped; it was never
+/// a defence against a count-in the tracker read as bars of its own, and four
+/// bars of a two-beat count on the front of a short recording will outvote
+/// the song and count the band in on two.
 CountIn? countInFor({
   double? bpm,
   int? beatsPerBar,
   List<int> downbeatsMs = const <int>[],
   double rate = 1,
+  int barOne = 1,
 }) {
   if (bpm == null || rate <= 0) return null;
   if (bpm < minBpm || bpm > maxBpm) return null;
   if (downbeatsMs.isEmpty) return null;
+  final first = barOneIndex(barOne, downbeatsMs.length);
+  final song = first == 0 ? downbeatsMs : downbeatsMs.sublist(first);
   return CountIn(
-    beats: beatsInBar(beatsPerBar, bpm: bpm, downbeatsMs: downbeatsMs),
+    beats: beatsInBar(beatsPerBar, bpm: bpm, downbeatsMs: song),
     bpm: bpm * rate,
   );
 }
 
 /// The count-in for an analysed song, or null when the analysis never found
 /// its beat.
-CountIn? countInForSong(ReferenceTrack? reference, {double rate = 1}) =>
+CountIn? countInForSong(
+  ReferenceTrack? reference, {
+  double rate = 1,
+  int barOne = 1,
+}) =>
     reference == null
         ? null
         : countInFor(
@@ -152,4 +167,5 @@ CountIn? countInForSong(ReferenceTrack? reference, {double rate = 1}) =>
             beatsPerBar: reference.beatsPerBar,
             downbeatsMs: reference.downbeatsMs,
             rate: rate,
+            barOne: barOne,
           );

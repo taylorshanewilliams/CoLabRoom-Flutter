@@ -176,7 +176,7 @@ class SupabaseMusicRepository implements MusicRepository {
         .select(
           'id, account_id, name, icon, created_at, updated_at, sort_order, logo_path, '
           'room_members(user_id, display_name, role, color_value, profiles(avatar_path)), '
-          'projects(id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, '
+          'projects(id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, bar_one_downbeat, '
           'project_audio_references(project_id, analysis_state), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at)))',
@@ -959,7 +959,7 @@ class SupabaseMusicRepository implements MusicRepository {
     final row = await client
         .from('projects')
         .select(
-          'id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, '
+          'id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, bar_one_downbeat, '
           'project_audio_references(project_id, analysis_state), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at))',
@@ -1600,6 +1600,18 @@ class SupabaseMusicRepository implements MusicRepository {
         'target_project': projectId,
         // Null clears it, which is how "Use the detected key" is spelled.
         'in_key': said == null || said.isEmpty ? null : said,
+      },
+    );
+  }
+
+  @override
+  Future<void> setBarOne(String projectId, int? downbeat) async {
+    await client.rpc<dynamic>(
+      'set_bar_one',
+      params: <String, dynamic>{
+        'target_project': projectId,
+        // Null clears it, which is how "Use the detected bars" is spelled.
+        'in_downbeat': downbeat == null || downbeat < 1 ? null : downbeat,
       },
     );
   }
@@ -3432,6 +3444,12 @@ class SupabaseMusicRepository implements MusicRepository {
       // that ships before the app that knows about it.
       songOrigin: SongOrigin.fromWireName(row['song_origin'] as String?),
       keyOverride: row['key_override'] as String?,
+      // Counted from one, and anything else is read as nobody having said:
+      // 0161's check refuses it, and a song list is not worth throwing over.
+      barOneDownbeat: switch (row['bar_one_downbeat']) {
+        final num said when said >= 1 => said.toInt(),
+        _ => null,
+      },
     );
   }
 
@@ -3522,6 +3540,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'cover_image_path': project.coverImagePath,
         'song_origin': project.songOrigin?.wireName,
         'key_override': project.keyOverride,
+        'bar_one_downbeat': project.barOneDownbeat,
         'project_audio_references': project.hasAudioReference
             ? <String, dynamic>{'analysis_state': project.analysisState?.name}
             : null,

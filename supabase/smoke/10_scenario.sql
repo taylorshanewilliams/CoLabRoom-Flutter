@@ -9642,6 +9642,174 @@ set local role authenticated;
 select public.take_off_open_mic('ba5e0160-0000-0000-0000-000000000020');
 select public.unshow_song('ba5e0160-0000-0000-0000-000000000020');
 
+-- ---------------------------------------------------------------------
+-- Where bar 1 is (0161).
+--
+-- Bar numbers come off the analysis downbeats with bar 1 as the first of
+-- them, which is one bar out on any song with a pickup or a count-in left on
+-- the recording (Every Musician, Same Song, 17 September 2026). Where bar 1
+-- is is a fact about the song rather than a reading somebody keeps on their
+-- phone, so it is written once and everybody in the room counts from it --
+-- and so the same two people who may say what key a song is in are the only
+-- two who may move it.
+
+reset role;
+-- Fresh actors and a fresh room, as 0142's block: the obvious second
+-- account calls delete_my_account earlier in this file, so it cannot hold a
+-- room_members row by the time anything down here runs.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('ba401161-0000-0000-0000-000000000162', 'thedrummer@smoke.test',
+   '{"display_name": "The Drummer"}'),
+  ('ba401161-0000-0000-0000-000000000163', 'watchingbars@smoke.test',
+   '{"display_name": "Watching Bars"}'),
+  -- Never inserted into room_members anywhere. `room_role_for` returns null
+  -- for this account, which is the case the `is distinct from` pair in
+  -- set_bar_one exists for and the one a `not in` would wave through.
+  ('ba401161-0000-0000-0000-000000000164', 'nobodyhere@smoke.test',
+   '{"display_name": "Nobody Here"}');
+
+insert into public.rooms (id, account_id, name)
+values ('ba401161-0000-0000-0000-000000000161',
+        '11111111-1111-1111-1111-111111111111', 'The Pickup Room');
+
+-- Distinct colours, as every other room in this file: a room's members are
+-- uniquely coloured (room_members_room_color_unique, 0006).
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('ba401161-0000-0000-0000-000000000161', '11111111-1111-1111-1111-111111111111',
+   'The Writer', 'owner', 4294937165),
+  ('ba401161-0000-0000-0000-000000000161', 'ba401161-0000-0000-0000-000000000162',
+   'The Drummer', 'editor', 4283215697),
+  ('ba401161-0000-0000-0000-000000000161', 'ba401161-0000-0000-0000-000000000163',
+   'Watching Bars', 'viewer', 4284000000);
+
+insert into public.projects (id, room_id, account_id, title, created_by) values
+  ('ba401161-0000-0000-0000-00000000016a', 'ba401161-0000-0000-0000-000000000161',
+   '11111111-1111-1111-1111-111111111111', 'Four Before One',
+   '11111111-1111-1111-1111-111111111111');
+
+-- The editor says it. The person who noticed the count-in is usually the one
+-- playing along to it, not the one who owns the catalog.
+set local request.jwt.claims = '{"sub": "ba401161-0000-0000-0000-000000000162"}';
+set local role authenticated;
+
+do $$
+begin
+  -- Null is the default, and it means the first downbeat. A song arriving
+  -- with a number nobody chose would be the app claiming to know.
+  if (select bar_one_downbeat from public.projects
+        where id = 'ba401161-0000-0000-0000-00000000016a') is not null then
+    raise exception 'a new song arrived knowing where bar 1 is';
+  end if;
+
+  perform public.set_bar_one('ba401161-0000-0000-0000-00000000016a', 3);
+  if (select bar_one_downbeat from public.projects
+        where id = 'ba401161-0000-0000-0000-00000000016a') is distinct from 3 then
+    raise exception 'an editor could not say where bar 1 is';
+  end if;
+
+  -- There is no downbeat before the first one, so there is no bar 1 before it
+  -- either. Refused rather than pulled up to one: a number the app chose
+  -- itself is worse than a sentence.
+  begin
+    perform public.set_bar_one('ba401161-0000-0000-0000-00000000016a', 0);
+    raise exception 'bar 1 was put before the first downbeat';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+-- Somebody who can only look cannot move everybody else's bar numbers.
+reset role;
+set local request.jwt.claims = '{"sub": "ba401161-0000-0000-0000-000000000163"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.set_bar_one('ba401161-0000-0000-0000-00000000016a', 1);
+    raise exception 'somebody who can only look moved bar 1';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- And somebody who is not in the room at all, which is what the null-safety
+-- in set_bar_one is actually for: the viewer above has a role, so
+-- `not in ('owner', 'editor')` would refuse them too; this account has none.
+reset role;
+set local request.jwt.claims = '{"sub": "ba401161-0000-0000-0000-000000000164"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.set_bar_one('ba401161-0000-0000-0000-00000000016a', 1);
+    raise exception 'somebody outside the room moved bar 1';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select bar_one_downbeat from public.projects
+        where id = 'ba401161-0000-0000-0000-00000000016a') is distinct from 3 then
+    raise exception 'somebody who may not say where bar 1 is said it anyway';
+  end if;
+end $$;
+
+-- "Use the detected bars". Null is a real answer and not a missing argument,
+-- so it hands the song back to the analysis rather than raising.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.set_bar_one('ba401161-0000-0000-0000-00000000016a', null);
+  if (select bar_one_downbeat from public.projects
+        where id = 'ba401161-0000-0000-0000-00000000016a') is not null then
+    raise exception 'the detected bars could not be put back';
+  end if;
+end $$;
+
+reset role;
+
+-- And the copy a teacher sends a student carries it, the way it already
+-- carries whose song it is and the band's key (0161's restatement of 0149's
+-- send_song_to_students). This is the flow the whole thing was written for:
+-- a teacher fixes bar 1 on a song with a count-in on the front, sends it to
+-- the class, and everybody's numbers then agree with the printed part she is
+-- holding. Ms Rivera and her lessons are 0149's, already set up above; this
+-- is a further song of hers, under an id of this block's own, so that the
+-- send makes a fresh copy rather than finding one already there.
+insert into public.projects (id, room_id, account_id, title, created_by,
+                             bar_one_downbeat)
+values ('a5049149-0000-0000-0000-000000000161',
+        'a5049149-0000-0000-0000-000000000010',
+        'a5049149-0000-0000-0000-000000000001', 'Two Before One',
+        'a5049149-0000-0000-0000-000000000001', 3);
+
+set local request.jwt.claims = '{"sub": "a5049149-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  copy_id uuid;
+  carried integer;
+begin
+  select song_copy into copy_id
+  from public.send_song_to_students(
+    'a5049149-0000-0000-0000-000000000161',
+    array['a5049149-0000-0000-0000-000000000011']::uuid[]);
+  if copy_id is null then
+    raise exception 'the song never reached the student';
+  end if;
+  select p.bar_one_downbeat into carried
+  from public.projects p where p.id = copy_id;
+  if carried is distinct from 3 then
+    raise exception 'the student''s copy did not carry where bar 1 is (got %)',
+      coalesce(carried::text, '<null>');
+  end if;
+end $$;
+
 reset role;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
