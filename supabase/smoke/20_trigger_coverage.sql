@@ -108,7 +108,13 @@ insert into smoke_covered (name) values
   -- 0155. The scenario shares a draft onto a song that is already out and
   -- asserts its player was asked once, and that the part stayed with the
   -- room until they answered.
-  ('song_layers_ask_on_share');
+  ('song_layers_ask_on_share'),
+  -- 0158. The scenario has a player write the seal's day with a plain
+  -- update -- one that has passed, one forty years off -- and share a sealed
+  -- take, and asserts all three refusals, then rewrites the day it was
+  -- sealed and asserts it did not move. seal_take checks none of that
+  -- itself, so with this dead the block fails rather than passing quietly.
+  ('song_layers_a_seal_has_a_day');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario

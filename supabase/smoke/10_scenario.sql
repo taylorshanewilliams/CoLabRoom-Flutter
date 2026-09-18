@@ -8219,6 +8219,324 @@ end $$;
 
 reset role;
 
+-- ---------------------------------------------------------------------
+-- Seal a take for later (0158).
+--
+-- Every Musician, Same Song, 17 September 2026. Somebody seals a draft and
+-- it is theirs alone until its day: the room's owner, who can read every
+-- other row and object in the room, reads neither this row nor its bytes,
+-- and cannot delete what they cannot see. A take the room has heard cannot
+-- be sealed and a sealed one cannot be shared. The day is the table's rule
+-- as well as the function's: a plain update cannot pick a day that has
+-- passed, or one past ten years, or rewrite when it was sealed. On the day
+-- it is offered once, to its player only, and ending the seal leaves
+-- nothing to offer again -- the take is back, still private, with the
+-- retention clock and its warning started over.
+--
+-- A fresh player and a fresh room, as 0155's block. The Writer owns the
+-- room, which is the strongest reader there is to refuse.
+-- ---------------------------------------------------------------------
+
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('5ea1ed00-0000-0000-0000-000000000001', 'putitaway@smoke.test',
+   '{"display_name": "Put It Away"}');
+
+insert into public.rooms (id, account_id, name)
+values ('5ea1ed00-0000-0000-0000-00000000000a',
+        '11111111-1111-1111-1111-111111111111', 'The Drawer');
+
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('5ea1ed00-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111',
+   'The Writer', 'owner', 4294937165),
+  ('5ea1ed00-0000-0000-0000-00000000000a', '5ea1ed00-0000-0000-0000-000000000001',
+   'Put It Away', 'editor', 4283215697);
+
+insert into public.projects (id, room_id, account_id, title, created_by, song_origin) values
+  ('5ea1ed00-0000-0000-0000-00000000000b', '5ea1ed00-0000-0000-0000-00000000000a',
+   '11111111-1111-1111-1111-111111111111', 'Put Away',
+   '11111111-1111-1111-1111-111111111111', 'ours');
+
+insert into public.song_layers
+  (id, project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values
+  -- The idea. Nobody has heard it.
+  ('5ea1ed00-0000-0000-0000-00000000000c', '5ea1ed00-0000-0000-0000-00000000000b',
+   '5ea1ed00-0000-0000-0000-000000000001',
+   '5ea1ed00-0000-0000-0000-00000000000a/5ea1ed00-0000-0000-0000-00000000000b/layers/idea.m4a',
+   'An idea', 'vocal', 12000, null),
+  -- The same player's take the room has heard, which must stay readable.
+  ('5ea1ed00-0000-0000-0000-00000000000d', '5ea1ed00-0000-0000-0000-00000000000b',
+   '5ea1ed00-0000-0000-0000-000000000001',
+   '5ea1ed00-0000-0000-0000-00000000000a/5ea1ed00-0000-0000-0000-00000000000b/layers/heard.m4a',
+   'Heard', 'vocal', 30000, now()),
+  -- Somebody else's draft, which is not this player's to seal.
+  ('5ea1ed00-0000-0000-0000-00000000000e', '5ea1ed00-0000-0000-0000-00000000000b',
+   '11111111-1111-1111-1111-111111111111',
+   '5ea1ed00-0000-0000-0000-00000000000a/5ea1ed00-0000-0000-0000-00000000000b/layers/theirs.m4a',
+   'Theirs', 'rhythm', 9000, null);
+
+insert into storage.objects (bucket_id, name, owner) values
+  ('room-files',
+   '5ea1ed00-0000-0000-0000-00000000000a/5ea1ed00-0000-0000-0000-00000000000b/layers/idea.m4a',
+   '5ea1ed00-0000-0000-0000-000000000001'),
+  ('room-files',
+   '5ea1ed00-0000-0000-0000-00000000000a/5ea1ed00-0000-0000-0000-00000000000b/layers/heard.m4a',
+   '5ea1ed00-0000-0000-0000-000000000001')
+on conflict do nothing;
+
+-- Warned once already, so the end of the seal can be seen to clear it.
+update public.song_layers set expiry_warned_at = now()
+where id = '5ea1ed00-0000-0000-0000-00000000000c';
+
+-- Before anything is sealed the owner can fetch the draft's bytes, which is
+-- the door this migration closes for a sealed take. If this ever stops being
+-- true the refusal further down proves nothing.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  if not exists (
+    select 1 from storage.objects
+    where name = '5ea1ed00-0000-0000-0000-00000000000a/5ea1ed00-0000-0000-0000-00000000000b/layers/idea.m4a'
+  ) then
+    raise exception 'the owner could not reach an object in their own room, so the sealed refusal below is vacuous';
+  end if;
+end $$;
+
+-- The player seals it.
+reset role;
+set local request.jwt.claims = '{"sub": "5ea1ed00-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  opens timestamptz;
+begin
+  begin
+    perform public.seal_take('5ea1ed00-0000-0000-0000-00000000000d');
+    raise exception 'a take the room has heard was sealed';
+  exception when invalid_parameter_value then null;
+  end;
+
+  begin
+    perform public.seal_take('5ea1ed00-0000-0000-0000-00000000000e');
+    raise exception 'somebody sealed a draft that was not theirs';
+  exception when invalid_parameter_value then null;
+  end;
+
+  begin
+    perform public.seal_take('5ea1ed00-0000-0000-0000-00000000000c', now() - interval '1 day');
+    raise exception 'a take was sealed until a day that has already passed';
+  exception when invalid_parameter_value then null;
+  end;
+
+  begin
+    perform public.seal_take('5ea1ed00-0000-0000-0000-00000000000c', now() + interval '11 years');
+    raise exception 'a take was sealed for longer than ten years';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- A year, when no day is given.
+  opens := public.seal_take('5ea1ed00-0000-0000-0000-00000000000c');
+  if opens is null
+     or opens < now() + interval '364 days'
+     or opens > now() + interval '367 days' then
+    raise exception 'a seal with no day given did not open a year on (%)', opens;
+  end if;
+
+  -- Once. A second sealing keeps the first day.
+  if public.seal_take('5ea1ed00-0000-0000-0000-00000000000c', now() + interval '30 days')
+       is distinct from opens then
+    raise exception 'sealing a sealed take moved its day';
+  end if;
+
+  -- The table holds the rule too: 0038's update policy lets the player write
+  -- the columns directly.
+  begin
+    update public.song_layers set sealed_until = now() - interval '1 hour'
+    where id = '5ea1ed00-0000-0000-0000-00000000000c';
+    raise exception 'a plain update opened a seal early by picking a day that had passed';
+  exception when invalid_parameter_value then null;
+  end;
+
+  begin
+    update public.song_layers set sealed_until = now() + interval '40 years'
+    where id = '5ea1ed00-0000-0000-0000-00000000000c';
+    raise exception 'a plain update sealed a take for forty years';
+  exception when invalid_parameter_value then null;
+  end;
+
+  update public.song_layers set sealed_at = '2001-01-01', label = 'An idea, renamed'
+  where id = '5ea1ed00-0000-0000-0000-00000000000c';
+  if (select sealed_at from public.song_layers
+        where id = '5ea1ed00-0000-0000-0000-00000000000c') < now() - interval '1 hour' then
+    raise exception 'a plain update rewrote the day a take was sealed';
+  end if;
+  if (select label from public.song_layers
+        where id = '5ea1ed00-0000-0000-0000-00000000000c') is distinct from 'An idea, renamed' then
+    raise exception 'a sealed take could not be renamed by its own player';
+  end if;
+
+  -- A sealed take is never a shared one.
+  begin
+    perform public.share_layer('5ea1ed00-0000-0000-0000-00000000000c');
+    raise exception 'a sealed take was shared with the room';
+  exception when invalid_parameter_value then null;
+  end;
+  if (select shared_at from public.song_layers
+        where id = '5ea1ed00-0000-0000-0000-00000000000c') is not null then
+    raise exception 'the refused share reached the row anyway';
+  end if;
+
+  -- Still theirs to read, row and bytes.
+  if not exists (select 1 from public.song_layers
+                 where id = '5ea1ed00-0000-0000-0000-00000000000c') then
+    raise exception 'the player could not read their own sealed take';
+  end if;
+  if not exists (
+    select 1 from storage.objects
+    where name = '5ea1ed00-0000-0000-0000-00000000000a/5ea1ed00-0000-0000-0000-00000000000b/layers/idea.m4a'
+  ) then
+    raise exception 'the player could not fetch their own sealed take';
+  end if;
+
+  -- And not offered yet.
+  if exists (select 1 from public.sealed_takes_due()) then
+    raise exception 'a sealed take was offered back before its day';
+  end if;
+end $$;
+
+-- The room's owner reads neither the row nor the bytes, and cannot delete,
+-- seal or unseal what they cannot see.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.song_layers
+             where id = '5ea1ed00-0000-0000-0000-00000000000c') then
+    raise exception 'the room''s owner could read somebody else''s sealed take';
+  end if;
+  if not exists (select 1 from public.song_layers
+                 where id = '5ea1ed00-0000-0000-0000-00000000000d') then
+    raise exception 'the restrictive policy hid a take the room has heard';
+  end if;
+
+  if exists (
+    select 1 from storage.objects
+    where name = '5ea1ed00-0000-0000-0000-00000000000a/5ea1ed00-0000-0000-0000-00000000000b/layers/idea.m4a'
+  ) then
+    raise exception 'the room''s owner could fetch the audio of somebody else''s sealed take';
+  end if;
+  if not exists (
+    select 1 from storage.objects
+    where name = '5ea1ed00-0000-0000-0000-00000000000a/5ea1ed00-0000-0000-0000-00000000000b/layers/heard.m4a'
+  ) then
+    raise exception 'the restrictive storage policy hid the audio of a take the room has heard';
+  end if;
+
+  delete from public.song_layers where id = '5ea1ed00-0000-0000-0000-00000000000c';
+  perform public.unseal_take('5ea1ed00-0000-0000-0000-00000000000c');
+
+  begin
+    perform public.seal_take('5ea1ed00-0000-0000-0000-00000000000c', now() + interval '2 days');
+    raise exception 'somebody else moved the day on a sealed take';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+-- The day comes. Nothing but time can make it come, so the table's own rule
+-- is stepped round for this one statement, as the role that owns the table.
+reset role;
+
+do $$
+begin
+  if not exists (
+    select 1 from public.song_layers
+    where id = '5ea1ed00-0000-0000-0000-00000000000c' and sealed_until is not null
+  ) then
+    raise exception 'the owner deleted or unsealed a take they could not see';
+  end if;
+end $$;
+
+set local session_replication_role = replica;
+update public.song_layers
+set sealed_at = now() - interval '1 year',
+    sealed_until = now() - interval '1 minute',
+    last_opened_at = now() - interval '1 year'
+where id = '5ea1ed00-0000-0000-0000-00000000000c';
+set local session_replication_role = origin;
+
+-- Offered to nobody else.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.sealed_takes_due()) then
+    raise exception 'somebody else was offered a sealed take on its day';
+  end if;
+  if exists (select 1 from public.song_layers
+             where id = '5ea1ed00-0000-0000-0000-00000000000c') then
+    raise exception 'a sealed take became readable to the room when its day came';
+  end if;
+end $$;
+
+-- Offered to its player, once.
+reset role;
+set local request.jwt.claims = '{"sub": "5ea1ed00-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  due record;
+begin
+  if (select count(*) from public.sealed_takes_due()) <> 1 then
+    raise exception 'the day came and % takes were offered back', (
+      select count(*) from public.sealed_takes_due());
+  end if;
+  select * into due from public.sealed_takes_due();
+  if due.layer_id is distinct from '5ea1ed00-0000-0000-0000-00000000000c'
+     or due.song_title is distinct from 'Put Away'
+     or due.storage_path is null
+     or due.sealed_at is null then
+    raise exception 'the offer did not say which take, on which song, sealed when: %', due;
+  end if;
+
+  -- Either answer is this.
+  perform public.unseal_take('5ea1ed00-0000-0000-0000-00000000000c');
+
+  if exists (select 1 from public.sealed_takes_due()) then
+    raise exception 'a seal that ended was offered again';
+  end if;
+  if not exists (
+    select 1 from public.song_layers
+    where id = '5ea1ed00-0000-0000-0000-00000000000c'
+      and sealed_at is null
+      and sealed_until is null
+      and shared_at is null
+      and expiry_warned_at is null
+      and last_opened_at > now() - interval '1 minute'
+  ) then
+    raise exception 'the take did not come back as it was, with the retention clock started over';
+  end if;
+
+  -- Quiet the second time, and nothing comes back.
+  perform public.unseal_take('5ea1ed00-0000-0000-0000-00000000000c');
+  if exists (select 1 from public.sealed_takes_due()) then
+    raise exception 'ending a seal twice brought the offer back';
+  end if;
+
+  -- Nothing of the seal is left to stop it being shared like any other take.
+  if public.share_layer('5ea1ed00-0000-0000-0000-00000000000c') is null then
+    raise exception 'a take that had been sealed could not be shared afterwards';
+  end if;
+end $$;
+
+reset role;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 -- ---------------------------------------------------------------------

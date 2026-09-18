@@ -59,6 +59,21 @@ is bounded by how many people have played, not by how much. The person who
 recorded it can still delete it themselves; this only stops the job doing
 it for them.
 
+A third, and the only one with an end date written on the row. A sealed take
+(0158) is one somebody put away on purpose, to be offered back on a day they
+chose, a year on by default. Every Musician, Same Song, 17 September 2026:
+"A year ago tonight you sealed this. Play it now?" A take put away for a year
+has by definition gone unopened for a year, so rule 1 would warn it on the
+first Sunday and delete it on the second, months before the day it was kept
+for. So it is held out of both passes until its day and for RETENTION_DAYS
+after it, which is rule 1 counted from the day the take comes back rather
+than the day it went away; when the person answers the card the app starts
+last_opened_at again and clears the seal, and the take is an ordinary one.
+Somebody who never comes back for it is not kept for ever: past that window
+the take is warned on one run and deleted on a later one, like everything
+else here. The table refuses a day more than ten years off, so this is an
+extension with an end and not a way to store audio for good.
+
 Environment:
   SUPABASE_PROJECT_REF        project ref (already a repo secret)
   SUPABASE_SERVICE_ROLE_KEY   service role key (already a repo secret)
@@ -258,6 +273,25 @@ def kept_as_the_first(layer: dict, first_ids: set[str]) -> bool:
     return layer.get("id") in first_ids
 
 
+def kept_while_sealed(layer: dict, opened_after: datetime) -> bool:
+    """Whether this layer is a sealed take (0158) that is not yet the sweep's.
+
+    [opened_after] is the deletion cutoff, RETENTION_DAYS ago. A seal whose
+    day is later than that is either still sealed or came back too recently
+    to have gone unopened for a quarter, and both are kept. A row whose seal
+    has ended has no sealed_until at all and is an ordinary take again.
+    """
+    until = layer.get("sealed_until")
+    if not until:
+        return False
+    opens = when(until)
+    if opens is None:
+        # Sealed, and we cannot read until when. Keeping it is the recoverable
+        # mistake and deleting it is not, the same way round as the term.
+        return True
+    return opens >= opened_after
+
+
 def decide(warn_candidates, delete_candidates, keep):
     """Which layers are warned and which deleted on this run.
 
@@ -332,6 +366,9 @@ def main() -> int:
     delete_cutoff = iso_days_ago(retention_days)
     warn_cutoff = iso_days_ago(warn_days)
     keep_after = datetime.now(timezone.utc) - timedelta(days=lesson_keep_days)
+    # The deletion cutoff again, as a time rather than as text: a sealed take
+    # is compared with it row by row instead of in the query.
+    opened_after = datetime.now(timezone.utc) - timedelta(days=retention_days)
     # Every timestamp built into a query string is quoted: PostgREST reads
     # these out of a URL, where "+" means space, and an unescaped "+00:00"
     # offset reaches Postgres as " 00:00" and will not parse at all. The same
@@ -344,6 +381,7 @@ def main() -> int:
     print(f"Keep   takes sent to a teacher since {keep_after.isoformat()} "
           f"({lesson_keep_days} days)")
     print("Keep   the first take of every part, however long unopened")
+    print(f"Keep   sealed takes until {retention_days} days after their day")
     print(f"Mode: {'DRY RUN — nothing will change' if dry_run else 'LIVE'}")
     print()
 
@@ -353,7 +391,7 @@ def main() -> int:
     # rather than one per pass.
     warn_candidates = request(
         f"{base}/rest/v1/song_layers"
-        f"?select=id,project_id,label,last_opened_at,shared_at"
+        f"?select=id,project_id,label,last_opened_at,shared_at,sealed_until"
         f"&last_opened_at=lt.{warn_q}"
         f"&expiry_warned_at=is.null",
         headers=headers,
@@ -361,7 +399,8 @@ def main() -> int:
 
     delete_candidates = request(
         f"{base}/rest/v1/song_layers"
-        f"?select=id,project_id,storage_path,byte_size,last_opened_at,shared_at"
+        f"?select=id,project_id,storage_path,byte_size,last_opened_at,shared_at,"
+        f"sealed_until"
         f"&last_opened_at=lt.{delete_q}",
         headers=headers,
     ) or []
@@ -389,18 +428,27 @@ def main() -> int:
     def is_the_first(layer: dict) -> bool:
         return kept_as_the_first(layer, first_ids)
 
+    # ---- the seal ------------------------------------------------------
+    # And a take somebody put away until a day of their choosing, which
+    # needs no lookup: the day is on the row.
+    def is_sealed(layer: dict) -> bool:
+        return kept_while_sealed(layer, opened_after)
+
     to_warn, to_delete, kept = decide(
         warn_candidates,
         delete_candidates,
-        lambda layer: in_its_term(layer) or is_the_first(layer),
+        lambda layer: in_its_term(layer) or is_the_first(layer) or is_sealed(layer),
     )
     by_id = {layer["id"]: layer for layer in [*warn_candidates, *delete_candidates]}
     kept_for_term = sum(1 for layer_id in kept if in_its_term(by_id[layer_id]))
     kept_as_first = sum(1 for layer_id in kept if is_the_first(by_id[layer_id]))
+    kept_sealed = sum(1 for layer_id in kept if is_sealed(by_id[layer_id]))
     if kept_for_term:
         print(f"Kept for the term: {kept_for_term} take(s) sent to a teacher")
     if kept_as_first:
         print(f"Kept as a first take: {kept_as_first} take(s), the first of a part")
+    if kept_sealed:
+        print(f"Kept while sealed: {kept_sealed} take(s) put away for later")
     if kept:
         print()
 

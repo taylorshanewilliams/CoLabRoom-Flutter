@@ -28,6 +28,7 @@ def layer(
     part: str | None = "lead",
     created: str = MARCH,
     shared: str | None = None,
+    sealed_until: str | None = None,
 ) -> dict:
     """A song_layers row as PostgREST hands it back, with the fields the sweep reads."""
     return {
@@ -37,6 +38,7 @@ def layer(
         "part": part,
         "created_at": created,
         "shared_at": shared,
+        "sealed_until": sealed_until,
         "last_opened_at": "2026-03-02T00:00:00+00:00",
         "label": layer_id,
         "storage_path": f"room/{song}/layers/{layer_id}.m4a",
@@ -236,6 +238,90 @@ class TheSweep(unittest.TestCase):
         _, to_delete, kept = sweep.decide([], [old], lambda one: False)
         self.assertEqual(ids(to_delete), ["old"])
         self.assertEqual(kept, set())
+
+
+class ASealedTake(unittest.TestCase):
+    """A take put away until a day of somebody's choosing (0158).
+
+    Every Musician, Same Song, 17 September 2026. It has gone unopened for as
+    long as it has been sealed, which is the whole idea, so rule 1 alone
+    would delete it months before the day it was kept for.
+    """
+
+    NOW = datetime(2026, 9, 18, 4, 20, tzinfo=timezone.utc)
+    # The deletion cutoff on that morning, as main() works it out.
+    OPENED_AFTER = NOW - timedelta(days=90)
+
+    def sealed(self, layer_id: str, until: datetime) -> dict:
+        return layer(layer_id, sealed_until=until.isoformat())
+
+    def keep(self, one: dict) -> bool:
+        return sweep.kept_while_sealed(one, self.OPENED_AFTER)
+
+    def test_held_out_of_both_passes_until_its_day(self):
+        put_away = self.sealed("put-away", self.NOW + timedelta(days=200))
+        ordinary = layer("ordinary")
+        to_warn, to_delete, kept = sweep.decide(
+            [put_away, ordinary], [put_away, ordinary], self.keep)
+        self.assertEqual(kept, {"put-away"})
+        self.assertEqual(ids(to_warn), ["ordinary"])
+        self.assertEqual(ids(to_delete), [])
+
+    def test_and_for_the_ordinary_window_after_it(self):
+        # The day came a month ago and nobody has answered the card. It has
+        # still been "unopened" for over a year, and it is still kept: the
+        # window counts from the day the take came back.
+        came_back = self.sealed("came-back", self.NOW - timedelta(days=30))
+        _, to_delete, kept = sweep.decide([came_back], [came_back], self.keep)
+        self.assertEqual(kept, {"came-back"})
+        self.assertEqual(ids(to_delete), [])
+
+    def test_nobody_came_back_for_it_so_it_is_warned_and_then_deleted(self):
+        # Not kept for ever. Past the window it is an old take like any
+        # other, and gets the same notice: warned on this run, deleted on a
+        # later one.
+        left = self.sealed("left", self.NOW - timedelta(days=120))
+        to_warn, to_delete, kept = sweep.decide([left], [left], self.keep)
+        self.assertEqual(kept, set())
+        self.assertEqual(ids(to_warn), ["left"])
+        self.assertEqual(ids(to_delete), [])
+
+        to_warn, to_delete, _ = sweep.decide([], [left], self.keep)
+        self.assertEqual(ids(to_warn), [])
+        self.assertEqual(ids(to_delete), ["left"])
+
+    def test_a_take_whose_seal_has_ended_is_an_ordinary_take(self):
+        # unseal_take clears the day, so there is nothing on the row to keep
+        # it by. What keeps it then is last_opened_at, which the same call
+        # set to now -- so it is not a candidate at all until a quarter on.
+        self.assertFalse(sweep.kept_while_sealed(layer("answered"), self.OPENED_AFTER))
+
+    def test_a_day_that_cannot_be_read_keeps_the_take(self):
+        unreadable = layer("unreadable", sealed_until="not a time")
+        self.assertTrue(sweep.kept_while_sealed(unreadable, self.OPENED_AFTER))
+
+    def test_the_sweep_asks_for_the_day_in_both_passes(self):
+        # The exemption is decided from the row, so a select that left the
+        # column out would keep nothing and say nothing.
+        asked: list[str] = []
+
+        def answer(url, *, method="GET", headers, data=None):
+            asked.append(url)
+            return []
+
+        env = {
+            "SUPABASE_PROJECT_REF": "ref",
+            "SUPABASE_SERVICE_ROLE_KEY": "key",
+            "DRY_RUN": "true",
+        }
+        with mock.patch.object(sweep, "request", answer), \
+                mock.patch.dict("os.environ", env, clear=False), \
+                mock.patch("builtins.print"):
+            self.assertEqual(sweep.main(), 0)
+        passes = [url for url in asked if "last_opened_at=lt." in url]
+        self.assertEqual(len(passes), 2)
+        for url in passes:
+            self.assertIn("sealed_until", url)
 
 
 if __name__ == "__main__":
