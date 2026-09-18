@@ -3916,11 +3916,12 @@ set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}'
 -- ---------------------------------------------------------------------
 -- A link for lessons (0129).
 --
--- The writer makes a lesson link and renames it without the code changing.
--- A student opens it and gets a room of their own with the writer, told to
--- the writer; opening it again (typed with dashes, in capitals) gives the
--- same room. The teacher cannot join their own link, a stranger cannot see
--- anybody's lesson rooms, and a link turned off opens nothing.
+-- The writer makes two lesson links, each with its own code and name -- one
+-- open at a time was 0129's rule, and 0148 dropped it. A student opens the
+-- second and gets a room of their own with the writer, told to the writer;
+-- opening it again (typed with dashes, in capitals) gives the same room.
+-- The teacher cannot join their own link, a stranger cannot see anybody's
+-- lesson rooms, and a link turned off opens nothing.
 -- ---------------------------------------------------------------------
 
 reset role;
@@ -3939,21 +3940,26 @@ insert into private.birth_months (person_id, born) values
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 set local role authenticated;
 
-select public.open_lesson_link('Guitar lessons') as lesson_code \gset
-select public.open_lesson_link('Guitar and voice') as lesson_code_again \gset
+select public.open_lesson_link('Guitar lessons') as lesson_code_first \gset
+select public.open_lesson_link('Guitar and voice') as lesson_code \gset
+select set_config('smoke.lesson_code_first', :'lesson_code_first', true);
 select set_config('smoke.lesson_code', :'lesson_code', true);
-select set_config('smoke.lesson_code_again', :'lesson_code_again', true);
 
 do $$
 begin
-  if current_setting('smoke.lesson_code') <> current_setting('smoke.lesson_code_again') then
-    raise exception 'renaming a lesson link changed its code';
+  if current_setting('smoke.lesson_code_first') = current_setting('smoke.lesson_code') then
+    raise exception 'two lesson links were given one code';
   end if;
-  if (select count(*) from public.my_lesson_link()) <> 1 then
-    raise exception 'the teacher does not have exactly one open lesson link';
+  if (select count(*) from public.my_lesson_links()) <> 2 then
+    raise exception 'the teacher does not have both lesson links open';
   end if;
-  if (select title from public.my_lesson_link()) <> 'Guitar and voice' then
-    raise exception 'renaming the lesson link did not rename it';
+  if (select l.title from public.my_lesson_links() l
+      where l.code = current_setting('smoke.lesson_code')) <> 'Guitar and voice' then
+    raise exception 'a lesson link is not called what the teacher called it';
+  end if;
+  -- Neither is a class until the teacher says so.
+  if exists (select 1 from public.my_lesson_links() l where l.class_room_id is not null) then
+    raise exception 'a plain lesson link opens into a class room';
   end if;
 
   begin
@@ -6483,6 +6489,504 @@ begin
     raise exception 'a second "I''m ready" moved the first one';
   end if;
 end $$;
+
+-- ---------------------------------------------------------------------
+-- A room for a class (0148).
+--
+-- Every Musician, Same Song, 17 September 2026, slice 16. The writer keeps
+-- two named links open, one of them a class, and eight is the cap. Two
+-- adult students open the class link and each lands in the class room as a
+-- viewer and in a lesson room of their own as an editor. A viewer in the
+-- class room can listen and talk, and cannot post a take, add a song or
+-- touch the words -- refused by the policies, not by an app -- while the
+-- same person in their own lesson room still can. One student's lesson
+-- room is closed to the other. Turning the class off leaves the room and
+-- its people and stops new scans joining it; turning it back on is the same
+-- room, and a fresh one is made only once that room is gone. A teacher is
+-- still an adult; nobody but the teacher says what a link is.
+--
+-- Not here: the storage policy the audio arrives through, which 0148 also
+-- closes to viewers. The shim grants storage.objects to service_role only,
+-- so a write as authenticated would be refused on the grant whatever the
+-- policy said, and a check that cannot fail for the right reason proves
+-- nothing.
+-- ---------------------------------------------------------------------
+
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('c1a55148-0000-0000-0000-000000000001', 'alto.one@smoke.test', '{"display_name": "Alto One"}'),
+  ('c1a55148-0000-0000-0000-000000000002', 'alto.two@smoke.test', '{"display_name": "Alto Two"}'),
+  ('c1a55148-0000-0000-0000-000000000003', 'alto.three@smoke.test', '{"display_name": "Alto Three"}');
+
+insert into private.birth_months (person_id, born) values
+  ('c1a55148-0000-0000-0000-000000000001', date '1991-03-01'),
+  ('c1a55148-0000-0000-0000-000000000002', date '1993-11-01'),
+  ('c1a55148-0000-0000-0000-000000000003', date '1990-07-01');
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+select count(*) as links_before from public.my_lesson_links() \gset
+select set_config('smoke.links_before', :'links_before', true);
+
+-- Two named links, open at once; the second is a class.
+select public.open_lesson_link('Tuesday beginners') as plain_link_code \gset
+select public.open_lesson_link('Jazz studio', true) as class_link_code \gset
+select set_config('smoke.plain_link_code', :'plain_link_code', true);
+select set_config('smoke.class_link_code', :'class_link_code', true);
+
+do $$
+declare
+  before integer := current_setting('smoke.links_before')::integer;
+  class_link record;
+  filler integer := 0;
+begin
+  if (select count(*) from public.my_lesson_links()) <> before + 2 then
+    raise exception 'two links opened at once did not both stay open';
+  end if;
+
+  select * into class_link from public.my_lesson_links() l
+  where l.code = current_setting('smoke.class_link_code');
+  if class_link.id is null then
+    raise exception 'the class link is not among the teacher''s open links';
+  end if;
+  if class_link.title <> 'Jazz studio' then
+    raise exception 'the class link is not called what the teacher called it';
+  end if;
+  if class_link.class_room_id is null then
+    raise exception 'a link made as a class has no class room';
+  end if;
+  if class_link.class_room_name <> 'Jazz studio' then
+    raise exception 'the class room is not named for the link (got %)', class_link.class_room_name;
+  end if;
+  if (select l.class_room_id from public.my_lesson_links() l
+      where l.code = current_setting('smoke.plain_link_code')) is not null then
+    raise exception 'a plain link made beside a class one became a class';
+  end if;
+  perform set_config('smoke.class_room', class_link.class_room_id::text, true);
+  perform set_config('smoke.class_link', class_link.id::text, true);
+
+  -- The cap: eight open, and a ninth is refused in words that say what to
+  -- do rather than how many there are.
+  while (select count(*) from public.my_lesson_links()) < 8 loop
+    filler := filler + 1;
+    perform public.open_lesson_link('Filler ' || filler);
+  end loop;
+  begin
+    perform public.open_lesson_link('One too many');
+    raise exception 'a ninth lesson link was opened';
+  exception when invalid_parameter_value then
+    if sqlerrm <> 'Eight lesson links are open. Turn one off to make another.' then
+      raise exception 'the ninth link was refused for another reason (%)', sqlerrm;
+    end if;
+  end;
+
+  -- One at a time: the fillers go and the named links stay.
+  perform public.close_lesson_link(l.id)
+  from public.my_lesson_links() l
+  where l.title like 'Filler %';
+  if (select count(*) from public.my_lesson_links()) <> before + 2 then
+    raise exception 'turning links off one at a time left the wrong ones (% open)',
+      (select count(*) from public.my_lesson_links());
+  end if;
+end $$;
+
+reset role;
+
+do $$
+declare
+  class_room uuid := current_setting('smoke.class_room')::uuid;
+begin
+  if (select account_id from public.rooms where id = class_room)
+     is distinct from '11111111-1111-1111-1111-111111111111'::uuid then
+    raise exception 'the class room does not belong to the teacher';
+  end if;
+  if (select role from public.room_members
+      where room_id = class_room and user_id = '11111111-1111-1111-1111-111111111111')
+     is distinct from 'owner' then
+    raise exception 'the teacher does not own the class room';
+  end if;
+  if (select count(*) from public.room_members where room_id = class_room) <> 1 then
+    raise exception 'a new class room holds somebody besides the teacher';
+  end if;
+end $$;
+
+-- What the class listens to: the teacher's song in the class room, with
+-- words on it and a take the whole class can hear.
+insert into public.projects (id, room_id, account_id, title, created_by)
+values ('c1a55148-0000-0000-0000-00000000014a', current_setting('smoke.class_room')::uuid,
+        '11111111-1111-1111-1111-111111111111', 'Autumn Leaves',
+        '11111111-1111-1111-1111-111111111111');
+
+insert into public.contributions (id, project_id, author_id, author_name, body)
+values ('c1a55148-0000-0000-0000-00000000014c', 'c1a55148-0000-0000-0000-00000000014a',
+        '11111111-1111-1111-1111-111111111111', 'The Writer', 'The falling leaves');
+
+insert into public.song_layers
+  (id, project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values
+  ('c1a55148-0000-0000-0000-00000000014d', 'c1a55148-0000-0000-0000-00000000014a',
+   '11111111-1111-1111-1111-111111111111',
+   current_setting('smoke.class_room') || '/c1a55148-0000-0000-0000-00000000014a/layers/alto.m4a',
+   'Alto', 'vocal', 30000, now());
+
+-- The first student opens the class link, twice.
+set local request.jwt.claims = '{"sub": "c1a55148-0000-0000-0000-000000000001", "email": "alto.one@smoke.test"}';
+set local role authenticated;
+
+select public.join_lesson_link(:'class_link_code') as alto_one_room \gset
+select public.join_lesson_link(:'class_link_code') as alto_one_room_again \gset
+select set_config('smoke.alto_one_room', :'alto_one_room', true);
+select set_config('smoke.alto_one_room_again', :'alto_one_room_again', true);
+
+do $$
+declare
+  class_room uuid := current_setting('smoke.class_room')::uuid;
+  own_room uuid := current_setting('smoke.alto_one_room')::uuid;
+begin
+  if own_room = class_room then
+    raise exception 'opening a class link gave back the class room instead of a lesson room';
+  end if;
+  if current_setting('smoke.alto_one_room_again') <> current_setting('smoke.alto_one_room') then
+    raise exception 'opening a class link twice made a second lesson room';
+  end if;
+  -- Under their own RLS: both rooms are theirs to see.
+  if not exists (select 1 from public.rooms where id = class_room) then
+    raise exception 'the student cannot see the class room they joined';
+  end if;
+  if not exists (select 1 from public.rooms where id = own_room) then
+    raise exception 'the student cannot see their own lesson room';
+  end if;
+  -- Listening: the teacher's shared take and the words are readable.
+  if not exists (select 1 from public.song_layers where id = 'c1a55148-0000-0000-0000-00000000014d') then
+    raise exception 'a viewer cannot hear the take the class listens to';
+  end if;
+  if not exists (select 1 from public.contributions where id = 'c1a55148-0000-0000-0000-00000000014c') then
+    raise exception 'a viewer cannot read the words the class works on';
+  end if;
+end $$;
+
+-- Talking is allowed.
+insert into public.room_messages (room_id, author_id, body)
+values (current_setting('smoke.class_room')::uuid, 'c1a55148-0000-0000-0000-000000000001',
+        'Which bar is the pickup?');
+
+-- Posting is not: a take, a song, a line, or a change to a line. The first
+-- three are refused outright; an update RLS refuses simply finds no row.
+do $$
+begin
+  begin
+    insert into public.song_layers (project_id, recorded_by, storage_path, label, part, duration_ms)
+    values ('c1a55148-0000-0000-0000-00000000014a', 'c1a55148-0000-0000-0000-000000000001',
+            current_setting('smoke.class_room') || '/c1a55148-0000-0000-0000-00000000014a/layers/in-front-of-everybody.m4a',
+            'Mine', 'vocal', 5000);
+    raise exception 'a viewer posted a take in the class room';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into public.projects (room_id, account_id, title, created_by)
+    values (current_setting('smoke.class_room')::uuid, '11111111-1111-1111-1111-111111111111',
+            'A song of my own', 'c1a55148-0000-0000-0000-000000000001');
+    raise exception 'a viewer added a song to the class room';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into public.contributions (project_id, author_id, author_name, body)
+    values ('c1a55148-0000-0000-0000-00000000014a', 'c1a55148-0000-0000-0000-000000000001',
+            'Alto One', 'A line of my own');
+    raise exception 'a viewer added words to the class''s song';
+  exception when insufficient_privilege then null;
+  end;
+
+  update public.contributions set body = 'The falling leaves, rewritten'
+  where id = 'c1a55148-0000-0000-0000-00000000014c';
+  if found then
+    raise exception 'a viewer changed the words of the class''s song';
+  end if;
+end $$;
+
+-- In their own lesson room the same person is an editor, and a take goes
+-- up: the role rule reaches viewers and nobody else.
+do $$
+declare
+  own_room uuid := current_setting('smoke.alto_one_room')::uuid;
+  own_song uuid;
+begin
+  insert into public.projects (room_id, account_id, title)
+  values (own_room, '11111111-1111-1111-1111-111111111111', 'Autumn Leaves, my own')
+  returning id into own_song;
+  insert into public.song_layers (project_id, recorded_by, storage_path, label, part, duration_ms)
+  values (own_song, 'c1a55148-0000-0000-0000-000000000001',
+          own_room::text || '/' || own_song::text || '/layers/mine.m4a', 'Mine', 'vocal', 5000);
+  perform set_config('smoke.alto_one_song', own_song::text, true);
+end $$;
+
+-- The second student: the class, yes; the other student's lesson, no.
+set local request.jwt.claims = '{"sub": "c1a55148-0000-0000-0000-000000000002", "email": "alto.two@smoke.test"}';
+
+select public.join_lesson_link(:'class_link_code') as alto_two_room \gset
+select set_config('smoke.alto_two_room', :'alto_two_room', true);
+
+do $$
+begin
+  if not exists (select 1 from public.rooms where id = current_setting('smoke.class_room')::uuid) then
+    raise exception 'the second student is not in the class room';
+  end if;
+  if current_setting('smoke.alto_two_room') = current_setting('smoke.alto_one_room') then
+    raise exception 'two students were given one lesson room';
+  end if;
+  if exists (select 1 from public.rooms where id = current_setting('smoke.alto_one_room')::uuid) then
+    raise exception 'a classmate can see another student''s lesson room';
+  end if;
+  if exists (select 1 from public.projects where id = current_setting('smoke.alto_one_song')::uuid) then
+    raise exception 'a classmate can see another student''s lesson song';
+  end if;
+  if (select count(*) from public.lesson_rooms) <> 1 then
+    raise exception 'a classmate can see another student''s lesson';
+  end if;
+end $$;
+
+reset role;
+
+do $$
+declare
+  class_room uuid := current_setting('smoke.class_room')::uuid;
+  first_lesson uuid := current_setting('smoke.alto_one_room')::uuid;
+begin
+  if (select count(*) from public.room_members where room_id = class_room) <> 3 then
+    raise exception 'the class room does not hold the teacher and both students (holds %)',
+      (select count(*) from public.room_members where room_id = class_room);
+  end if;
+  if (select count(*) from public.room_members
+      where room_id = class_room and role = 'viewer') <> 2 then
+    raise exception 'a student is in the class room as something other than a viewer';
+  end if;
+  if (select count(*) from public.room_members where room_id = first_lesson) <> 2 then
+    raise exception 'a lesson room made by a class link holds somebody besides the two of them';
+  end if;
+  if (select role from public.room_members
+      where room_id = first_lesson and user_id = 'c1a55148-0000-0000-0000-000000000001')
+     is distinct from 'editor' then
+    raise exception 'the student cannot work in their own lesson room';
+  end if;
+  -- Told once per student, the way 0129 tells a teacher.
+  if private.wants_invite_responses('11111111-1111-1111-1111-111111111111')
+     and (select count(*) from public.notifications
+          where user_id = '11111111-1111-1111-1111-111111111111'
+            and type = 'invite_accepted'
+            and room_id in (first_lesson, current_setting('smoke.alto_two_room')::uuid)) <> 2 then
+    raise exception 'the teacher was not told about each student who joined the class';
+  end if;
+end $$;
+
+-- Turning the class off leaves the room and its people, and a student who
+-- scans meanwhile gets a lesson room and no class. Turning it back on is the
+-- same room -- a switch flipped twice on a phone must not split a class
+-- between two rooms -- and the student who scanned meanwhile is in it the
+-- next time they scan. Saying "class" twice makes one. Only once the room is
+-- gone does turning the class on make a fresh one, holding only the teacher.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  link uuid := current_setting('smoke.class_link')::uuid;
+begin
+  if public.set_lesson_link_class(link, false) is not null then
+    raise exception 'turning a class off answered with a room';
+  end if;
+  if (select l.class_room_id from public.my_lesson_links() l where l.id = link) is not null then
+    raise exception 'a link turned off as a class still opens into a class room';
+  end if;
+end $$;
+
+-- The third student scans while the class is off.
+set local request.jwt.claims = '{"sub": "c1a55148-0000-0000-0000-000000000003", "email": "alto.three@smoke.test"}';
+
+select public.join_lesson_link(:'class_link_code') as alto_three_room \gset
+select set_config('smoke.alto_three_room', :'alto_three_room', true);
+
+do $$
+begin
+  if current_setting('smoke.alto_three_room') = current_setting('smoke.class_room') then
+    raise exception 'scanning a link whose class is off gave back the class room';
+  end if;
+  if exists (select 1 from public.rooms where id = current_setting('smoke.class_room')::uuid) then
+    raise exception 'a student who scanned while the class was off is in the class room';
+  end if;
+  if not exists (select 1 from public.rooms where id = current_setting('smoke.alto_three_room')::uuid) then
+    raise exception 'a student who scanned while the class was off got no lesson room';
+  end if;
+end $$;
+
+-- Back on: the same room, under the same name, with the same people in it.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+do $$
+declare
+  link uuid := current_setting('smoke.class_link')::uuid;
+  first_room uuid := current_setting('smoke.class_room')::uuid;
+begin
+  if public.set_lesson_link_class(link, true) is distinct from first_room then
+    raise exception 'turning the class back on did not open the room the class is in';
+  end if;
+  if (select l.class_room_id from public.my_lesson_links() l where l.id = link)
+     is distinct from first_room then
+    raise exception 'the link does not open into the class room again';
+  end if;
+  if (select l.class_room_name from public.my_lesson_links() l where l.id = link) <> 'Jazz studio' then
+    raise exception 'the class room came back under another name (got %)',
+      (select l.class_room_name from public.my_lesson_links() l where l.id = link);
+  end if;
+  if public.set_lesson_link_class(link, true) is distinct from first_room then
+    raise exception 'saying "class" twice made two class rooms';
+  end if;
+end $$;
+
+-- The student who scanned meanwhile scans again: the same lesson room, and
+-- now the class.
+set local request.jwt.claims = '{"sub": "c1a55148-0000-0000-0000-000000000003", "email": "alto.three@smoke.test"}';
+
+select public.join_lesson_link(:'class_link_code') as alto_three_room_again \gset
+select set_config('smoke.alto_three_room_again', :'alto_three_room_again', true);
+
+do $$
+begin
+  if current_setting('smoke.alto_three_room_again') <> current_setting('smoke.alto_three_room') then
+    raise exception 'scanning again once the class was on made a second lesson room';
+  end if;
+  if not exists (select 1 from public.rooms where id = current_setting('smoke.class_room')::uuid) then
+    raise exception 'a student who scanned again once the class was on is not in the class room';
+  end if;
+end $$;
+
+reset role;
+
+do $$
+declare
+  class_room uuid := current_setting('smoke.class_room')::uuid;
+begin
+  if (select count(*) from public.room_members where room_id = class_room) <> 4 then
+    raise exception 'the class room does not hold the teacher and all three students (holds %)',
+      (select count(*) from public.room_members where room_id = class_room);
+  end if;
+  if (select role from public.room_members
+      where room_id = class_room and user_id = 'c1a55148-0000-0000-0000-000000000003')
+     is distinct from 'viewer' then
+    raise exception 'the student who joined the class late is not a viewer in it';
+  end if;
+  -- The room goes. The app deletes a room outright and the column is set
+  -- null with it; this is the other way a room is gone, and the one every
+  -- guard in 0148 reads.
+  update public.rooms set deleted_at = now() where id = class_room;
+end $$;
+
+-- With the room gone, turning the class on makes a fresh one, holding only
+-- the teacher, under the name the old room let go of: the unique name index
+-- and make_class_room both look past rooms that are gone.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  link uuid := current_setting('smoke.class_link')::uuid;
+  first_room uuid := current_setting('smoke.class_room')::uuid;
+  again uuid;
+begin
+  if (select l.class_room_id from public.my_lesson_links() l where l.id = link) is not null then
+    raise exception 'a link still opens into a class room that is gone';
+  end if;
+  again := public.set_lesson_link_class(link, true);
+  if again is null or again = first_room then
+    raise exception 'turning the class on with its room gone did not make a class room';
+  end if;
+  if (select l.class_room_id from public.my_lesson_links() l where l.id = link)
+     is distinct from again then
+    raise exception 'the link does not open into the new class room';
+  end if;
+  if (select l.class_room_name from public.my_lesson_links() l where l.id = link) <> 'Jazz studio' then
+    raise exception 'the new class room did not take the name the old one let go of (got %)',
+      (select l.class_room_name from public.my_lesson_links() l where l.id = link);
+  end if;
+  perform set_config('smoke.class_room_again', again::text, true);
+end $$;
+
+reset role;
+
+do $$
+begin
+  if (select count(*) from public.room_members
+      where room_id = current_setting('smoke.class_room')::uuid) <> 4 then
+    raise exception 'turning the class off and on lost the people in the class room';
+  end if;
+  if (select count(*) from public.room_members
+      where room_id = current_setting('smoke.class_room_again')::uuid) <> 1 then
+    raise exception 'a class room made again holds somebody besides the teacher';
+  end if;
+end $$;
+
+-- Nobody but the teacher says what a link is.
+set local request.jwt.claims = '{"sub": "99999999-9999-9999-9999-999999999999", "email": "joiner.two@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.set_lesson_link_class(current_setting('smoke.class_link')::uuid, false);
+    raise exception 'somebody else turned a teacher''s class off';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- And the teacher is an adult (0139), for a class as for a link. Joiner One
+-- answered as a 15-year-old under "Calls for adults (0134)" above.
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+
+do $$
+begin
+  begin
+    perform public.open_lesson_link('A class from a 15-year-old', true);
+    raise exception 'a 15-year-old opened a class';
+  exception when invalid_parameter_value then
+    if sqlerrm <> 'Lesson links are for people 18 and over for now.' then
+      raise exception 'a 15-year-old was refused a class for another reason (%)', sqlerrm;
+    end if;
+  end;
+  -- Somebody else's link is refused as somebody else's, whatever the age of
+  -- the person asking: the link is checked first, as 0139 checks it first
+  -- for a student.
+  begin
+    perform public.set_lesson_link_class(current_setting('smoke.class_link')::uuid, true);
+    raise exception 'a 15-year-old changed a lesson link';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- A link turned off, one at a time, leaves the other open and cannot be
+-- made a class: it opens nothing, so there is nothing for it to be a class of.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+select public.close_lesson_link(current_setting('smoke.class_link')::uuid);
+
+do $$
+begin
+  if exists (select 1 from public.my_lesson_links() l
+             where l.code = current_setting('smoke.class_link_code')) then
+    raise exception 'a link turned off is still open';
+  end if;
+  if not exists (select 1 from public.my_lesson_links() l
+                 where l.code = current_setting('smoke.plain_link_code')) then
+    raise exception 'turning one link off turned another off with it';
+  end if;
+  begin
+    perform public.set_lesson_link_class(current_setting('smoke.class_link')::uuid, true);
+    raise exception 'a closed link was made a class';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 

@@ -169,7 +169,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('lesson_close_confirm')));
       await tester.pumpAndSettle();
-      expect(await repository.myLessonLink(), isNull);
+      expect(await repository.myLessonLinks(), isEmpty);
       expect(find.text('One code for all your students'), findsOneWidget);
     });
 
@@ -193,6 +193,10 @@ void main() {
           ),
         ),
       ));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      // The list first (0148), then the link's own code.
+      await tester.tap(find.byKey(const Key('lesson_link_row_a1b2c3d4e5f6')));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.byKey(const Key('lesson_qr')), findsOneWidget);
@@ -228,7 +232,7 @@ void main() {
       }
 
       await useCode('0123-4567-89AB');
-      expect(find.text('Your lesson room is ready. It is under Your music.'), findsOneWidget);
+      expect(find.text('Your lesson room is ready: Guitar lessons · Taylor. It is under Your music.'), findsOneWidget);
       expect(controller.rooms.length, before + 1);
       final room = controller.rooms.firstWhere((each) => each.name.startsWith('Guitar lessons'));
       expect(room.members.map((member) => member.role), containsAll(<RoomRole>[RoomRole.owner, RoomRole.editor]));

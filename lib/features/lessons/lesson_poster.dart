@@ -20,10 +20,17 @@ abstract final class LessonPoster {
     required String title,
     required String code,
     String? teacher,
+    String? className,
   }) {
     return Printing.layoutPdf(
       name: '${_fileName(title)}-lesson-poster.pdf',
-      onLayout: (format) => document(title: title, code: code, teacher: teacher, format: format).save(),
+      onLayout: (format) => document(
+        title: title,
+        code: code,
+        teacher: teacher,
+        className: className,
+        format: format,
+      ).save(),
     );
   }
 
@@ -31,6 +38,7 @@ abstract final class LessonPoster {
     required String title,
     required String code,
     String? teacher,
+    String? className,
     PdfPageFormat format = PdfPageFormat.a4,
   }) {
     final who = printable(teacher ?? '').trim();
@@ -40,7 +48,7 @@ abstract final class LessonPoster {
       pw.Page(
         pageFormat: format,
         margin: margin,
-        build: (context) => sheet(title: title, code: code, teacher: teacher),
+        build: (context) => sheet(title: title, code: code, teacher: teacher, className: className),
       ),
     );
     return document;
@@ -57,6 +65,7 @@ abstract final class LessonPoster {
     required String title,
     required String code,
     String? teacher,
+    String? className,
   }) {
     final heading = _heading(title);
     final who = printable(teacher ?? '').trim();
@@ -112,8 +121,7 @@ abstract final class LessonPoster {
           pw.Container(
             width: 380,
             child: pw.Text(
-              'Everybody who scans gets their own room with me: just the two of us, '
-              'the song sheet, and what we worked on last time.',
+              scanSentence(className: className),
               textAlign: pw.TextAlign.center,
               style: const pw.TextStyle(fontSize: 13, color: PdfColors.grey800, lineSpacing: 3),
             ),
@@ -141,6 +149,20 @@ abstract final class LessonPoster {
   static String _heading(String title) {
     final printed = printable(title).trim();
     return printed.isEmpty ? 'Lessons' : printed;
+  }
+
+  /// What scanning does, in the teacher's voice. A class poster names the
+  /// class (0148): whoever reads it on a wall is deciding whether to scan,
+  /// and "one room with the whole class" is the thing they are deciding
+  /// about. Kept out of the page so the words can be read in a test.
+  static String scanSentence({String? className}) {
+    final room = printable(className ?? '').trim();
+    if (room.isEmpty) {
+      return 'Everybody who scans gets their own room with me: just the two of us, '
+          'the song sheet, and what we worked on last time.';
+    }
+    return 'Everybody who scans joins $room with the whole class, to listen, '
+        'and gets their own room with me for what they record.';
   }
 
   /// How big the title is drawn.

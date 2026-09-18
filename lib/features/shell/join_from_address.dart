@@ -72,18 +72,17 @@ Future<void> _joinLesson(
   try {
     // Lesson links are for people 18 and over for now (0139), so the server
     // may want a birth month before it opens one.
-    final room = await withBirthMonth(
+    final joined = await withBirthMonth(
       () => controller.joinLessonLink(code),
       context: context,
       repository: controller.repository,
     );
     if (!context.mounted) return;
     onJoined?.call();
-    messenger.showSnackBar(SnackBar(
-      content: Text(room == null
-          ? 'Your lesson room is ready. It is under Your music.'
-          : 'Your lesson room is ready: ${room.name}.'),
-    ));
+    // Both rooms, when a class link put them in two (0148): they opened a
+    // link, not a room with other people in it.
+    messenger.showSnackBar(SnackBar(content: Text(joined.sentence())));
+    final room = joined.room;
     if (room != null) {
       await navigator.push(MaterialPageRoute<void>(
         settings: RouteSettings(name: AppRoutes.room(room.id)),

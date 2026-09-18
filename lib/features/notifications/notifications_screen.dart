@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../domain/lesson_link.dart';
 import '../../domain/moment_note.dart';
 import '../../domain/music_models.dart';
 import '../../services/user_facing_error.dart';
@@ -46,18 +47,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   /// [open] is where the thing that was just said yes to now lives. "X is in
   /// Your music now" with nothing to press left somebody to go and find it.
   Future<void> _run(Future<void> Function() action, String success, {VoidCallback? open}) async {
-    if (_busy) return;
-    setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
+    if (!await _attempt(action)) return;
+    messenger.showSnackBar(SnackBar(
+      content: Text(success),
+      action: open == null ? null : SnackBarAction(label: 'Open', onPressed: open),
+    ));
+  }
+
+  /// Runs [action] with the screen busy, and says what went wrong if
+  /// anything did. True when it went through, for a caller with something of
+  /// its own to say afterwards: a lesson link's sentence names the rooms it
+  /// opened, which is not known until it has (0148).
+  Future<bool> _attempt(Future<void> Function() action) async {
+    if (_busy) return false;
+    setState(() => _busy = true);
     try {
       await action();
-      messenger.showSnackBar(SnackBar(
-        content: Text(success),
-        action: open == null ? null : SnackBarAction(label: 'Open', onPressed: open),
-      ));
+      return true;
     } on NothingSaidAboutAge {
       // A lesson code, and the birth month question was closed rather than
       // answered (0139). Nothing happened, so nothing is said.
+      return false;
     } catch (error) {
       // Was `Text(error.toString())`, which is how a musician standing in a
       // room came to be shown a Postgres unique-constraint violation. The
@@ -70,10 +81,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         // three weeks in.
         reportAndDescribe(error,
             service: 'app', stage: 'invite', route: 'Inbox');
-        return;
+        return false;
       }
       showProblem(context, error,
           service: 'app', stage: 'invite', route: 'Inbox');
+      return false;
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -146,18 +158,22 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     // A teacher's lesson code or link makes a room rather than joining one.
     final lesson = lessonCodeFromText(code);
     if (lesson != null) {
-      await _run(
-        () async {
-          // Lesson links are for people 18 and over for now, so the server
-          // may want a birth month before it opens one (0139).
-          await withBirthMonth(
-            () => controller.joinLessonLink(lesson),
-            context: context,
-            repository: controller.repository,
-          );
-        },
-        'Your lesson room is ready. It is under Your music.',
-      );
+      final messenger = ScaffoldMessenger.of(context);
+      late final LessonJoined joined;
+      final opened = await _attempt(() async {
+        // Lesson links are for people 18 and over for now, so the server
+        // may want a birth month before it opens one (0139).
+        joined = await withBirthMonth(
+          () => controller.joinLessonLink(lesson),
+          context: context,
+          repository: controller.repository,
+        );
+      });
+      if (!opened) return;
+      // The room by name, and the class room with it when a class link put
+      // them in two (0148): they opened a link, not a room with other
+      // people in it. Where, as well, because this screen stays put.
+      messenger.showSnackBar(SnackBar(content: Text(joined.sentence(sayWhere: true))));
       return;
     }
     // Somebody's own code, or the link their QR code holds: this is the box
