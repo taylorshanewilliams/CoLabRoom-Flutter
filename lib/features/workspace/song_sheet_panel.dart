@@ -246,6 +246,15 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
         _bundle.reference?.structureSections ?? const <StructureSection>[],
       );
 
+  /// Both exports carry this person's own key and deliberately not their
+  /// reading.
+  ///
+  /// A printed chart and a ChordPro file leave the device and get read by
+  /// other people, and both of them name the key at the top — a part written
+  /// for B♭ and labelled "Key of A" would put the whole band a tone out. A
+  /// reading is the one thing here that is personal to this device (Every
+  /// Musician, Same Song, 17 September 2026), so what is exported is the
+  /// song as the band plays it.
   Future<void> _printChart() async {
     try {
       await ChordSheetExport.printChart(
