@@ -58,23 +58,13 @@ class ProjectExportService {
     return buffer.toString();
   }
 
-  static String setlistText(Setlist setlist, Iterable<SongProject> projects) {
-    final songs = projects.toList(growable: false);
-    final buffer = StringBuffer(setlist.name);
-    for (var index = 0; index < songs.length; index += 1) {
-      buffer
-        ..writeln()
-        ..write('${index + 1}. ${songs[index].title}');
-    }
-    return buffer.toString();
-  }
+  // A set prints and shares through SetlistPack: the running order with each
+  // song's key, tempo, count-in, form, ending and note, then a chart per
+  // song. The title-only list this file used to write is what a stand-in
+  // could not play from (Every Musician, Same Song, 17 September 2026).
 
   static Future<void> shareSong(SongProject project) {
     return _share(project.title, songText(project));
-  }
-
-  static Future<void> shareSetlist(Setlist setlist, Iterable<SongProject> projects) {
-    return _share(setlist.name, setlistText(setlist, projects));
   }
 
   static Future<void> _share(String subject, String text) async {
@@ -83,29 +73,6 @@ class ProjectExportService {
 
   static Future<void> printSong(SongProject project) {
     return _print(project.title, _songDocument(project));
-  }
-
-  static Future<void> printSetlist(Setlist setlist, Iterable<SongProject> projects) {
-    final songs = projects.toList(growable: false);
-    final document = pw.Document();
-    document.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.letter,
-        margin: const pw.EdgeInsets.all(46),
-        build: (_) => <pw.Widget>[
-          pw.Text(printable(setlist.name), style: pw.TextStyle(fontSize: 25, fontWeight: pw.FontWeight.bold)),
-          pw.SizedBox(height: 20),
-          ...songs.indexed.map(
-            (entry) => pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(vertical: 7),
-              child: pw.Text(printable('${entry.$1 + 1}.  ${entry.$2.title}'),
-                  style: const pw.TextStyle(fontSize: 15)),
-            ),
-          ),
-        ],
-      ),
-    );
-    return _print(setlist.name, document);
   }
 
   static pw.Document _songDocument(SongProject project) {

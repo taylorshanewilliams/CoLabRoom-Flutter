@@ -6,18 +6,32 @@ import '../../app/routes.dart';
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
-import '../../services/project_export_service.dart';
+import '../../domain/song_analysis_models.dart';
+import '../../services/music_reference.dart' show samePitch;
+import '../../services/song_analysis_service.dart';
 import '../../widgets/app_surface.dart';
 import '../workspace/song_workspace_screen.dart';
 import '../../services/user_facing_error.dart';
 import '../../services/song_search.dart';
+import 'setlist_pack.dart';
 
-enum _SetlistMenuAction { print, share, rename, delete }
+enum _SetlistMenuAction { print, sharePdf, share, rename, delete }
+
+/// The analysis behind a song, or null when there is none to be had.
+typedef LoadAnalysis = Future<SongAnalysisBundle?> Function(String projectId);
 
 class SetlistDetailScreen extends StatefulWidget {
-  const SetlistDetailScreen({required this.setlistId, super.key});
+  const SetlistDetailScreen({
+    required this.setlistId,
+    this.loadAnalysis,
+    super.key,
+  });
 
   final String setlistId;
+
+  /// Where each song's analysis comes from. The app reads it from the
+  /// analysis service; a test hands in what it likes.
+  final LoadAnalysis? loadAnalysis;
 
   @override
   State<SetlistDetailScreen> createState() => _SetlistDetailScreenState();
@@ -27,6 +41,39 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
   // Optimistic local order so drag-and-drop feels instant instead of
   // waiting on a round trip to the backend before the list visibly moves.
   List<String>? _localOrder;
+
+  /// Each song's analysis, once it has arrived. What the key, the tempo, the
+  /// count-in and the form fall back to when the band has said nothing on
+  /// the set, and what the charts in the pack are built from.
+  final Map<String, SongAnalysisBundle?> _analyses = <String, SongAnalysisBundle?>{};
+  final Map<String, Future<SongAnalysisBundle?>> _loads = <String, Future<SongAnalysisBundle?>>{};
+
+  static Future<SongAnalysisBundle?> _fromService(String projectId) async {
+    try {
+      return await SongAnalysisService().load(projectId);
+    } catch (_) {
+      // Non-fatal: the row says what the band wrote and nothing more, and
+      // the pack lists the song without a chart.
+      return null;
+    }
+  }
+
+  /// The analysis for one song, asked for once and kept.
+  Future<SongAnalysisBundle?> _analysisFor(String projectId) {
+    return _loads.putIfAbsent(projectId, () async {
+      final bundle = await (widget.loadAnalysis ?? _fromService)(projectId);
+      if (mounted) setState(() => _analyses[projectId] = bundle);
+      return bundle;
+    });
+  }
+
+  /// The pack's songs, with every analysis in hand.
+  Future<List<SetlistPackSong>> _packSongs(Setlist setlist, List<SongProject> projects) async {
+    final analyses = <String, SongAnalysisBundle?>{
+      for (final project in projects) project.id: await _analysisFor(project.id),
+    };
+    return SetlistPack.songs(setlist: setlist, projects: projects, analyses: analyses);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,6 +96,39 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
     for (final projectId in order) {
       final project = controller.projectById(projectId);
       if (project != null) projects.add(project);
+    }
+    for (final project in projects) {
+      unawaited(_analysisFor(project.id));
+    }
+
+    /// What the band says about one song here, given back as null once it
+    /// has landed or as the sentence to show when it did not.
+    Future<String?> save(SetlistSong song) async {
+      try {
+        await controller.saveSetlistSong(setlist, song);
+        return null;
+      } on ArgumentError catch (error) {
+        return error.message.toString();
+      } on StateError catch (error) {
+        return error.message;
+      } catch (error) {
+        return reportAndDescribe(error, service: 'app', stage: 'set_song', route: 'Setlist');
+      }
+    }
+
+    Future<void> editSong(SongProject project) async {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        backgroundColor: AppColors.deepNavy,
+        builder: (_) => _SetSongSheet(
+          project: project,
+          entry: setlist.songFor(project.id) ?? SetlistSong(projectId: project.id),
+          songSays: setSongFacts(null, project, _analyses[project.id]),
+          onSave: save,
+        ),
+      );
     }
 
     // Called via onReorderItem rather than the deprecated onReorder, which
@@ -111,12 +191,16 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
       if (action == _SetlistMenuAction.rename) return rename();
       if (action == _SetlistMenuAction.delete) return delete();
       try {
+        final songs = await _packSongs(setlist, projects);
         switch (action) {
           case _SetlistMenuAction.print:
-            await ProjectExportService.printSetlist(setlist, projects);
+            await SetlistPack.print(setlist, songs);
+            break;
+          case _SetlistMenuAction.sharePdf:
+            await SetlistPack.share(setlist, songs);
             break;
           case _SetlistMenuAction.share:
-            await ProjectExportService.shareSetlist(setlist, projects);
+            await SetlistPack.shareText(setlist, songs);
             break;
           case _SetlistMenuAction.rename:
           case _SetlistMenuAction.delete:
@@ -163,12 +247,27 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
             tooltip: 'Setlist options',
             onSelected: export,
             itemBuilder: (_) => const <PopupMenuEntry<_SetlistMenuAction>>[
+              // Both the printer and the PDF get the pack: the running order
+              // with each song's key, tempo, count-in, form, ending and note,
+              // then a chord chart per song in the key the set does it in.
+              // One file a stand-in can read on the night (Every Musician,
+              // Same Song, 17 September 2026).
               PopupMenuItem<_SetlistMenuAction>(
+                key: Key('print_set'),
                 value: _SetlistMenuAction.print,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.print_rounded),
                   title: Text('Send to printer'),
+                ),
+              ),
+              PopupMenuItem<_SetlistMenuAction>(
+                key: Key('share_set_pdf'),
+                value: _SetlistMenuAction.sharePdf,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.picture_as_pdf_outlined),
+                  title: Text('Share as PDF, with a chart per song'),
                 ),
               ),
               PopupMenuItem<_SetlistMenuAction>(
@@ -231,6 +330,13 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
               onReorderItem: reorder,
               itemBuilder: (context, index) {
                 final project = projects[index];
+                // What this set says about the song, with the song's own
+                // answers where the band has said nothing.
+                final facts = setSongFacts(
+                  setlist.songFor(project.id),
+                  project,
+                  _analyses[project.id],
+                );
                 return ReorderableDragStartListener(
                   key: ValueKey<String>(project.id),
                   index: index,
@@ -268,14 +374,41 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                             ),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Text(
-                                project.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleMedium,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    project.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context).textTheme.titleMedium,
+                                  ),
+                                  if (facts.line.isNotEmpty)
+                                    Text(
+                                      facts.line,
+                                      key: Key('set_song_line_${project.id}'),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                                    ),
+                                  if (facts.note != null)
+                                    Text(
+                                      facts.note!,
+                                      key: Key('set_song_note_${project.id}'),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: AppColors.text, fontSize: 12),
+                                    ),
+                                ],
                               ),
                             ),
                           ),
+                        ),
+                        IconButton(
+                          key: Key('set_song_${project.id}'),
+                          onPressed: () => editSong(project),
+                          tooltip: 'Key, tempo and notes',
+                          icon: const Icon(Icons.tune_rounded, color: AppColors.muted),
                         ),
                         IconButton(
                           onPressed: () => controller.removeProjectFromSetlist(setlist, project.id),
@@ -289,6 +422,365 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                 );
               },
             ),
+      ),
+    );
+  }
+}
+
+/// What the band does with one song in this set.
+///
+/// Every field stands in front of what the song says, and an empty one means
+/// "use what the song says" — so the hint in each field is the song's own
+/// answer, and the sheet needs no explaining beyond one line. The key is
+/// picked from chips rather than typed, the way "Where the 1 is" picks it,
+/// because a key typed with a typo is a chart in the wrong key on the night.
+///
+/// Nothing here is written to the song. Doing a song down a tone on
+/// Saturday has not changed what key the song is in (Every Musician, Same
+/// Song, 17 September 2026).
+class _SetSongSheet extends StatefulWidget {
+  const _SetSongSheet({
+    required this.project,
+    required this.entry,
+    required this.songSays,
+    required this.onSave,
+  });
+
+  final SongProject project;
+
+  /// What the band has said so far.
+  final SetlistSong entry;
+
+  /// What the song says on its own, for the hints.
+  final SetSongFacts songSays;
+
+  /// Completes with null once it has landed, or with the sentence to show
+  /// when it did not — said here, where the person tapped, because a
+  /// snackbar would land underneath this sheet.
+  final Future<String?> Function(SetlistSong song) onSave;
+
+  @override
+  State<_SetSongSheet> createState() => _SetSongSheetState();
+}
+
+class _SetSongSheetState extends State<_SetSongSheet> {
+  late String? _key = widget.entry.key;
+  late final TextEditingController _bpm = TextEditingController(
+    text: widget.entry.bpm == null ? '' : _tempoText(widget.entry.bpm!),
+  );
+  late final TextEditingController _countIn = TextEditingController(text: widget.entry.countIn ?? '');
+  late final TextEditingController _form = TextEditingController(text: widget.entry.form ?? '');
+  late final TextEditingController _ending = TextEditingController(text: widget.entry.ending ?? '');
+  late final TextEditingController _note = TextEditingController(text: widget.entry.note ?? '');
+  bool _saving = false;
+  String? _refused;
+
+  /// The twelve, written the way a chart writes them: the flat side of the
+  /// circle in flats, because a song is far more often in E♭ than in D♯.
+  /// Stored with ASCII accidentals, which is what 0157 accepts and every key
+  /// parser here reads, and drawn with printed ones.
+  static const List<String> _theTwelve = <String>[
+    'C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B',
+  ];
+
+  static String _printed(String stored) =>
+      stored.replaceAll('#', '♯').replaceAll('b', '♭');
+
+  static String _tempoText(double bpm) =>
+      bpm == bpm.roundToDouble() ? bpm.round().toString() : bpm.toString();
+
+  @override
+  void dispose() {
+    _bpm.dispose();
+    _countIn.dispose();
+    _form.dispose();
+    _ending.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  /// The root of the key the set says, as the chips spell it — matched by
+  /// pitch, so a key that arrived as A♯ lights the B♭ chip.
+  String? get _rootNow {
+    final said = _key?.trim();
+    if (said == null || said.isEmpty) return null;
+    final root = RegExp(r'^([A-G][#b]?)').firstMatch(said)?.group(1);
+    if (root == null) return null;
+    for (final candidate in _theTwelve) {
+      if (samePitch(candidate, root)) return candidate;
+    }
+    return null;
+  }
+
+  bool get _minorNow => (_key ?? '').toLowerCase().contains('minor');
+
+  void _pick(String root, bool minor) {
+    setState(() {
+      _key = '$root ${minor ? 'minor' : 'major'}';
+      _refused = null;
+    });
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    final tempoText = _bpm.text.trim();
+    double? bpm;
+    if (tempoText.isNotEmpty) {
+      bpm = double.tryParse(tempoText);
+      if (bpm == null) {
+        setState(() => _refused = 'A tempo is a number, like 96.');
+        return;
+      }
+    }
+    setState(() {
+      _saving = true;
+      _refused = null;
+    });
+    final refused = await widget.onSave(SetlistSong(
+      projectId: widget.project.id,
+      key: _key,
+      bpm: bpm,
+      countIn: _countIn.text,
+      form: _form.text,
+      ending: _ending.text,
+      note: _note.text,
+    ));
+    if (!mounted) return;
+    if (refused == null) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() {
+      _saving = false;
+      _refused = refused;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final songKey = widget.songSays.songKey;
+    final tempo = widget.songSays.bpm;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        // Above the keyboard, or the last two fields cannot be reached.
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 2, 20, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(
+                widget.project.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 3),
+              const Text(
+                'In this set. Leave anything empty to use what the song says.',
+                style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.4),
+              ),
+              const SizedBox(height: 18),
+              const _FieldLabel('Key'),
+              Text(
+                songKey == null
+                    ? 'The song has no key yet.'
+                    : "The song's key is $songKey.",
+                style: const TextStyle(color: AppColors.muted, fontSize: 12.5),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  for (final root in _theTwelve)
+                    _KeyChip(
+                      label: _printed(root),
+                      itemKey: Key('set_key_$root'),
+                      selected: _rootNow == root,
+                      onTap: () => _pick(root, _minorNow),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  for (final minor in <bool>[false, true])
+                    _KeyChip(
+                      label: minor ? 'Minor' : 'Major',
+                      itemKey: Key('set_key_${minor ? 'minor' : 'major'}'),
+                      selected: _key != null && minor == _minorNow,
+                      onTap: () => _pick(_rootNow ?? 'C', minor),
+                    ),
+                ],
+              ),
+              if (_key != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    key: const Key('set_key_use_songs'),
+                    onPressed: () => setState(() => _key = null),
+                    child: const Text("Use the song's key"),
+                  ),
+                ),
+              const SizedBox(height: 10),
+              TextField(
+                key: const Key('set_song_bpm'),
+                controller: _bpm,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: 'Tempo',
+                  hintText: tempo == null || tempo <= 0
+                      ? 'bpm'
+                      : '${tempo.round()} bpm, from the recording',
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('set_song_count_in'),
+                controller: _countIn,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: InputDecoration(
+                  labelText: 'Count-in',
+                  hintText: widget.songSays.countIn ?? 'Who counts it, and how',
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('set_song_form'),
+                controller: _form,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: InputDecoration(
+                  labelText: 'Form',
+                  hintText: widget.songSays.form ?? 'Intro · Verse · Chorus',
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('set_song_ending'),
+                controller: _ending,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(
+                  labelText: 'Ending',
+                  hintText: 'Cold, ritard, tag the chorus',
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('set_song_note'),
+                controller: _note,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(
+                  labelText: 'Note',
+                  hintText: 'Straight into the next one',
+                  isDense: true,
+                ),
+              ),
+              if (_refused != null) ...<Widget>[
+                const SizedBox(height: 10),
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    _refused!,
+                    key: const Key('set_song_refused'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontSize: 12.5,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: <Widget>[
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    key: const Key('set_song_save'),
+                    onPressed: _saving ? null : () => unawaited(_save()),
+                    child: const Text('Save'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        color: AppColors.text,
+        fontSize: 13,
+        fontWeight: FontWeight.w800,
+      ),
+    );
+  }
+}
+
+class _KeyChip extends StatelessWidget {
+  const _KeyChip({
+    required this.label,
+    required this.itemKey,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final Key itemKey;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        key: itemKey,
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.gold.withValues(alpha: 0.16) : AppColors.raised,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? AppColors.gold.withValues(alpha: 0.55) : AppColors.line,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? AppColors.gold : AppColors.text,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
       ),
     );
   }

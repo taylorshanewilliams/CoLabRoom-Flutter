@@ -7161,6 +7161,176 @@ end $$;
 
 reset role;
 
+-- ---------------------------------------------------------------------
+-- A setlist that knows each song (0157).
+--
+-- A set stored titles and an order; a gigging band needs what to do with
+-- each song. Six nullable columns on the row that joins a song to a set,
+-- null meaning "what the song says". The set's owner writes them through
+-- 0005's update policy, a song arrives saying nothing, a field cleared goes
+-- back to the song, the table refuses what the app would (a key nothing can
+-- read, a tempo nothing can count at, an empty string as an answer), and
+-- nobody else -- not a viewer of the room, not an editor who can change the
+-- song itself -- can see the set or change what it says. The Covers Room
+-- and its people are 0142's, above.
+-- ---------------------------------------------------------------------
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+insert into public.setlists (id, owner_id, name)
+values ('a5e70157-0000-0000-0000-000000000001',
+        '11111111-1111-1111-1111-111111111111', 'Saturday at the Anchor');
+
+insert into public.setlist_projects (setlist_id, project_id, position) values
+  ('a5e70157-0000-0000-0000-000000000001', '50a6e142-0000-0000-0000-00000000014b', 0),
+  ('a5e70157-0000-0000-0000-000000000001', '50a6e142-0000-0000-0000-00000000014c', 1);
+
+do $$
+declare
+  song record;
+begin
+  -- A song arrives in a set saying nothing: the app reads the song.
+  if exists (
+    select 1 from public.setlist_projects
+    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+      and (played_key is not null or bpm is not null or count_in is not null
+           or form is not null or ending is not null or note is not null)
+  ) then
+    raise exception 'a song arrived in a set with answers nobody gave';
+  end if;
+
+  -- The owner says what the band does with it.
+  update public.setlist_projects
+  set played_key = 'Bb major', bpm = 92, count_in = 'Drums, two bars',
+      form = 'Intro · Verse · Chorus · Chorus', ending = 'Cold',
+      note = 'Straight into the next one'
+  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+    and project_id = '50a6e142-0000-0000-0000-00000000014b';
+
+  select * into song from public.setlist_projects
+  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+    and project_id = '50a6e142-0000-0000-0000-00000000014b';
+  if song.played_key is distinct from 'Bb major'
+     or song.bpm is distinct from 92
+     or song.count_in is distinct from 'Drums, two bars'
+     or song.form is distinct from 'Intro · Verse · Chorus · Chorus'
+     or song.ending is distinct from 'Cold'
+     or song.note is distinct from 'Straight into the next one' then
+    raise exception 'the owner''s answers did not land';
+  end if;
+
+  -- The other song in the set is untouched.
+  if exists (
+    select 1 from public.setlist_projects
+    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+      and project_id = '50a6e142-0000-0000-0000-00000000014c'
+      and played_key is not null
+  ) then
+    raise exception 'one song''s key landed on another';
+  end if;
+
+  -- A field cleared hands the song back to what it says.
+  update public.setlist_projects set bpm = null
+  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+    and project_id = '50a6e142-0000-0000-0000-00000000014b';
+  if (select bpm from public.setlist_projects
+      where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+        and project_id = '50a6e142-0000-0000-0000-00000000014b') is not null then
+    raise exception 'a cleared tempo stayed';
+  end if;
+
+  -- The table refuses what the app would, because 0005 lets an owner update
+  -- this row directly and a rule that lives only in the app is one request
+  -- away from nothing.
+  begin
+    update public.setlist_projects set played_key = 'Mixolydian'
+    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+      and project_id = '50a6e142-0000-0000-0000-00000000014b';
+    raise exception 'a plain update stored something that is not a key';
+  exception when check_violation then null;
+  end;
+
+  begin
+    update public.setlist_projects set bpm = 300
+    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+      and project_id = '50a6e142-0000-0000-0000-00000000014b';
+    raise exception 'a tempo nothing can count at was stored';
+  exception when check_violation then null;
+  end;
+
+  begin
+    update public.setlist_projects set note = ''
+    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+      and project_id = '50a6e142-0000-0000-0000-00000000014b';
+    raise exception 'an empty note was stored as an answer';
+  exception when check_violation then null;
+  end;
+end $$;
+
+-- Somebody who can only look at the room does not own the set. They cannot
+-- see it, and an update from them lands on no row -- which is the silence
+-- the app turns into a sentence when no row comes back.
+reset role;
+set local request.jwt.claims = '{"sub": "50a6e142-0000-0000-0000-000000000147"}';
+set local role authenticated;
+
+do $$
+declare
+  touched integer;
+begin
+  if exists (
+    select 1 from public.setlist_projects
+    where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+  ) then
+    raise exception 'somebody else''s set was readable by a viewer of the room';
+  end if;
+
+  update public.setlist_projects set note = 'Faster'
+  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+    and project_id = '50a6e142-0000-0000-0000-00000000014b';
+  get diagnostics touched = row_count;
+  if touched <> 0 then
+    raise exception 'a viewer of the room changed what somebody else''s set says';
+  end if;
+end $$;
+
+-- And an editor of the room, who can change the song itself (0144), still
+-- cannot change the set: it is the owner's, not the room's.
+reset role;
+set local request.jwt.claims = '{"sub": "50a6e142-0000-0000-0000-000000000146"}';
+set local role authenticated;
+
+do $$
+declare
+  touched integer;
+begin
+  update public.setlist_projects set played_key = 'C major'
+  where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+    and project_id = '50a6e142-0000-0000-0000-00000000014b';
+  get diagnostics touched = row_count;
+  if touched <> 0 then
+    raise exception 'an editor of the room changed what somebody else''s set says';
+  end if;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select note from public.setlist_projects
+      where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+        and project_id = '50a6e142-0000-0000-0000-00000000014b')
+     is distinct from 'Straight into the next one' then
+    raise exception 'somebody who does not own the set changed what it says';
+  end if;
+  if (select played_key from public.setlist_projects
+      where setlist_id = 'a5e70157-0000-0000-0000-000000000001'
+        and project_id = '50a6e142-0000-0000-0000-00000000014b')
+     is distinct from 'Bb major' then
+    raise exception 'somebody who does not own the set moved a song''s key';
+  end if;
+end $$;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;
