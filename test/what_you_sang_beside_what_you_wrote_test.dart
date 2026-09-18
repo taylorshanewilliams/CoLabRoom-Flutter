@@ -151,6 +151,102 @@ void main() {
       expect(rows.every((row) => row.differs), isTrue);
     });
 
+    test('a verse sung that was never written is not swept into the line '
+        'after it', () {
+      // English lyrics are full of "and", "you", "the" and "I", and the
+      // longest run in common will line one of them up across breaths that
+      // have nothing else in common. Two breaths sung between the two lines
+      // on the page share one such word each with the second line; they are
+      // not that line (review, 18 September 2026).
+      final rows = pairSungWithWritten(
+        _song(<String>['walking home tonight', 'and you and I']),
+        _sung(<String>[
+          'walking home tonight',
+          'and the rain came down',
+          'you said it would',
+          'and you and I',
+        ]),
+      );
+      expect(rows.map((row) => row.line?.id),
+          <String?>['line-1', null, null, 'line-2']);
+      expect(rows[0].readsTheSame, isTrue);
+      expect(rows[1].sung, 'and the rain came down');
+      expect(rows[1].onThePage, isFalse);
+      expect(rows[1].sungAgain, isFalse);
+      expect(rows[2].sung, 'you said it would');
+      expect(rows[2].onThePage, isFalse);
+      // The line itself was sung as written, and nothing is offered for it.
+      expect(rows[3].readsTheSame, isTrue);
+      expect(rows[3].sung, 'and you and I');
+      expect(rows.any((row) => row.differs), isFalse);
+
+      // The same with a line short enough that one shared word is half of
+      // it: "the end" is still "the end", not "I walked the dog the end".
+      final short = pairSungWithWritten(
+        _song(<String>['walking home', 'the end']),
+        _sung(<String>['walking home', 'I walked the dog', 'the end']),
+      );
+      expect(short.map((row) => row.line?.id), <String?>['line-1', null, 'line-2']);
+      expect(short[1].sung, 'I walked the dog');
+      expect(short[2].readsTheSame, isTrue);
+      expect(short[2].sung, 'the end');
+    });
+
+    test('a chorus typed once and sung twice is not offered as the lines '
+        'typed after it', () {
+      // The ordinary shape of a lyric page. The second chorus is a repeat of
+      // the page, not a rewrite of the bridge that follows it, so the bridge
+      // and the line after it read as not sung and offer nothing (review,
+      // 18 September 2026).
+      final rows = pairSungWithWritten(
+        _song(<String>[
+          'walking home tonight',
+          'hold on tight to me',
+          'never let me go',
+          'bridge written later here',
+          'another new line here',
+        ]),
+        _sung(<String>[
+          'walking home tonight',
+          'hold on tight to me',
+          'never let me go',
+          'hold on tight to you',
+          'never let me go',
+        ]),
+      );
+      expect(rows.map((row) => row.line?.id), <String?>[
+        'line-1',
+        'line-2',
+        'line-3',
+        null,
+        null,
+        'line-4',
+        'line-5',
+      ]);
+      expect(rows.take(3).every((row) => row.readsTheSame), isTrue);
+      // Sung again, a word changed the second time round.
+      expect(rows[3].sung, 'hold on tight to you');
+      expect(rows[3].sungAgain, isTrue);
+      expect(rows[4].sung, 'never let me go');
+      expect(rows[4].sungAgain, isTrue);
+      for (final later in rows.skip(5)) {
+        expect(later.onThePage, isTrue);
+        expect(later.wasSung, isFalse);
+        expect(later.differs, isFalse);
+      }
+    });
+
+    test('a line sung out of its typed order is still that line', () {
+      final rows = pairSungWithWritten(
+        _song(<String>['hold on tight', 'never let go']),
+        _sung(<String>['never let go', 'hold on tight']),
+      );
+      expect(rows.map((row) => row.line?.id), <String>['line-1', 'line-2']);
+      expect(rows.every((row) => row.readsTheSame), isTrue);
+      expect(rows[0].sung, 'hold on tight');
+      expect(rows[1].sung, 'never let go');
+    });
+
     test('a song with no typed words offers nothing', () {
       expect(pairSungWithWritten(_song(<String>[]), _sung(<String>['walking home'])),
           isEmpty);
@@ -305,6 +401,30 @@ void main() {
 
       // The row now reads as sung as written, and offers nothing more.
       expect(find.text('Sung as written'), findsNWidgets(4));
+      expect(find.text('Use what was sung'), findsNothing);
+    });
+
+    testWidgets('a chorus sung twice is shown in its place, and nothing is '
+        'offered for the lines typed after it', (tester) async {
+      await _openTheSheet(
+        tester,
+        project: _song(<String>[
+          'hold on tight to me',
+          'never let me go',
+          'bridge written later here',
+        ]),
+        bundle: _sung(<String>[
+          'hold on tight to me',
+          'never let me go',
+          'hold on tight to me',
+          'never let me go',
+        ]),
+        onUseSung: (_, __) async {},
+      );
+      expect(find.text('Sung as written'), findsNWidgets(2));
+      expect(find.text('Also sung here'), findsNWidgets(2));
+      expect(find.text('Not sung in this recording'), findsOneWidget);
+      expect(find.text('Not on the page'), findsNothing);
       expect(find.text('Use what was sung'), findsNothing);
     });
 

@@ -231,6 +231,8 @@ class _Row extends StatelessWidget {
         ],
       );
     }
+    // Sung on no line of its own: either words the page does not have, or a
+    // line the page has once and the recording more than once.
     return Column(
       key: key,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -238,7 +240,7 @@ class _Row extends StatelessWidget {
         const _Label('Sung'),
         _Words(row.sungWords, comparing: false),
         const SizedBox(height: 3),
-        const _Note('Not on the page'),
+        _Note(row.sungAgain ? 'Also sung here' : 'Not on the page'),
       ],
     );
   }
