@@ -155,12 +155,16 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     // The parent hands every correction straight back (onAnalysisChanged,
     // its setState, this bundle), so a bundle the panel is already holding
     // is not news. It used to be compared with the last widget's bundle
-    // instead, which read that echo as a change and would have taken the
-    // repeat offer away in the same frame it was made. Only a bundle the
-    // panel has not seen — a re-analysis, a sync from elsewhere — resets what
-    // was built from the old one, and the offer goes with it: the correction
-    // it asked about may not be there any more.
-    if (!identical(widget.bundle, _bundle)) {
+    // alone, which read that echo as a change and would have taken the
+    // repeat offer away in the same frame it was made. A host that does not
+    // echo rebuilds for its own reasons with the bundle it always had, and
+    // that is not news either: it must not put a correction back the way it
+    // was. Only a bundle the parent changed and the panel has not seen — a
+    // re-analysis, a sync from elsewhere — resets what was built from the
+    // old one, and the offer goes with it: the correction it asked about may
+    // not be there any more.
+    if (!identical(widget.bundle, oldWidget.bundle) &&
+        !identical(widget.bundle, _bundle)) {
       _bundle = widget.bundle;
       _chartRows = null;
       _lines = null;
@@ -640,6 +644,11 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             : preferredEnd;
 
         final savedEnd = math.max(startMs + 120, endMs).toInt();
+        // What read at that moment before the correction: the detected chord
+        // being replaced, or the one still ringing under a word that had
+        // none. A repeat is only the same passage if it reads the same there.
+        final before = existing?.chord ??
+            chordSoundingAt(_bundle.chordCues, startMs)?.chord;
         updated = await _service.saveManualChordCue(
           projectId: widget.project.id,
           cueId: existing?.id,
@@ -655,6 +664,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
         offer = findChordRepeats(
           bundle: updated,
           chord: result.chord,
+          originalChord: before,
           startMs: startMs,
           endMs: savedEnd,
           originalStartMs: existing?.startMs,
@@ -685,7 +695,11 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   /// Yes: the same correction in every repeat the offer found.
   ///
   /// Every repeat's bars change, so the cached grid goes the way it does for
-  /// a single correction, and the sheet's lines with it; the chart and the
+  /// a single correction (it is empty by now in practice, because the
+  /// correction that raised the offer emptied it and the chart view takes
+  /// the offer away, but the rule is stated here so it does not depend on
+  /// that), and the sheet's lines with it, which are on screen under the
+  /// question and would otherwise keep showing one Am; the chart and the
   /// sheet are both rebuilt from the bundle that comes back, and Perform
   /// gets that bundle through onAnalysisChanged and builds its own lines
   /// from it when it opens, so all three read the same chord in the same

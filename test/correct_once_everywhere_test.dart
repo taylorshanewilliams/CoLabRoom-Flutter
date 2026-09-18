@@ -26,6 +26,7 @@ void main() {
         startMs: 20000,
         endMs: 23900,
         originalStartMs: 20000,
+        originalChord: 'C',
       );
       expect(offer, isNotNull);
       expect(offer!.section.label, 'Chorus');
@@ -58,6 +59,7 @@ void main() {
         startMs: 20150,
         endMs: 24050,
         originalStartMs: 20000,
+        originalChord: 'C',
       );
       expect(offer!.targets.map((t) => t.startMs), <int>[52150, 76150]);
       expect(offer.targets.map((t) => t.replaces?.id), <int>[14, 19]);
@@ -71,6 +73,7 @@ void main() {
         startMs: 20000,
         endMs: 23900,
         originalStartMs: 20000,
+        originalChord: 'C',
       );
       expect(offer!.targets.map((t) => t.section.startMs), <int>[48000]);
       expect(offer.question, 'Also in the other chorus?');
@@ -84,6 +87,7 @@ void main() {
         startMs: 20000,
         endMs: 23900,
         originalStartMs: 20000,
+        originalChord: 'C',
       );
       expect(late!.targets.map((t) => t.section.startMs), <int>[48040]);
     });
@@ -98,6 +102,7 @@ void main() {
         startMs: 20000,
         endMs: 23900,
         originalStartMs: 20000,
+        originalChord: 'C',
       );
       expect(offer!.targets.map((t) => t.startMs), <int>[52000, 76000]);
       expect(offer.targets.map((t) => t.replaces?.id), <int>[14, 19]);
@@ -119,6 +124,7 @@ void main() {
           startMs: 20000,
           endMs: 23900,
           originalStartMs: 20000,
+          originalChord: 'C',
         ),
         isNull,
       );
@@ -131,6 +137,7 @@ void main() {
           startMs: 20000,
           endMs: 23900,
           originalStartMs: 20000,
+          originalChord: 'C',
         ),
         isNull,
       );
@@ -138,6 +145,7 @@ void main() {
         findChordRepeats(
           bundle: _corrected(_song()),
           chord: 'Am',
+          originalChord: null,
           startMs: 89000,
           endMs: 89500,
         ),
@@ -159,6 +167,7 @@ void main() {
         startMs: 20000,
         endMs: 23900,
         originalStartMs: 20000,
+        originalChord: 'C',
       );
       expect(offer!.targets.map((t) => t.section.startMs), <int>[48000]);
       expect(offer.question, 'Also in the other chorus?');
@@ -177,6 +186,7 @@ void main() {
         startMs: 20000,
         endMs: 23900,
         originalStartMs: 20000,
+        originalChord: 'C',
       );
       expect(offer!.targets.map((t) => t.section.startMs), <int>[48000, 72000]);
     });
@@ -191,8 +201,89 @@ void main() {
         startMs: 20000,
         endMs: 23900,
         originalStartMs: 20000,
+        originalChord: 'C',
       );
       expect(offer!.targets.map((t) => t.section.startMs), <int>[72000]);
+    });
+
+    test('a repeat where the model heard something else is not offered', () {
+      // The band plays F in bar 3 of the last chorus, and the model heard
+      // it. That is not the passage the correction was made listening to,
+      // whatever the two parts are called, so the Am does not go there.
+      final song = _song(
+        rewrite: (cue) => cue.id == 19 ? cue.copyWith(chord: 'F') : cue,
+      );
+      final offer = findChordRepeats(
+        bundle: _corrected(song),
+        chord: 'Am',
+        startMs: 20000,
+        endMs: 23900,
+        originalStartMs: 20000,
+        originalChord: 'C',
+      );
+      expect(offer!.targets.map((t) => t.section.startMs), <int>[48000]);
+
+      // A repeat where the model heard no change in that bar at all is not
+      // the same passage either, so with that one gone there is nothing to
+      // ask.
+      final corrected = _corrected(song);
+      final silent = corrected.copyWith(
+        chordCues: corrected.chordCues
+            .where((cue) => cue.id != 14)
+            .toList(growable: false),
+      );
+      expect(
+        findChordRepeats(
+          bundle: silent,
+          chord: 'Am',
+          startMs: 20000,
+          endMs: 23900,
+          originalStartMs: 20000,
+          originalChord: 'C',
+        ),
+        isNull,
+      );
+    });
+
+    test('a chord added over a different chord is not added in the repeats',
+        () {
+      // Am added at bar 4 of the first chorus, where the C from bar 3 was
+      // still ringing. In the last chorus the model heard D ringing there,
+      // so only the second chorus gets it.
+      final song = _song(
+        rewrite: (cue) => cue.id == 19 ? cue.copyWith(chord: 'D') : cue,
+      );
+      final over = song.copyWith(chordCues: <ChordCue>[
+        ...song.chordCues,
+        const ChordCue(
+          id: 90,
+          startMs: 22000,
+          endMs: 23900,
+          chord: 'Am',
+          confidence: 1,
+          source: 'manual',
+        ),
+      ]);
+      final offer = findChordRepeats(
+        bundle: over,
+        chord: 'Am',
+        originalChord: 'C',
+        startMs: 22000,
+        endMs: 23900,
+      );
+      expect(offer!.targets.map((t) => t.startMs), <int>[54000]);
+    });
+
+    test('what sounds under a word is the last chord started and not ended',
+        () {
+      final cues = _song().chordCues;
+      // The C of bar 3 is still ringing in bar 4.
+      expect(chordSoundingAt(cues, 22000)?.id, 6);
+      // It has ended just before the D of bar 5 starts.
+      expect(chordSoundingAt(cues, 23950), isNull);
+      expect(chordSoundingAt(cues, 24000)?.id, 7);
+      // Order does not matter to it.
+      expect(chordSoundingAt(cues.reversed, 22000)?.id, 6);
     });
 
     test('without a beat grid it is the same distance into the section', () {
@@ -203,6 +294,7 @@ void main() {
         startMs: 20000,
         endMs: 23900,
         originalStartMs: 20000,
+        originalChord: 'C',
       );
       // A quarter of the way into each chorus, where the model's C is.
       expect(offer!.targets.map((t) => t.startMs), <int>[52000, 76000]);
@@ -229,6 +321,7 @@ void main() {
       final offer = findChordRepeats(
         bundle: added,
         chord: 'Am',
+        originalChord: 'C',
         startMs: 22000,
         endMs: 23900,
       );
@@ -258,6 +351,7 @@ void main() {
         startMs: 20000,
         endMs: 23900,
         originalStartMs: 20000,
+        originalChord: 'C',
       );
       expect(offer!.targets.map((t) => t.section.label), <String>['C']);
       expect(offer.targets.single.replaces?.id, 10);
@@ -344,6 +438,13 @@ void main() {
       expect(manual.map((cue) => cue.startMs), <int>[20000]);
       expect(find.text('Am'), findsOneWidget);
       expect(find.text('C'), findsNWidgets(3));
+
+      // The chart built before the correction is rebuilt too: Am in the
+      // first chorus and the bridge only, C in the other four bars.
+      await tester.tap(find.text('Chart'));
+      await tester.pumpAndSettle();
+      expect(find.text('Am'), findsNWidgets(2));
+      expect(find.text('C'), findsNWidgets(4));
     });
 
     testWidgets('a song with no repeats asks nothing', (tester) async {
@@ -394,6 +495,22 @@ Future<(_RememberingAnalysis, ValueNotifier<SongAnalysisBundle?>)>
   ));
   await tester.pump();
   await tester.pump();
+
+  // The chart first, so its bar grid is built and cached from the
+  // uncorrected cues. What the tests then check is that a chart built before
+  // a correction is never shown again after it, not just that a chart first
+  // built afterwards is right. That grid is emptied by the correction itself;
+  // the accept's own clearing of it cannot be isolated from here, because
+  // the grid is only built in the chart view and going there takes the offer
+  // away. The sheet's lines are the cache the accept demonstrably has to
+  // clear: they are on screen while the question is, and the assertions
+  // straight after a Yes fail when it does not (one Am instead of three).
+  await tester.tap(find.text('Chart'));
+  await tester.pumpAndSettle();
+  expect(find.text('C'), findsNWidgets(5));
+  expect(find.text('Am'), findsOneWidget);
+  await tester.tap(find.text('Sheet'));
+  await tester.pumpAndSettle();
 
   await tester.tap(find.byKey(const Key('toggle_chord_editing')));
   await tester.pump();

@@ -22,8 +22,11 @@ import 'chord_beat_grid.dart';
 /// "Chorus". The place inside a repeat is the same bar, counted from the
 /// section's first bar, when the recording has downbeats; without them it is
 /// the same distance into the section. Sections that are not repeats of each
-/// other are never guessed across, and a chord somebody typed by hand in a
-/// repeat is left exactly as they typed it.
+/// other are never guessed across; a chord somebody typed by hand in a
+/// repeat is left exactly as they typed it; and a repeat is only offered
+/// where the model heard the same chord it heard at home, because a last
+/// chorus where it heard something else is a variation, or a different
+/// mistake, and not demonstrably the same passage.
 
 /// One place the same passage comes round again, and what the correction
 /// would do there.
@@ -106,11 +109,17 @@ String _countWord(int count) {
 /// while the corrected start is interpolated from the word it sits over and
 /// can drift from the beat by more than a chord change is wide.
 ///
+/// [originalChord] is what read at the corrected moment before the
+/// correction: the detected chord being replaced, or the chord still ringing
+/// under a word that had none, and null when nothing sounded there. A repeat
+/// is a target only when the same thing stands at the same place in it.
+///
 /// Null rather than an empty offer whenever there is nothing to ask, so the
 /// caller has one thing to check.
 ChordRepeatOffer? findChordRepeats({
   required SongAnalysisBundle bundle,
   required String chord,
+  required String? originalChord,
   required int startMs,
   required int endMs,
   int? originalStartMs,
@@ -129,6 +138,7 @@ ChordRepeatOffer? findChordRepeats({
   final cues = List<ChordCue>.of(bundle.chordCues)
     ..sort((a, b) => a.startMs.compareTo(b.startMs));
   final wanted = chord.trim();
+  final before = originalChord?.trim();
   // The detected change this correction stands for, when it stands for one
   // in this section. A chord added where nothing was detected has no
   // counterpart to look for.
@@ -162,8 +172,12 @@ ChordRepeatOffer? findChordRepeats({
             (cue.startMs - moment).abs() <= tolerance));
     if (handTyped || (counterpart?.isManual ?? false)) continue;
 
-    final standing = counterpart ?? _soundingAt(cues, moment);
-    if (standing != null && standing.chord.trim() == wanted) continue;
+    // Already what the correction says: nothing to do here. Anything other
+    // than what the correction replaced: the model heard this repeat
+    // differently, and a correction made listening to one passage is not
+    // carried onto another. Never guess.
+    final reads = (counterpart ?? chordSoundingAt(cues, moment))?.chord.trim();
+    if (reads == wanted || reads != before) continue;
 
     targets.add(ChordRepeatTarget(
       section: repeat,
@@ -286,12 +300,14 @@ ChordCue? _nearestStart(List<ChordCue> cues, int ms, int toleranceMs) {
   return best;
 }
 
-/// The cue ringing at [ms]: the last one to have started by then.
-ChordCue? _soundingAt(List<ChordCue> cues, int ms) {
+/// The cue ringing at [ms]: the last to have started by then that has not
+/// ended. Public because the panel asks it what sounded under a word before
+/// a chord was added there, which is what a repeat has to read too.
+ChordCue? chordSoundingAt(Iterable<ChordCue> cues, int ms) {
   ChordCue? sounding;
   for (final cue in cues) {
-    if (cue.startMs > ms) break;
-    if (cue.endMs > ms) sounding = cue;
+    if (cue.startMs > ms || cue.endMs <= ms) continue;
+    if (sounding == null || cue.startMs >= sounding.startMs) sounding = cue;
   }
   return sounding;
 }
