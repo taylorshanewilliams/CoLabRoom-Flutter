@@ -141,6 +141,21 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     unawaited(controller.refreshProject(_project.id));
   }
 
+  /// Says which downbeat is bar 1, or hands the song back to the detected
+  /// bars with a null.
+  ///
+  /// Owner or editor (0161), the same two as the key, and for the same
+  /// reason: this moves everybody's bar numbers, not just this reader's. A
+  /// refusal is thrown on rather than swallowed, so the sentence lands where
+  /// the person tapped.
+  Future<void> _setBarOne(int? downbeat) async {
+    final controller = BetaScope.of(context, listen: false);
+    await controller.repository.setBarOne(_project.id, downbeat);
+    if (!mounted) return;
+    setState(() => _project = _project.copyWith(barOneDownbeat: downbeat));
+    unawaited(controller.refreshProject(_project.id));
+  }
+
   /// Takes what was sung into one written line: the recording's words for
   /// that line become the line, through the same write as editing it by hand,
   /// so the line keeps its writer, its place and its history (Every Musician,
@@ -439,6 +454,14 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
             me: me,
           ),
           keepPractice: (worked) => unawaited(controller.keepPracticeMark(worked)),
+          // The same two people who may say it on the sheet (0161). Perform
+          // is where somebody is actually counting bars out loud, so it is
+          // the likeliest place for the count to be corrected.
+          onSayBarOne: (controller.roomById(_project.roomId)
+                      ?.canEditSongs(me) ??
+                  false)
+              ? _setBarOne
+              : null,
         ),
         fullscreenDialog: true,
       ),
@@ -898,6 +921,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                         onOpenLive: _openLive,
                         onAnalysisChanged: (updated) => setState(() => _bundle = updated),
                         onSetKey: canEditTheSong ? _setSongKey : null,
+                        onSetBarOne: canEditTheSong ? _setBarOne : null,
                         onUseSung: canEditTheSong ? _useSungLine : null,
                       );
                     }),
@@ -910,6 +934,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                       bundle: bundle!,
                       service: _service,
                       onRename: _renameSection,
+                      barOne: _project.barOne,
                     ),
                   ],
                 ],
@@ -936,11 +961,16 @@ class _TheDetails extends StatefulWidget {
     required this.bundle,
     required this.service,
     required this.onRename,
+    this.barOne = 1,
   });
 
   final SongAnalysisBundle bundle;
   final SongAnalysisService service;
   final void Function(String label, String? name) onRename;
+
+  /// Which downbeat the band counts as bar 1 (0161), so the bar under the
+  /// stem player's playhead is the bar everything else calls it.
+  final int barOne;
 
   @override
   State<_TheDetails> createState() => _TheDetailsState();
@@ -993,6 +1023,7 @@ class _TheDetailsState extends State<_TheDetails> {
             stems: widget.bundle.stems,
             ensureLocalStem: widget.service.ensureLocalStem,
             downbeatsMs: widget.bundle.reference!.downbeatsMs,
+            barOne: widget.barOne,
           ),
         ],
       ],

@@ -958,6 +958,16 @@ class _SongsScreenState extends State<SongsScreen> {
           me: me,
           ownMarkId: ownPracticeMarkId(controller.practiceMarks, projectId: song.id, me: me),
           keepPractice: (worked) => unawaited(controller.keepPracticeMark(worked)),
+          // Where bar 1 is, when this person is one of the two who may say it
+          // (0161). A student practising somebody else's song counts from the
+          // bars the room counts, and is offered no way to move them.
+          onSayBarOne:
+              (controller.roomById(song.roomId)?.canEditSongs(me) ?? false)
+                  ? (downbeat) async {
+                      await controller.repository.setBarOne(song.id, downbeat);
+                      await controller.refreshProject(song.id);
+                    }
+                  : null,
         ),
         fullscreenDialog: true,
       ),

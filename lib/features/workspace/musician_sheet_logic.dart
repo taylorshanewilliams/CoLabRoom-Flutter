@@ -270,6 +270,7 @@ List<MusicianSheetLine> buildMusicianSheetLines(
       chordCues: bundle.chordCues,
       durationMs: duration,
       downbeatsMs: bundle.reference?.downbeatsMs ?? const <int>[],
+      barOne: project.barOne,
     );
   }
 
@@ -286,6 +287,7 @@ List<MusicianSheetLine> buildMusicianSheetLines(
       chordCues: bundle.chordCues,
       durationMs: duration,
       downbeatsMs: bundle.reference?.downbeatsMs ?? const <int>[],
+      barOne: project.barOne,
     );
   }
 
@@ -330,7 +332,11 @@ List<MusicianSheetLine> buildMusicianSheetLines(
       // what bar it's in, and a bar number is a promise that it does.
       bar: exact == null
           ? null
-          : barNumberAt(range.$1, bundle.reference?.downbeatsMs ?? const <int>[]),
+          : barNumberAt(
+              range.$1,
+              bundle.reference?.downbeatsMs ?? const <int>[],
+              barOne: project.barOne,
+            ),
     );
   }).toList(growable: false);
 }
@@ -620,12 +626,17 @@ String cleanSheetSection(String value) => value
 /// [downbeatsMs] is optional because not every recording has a beat grid —
 /// an older analysis, or one the tracker wasn't confident about. Without it
 /// the lines come out exactly as before, just without bar numbers.
+///
+/// [barOne] is which downbeat the band counts as bar 1 (0161). A line that
+/// falls in the pickup ahead of it gets no bar number, the same as a line
+/// ahead of the whole grid: the pickup is asked for by name, not by number.
 List<MusicianSheetLine> transcriptSheetLines({
   required List<TranscriptWord> transcriptWords,
   required String? transcriptText,
   required List<ChordCue> chordCues,
   required int durationMs,
   List<int> downbeatsMs = const <int>[],
+  int barOne = 1,
 }) {
   List<ChordCue> chordsForRange(int startMs, int endMs) => chordCues
       .where((cue) => cue.endMs >= startMs && cue.startMs <= endMs)
@@ -670,12 +681,15 @@ List<MusicianSheetLine> transcriptSheetLines({
               approximateTiming: false,
               wordStartsMs:
                   slice.map((word) => word.startMs).toList(growable: false),
-              bar: barNumberAt(slice.first.startMs, downbeatsMs),
+              bar: barNumberAt(slice.first.startMs, downbeatsMs,
+                  barOne: barOne),
             ))
         .toList(growable: false);
   }
   final text = transcriptText?.trim() ?? '';
-  if (text.isEmpty) return _chordOnlyLines(chordCues, downbeatsMs);
+  if (text.isEmpty) {
+    return _chordOnlyLines(chordCues, downbeatsMs, barOne: barOne);
+  }
   final wordsOnly = text.replaceAll(RegExp(r'\s+'), ' ').split(' ');
   final chunks = <String>[];
   for (var start = 0; start < wordsOnly.length; start += 7) {
@@ -725,10 +739,11 @@ const String instrumentalMark = '·';
 /// Without one it falls back to fixed groups, which is what this always did.
 List<MusicianSheetLine> _chordOnlyLines(
   List<ChordCue> chords,
-  List<int> downbeatsMs,
-) {
+  List<int> downbeatsMs, {
+  int barOne = 1,
+}) {
   if (chords.isEmpty) return const <MusicianSheetLine>[];
-  final bars = groupChordsIntoBars(chords, downbeatsMs);
+  final bars = groupChordsIntoBars(chords, downbeatsMs, barOne: barOne);
   if (bars.isNotEmpty) {
     return <MusicianSheetLine>[
       for (final bar in bars)
@@ -741,7 +756,9 @@ List<MusicianSheetLine> _chordOnlyLines(
           endMs: bar.endMs,
           chords: bar.chords,
           approximateTiming: false,
-          bar: bar.number,
+          // The pickup comes back as bar 0 and is drawn with no number, the
+          // same as a line the grid does not reach.
+          bar: bar.number < 1 ? null : bar.number,
         ),
     ];
   }

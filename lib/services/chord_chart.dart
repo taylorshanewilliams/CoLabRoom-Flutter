@@ -37,11 +37,20 @@ class ChartBar {
     required this.endMs,
     required this.beatsInBar,
     required this.chords,
+    this.downbeat = 0,
     this.sectionLabel,
   });
 
-  /// 1-indexed, counted from the first downbeat.
+  /// 1-indexed, counted from wherever the band says bar 1 is — or 0 for a bar
+  /// of the pickup, which is played and drawn but not numbered (0161).
   final int number;
+
+  /// Which downbeat of the recording this bar starts on, counting from one.
+  ///
+  /// Unlike [number] this never moves: it is the place in the analysis, which
+  /// is what "this is bar 1" is said in terms of. Zero on a chart built
+  /// before anything needed to ask.
+  final int downbeat;
   final int startMs;
   final int endMs;
 
@@ -68,6 +77,8 @@ class ChartRow {
   /// The section starting on this row, when one does.
   final String? sectionLabel;
 
+  /// What goes in the margin: the first bar's number, or 0 when the line is
+  /// still in the pickup and has no number to print.
   int get firstBarNumber => bars.first.number;
 }
 
@@ -79,14 +90,19 @@ const int defaultBarsPerRow = 4;
 /// Empty without downbeats: bars are the one thing here that cannot be
 /// estimated. A chart drawn on a guessed grid would be confidently wrong in a
 /// way a musician couldn't see, which is worse than no chart.
+/// [barOne] is which downbeat the band counts as bar 1 (0161). It changes the
+/// numbers in the margin and nothing else: every bar of the recording is still
+/// drawn, because the pickup is music somebody plays, it simply has no number.
 List<ChartBar> buildChartBars({
   required List<ChordCue> cues,
   required List<int> beatsMs,
   required List<int> downbeatsMs,
   List<StructureSection> sections = const <StructureSection>[],
+  int barOne = 1,
 }) {
   if (downbeatsMs.isEmpty) return const <ChartBar>[];
   final downbeats = List<int>.of(downbeatsMs)..sort();
+  final firstNumbered = barOneIndex(barOne, downbeats.length);
   final beats = List<int>.of(beatsMs)..sort();
   final ordered = List<ChordCue>.of(cues)
     ..sort((a, b) => a.startMs.compareTo(b.startMs));
@@ -100,6 +116,11 @@ List<ChartBar> buildChartBars({
   // A section is announced on the bar it starts on. putIfAbsent because two
   // sections landing on one bar is a disagreement the chart can't draw —
   // first one wins rather than the label flickering between them.
+  //
+  // Keyed by which downbeat it lands on rather than by the printed bar
+  // number, so an intro that turns out to sit in the pickup still gets its
+  // name: the label belongs to a place in the recording, and bar 1 moving
+  // does not move the place.
   final sectionByBar = <int, String>{};
   for (final section in sections) {
     final bar = barNumberAt(section.startMs, downbeats);
@@ -131,7 +152,10 @@ List<ChartBar> buildChartBars({
 
     bars.add(
       ChartBar(
-        number: index + 1,
+        // Zero for a bar ahead of bar 1. The margin prints nothing for it,
+        // rather than a 0 or a negative number nobody counts in.
+        number: index < firstNumbered ? 0 : index - firstNumbered + 1,
+        downbeat: index + 1,
         startMs: start,
         endMs: end,
         beatsInBar: barBeats.isEmpty ? 1 : barBeats.length,

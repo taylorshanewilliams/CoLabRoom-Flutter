@@ -96,17 +96,33 @@ class SongTempoMap {
   /// steady, because one tempo is what a person would type into a DAW. A
   /// tempo written per bar is only worth the clutter when the band actually
   /// moved, which is what [downbeatsMs] shows and a single number cannot.
+  ///
+  /// [barOne] is which downbeat the band counts as bar 1 (0161). Everything
+  /// ahead of it is the pickup, so the lead-in that becomes a pickup bar runs
+  /// to *that* downbeat rather than to the first one. That is the whole point
+  /// of the setting here: a recording with a count-in on the front lands in
+  /// the DAW with the count inside the pickup and the band's bar 1 on a bar
+  /// line, instead of every bar line a bar out for the length of the song.
   static SongTempoMap forSong({
     double? bpm,
     List<int> downbeatsMs = const <int>[],
     int? beatsPerBar,
     int ticksPerBeat = defaultTicksPerBeat,
+    int barOne = 1,
   }) {
     final beats = (beatsPerBar == null || beatsPerBar < 1 || beatsPerBar > 16)
         ? 4
         : beatsPerBar;
     final ticks = ticksPerBeat < 24 ? defaultTicksPerBeat : ticksPerBeat;
-    final downbeats = _cleanDownbeats(downbeatsMs);
+    final whole = _cleanDownbeats(downbeatsMs);
+    // The song's own bars, with the pickup taken off the front. A bar 1 late
+    // enough to leave fewer than two of them is a stale answer against a
+    // shorter re-analysis: there is then nothing to measure a bar against,
+    // and this says the tempo alone, exactly as it does for a song whose
+    // tracker found no grid.
+    final downbeats = whole.length < 2 || barOne <= 1
+        ? whole
+        : whole.sublist((barOne - 1).clamp(0, whole.length - 1).toInt());
     final stated = _microsFor(bpm);
 
     // One bar is not a bar length, and no bars is no grid. Either way the

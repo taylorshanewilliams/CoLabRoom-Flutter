@@ -35,6 +35,7 @@ class SongSheetPanel extends StatefulWidget {
     required this.onOpenLive,
     this.onAnalysisChanged,
     this.onSetKey,
+    this.onSetBarOne,
     this.onUseSung,
     this.analysisService,
     super.key,
@@ -66,6 +67,15 @@ class SongSheetPanel extends StatefulWidget {
   /// refusal is thrown back here and said on the key sheet, where the person
   /// tapped.
   final Future<void> Function(String? key)? onSetKey;
+
+  /// Says which downbeat of the analysis is bar 1, or hands the song back to
+  /// the detected bars with a null.
+  ///
+  /// The other shared fact, written the same way and by the same two people
+  /// (0161). Null on a panel with nowhere to write it, and for somebody the
+  /// room only lets look — long-pressing a bar of the chart then does nothing
+  /// at all, rather than offering a change the room will refuse.
+  final Future<void> Function(int? downbeat)? onSetBarOne;
 
   @override
   State<SongSheetPanel> createState() => _SongSheetPanelState();
@@ -144,6 +154,9 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
           downbeatsMs: _bundle.reference?.downbeatsMs ?? const <int>[],
           sections:
               _bundle.reference?.structureSections ?? const <StructureSection>[],
+          // Where the band counts from, so the margin agrees with the part
+          // somebody is holding (0161).
+          barOne: widget.project.barOne,
         ),
       );
 
@@ -177,6 +190,13 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       _chartRows = null;
       _lines = null;
       _repeatOffer = null;
+    }
+    // Where bar 1 is decides every number on the chart and in the sheet's
+    // gutter, and both are worked out once per bundle — so a song that has
+    // just been told where it starts has to have them worked out again.
+    if (oldWidget.project.barOne != widget.project.barOne) {
+      _chartRows = null;
+      _lines = null;
     }
     if (oldWidget.project.id != widget.project.id) {
       _transpose = 0;
@@ -1056,6 +1076,11 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             // The song, so a tapped chord can say where it sits in it rather
             // than only what it is.
             musicalKey: songKey,
+            // And the other half of the chart's own facts: whether bar 1 has
+            // been moved, and whether this person may move it (0161).
+            barOneSaid: widget.project.barOneDownbeat != null,
+            onSayBarOne:
+                _editingChords ? null : widget.onSetBarOne,
           )
         else
           Focus(

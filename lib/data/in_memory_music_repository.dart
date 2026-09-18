@@ -1571,6 +1571,21 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> setBarOne(String projectId, int? downbeat) async {
+    // Anything below the first downbeat is nothing rather than an error here:
+    // 0161 refuses it with a sentence, and this repository is what tests and
+    // the offline copy run on, where a refusal has nowhere to be said.
+    final said = downbeat == null || downbeat < 1 ? null : downbeat;
+    for (final room in _rooms) {
+      for (final project in room.projects) {
+        if (project.id != projectId) continue;
+        _replaceProject(project.copyWith(barOneDownbeat: said));
+        return;
+      }
+    }
+  }
+
+  @override
   Future<MusicRoom> ideasRoom() async {
     for (final room in _rooms) {
       if (room.name.trim().toLowerCase() == 'ideas') return room;
@@ -2929,6 +2944,7 @@ class InMemoryMusicRepository implements MusicRepository {
         createdBy: currentUserId,
         songOrigin: song.songOrigin,
         keyOverride: song.keyOverride,
+        barOneDownbeat: song.barOneDownbeat,
       );
       _copiedFrom[copyId] = song.id;
       _replaceRoom(room.copyWith(

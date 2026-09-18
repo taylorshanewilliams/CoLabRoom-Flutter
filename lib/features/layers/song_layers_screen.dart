@@ -932,6 +932,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// is written, the way _rebuildMix deletes the mix it replaces.
   String? _lastThenAndNowPath;
 
+  /// Which downbeat the band counts as bar 1 (0161), read off the song the
+  /// rooms are holding rather than kept here: it is a shared fact, and this
+  /// screen is one of the readers of it, never the writer.
+  int get _barOne =>
+      BetaScope.maybeOf(context, listen: false)
+          ?.projectById(widget.projectId)
+          ?.barOne ??
+      1;
+
   /// Plays the bars under the playhead from [pair]'s first take and then
   /// from its latest -- or, tapped while that plays, stops it.
   ///
@@ -951,6 +960,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       atMs: _position.inMilliseconds,
       downbeatsMs: _reference?.downbeatsMs ?? const <int>[],
       songEndMs: _reference?.durationMs,
+      // The bars the band counts, so "Bars 9–12" here names the same passage
+      // as "Bars 9–12" in Perform (0161).
+      barOne: _barOne,
     );
     if (passage == null) return;
     // Busy while the file is written -- a second on a long song -- so a
@@ -1856,6 +1868,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
             ?.projectById(widget.projectId)
             ?.songKey(_reference?.musicalKey) ??
         _reference?.musicalKey;
+    // Read here for the same reason, and before the first await.
+    final barOne = _barOne;
     try {
       final root = await getApplicationDocumentsDirectory();
       final stamp = DateTime.now().millisecondsSinceEpoch;
@@ -1877,6 +1891,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                   const <StructureSection>[],
               downbeatsMs: _reference?.downbeatsMs ?? const <int>[],
               beatsPerBar: _reference?.beatsPerBar,
+              // So the count-in on the front of the recording arrives in the
+              // DAW as a pickup bar and the band's bar 1 is bar 1 (0161).
+              barOne: barOne,
             );
       if (file == null) return;
       await SharePlus.instance.share(

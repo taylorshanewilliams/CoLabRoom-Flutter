@@ -193,7 +193,9 @@ abstract final class ThenAndNow {
   /// From the bar under the playhead, [passageBars] of them, cut to where
   /// both takes exist. A playhead outside that stretch starts at the first
   /// bar both takes share, and a pickup ahead of bar 1 starts where the
-  /// bars do (see barNumberAt). Without a grid, [passageMs] from the
+  /// bars do (see barNumberAt). [barOne] is which downbeat the band counts as
+  /// bar 1, so the two takes are named by the same bars the rest of the app
+  /// names them by (0161). Without a grid, [passageMs] from the
   /// playhead, named by the clock. Null only when the pair shares nothing,
   /// which [pairs] already refuses.
   static PracticeLoop? passage(
@@ -201,6 +203,7 @@ abstract final class ThenAndNow {
     required int atMs,
     List<int> downbeatsMs = const <int>[],
     int? songEndMs,
+    int barOne = 1,
   }) {
     final from = pair.sharedStartMs;
     final to = pair.sharedEndMs;
@@ -208,14 +211,17 @@ abstract final class ThenAndNow {
     final at = atMs.clamp(from, to - 1).toInt();
 
     if (downbeatsMs.isNotEmpty) {
-      final first = barNumberAt(at, downbeatsMs) ?? 1;
-      final start = math.max(barStartMs(first, downbeatsMs), from);
+      final first = barNumberAt(at, downbeatsMs, barOne: barOne) ?? 1;
+      final start =
+          math.max(barStartMs(first, downbeatsMs, barOne: barOne), from);
       final end = math.min(
-        barEndMs(first + passageBars - 1, downbeatsMs, songEndMs: songEndMs),
+        barEndMs(first + passageBars - 1, downbeatsMs,
+            songEndMs: songEndMs, barOne: barOne),
         to,
       );
       if (end > start) {
-        final onBars = loopFor(start, end, downbeatsMs: downbeatsMs);
+        final onBars =
+            loopFor(start, end, downbeatsMs: downbeatsMs, barOne: barOne);
         if (onBars != null) return onBars;
         return PracticeLoop(startMs: start, endMs: end, label: _clock(start, end));
       }
