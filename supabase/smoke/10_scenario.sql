@@ -9407,6 +9407,243 @@ end $$;
 
 reset role;
 
+-- ---------------------------------------------------------------------
+-- The band's key reaches strangers (0160).
+--
+-- Every Musician, Same Song, 17 September 2026. 0144 let the band say what
+-- key a song is in, and everything inside the room reads it. The five
+-- places a key leaves the room did not: the song's page on the Open Mic,
+-- the feed card, the showcase, colabroom.com's list and the brief an ask
+-- carries all still named the analyser's key. So a song the analyser calls
+-- D major goes out, the owner says it is in A through the call the app
+-- makes, and each of the five is read by the person it is for: a stranger
+-- who is in no room, the person asked, and nobody at all, which is who
+-- colabroom.com is. Then the owner hands the song back to the analyser and
+-- all five say D major again, because null means nobody has said, not that
+-- the song has no key.
+--
+-- A fresh room, song and readers. The song has a reference recording and
+-- no takes, so nobody has to be asked before it goes out (0155).
+-- ---------------------------------------------------------------------
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  -- In no room and asked nothing. Everything they read is a stranger's.
+  ('ba5e0160-0000-0000-0000-000000000001', 'reading.the.card@smoke.test',
+   '{"display_name": "Reading The Card"}'),
+  ('ba5e0160-0000-0000-0000-000000000002', 'asked.to.play.in.a@smoke.test',
+   '{"display_name": "Asked To Play"}');
+
+insert into public.rooms (id, account_id, name)
+values ('ba5e0160-0000-0000-0000-000000000010',
+        '11111111-1111-1111-1111-111111111111', 'The Room That Plays It In A');
+
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('ba5e0160-0000-0000-0000-000000000010', '11111111-1111-1111-1111-111111111111',
+   'The Writer', 'owner', 4294937165);
+
+insert into public.projects (id, room_id, account_id, title, created_by, song_origin) values
+  ('ba5e0160-0000-0000-0000-000000000020', 'ba5e0160-0000-0000-0000-000000000010',
+   '11111111-1111-1111-1111-111111111111', 'Called By The Wrong Chord',
+   '11111111-1111-1111-1111-111111111111', 'ours');
+
+insert into public.files (id, project_id, uploaded_by, storage_path, display_name, mime_type)
+values ('ba5e0160-0000-0000-0000-0000000000f1', 'ba5e0160-0000-0000-0000-000000000020',
+        '11111111-1111-1111-1111-111111111111',
+        'smoke/the-bands-key/reference.mp3', 'reference.mp3', 'audio/mpeg');
+
+insert into public.project_audio_references
+  (project_id, file_id, uploaded_by, analysis_state, musical_key)
+values ('ba5e0160-0000-0000-0000-000000000020', 'ba5e0160-0000-0000-0000-0000000000f1',
+        '11111111-1111-1111-1111-111111111111', 'ready', 'D major');
+
+-- Out, both ways, asking the room for a part no other song here asks for --
+-- so the feed below can be narrowed to this one card however many songs the
+-- rest of this file has put up -- and asking one person by name. Then the
+-- owner says where the 1 is, the way the app says it.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  if public.put_on_open_mic('ba5e0160-0000-0000-0000-000000000020') is null then
+    raise exception 'a song with nobody else on it did not go up';
+  end if;
+end $$;
+
+select public.show_song('ba5e0160-0000-0000-0000-000000000020');
+
+insert into public.project_asks (project_id, asked_by, part)
+values ('ba5e0160-0000-0000-0000-000000000020',
+        '11111111-1111-1111-1111-111111111111', 'dobro');
+
+select public.ask_musician(
+  'ba5e0160-0000-0000-0000-000000000020',
+  'ba5e0160-0000-0000-0000-000000000002',
+  'bass', 'It sits on the A the whole way.');
+
+select public.set_song_key('ba5e0160-0000-0000-0000-000000000020', 'A major');
+
+-- A stranger: the song's page, the feed card and the showcase.
+reset role;
+set local request.jwt.claims = '{"sub": "ba5e0160-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  page record;
+  card record;
+  shown record;
+begin
+  select * into page
+  from public.open_mic_song('ba5e0160-0000-0000-0000-000000000020');
+  if page.id is null then
+    raise exception 'the song this block reads was not on the Open Mic';
+  end if;
+  if page.musical_key is distinct from 'A major' then
+    raise exception 'the song''s page told a stranger it is in %, not the band''s key',
+      page.musical_key;
+  end if;
+
+  select * into card from public.open_mic_feed(24, 'dobro')
+  where id = 'ba5e0160-0000-0000-0000-000000000020';
+  if card.id is null then
+    raise exception 'the song this block reads was not in the feed';
+  end if;
+  if card.musical_key is distinct from 'A major' then
+    raise exception 'the feed card told a stranger it is in %, not the band''s key',
+      card.musical_key;
+  end if;
+
+  select * into shown from public.showcase(48, null)
+  where id = 'ba5e0160-0000-0000-0000-000000000020';
+  if shown.id is null then
+    raise exception 'the song this block reads was not on the showcase';
+  end if;
+  if shown.musical_key is distinct from 'A major' then
+    raise exception 'the showcase told a stranger it is in %, not the band''s key',
+      shown.musical_key;
+  end if;
+end $$;
+
+-- The person asked: the brief is what they decide from, and what they work
+-- a part out in before they are ever in the room.
+reset role;
+set local request.jwt.claims = '{"sub": "ba5e0160-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+declare
+  asked record;
+begin
+  select * into asked from public.asks_for_me()
+  where project_id = 'ba5e0160-0000-0000-0000-000000000020';
+  if asked.id is null then
+    raise exception 'the ask this block reads never reached the person asked';
+  end if;
+  if asked.musical_key is distinct from 'A major' then
+    raise exception 'the brief told the person asked it is in %, not the band''s key',
+      asked.musical_key;
+  end if;
+end $$;
+
+-- Nobody at all. colabroom.com's pages are built from this list with no
+-- account, which is why public_songs is granted to anon.
+reset role;
+set local request.jwt.claims = '{"role": "anon"}';
+set local role anon;
+
+do $$
+declare
+  listed record;
+begin
+  select * into listed from public.public_songs(500, 0)
+  where id = 'ba5e0160-0000-0000-0000-000000000020';
+  if listed.id is null then
+    raise exception 'the song this block reads was not in colabroom.com''s list';
+  end if;
+  if listed.musical_key is distinct from 'A major' then
+    raise exception 'colabroom.com''s list said it is in %, not the band''s key',
+      listed.musical_key;
+  end if;
+end $$;
+
+-- "Use the detected key". Null hands the song back to the analyser, in all
+-- five places, without anybody touching them.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+select public.set_song_key('ba5e0160-0000-0000-0000-000000000020', null);
+
+reset role;
+set local request.jwt.claims = '{"sub": "ba5e0160-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  said text;
+begin
+  select musical_key into said
+  from public.open_mic_song('ba5e0160-0000-0000-0000-000000000020');
+  if said is distinct from 'D major' then
+    raise exception 'with nothing said, the song''s page named % and not the detected key', said;
+  end if;
+
+  select musical_key into said from public.open_mic_feed(24, 'dobro')
+  where id = 'ba5e0160-0000-0000-0000-000000000020';
+  if said is distinct from 'D major' then
+    raise exception 'with nothing said, the feed card named % and not the detected key', said;
+  end if;
+
+  select musical_key into said from public.showcase(48, null)
+  where id = 'ba5e0160-0000-0000-0000-000000000020';
+  if said is distinct from 'D major' then
+    raise exception 'with nothing said, the showcase named % and not the detected key', said;
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "ba5e0160-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+declare
+  said text;
+begin
+  select musical_key into said from public.asks_for_me()
+  where project_id = 'ba5e0160-0000-0000-0000-000000000020';
+  if said is distinct from 'D major' then
+    raise exception 'with nothing said, the brief named % and not the detected key', said;
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"role": "anon"}';
+set local role anon;
+
+do $$
+declare
+  said text;
+begin
+  select musical_key into said from public.public_songs(500, 0)
+  where id = 'ba5e0160-0000-0000-0000-000000000020';
+  if said is distinct from 'D major' then
+    raise exception 'with nothing said, colabroom.com''s list named % and not the detected key', said;
+  end if;
+end $$;
+
+-- Down again, so the feed and the showcase are as this block found them for
+-- whatever is written underneath it.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+select public.take_off_open_mic('ba5e0160-0000-0000-0000-000000000020');
+select public.unshow_song('ba5e0160-0000-0000-0000-000000000020');
+
+reset role;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;
