@@ -6271,4 +6271,219 @@ end $$;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- ---------------------------------------------------------------------
+-- Three ways to answer a song (0154).
+--
+-- Somebody in the room answers an ask through all three doors. What stayed
+-- with them and their question arrive the way replies always have: the
+-- asker is told, and everybody who can see the ask can read them. Their
+-- opinion is held: it tells nobody, and nobody but its writer can read it
+-- -- not the room, not the room's owner, not even the person who asked --
+-- until the person who asked says they are ready. The room owner cannot
+-- say it for them. Once ready, a later opinion arrives normally, to the
+-- asker alone, and the first "I'm ready" stands. A plain line with no door,
+-- which is what an older build sends, still reaches everyone.
+-- ---------------------------------------------------------------------
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('cc154000-0000-0000-0000-000000000001', 'theoneasking@smoke.test',
+   '{"display_name": "The One Asking"}'),
+  ('cc154000-0000-0000-0000-000000000002', 'thelistener@smoke.test',
+   '{"display_name": "The Listener"}'),
+  ('cc154000-0000-0000-0000-000000000003', 'alsointheroom@smoke.test',
+   '{"display_name": "Also In The Room"}');
+
+-- The Writer owns the room and is not the one asking, so the owner's
+-- update rights (0049) are tested against somebody else's decision.
+insert into public.rooms (id, account_id, name)
+values ('cc154000-0000-0000-0000-000000000010',
+        '11111111-1111-1111-1111-111111111111', 'The Listening Room');
+
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('cc154000-0000-0000-0000-000000000010', '11111111-1111-1111-1111-111111111111',
+   'The Writer', 'owner', 4294937166),
+  ('cc154000-0000-0000-0000-000000000010', 'cc154000-0000-0000-0000-000000000001',
+   'The One Asking', 'editor', 4283215698),
+  ('cc154000-0000-0000-0000-000000000010', 'cc154000-0000-0000-0000-000000000002',
+   'The Listener', 'editor', 4284000001),
+  ('cc154000-0000-0000-0000-000000000010', 'cc154000-0000-0000-0000-000000000003',
+   'Also In The Room', 'viewer', 4284000002);
+
+insert into public.projects (id, room_id, account_id, title, created_by) values
+  ('cc154000-0000-0000-0000-000000000020', 'cc154000-0000-0000-0000-000000000010',
+   '11111111-1111-1111-1111-111111111111', 'Three Doors',
+   'cc154000-0000-0000-0000-000000000001');
+
+insert into public.project_asks (id, project_id, asked_by, part, note, audience)
+values ('cc154000-0000-0000-0000-000000000030',
+        'cc154000-0000-0000-0000-000000000020',
+        'cc154000-0000-0000-0000-000000000001', null,
+        'Is the second verse earning its place?', 'room');
+
+-- The listener answers through all three doors, and is refused a fourth.
+set local request.jwt.claims = '{"sub": "cc154000-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+begin
+  insert into public.ask_replies (id, ask_id, author_id, body, kind) values
+    ('cc154000-0000-0000-0000-000000000041', 'cc154000-0000-0000-0000-000000000030',
+     'cc154000-0000-0000-0000-000000000002', 'The line about the kitchen light stayed with me.', 'stayed'),
+    ('cc154000-0000-0000-0000-000000000042', 'cc154000-0000-0000-0000-000000000030',
+     'cc154000-0000-0000-0000-000000000002', 'Is the second verse sung by the same person?', 'question'),
+    ('cc154000-0000-0000-0000-000000000043', 'cc154000-0000-0000-0000-000000000030',
+     'cc154000-0000-0000-0000-000000000002', 'The bridge drags.', 'opinion');
+
+  begin
+    insert into public.ask_replies (ask_id, author_id, body, kind) values
+      ('cc154000-0000-0000-0000-000000000030',
+       'cc154000-0000-0000-0000-000000000002', 'Four stars.', 'rating');
+    raise exception 'a reply went through a door that does not exist';
+  exception when check_violation then null;
+  end;
+
+  -- Your own words, all of them, held or not: you cannot take back what
+  -- you cannot see.
+  if (select count(*) from public.ask_replies
+      where ask_id = 'cc154000-0000-0000-0000-000000000030') <> 3 then
+    raise exception 'the listener could not read back everything they said';
+  end if;
+end $$;
+
+-- The held opinion told nobody; the other two told the asker.
+reset role;
+
+do $$
+begin
+  if exists (select 1 from public.notifications
+             where body like '%bridge drags%') then
+    raise exception 'a held opinion was announced';
+  end if;
+  if (select count(*) from public.notifications
+      where user_id = 'cc154000-0000-0000-0000-000000000001'
+        and project_id = 'cc154000-0000-0000-0000-000000000020'
+        and title like '%replied about%') <> 2 then
+    raise exception 'the asker was not told about what stayed and the question';
+  end if;
+end $$;
+
+-- Somebody else in the room reads the two open doors and not the third.
+set local request.jwt.claims = '{"sub": "cc154000-0000-0000-0000-000000000003"}';
+set local role authenticated;
+
+do $$
+begin
+  if (select string_agg(kind, ',' order by created_at, id) from public.ask_replies
+      where ask_id = 'cc154000-0000-0000-0000-000000000030')
+     is distinct from 'stayed,question' then
+    raise exception 'the room read something other than what stayed and the question';
+  end if;
+end $$;
+
+-- The room's owner reads the same two, and cannot decide for the asker.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.ask_replies
+             where id = 'cc154000-0000-0000-0000-000000000043') then
+    raise exception 'the room owner read a held opinion';
+  end if;
+
+  begin
+    update public.project_asks set opinions_opened_at = now()
+    where id = 'cc154000-0000-0000-0000-000000000030';
+    raise exception 'the room owner opened somebody else''s opinions';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- The person who asked: nothing until they are ready, then the opinion.
+reset role;
+set local request.jwt.claims = '{"sub": "cc154000-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.ask_replies
+             where id = 'cc154000-0000-0000-0000-000000000043') then
+    raise exception 'the asker read an opinion before saying they were ready';
+  end if;
+
+  update public.project_asks set opinions_opened_at = now()
+  where id = 'cc154000-0000-0000-0000-000000000030';
+
+  if (select string_agg(kind, ',' order by created_at, id) from public.ask_replies
+      where ask_id = 'cc154000-0000-0000-0000-000000000030')
+     is distinct from 'stayed,question,opinion' then
+    raise exception 'saying "I''m ready" did not open the opinion to the asker';
+  end if;
+end $$;
+
+-- Once ready, a later opinion arrives normally: the asker is told, and only
+-- the asker. An older build's plain line, through no door, reaches everyone.
+reset role;
+set local request.jwt.claims = '{"sub": "cc154000-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+insert into public.ask_replies (id, ask_id, author_id, body, kind) values
+  ('cc154000-0000-0000-0000-000000000044', 'cc154000-0000-0000-0000-000000000030',
+   'cc154000-0000-0000-0000-000000000002', 'The last chorus could go round once more.', 'opinion');
+insert into public.ask_replies (id, ask_id, author_id, body) values
+  ('cc154000-0000-0000-0000-000000000045', 'cc154000-0000-0000-0000-000000000030',
+   'cc154000-0000-0000-0000-000000000002', 'Thursday, if that helps.');
+
+reset role;
+
+do $$
+begin
+  if (select count(*) from public.notifications
+      where body like '%round once more%') <> 1
+     or not exists (select 1 from public.notifications
+                    where body like '%round once more%'
+                      and user_id = 'cc154000-0000-0000-0000-000000000001') then
+    raise exception 'an opinion the asker was ready for did not reach the asker alone';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "cc154000-0000-0000-0000-000000000003"}';
+set local role authenticated;
+
+do $$
+begin
+  if (select string_agg(coalesce(kind, 'plain'), ',' order by created_at, id)
+      from public.ask_replies
+      where ask_id = 'cc154000-0000-0000-0000-000000000030')
+     is distinct from 'stayed,question,plain' then
+    raise exception 'the room read an opinion, or missed a plain line';
+  end if;
+end $$;
+
+-- The first "I'm ready" stands. The app sends its own clock rather than
+-- now(), so a second tap from a second device arrives as a different time;
+-- an hour ahead here, because now() does not move inside one transaction
+-- and a second tap that did overwrite the first would otherwise be
+-- invisible. Not an error: a decision already made is not a thing to fail
+-- over.
+reset role;
+set local request.jwt.claims = '{"sub": "cc154000-0000-0000-0000-000000000001"}';
+set local role authenticated;
+update public.project_asks set opinions_opened_at = now() + interval '1 hour'
+where id = 'cc154000-0000-0000-0000-000000000030';
+reset role;
+
+do $$
+begin
+  if (select opinions_opened_at from public.project_asks
+      where id = 'cc154000-0000-0000-0000-000000000030')
+     is distinct from now() then
+    raise exception 'a second "I''m ready" moved the first one';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
 commit;

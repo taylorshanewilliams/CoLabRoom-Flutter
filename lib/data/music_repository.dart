@@ -593,12 +593,24 @@ abstract interface class MusicRepository {
   /// What has been said back on an ask, oldest first.
   ///
   /// Readable by exactly the people who can see the ask: the room for a
-  /// room ask, the one person for a direct one, and whoever asked.
+  /// room ask, the one person for a direct one, and whoever asked. An
+  /// opinion is the exception: its writer always sees it, the asker sees it
+  /// once they have said they are ready, and nobody else ever does.
   Future<List<AskReply>> loadAskReplies(String askId);
 
-  /// Say something on an ask. The people already in the conversation are
-  /// told; the room is not told again.
-  Future<AskReply> replyToAsk({required String askId, required String body});
+  /// Say something on an ask, through a [door] or as a plain line. The
+  /// people already in the conversation are told; the room is not told
+  /// again. An opinion tells nobody until the asker is ready for it.
+  Future<AskReply> replyToAsk({
+    required String askId,
+    required String body,
+    ReplyDoor? door,
+  });
+
+  /// Say you are ready to read the opinions on your own ask. Once, and it
+  /// stands: from here on opinions arrive normally. Refused for anybody
+  /// but the person who asked.
+  Future<void> openOpinions(String askId);
 
   /// Take back something you said.
   Future<void> deleteAskReply(AskReply reply);

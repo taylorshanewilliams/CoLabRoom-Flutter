@@ -95,7 +95,11 @@ insert into smoke_covered (name) values
   -- playing one as the role that owns the table, and asserts both the refusal
   -- and that the row is unchanged afterwards. The same block closes an ask,
   -- which is the update this trigger sees most and has to wave through.
-  ('project_asks_terms_are_fixed');
+  ('project_asks_terms_are_fixed'),
+  -- 0154. The scenario has the room's owner try to open somebody else's
+  -- opinions and asserts the refusal, has the asker open them, and asserts
+  -- a second "I'm ready" leaves the first one's time alone.
+  ('project_asks_opinions_open');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario

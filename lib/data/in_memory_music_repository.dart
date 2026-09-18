@@ -733,6 +733,7 @@ class InMemoryMusicRepository implements MusicRepository {
   /// real one rather than throwing at the first tap.
   final Map<String, List<SongAsk>> _asks = <String, List<SongAsk>>{};
   final Map<String, List<AskReply>> _replies = <String, List<AskReply>>{};
+  int _repliesMade = 0;
   final Map<String, List<DirectMessage>> _messages =
       <String, List<DirectMessage>>{};
 
@@ -1820,28 +1821,93 @@ class InMemoryMusicRepository implements MusicRepository {
   Future<List<SongAsk>> loadAsks(String projectId) async {
     return <SongAsk>[
       for (final ask in _asks[projectId] ?? const <SongAsk>[])
-        if (!ask.closed)
-          ask.copyWith(replyCount: _replies[ask.id]?.length ?? 0),
+        if (!ask.closed) ask,
     ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 
+  /// The ask by id, whichever song it is on, or null for one this
+  /// repository never made (the inbox's seeded asks are somebody else's).
+  SongAsk? _askById(String askId) {
+    for (final asks in _asks.values) {
+      for (final ask in asks) {
+        if (ask.id == askId) return ask;
+      }
+    }
+    return null;
+  }
+
+  /// The same rule as the read policy in 0154: an opinion is read by its
+  /// writer, and by the person who asked once they have said they are
+  /// ready. Everything else is read by everyone who can see the ask.
   @override
-  Future<List<AskReply>> loadAskReplies(String askId) async =>
-      List<AskReply>.unmodifiable(_replies[askId] ?? const <AskReply>[]);
+  Future<List<AskReply>> loadAskReplies(String askId) async {
+    final ask = _askById(askId);
+    final ready = ask != null &&
+        ask.askedBy == currentUserId &&
+        ask.opinionsOpened;
+    return List<AskReply>.unmodifiable(<AskReply>[
+      for (final reply in _replies[askId] ?? const <AskReply>[])
+        if (reply.door != ReplyDoor.opinion ||
+            reply.authorId == currentUserId ||
+            ready)
+          reply,
+    ]);
+  }
 
   @override
-  Future<AskReply> replyToAsk(
-      {required String askId, required String body}) async {
+  Future<AskReply> replyToAsk({
+    required String askId,
+    required String body,
+    ReplyDoor? door,
+  }) async =>
+      replyArrivesFrom(
+        askId: askId,
+        personId: currentUserId,
+        personName: 'You',
+        body: body,
+        door: door,
+      );
+
+  /// Somebody else says something on an ask.
+  ///
+  /// This repository has one signed-in person and no network, so the other
+  /// side of a conversation has to be played by the test driving it. It
+  /// exists for tests that need an opinion written by somebody other than
+  /// the person reading it; nothing in the app calls it.
+  Future<AskReply> replyArrivesFrom({
+    required String askId,
+    required String personId,
+    required String personName,
+    required String body,
+    ReplyDoor? door,
+  }) async {
+    // A counter beside the clock: two lines said in the same microsecond,
+    // which a test does, must not share an id.
     final reply = AskReply(
-      id: 'reply-${DateTime.now().microsecondsSinceEpoch}',
+      id: 'reply-${DateTime.now().microsecondsSinceEpoch}-${_repliesMade++}',
       askId: askId,
-      authorId: currentUserId,
-      authorName: 'You',
+      authorId: personId,
+      authorName: personName,
       body: body.trim(),
       createdAt: DateTime.now(),
+      door: door,
     );
     _replies.putIfAbsent(askId, () => <AskReply>[]).add(reply);
     return reply;
+  }
+
+  @override
+  Future<void> openOpinions(String askId) async {
+    for (final asks in _asks.values) {
+      final index = asks.indexWhere((ask) => ask.id == askId);
+      if (index < 0) continue;
+      if (asks[index].askedBy != currentUserId) {
+        throw StateError(
+            'Only the person who asked decides when to read opinions.');
+      }
+      asks[index] = asks[index].copyWith(opinionsOpened: true);
+      return;
+    }
   }
 
   @override
