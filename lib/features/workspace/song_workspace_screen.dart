@@ -361,7 +361,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       {required bool yes}) async {
     final controller = BetaScope.of(context, listen: false);
     try {
-      await controller.repository.answerForMyPart(project.id, yes: yes);
+      // Through the controller, not the repository: answering here has to
+      // take the same question's card out of the inbox, and the reload is
+      // what does that.
+      await controller.answerForMyPart(project.id, yes: yes);
       if (!mounted) return;
       _showMessage(yes
           ? 'Your part goes out with ${project.title}.'

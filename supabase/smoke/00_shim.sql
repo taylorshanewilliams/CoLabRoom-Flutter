@@ -143,6 +143,14 @@ $$;
 
 grant all on all tables in schema storage to service_role;
 
+-- Reading, as a hosted project grants it: the read policies on
+-- storage.objects are the last thing between a stranger and a take's
+-- bytes, and until 0155's block nothing in the scenario could ask them
+-- anything -- a select as authenticated was refused on the grant before
+-- any policy was consulted. Writes stay with service_role, so the blocks
+-- that prove a phone cannot write an object row still prove it.
+grant select on table storage.objects to authenticated;
+
 -- ---------------------------------------------------------------------
 -- pg_net, which is a Supabase extension and not a Postgres one.
 -- ---------------------------------------------------------------------

@@ -98,10 +98,12 @@ create index if not exists take_consents_person_idx
 create index if not exists take_consents_project_idx
   on public.take_consents (project_id);
 
--- The storage policy below looks a take up by its object path, which
--- nothing indexed before.
+-- The storage policy below looks a take, and a reference recording, up by
+-- its object path, which nothing indexed before.
 create index if not exists song_layers_storage_path_idx
   on public.song_layers (storage_path);
+create index if not exists files_storage_path_idx
+  on public.files (storage_path);
 
 alter table public.take_consents enable row level security;
 
@@ -878,8 +880,51 @@ for select to authenticated using (
 
 -- And the audio, or a part is gone from the page and still plays for
 -- anybody holding its path. The public-surface branch used to admit every
--- object under a public song's folder, drafts included; it now admits a
--- take's file exactly as far as the policy above admits its row.
+-- object under a public song's folder, drafts included; it now admits
+-- exactly two things: the song's own reference recording, and a take
+-- exactly as far as the policy above admits its row.
+--
+-- Answered by a security-definer function, and asked the positive way
+-- round, for a reason that cost this migration a review. A policy
+-- expression runs as the viewer, so a subquery on song_layers inside it
+-- sees only what song_layers' own policy admits -- and that policy hides
+-- from a stranger precisely the rows that ought to refuse the bytes: a
+-- pulled take, an unanswered one, a draft. A "not exists ... where the take
+-- is not public" written into the policy finds nothing and admits
+-- everything. This function sees every row, and an object nothing vouches
+-- for is refused rather than let through. A person asked to play on the
+-- song (0094) hears what the room hears, as before.
+create or replace function private.object_is_hearable(object_name text)
+returns boolean
+language sql
+stable
+security definer set search_path = ''
+as $fn$
+  select exists (
+    select 1
+    from public.files f
+    join public.project_audio_references r on r.file_id = f.id
+    join public.projects p on p.id = f.project_id
+    where f.storage_path = object_name
+      and (p.open_mic_at is not null or p.showcased_at is not null
+           or private.was_asked(p.id))
+  ) or exists (
+    select 1
+    from public.song_layers l
+    join public.projects p on p.id = l.project_id
+    where l.storage_path = object_name
+      and l.shared_at is not null
+      and (
+        private.was_asked(p.id)
+        or ((p.open_mic_at is not null or p.showcased_at is not null)
+            and private.take_is_public(l.id))
+      )
+  );
+$fn$;
+
+revoke all on function private.object_is_hearable(text) from public, anon;
+grant execute on function private.object_is_hearable(text) to authenticated;
+
 drop policy if exists room_files_read_members on storage.objects;
 create policy room_files_read_members on storage.objects
 for select to authenticated using (
@@ -897,24 +942,10 @@ for select to authenticated using (
       where f.storage_path = objects.name
         and (private.is_room_member(p.room_id) or private.is_project_member(p.id))
     )
-    -- Paths are {room}/{project}/..., so the project is the second segment.
-    or (
-      array_length(storage.foldername(name), 1) >= 2
-      and exists (
-        select 1 from public.projects p
-        where p.id = private.as_uuid((storage.foldername(name))[2])
-          and (p.open_mic_at is not null or p.showcased_at is not null
-               or private.was_asked(p.id))
-      )
-      and not exists (
-        select 1 from public.song_layers l
-        where l.storage_path = objects.name
-          and not (
-            private.take_is_public(l.id)
-            or (l.shared_at is not null and private.was_asked(l.project_id))
-          )
-      )
-    )
+    -- In front of strangers, or offered to this one: the song's reference
+    -- recording, and the takes whose players said yes. Nothing else under
+    -- the folder, and never by the folder alone.
+    or private.object_is_hearable(objects.name)
   )
 );
 
@@ -1214,38 +1245,115 @@ comment on function public.public_songs(integer, integer) is
   'colabroom.com. Consent is showcased_at and each player''s own yes (0155); '
   'no lyrics, no demo accounts, and no viewer to filter blocks for.';
 
+-- Restated from 0088, which is still its latest definition, with the same
+-- one change as public_songs: the signed-in showcase's cards name the
+-- players whose parts are on the song, and say "made here" of the songs
+-- more than one of them is still on. The same list as colabroom.com, read
+-- by the app, and a card that said "with Jess" after Jess pulled her bass
+-- would be the claim about a person who said no that public_songs was
+-- restated to stop making.
+create or replace function public.showcase(
+  in_limit integer default 24,
+  in_before timestamptz default null
+)
+returns table (
+  id uuid,
+  title text,
+  owner_id uuid,
+  owner_name text,
+  owner_avatar text,
+  finished_at timestamptz,
+  showcased_at timestamptz,
+  storage_path text,
+  duration_ms integer,
+  musical_key text,
+  players jsonb,
+  made_here boolean,
+  met_here boolean
+)
+language sql
+stable
+security definer
+set search_path = public
+as $fn$
+  select
+    p.id,
+    p.title,
+    p.created_by,
+    pr.display_name,
+    pr.avatar_path,
+    p.finished_at,
+    p.showcased_at,
+    audio.storage_path,
+    audio.duration_ms,
+    r.musical_key,
+    coalesce(
+      (select jsonb_agg(distinct jsonb_build_object(
+                'id', who.id, 'name', coalesce(who.display_name, 'Somebody')))
+         from public.song_layers l
+         join public.profiles who on who.id = l.recorded_by
+        where l.project_id = p.id
+          and private.take_is_public(l.id)
+          and l.recorded_by is distinct from p.created_by),
+      '[]'::jsonb
+    ),
+    (select count(distinct l.recorded_by) > 1
+       from public.song_layers l
+      where l.project_id = p.id and private.take_is_public(l.id)),
+    exists (
+      select 1 from public.project_members m
+      where m.project_id = p.id
+        and m.user_id is distinct from p.created_by
+    )
+  from public.projects p
+  left join public.profiles pr on pr.id = p.created_by
+  left join public.project_audio_references r on r.project_id = p.id
+  left join lateral private.song_audio(p.id) audio on true
+  where p.showcased_at is not null
+    and p.deleted_at is null
+    and audio.storage_path is not null
+    and not private.blocked_between((select auth.uid()), p.created_by)
+    and (in_before is null or p.showcased_at < in_before)
+  order by p.showcased_at desc
+  limit greatest(least(in_limit, 48), 1);
+$fn$;
+
+revoke all on function public.showcase(integer, timestamptz)
+  from public, anon;
+grant execute on function public.showcase(integer, timestamptz)
+  to authenticated;
+
 -- ---------------------------------------------------------------------
 -- Songs that are already out there
 -- ---------------------------------------------------------------------
 
--- Every shared take on a song that is public today gets its row. The
--- person the song belongs to -- the room's owner, or whoever started it --
--- put it up, and that was their yes; everybody else is asked, the way they
--- would have been. Their parts stay with the room until they answer, and
--- the question is the card in their inbox rather than a push: a push about
--- a song that went out weeks ago is not a plain question, and the enum
--- value at the top of this file cannot be used in this transaction anyway.
+-- Every shared take on a song that is public today gets its row, and the
+-- row says yes. Those parts went out under the rule of the day -- 0067's
+-- "the owner decides" -- and the rule changes for songs going out from
+-- now on; what is already in front of strangers stays as it is, and every
+-- one of those people gets the one thing they never had, the button on the
+-- dial that takes their part back off it. The other way round -- writing
+-- an open question and pulling every such part until it is answered --
+-- would go quiet in the middle of songs that have been up for weeks, with
+-- no word to anybody but a card in an inbox, on nobody's decision. Asked
+-- and answered at the moment the song went out, because that is when the
+-- part became audible; asked by nobody, because nobody asked.
+--
+-- One honest cost: the dial reads such a row as "said yes" of somebody who
+-- was never asked. If that is the wrong trade, a later migration can set
+-- these rows back to unanswered and ask, and the parts wait from then.
 insert into public.take_consents
-  (layer_id, project_id, user_id, answered_at, agreed)
+  (layer_id, project_id, user_id, asked_at, answered_at, agreed)
 select
   l.id,
   l.project_id,
   l.recorded_by,
-  case when theirs.yes then now() end,
-  case when theirs.yes then true end
+  least(p.open_mic_at, p.showcased_at),
+  least(p.open_mic_at, p.showcased_at),
+  true
 from public.song_layers l
 join public.projects p on p.id = l.project_id
 join public.profiles pr on pr.id = l.recorded_by
-cross join lateral (
-  select
-    l.recorded_by = p.created_by
-    or exists (
-      select 1 from public.room_members m
-      where m.room_id = p.room_id
-        and m.user_id = l.recorded_by
-        and m.role = 'owner'
-    ) as yes
-) theirs
 where l.shared_at is not null
   and not pr.is_demo
   and (p.open_mic_at is not null or p.showcased_at is not null)

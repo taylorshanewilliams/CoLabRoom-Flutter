@@ -370,7 +370,8 @@ void main() {
       await _pump(tester);
 
       expect(
-        find.text('Asked Jess. It goes up once everybody on it has answered.'),
+        find.text(
+            'Asked Jess. Once everybody on it has answered, put it up again.'),
         findsOneWidget,
       );
       expect(find.text('Midnight Signal is on the Open Mic.'), findsNothing);

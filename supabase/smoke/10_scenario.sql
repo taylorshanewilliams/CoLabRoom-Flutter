@@ -6519,10 +6519,11 @@ end $$;
 -- still an adult; nobody but the teacher says what a link is.
 --
 -- Not here: the storage policy the audio arrives through, which 0148 also
--- closes to viewers. The shim grants storage.objects to service_role only,
--- so a write as authenticated would be refused on the grant whatever the
--- policy said, and a check that cannot fail for the right reason proves
--- nothing.
+-- closes to viewers. The shim grants writes on storage.objects to
+-- service_role only, so a write as authenticated would be refused on the
+-- grant whatever the policy said, and a check that cannot fail for the
+-- right reason proves nothing. (Reads reach authenticated since 0155's
+-- block, which is about who may hear, not who may write.)
 -- ---------------------------------------------------------------------
 
 insert into auth.users (id, email, raw_user_meta_data) values
@@ -7010,7 +7011,10 @@ end $$;
 -- the public song, which stays up without it -- or comes down when nothing
 -- audible is left. Along the way: one question per person however many
 -- times the owner presses, a take shared onto a song already out asks its
--- own player, and the showcase waits like the Open Mic does.
+-- own player, the showcase waits like the Open Mic does, and the bytes go
+-- where the row goes -- a stranger holding a pulled take's path fetches
+-- nothing, which needs the read grant on storage.objects the shim gives
+-- authenticated.
 --
 -- Fresh actors and a fresh room, as 0142's block: the obvious second
 -- account is gone from profiles by this point in the file.
@@ -7064,6 +7068,22 @@ values
    'e0e0e155-0000-0000-0000-000000000156',
    'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015b/layers/voice.m4a',
    'Voice', 'vocal', 20000, now());
+
+-- The bytes behind the takes, so the storage policy can be asked what a
+-- stranger holding a path may fetch, and not only what they may list. A
+-- row that is gone from the page and still plays is the classic version
+-- of this bug, and the one the first draft of 0155 had.
+insert into storage.objects (bucket_id, name, owner) values
+  ('room-files',
+   'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015a/layers/guitar.m4a',
+   '11111111-1111-1111-1111-111111111111'),
+  ('room-files',
+   'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015a/layers/bass.m4a',
+   'e0e0e155-0000-0000-0000-000000000156'),
+  ('room-files',
+   'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015a/layers/draft.m4a',
+   'e0e0e155-0000-0000-0000-000000000156')
+on conflict do nothing;
 
 -- The owner presses. Nothing goes up; the bandmate is asked.
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
@@ -7170,6 +7190,10 @@ begin
   if exists (select 1 from public.song_layers
              where project_id = 'e0e0e155-0000-0000-0000-00000000015a') then
     raise exception 'a stranger could read takes on a song that was not up';
+  end if;
+  if exists (select 1 from storage.objects
+             where name like 'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015a/%') then
+    raise exception 'a stranger could fetch audio from a song that was not up';
   end if;
   begin
     perform public.answer_for_my_part('e0e0e155-0000-0000-0000-00000000015a', true);
@@ -7296,6 +7320,18 @@ begin
              where id = 'e0e0e155-0000-0000-0000-00000000015e') then
     raise exception 'a stranger could see the draft';
   end if;
+  -- And the bytes: the two agreed parts, never the draft's.
+  if (select count(*) from storage.objects
+      where name in (
+        'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015a/layers/guitar.m4a',
+        'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015a/layers/bass.m4a'
+      )) <> 2 then
+    raise exception 'an agreed part''s audio was refused to a stranger';
+  end if;
+  if exists (select 1 from storage.objects
+             where name = 'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015a/layers/draft.m4a') then
+    raise exception 'a stranger could fetch the draft''s audio under a public song';
+  end if;
 
   select * into listed from public.open_mic_songs(null::text, 40, true)
   where id = 'e0e0e155-0000-0000-0000-00000000015a';
@@ -7363,6 +7399,55 @@ begin
              where id = 'e0e0e155-0000-0000-0000-00000000015a') then
     raise exception 'the bandmate''s page still claimed a song they pulled their part from';
   end if;
+  -- The bytes go with the row. A stranger who loaded the page before the
+  -- pull still holds the bass take's path; it fetches nothing now.
+  if exists (select 1 from storage.objects
+             where name = 'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015a/layers/bass.m4a') then
+    raise exception 'a pulled part''s audio still played for a stranger holding its path';
+  end if;
+  if not exists (select 1 from storage.objects
+                 where name = 'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015a/layers/guitar.m4a') then
+    raise exception 'pulling one part hid another''s audio';
+  end if;
+end $$;
+
+-- Shown as well. Everybody on it has answered -- a no is an answer -- so
+-- the showcase does not wait, and neither the app's showcase nor
+-- colabroom.com's list names the person who pulled their part, or calls
+-- the song made here on the strength of a part that is not on it.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+select public.show_song('e0e0e155-0000-0000-0000-00000000015a');
+
+reset role;
+set local request.jwt.claims = '{"sub": "e0e0e155-0000-0000-0000-000000000157"}';
+set local role authenticated;
+
+do $$
+declare
+  shown record;
+begin
+  select * into shown from public.showcase(48, null)
+  where id = 'e0e0e155-0000-0000-0000-00000000015a';
+  if shown.id is null then
+    raise exception 'a shown song with the owner''s own part on it was not on the showcase';
+  end if;
+  if shown.players <> '[]'::jsonb then
+    raise exception 'the showcase still named a player who pulled their part: %', shown.players;
+  end if;
+  if shown.made_here then
+    raise exception 'the showcase called a song made here on a part that was pulled';
+  end if;
+
+  select * into shown from public.public_songs(500, 0)
+  where id = 'e0e0e155-0000-0000-0000-00000000015a';
+  if shown.id is null then
+    raise exception 'the shown song was missing from colabroom.com''s list';
+  end if;
+  if shown.players <> '[]'::jsonb or shown.made_here then
+    raise exception 'colabroom.com still named a player who pulled their part: %', shown.players;
+  end if;
 end $$;
 
 -- A take shared onto a song that is already out asks its own player, once,
@@ -7402,6 +7487,10 @@ begin
   if exists (select 1 from public.song_layers
              where id = 'e0e0e155-0000-0000-0000-00000000015e') then
     raise exception 'a take shared onto a public song went out before its player answered';
+  end if;
+  if exists (select 1 from storage.objects
+             where name = 'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015a/layers/draft.m4a') then
+    raise exception 'a take shared onto a public song had its audio out before its player answered';
   end if;
 end $$;
 

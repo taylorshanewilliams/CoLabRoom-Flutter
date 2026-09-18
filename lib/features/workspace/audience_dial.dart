@@ -155,9 +155,14 @@ String namesInASentence(List<String> names) {
 
 /// What to say when a press put nothing up because the song is waiting on
 /// somebody's answer. Said instead of "is on the Open Mic", never as well.
+///
+/// "Put it up again", because nothing goes out by itself: the owner
+/// decides the moment, on a press made after everybody has answered, and
+/// is told each answer as it lands. A song that went up on its own weeks
+/// later, on somebody else's tap, would be the app publishing.
 String waitingOnSentence(SongAudience audience) =>
-    'Asked ${namesInASentence(audience.waitingOn)}. It goes up once '
-    'everybody on it has answered.';
+    'Asked ${namesInASentence(audience.waitingOn)}. Once everybody on it '
+    'has answered, put it up again.';
 
 /// The dial opened up: the whole gradient, with where this song sits on it.
 ///
