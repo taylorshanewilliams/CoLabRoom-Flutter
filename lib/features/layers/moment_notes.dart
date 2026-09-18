@@ -36,6 +36,10 @@ class NoteTarget {
 }
 
 /// What somebody typed, and which recording they typed it about.
+///
+/// For a note that was said rather than typed, [body] is empty: the
+/// recording is already in the screen's hands and the sheet only decides
+/// which take it is about and whether to keep it.
 @immutable
 class MomentNoteDraft {
   const MomentNoteDraft({required this.layerId, required this.body});
@@ -49,11 +53,18 @@ class MomentNoteDraft {
 /// The moment is in the title rather than in a field: the playhead said when,
 /// which is the whole difference between this and a comment. Choosing the
 /// recording is only offered when there is more than one to choose from.
+///
+/// With [spoken], the words have already been said (0152): the sheet asks
+/// which recording they were about and whether to keep them, and nothing
+/// else. Asked after the hold rather than before it, because the moment to
+/// throw away a fluffed sentence is right after saying it, and there is no
+/// proofreading a recording.
 Future<MomentNoteDraft?> showMomentNoteSheet(
   BuildContext context, {
   required int atMs,
   required List<NoteTarget> on,
   String? initialLayerId,
+  bool spoken = false,
 }) {
   if (on.isEmpty) return Future<MomentNoteDraft?>.value();
   return showModalBottomSheet<MomentNoteDraft>(
@@ -65,6 +76,7 @@ Future<MomentNoteDraft?> showMomentNoteSheet(
       atMs: atMs,
       on: on,
       initialLayerId: initialLayerId,
+      spoken: spoken,
     ),
   );
 }
@@ -80,11 +92,13 @@ class _MomentNoteSheet extends StatefulWidget {
     required this.atMs,
     required this.on,
     this.initialLayerId,
+    this.spoken = false,
   });
 
   final int atMs;
   final List<NoteTarget> on;
   final String? initialLayerId;
+  final bool spoken;
 
   @override
   State<_MomentNoteSheet> createState() => _MomentNoteSheetState();
@@ -114,6 +128,10 @@ class _MomentNoteSheetState extends State<_MomentNoteSheet> {
       );
 
   void _pin() {
+    if (widget.spoken) {
+      Navigator.pop(context, MomentNoteDraft(layerId: _chosen, body: ''));
+      return;
+    }
     final body = _typed.text.trim();
     if (body.isEmpty) return;
     Navigator.pop(context, MomentNoteDraft(layerId: _chosen, body: body));
@@ -129,7 +147,7 @@ class _MomentNoteSheetState extends State<_MomentNoteSheet> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Note at ${MomentNote.clockOf(widget.atMs)}',
+            '${widget.spoken ? 'Said' : 'Note'} at ${MomentNote.clockOf(widget.atMs)}',
             style: const TextStyle(
               color: AppColors.text,
               fontSize: 18,
@@ -169,29 +187,35 @@ class _MomentNoteSheetState extends State<_MomentNoteSheet> {
             ),
           ],
           const SizedBox(height: 14),
-          SendOnEnter(
-            onSend: _pin,
-            child: TextField(
-              key: const Key('moment_note_body'),
-              controller: _typed,
-              autofocus: true,
-              minLines: 2,
-              maxLines: 5,
-              textCapitalization: TextCapitalization.sentences,
-              inputFormatters: <TextInputFormatter>[
-                LengthLimitingTextInputFormatter(MomentNote.bodyLimit),
-              ],
-              decoration: const InputDecoration(
-                hintText: 'What happens here',
+          // Nothing to type for a spoken note: what was said is already in
+          // hand, and a box here would be a box for a second note.
+          if (!widget.spoken) ...<Widget>[
+            SendOnEnter(
+              onSend: _pin,
+              child: TextField(
+                key: const Key('moment_note_body'),
+                controller: _typed,
+                autofocus: true,
+                minLines: 2,
+                maxLines: 5,
+                textCapitalization: TextCapitalization.sentences,
+                inputFormatters: <TextInputFormatter>[
+                  LengthLimitingTextInputFormatter(MomentNote.bodyLimit),
+                ],
+                decoration: const InputDecoration(
+                  hintText: 'What happens here',
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 14),
+            const SizedBox(height: 14),
+          ],
           Row(
             children: <Widget>[
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Not now'),
+                // Said plainly for a recording, because there is no draft
+                // to come back to: leaving the sheet is losing it.
+                child: Text(widget.spoken ? 'Throw it away' : 'Not now'),
               ),
               const Spacer(),
               FilledButton(
@@ -221,6 +245,8 @@ class MomentNoteList extends StatelessWidget {
     this.labelFor,
     this.focusedId,
     this.onDelete,
+    this.onListen,
+    this.listeningTo,
     super.key,
   });
 
@@ -228,6 +254,13 @@ class MomentNoteList extends StatelessWidget {
 
   /// Plays from three seconds before, looping the moment.
   final ValueChanged<MomentNote> onOpen;
+
+  /// Plays what was said, for a spoken note (0152). Pressed again on the
+  /// note that is playing, it stops.
+  final ValueChanged<MomentNote>? onListen;
+
+  /// The spoken note playing now, so its row offers Stop rather than Listen.
+  final String? listeningTo;
 
   /// Which recording the note is on, or null to leave it unsaid — which is
   /// right when the song has only one.
@@ -260,8 +293,10 @@ class MomentNoteList extends StatelessWidget {
             on: labelFor?.call(note),
             focused: note.id == focusedId,
             mine: note.authorId == currentUserId,
+            listening: note.id == listeningTo,
             onOpen: () => onOpen(note),
             onDelete: onDelete == null ? null : () => onDelete!(note),
+            onListen: onListen == null ? null : () => onListen!(note),
           ),
           const SizedBox(height: 8),
         ],
@@ -276,16 +311,20 @@ class _NoteRow extends StatelessWidget {
     required this.focused,
     required this.mine,
     required this.onOpen,
+    this.listening = false,
     this.on,
     this.onDelete,
+    this.onListen,
   });
 
   final MomentNote note;
   final String? on;
   final bool focused;
   final bool mine;
+  final bool listening;
   final VoidCallback onOpen;
   final VoidCallback? onDelete;
+  final VoidCallback? onListen;
 
   @override
   Widget build(BuildContext context) {
@@ -336,14 +375,44 @@ class _NoteRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  Text(
-                    note.body,
-                    style: const TextStyle(
-                      color: AppColors.text,
-                      fontSize: 13,
-                      height: 1.35,
+                  // A spoken note has nothing to read, so the row is the
+                  // one button that plays it. Plain on purpose: no length,
+                  // no waveform, just the way to hear it (0152).
+                  if (note.isSpoken)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        key: Key('listen_moment_note_${note.id}'),
+                        onPressed: onListen,
+                        icon: Icon(
+                          listening
+                              ? Icons.stop_rounded
+                              : Icons.play_arrow_rounded,
+                          size: 16,
+                        ),
+                        label: Text(listening ? 'Stop' : 'Listen'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.cyan,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(0, 30),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                          textStyle: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    Text(
+                      note.body,
+                      style: const TextStyle(
+                        color: AppColors.text,
+                        fontSize: 13,
+                        height: 1.35,
+                      ),
                     ),
-                  ),
                   if (said.isNotEmpty) ...<Widget>[
                     const SizedBox(height: 3),
                     Text(
@@ -364,6 +433,89 @@ class _NoteRow extends StatelessWidget {
                     size: 15, color: AppColors.muted),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Hold to say a note at the playhead; let go to stop (0152).
+///
+/// A [Listener] rather than a long press. A long press waits half a second
+/// before it fires, and the first word is said in that half second: the
+/// finger going down has to be the start and the finger coming up the end,
+/// which is what "hold" means to the person holding it. The label says so,
+/// because a gesture nobody is told about is a feature nobody has.
+///
+/// The elapsed clock is shown while holding, the way the record button
+/// shows it for a take, so nobody is surprised by the one-minute cap. It
+/// is never shown afterwards.
+class SayItButton extends StatelessWidget {
+  const SayItButton({
+    required this.saying,
+    required this.elapsed,
+    required this.onDown,
+    required this.onUp,
+    this.enabled = true,
+    super.key,
+  });
+
+  final bool saying;
+  final Duration elapsed;
+
+  /// The finger went down. The screen decides whether that opens the
+  /// microphone; it may be busy, or still asking for permission.
+  final VoidCallback onDown;
+
+  /// The finger came up, or the touch was taken away. Always delivered,
+  /// even when the button is disabled, so a hold that outlives its button
+  /// still ends.
+  final VoidCallback onUp;
+
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    const red = Color(0xFFFF718B);
+    final ink = saying
+        ? red
+        : enabled
+            ? AppColors.gold
+            : AppColors.line;
+    return Semantics(
+      button: true,
+      label: 'Hold to say a note at this moment',
+      child: Listener(
+        onPointerDown: enabled ? (_) => onDown() : null,
+        onPointerUp: (_) => onUp(),
+        onPointerCancel: (_) => onUp(),
+        child: Container(
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: saying ? red.withValues(alpha: 0.16) : Colors.transparent,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: saying ? red : ink.withValues(alpha: 0.5),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(Icons.mic_rounded, size: 17, color: ink),
+              const SizedBox(width: 6),
+              Text(
+                saying
+                    ? 'Saying it  ${MomentNote.clockOf(elapsed.inMilliseconds)}'
+                    : 'Hold to say it',
+                style: TextStyle(
+                  color: ink,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

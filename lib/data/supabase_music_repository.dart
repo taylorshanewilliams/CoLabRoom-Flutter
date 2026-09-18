@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 
@@ -2679,7 +2680,7 @@ class SupabaseMusicRepository implements MusicRepository {
 
   static const String _momentNoteColumns =
       'id, project_id, layer_id, on_shared_take, at_ms, end_ms, body, '
-      'author_id, created_at, '
+      'voice_path, author_id, created_at, '
       'author:profiles!moment_notes_author_id_fkey(display_name)';
 
   @override
@@ -2722,7 +2723,79 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<MomentNote> addSpokenMomentNote({
+    required String roomId,
+    required String projectId,
+    required int atMs,
+    required Uint8List bytes,
+    String? layerId,
+  }) async {
+    // A random name rather than the clock. For somebody in the room who
+    // cannot read the note, the row is the gate and this id is the lock
+    // (0152): the room-files path policy admits every room member to every
+    // object under the room, so the name is the one thing between them and
+    // a note on somebody else's draft.
+    final storagePath = '$roomId/$projectId/moments/${_randomId()}.wav';
+    // The bytes first, the way a take and a line voice note go up. Nothing
+    // is caught here: a failed upload throws to the screen, which says so.
+    await client.storage.from('room-files').uploadBinary(
+          storagePath,
+          bytes,
+          fileOptions: const FileOptions(contentType: 'audio/wav', upsert: false),
+        );
+    try {
+      final row = await client
+          .from('moment_notes')
+          .insert(<String, dynamic>{
+            'project_id': projectId,
+            'layer_id': layerId,
+            'at_ms': atMs < 0 ? 0 : atMs,
+            'voice_path': storagePath,
+            'author_id': _userId,
+          })
+          .select(_momentNoteColumns)
+          .single();
+      return _momentNote(row);
+    } catch (error) {
+      // Bytes with no row would be an object nobody can reach and nothing
+      // knows about. The original error is the one worth surfacing, so a
+      // failed tidy-up does not replace it.
+      try {
+        await client.storage.from('room-files').remove(<String>[storagePath]);
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  static String _randomId() {
+    final random = math.Random.secure();
+    return List<String>.generate(
+      16,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+  }
+
+  @override
+  Future<Uint8List> loadSpokenNote(MomentNote note) {
+    final path = note.voicePath;
+    if (path == null) throw StateError('That note was typed, not spoken.');
+    return client.storage.from('room-files').download(path);
+  }
+
+  @override
   Future<void> deleteMomentNote(MomentNote note) async {
+    // The object first, while the row is still live: the storage delete
+    // policy finds the row through moment_notes_read, which hides a stamped
+    // row from everybody. Best-effort, because the row is what makes the
+    // audio reachable (moment_note_audio_read) -- an object left behind
+    // costs storage and is heard by nobody, whereas a note left behind
+    // because storage was slow would be the failure that matters.
+    final path = note.voicePath;
+    if (path != null) {
+      try {
+        await client.storage.from('room-files').remove(<String>[path]);
+      } catch (_) {}
+    }
     // A function rather than a delete: the row is kept and stamped, so the
     // words can never come back and nothing has to guess whether a missing
     // note was deleted or never existed.
@@ -2744,7 +2817,9 @@ class SupabaseMusicRepository implements MusicRepository {
       onSharedTake: row['on_shared_take'] as bool? ?? true,
       atMs: (row['at_ms'] as num?)?.toInt() ?? 0,
       endMs: (row['end_ms'] as num?)?.toInt(),
+      // Null for a spoken note (0152), which has a voice instead.
       body: row['body'] as String? ?? '',
+      voicePath: row['voice_path'] as String?,
       authorId: row['author_id'] as String? ?? '',
       authorName:
           author is Map ? author['display_name'] as String? : null,

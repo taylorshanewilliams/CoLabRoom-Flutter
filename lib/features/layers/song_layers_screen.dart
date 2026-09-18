@@ -25,6 +25,7 @@ import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/error_reporter.dart';
 import '../../services/song_layer_service.dart';
+import '../../services/spoken_note_recorder.dart';
 import '../../services/take_export.dart';
 import '../../services/take_naming.dart';
 import '../../services/user_facing_error.dart';
@@ -64,6 +65,7 @@ class SongLayersScreen extends StatefulWidget {
     required this.songTitle,
     this.layerService,
     this.analysisService,
+    this.spokenNoteRecorder,
     this.embedded = false,
     this.onClose,
     this.openNote,
@@ -98,6 +100,10 @@ class SongLayersScreen extends StatefulWidget {
   final SongLayerService? layerService;
   final SongAnalysisService? analysisService;
 
+  /// The microphone a spoken note is said into (0152). Substituted in
+  /// tests for the same reason as the two above.
+  final SpokenNoteRecorder? spokenNoteRecorder;
+
   /// Needed for the storage path, which is {room}/{project}/layers/{id} —
   /// the same shape every other object in this app uses, and the shape the
   /// storage policies are written against.
@@ -127,6 +133,34 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   String? _referencePath;
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();
+
+  /// The microphone for a note said rather than typed (0152), and what is
+  /// known about the hold while it lasts.
+  ///
+  /// [_holding] is the finger; [_saying] is the microphone. They differ
+  /// while permission is being asked for, and the difference is what stops
+  /// a microphone opening under a finger that has already gone.
+  late final SpokenNoteRecorder _mic =
+      widget.spokenNoteRecorder ?? SpokenNoteRecorder();
+  bool _holding = false;
+  bool _saying = false;
+  Duration _said = Duration.zero;
+  Timer? _sayTimer;
+
+  /// Where the playhead was when the finger went down, which is the
+  /// moment the note is about -- decided before anybody speaks, the same
+  /// rule as the typed note.
+  int _sayingAt = 0;
+
+  /// True from letting go until the note is pinned or thrown away.
+  bool _savingSaid = false;
+
+  /// Plays a spoken note back, on its own, clear of the mix.
+  AudioPlayer? _voice;
+  StreamSubscription<void>? _voiceDone;
+
+  /// The spoken note playing now, so its row offers Stop.
+  String? _hearing;
 
   List<SharedLayer>? _layers;
   final Map<String, String> _localPaths = <String, String>{};
@@ -317,11 +351,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _sayTimer?.cancel();
     unawaited(_completeSub?.cancel());
     unawaited(_positionSub?.cancel());
     unawaited(_durationSub?.cancel());
+    unawaited(_voiceDone?.cancel());
     unawaited(_recorder.dispose());
+    unawaited(_mic.dispose());
     unawaited(_player.dispose());
+    unawaited(_voice?.dispose());
     // Every other screen in the app is a player, not a recorder.
     unawaited(OverdubSession.end());
     super.dispose();
@@ -1720,7 +1758,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                             focusedId: _noteLoop?.id,
                             currentUserId: _me ?? '',
                             labelFor: _takes.length > 1 ? _noteOnLabel : null,
+                            listeningTo: _hearing,
                             onOpen: (note) => unawaited(_openNote(note)),
+                            onListen: (note) => unawaited(_listen(note)),
                             onDelete: (note) => unawaited(_deleteNote(note)),
                           ),
                         ),
@@ -1853,7 +1893,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                           focusedId: _noteLoop?.id,
                           currentUserId: _me ?? '',
                           labelFor: _takes.length > 1 ? _noteOnLabel : null,
+                          listeningTo: _hearing,
                           onOpen: (note) => unawaited(_openNote(note)),
+                          onListen: (note) => unawaited(_listen(note)),
                           onDelete: (note) => unawaited(_deleteNote(note)),
                         ),
                       ],
@@ -1965,22 +2007,42 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
               // nothing, and a gesture nobody is told about is a feature
               // nobody has.
               if (_noteTargets.isNotEmpty)
-                TextButton.icon(
-                  key: const Key('pin_moment_note'),
-                  onPressed: _busy || _recording ? null : () => unawaited(_pinNote()),
-                  icon: const Icon(Icons.push_pin_outlined, size: 17),
-                  label: Text(
-                    'Note at ${_clock(_position)}',
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: TextButton.icon(
+                        key: const Key('pin_moment_note'),
+                        onPressed: _busy || _recording || _saying || _savingSaid
+                            ? null
+                            : () => unawaited(_pinNote()),
+                        icon: const Icon(Icons.push_pin_outlined, size: 17),
+                        label: Text(
+                          'Note at ${_clock(_position)}',
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.gold,
+                          disabledForegroundColor: AppColors.line,
+                          minimumSize: const Size.fromHeight(36),
+                        ),
+                      ),
                     ),
-                  ),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.gold,
-                    disabledForegroundColor: AppColors.line,
-                    minimumSize: const Size.fromHeight(36),
-                  ),
+                    const SizedBox(width: 8),
+                    // Or say it (0152). Beside the pin, because it is the
+                    // same note said a different way: a teacher with a
+                    // guitar in their hands holds this instead of typing.
+                    SayItButton(
+                      key: const Key('say_moment_note'),
+                      saying: _saying,
+                      elapsed: _said,
+                      enabled: !_busy && !_recording && !_savingSaid,
+                      onDown: () => unawaited(_startSaying()),
+                      onUp: _letGo,
+                    ),
+                  ],
                 ),
               // The way back in, said in the words somebody would use for it.
               //
@@ -2175,6 +2237,205 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
             route: 'Takes',
             projectId: widget.projectId,
           ));
+    }
+  }
+
+  /// Opens the microphone under a finger that has just gone down (0152).
+  ///
+  /// The moment is where the playhead was at that instant, decided before
+  /// anybody speaks. If the mix is playing it pauses, so the microphone
+  /// hears the person and not the phone, and so the playhead stays on the
+  /// bar being talked about.
+  Future<void> _startSaying() async {
+    if (_busy || _recording || _saying || _savingSaid || _noteTargets.isEmpty) {
+      return;
+    }
+    _holding = true;
+    final at = _position.inMilliseconds;
+    final allowed = await MicrophoneAccess.ensureGranted(
+      context,
+      purpose: 'to say a note at this moment',
+      request: _mic.hasPermission,
+    );
+    // The disclosure and the permission prompt both take a while, and a
+    // finger that has lifted by the time they come back is not holding
+    // anything. Opening the microphone anyway would leave it open with
+    // nothing to close it but the one-minute cap.
+    if (!allowed || !mounted || !_holding || _saying) return;
+    try {
+      if (_playing) await _togglePlay();
+      await _mic.start();
+    } catch (error) {
+      if (!mounted) return;
+      reportAndDescribe(
+        error,
+        service: 'layers',
+        stage: 'takes.say',
+        route: 'Takes',
+        projectId: widget.projectId,
+      );
+      setState(() => _error = 'The microphone did not open. Hold and try again.');
+      return;
+    }
+    if (!mounted || !_holding) {
+      // Lifted while it was opening: nothing was said into it.
+      unawaited(_mic.cancel());
+      return;
+    }
+    setState(() {
+      _saying = true;
+      _sayingAt = at;
+      _said = Duration.zero;
+      _error = null;
+    });
+    _sayTimer?.cancel();
+    _sayTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      if (!mounted) return;
+      setState(() => _said += const Duration(milliseconds: 200));
+      // A minute is the cap, and the cap ends the note the way letting go
+      // does rather than throwing it away: what was said up to here was
+      // said on purpose.
+      if (_said >= MomentNote.spokenLimit) unawaited(_finishSaying());
+    });
+  }
+
+  /// The finger came up.
+  void _letGo() {
+    _holding = false;
+    if (_saying) unawaited(_finishSaying());
+  }
+
+  /// Closes the microphone and pins what was said, once the person has said
+  /// which recording it is about and that they want to keep it.
+  Future<void> _finishSaying() async {
+    if (!_saying) return;
+    _sayTimer?.cancel();
+    setState(() {
+      _saying = false;
+      _savingSaid = true;
+    });
+    try {
+      final said = await _heard();
+      if (said == null) return;
+      final repository = _repository;
+      final targets = _noteTargets;
+      if (repository == null || targets.isEmpty || !mounted) return;
+      final draft = await showMomentNoteSheet(
+        context,
+        atMs: _sayingAt,
+        on: targets,
+        initialLayerId: targets.last.id,
+        spoken: true,
+      );
+      // Thrown away on purpose, which the sheet's button says in as many
+      // words.
+      if (draft == null || !mounted) return;
+      setState(() => _status = 'Saving what you said');
+      try {
+        await repository.addSpokenMomentNote(
+          roomId: widget.roomId,
+          projectId: widget.projectId,
+          layerId: draft.layerId,
+          atMs: _sayingAt,
+          bytes: said,
+        );
+      } catch (error) {
+        // A refusal, not a crash report. The failure goes to the table in
+        // full for whoever reads it; the screen says the one thing the
+        // person can do about it. A note that fails to save and says
+        // nothing is a note the teacher believes they left, which is the
+        // silent-upload failure that cost three rounds of testing on takes.
+        reportAndDescribe(
+          error,
+          service: 'layers',
+          stage: 'takes.say',
+          route: 'Takes',
+          projectId: widget.projectId,
+        );
+        if (mounted) {
+          setState(() => _error = 'That one did not save. Hold and say it again.');
+        }
+        return;
+      }
+      await _loadNotes();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _savingSaid = false;
+          _status = null;
+        });
+      }
+    }
+  }
+
+  /// What the microphone heard, or null -- said on screen -- when it heard
+  /// nothing worth keeping.
+  Future<Uint8List?> _heard() async {
+    Uint8List? said;
+    try {
+      said = await _mic.stop();
+    } catch (error) {
+      reportAndDescribe(
+        error,
+        service: 'layers',
+        stage: 'takes.say',
+        route: 'Takes',
+        projectId: widget.projectId,
+      );
+      if (mounted) {
+        setState(() => _error = 'The microphone gave nothing back. Hold and say it again.');
+      }
+      return null;
+    }
+    if (said == null || said.length < SpokenNoteRecorder.shortestNote) {
+      // A tap rather than a hold, or a microphone that opened and heard
+      // nothing. Not a fault to report: the label says hold, and this says
+      // it again in the place the person is looking.
+      if (mounted) {
+        setState(() => _error = 'Nothing was heard. Hold the button while you speak.');
+      }
+      return null;
+    }
+    return said;
+  }
+
+  /// Plays what was said, on its own.
+  ///
+  /// The mix pauses first so the voice is heard clear of it, and the
+  /// playhead moves to the note's moment the way tapping the row does, so
+  /// Play afterwards hears the bar the note is about.
+  Future<void> _listen(MomentNote note) async {
+    final repository = _repository;
+    if (repository == null || !note.isSpoken) return;
+    final voice = _voice ??= AudioPlayer();
+    _voiceDone ??= voice.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _hearing = null);
+    });
+    try {
+      if (_hearing == note.id) {
+        await voice.stop();
+        if (mounted) setState(() => _hearing = null);
+        return;
+      }
+      await voice.stop();
+      if (_playing) await _togglePlay();
+      await _openNote(note, play: false);
+      final bytes = await repository.loadSpokenNote(note);
+      await voice.play(BytesSource(bytes, mimeType: 'audio/wav'));
+      if (mounted) setState(() => _hearing = note.id);
+    } catch (error) {
+      reportAndDescribe(
+        error,
+        service: 'layers',
+        stage: 'takes.listen',
+        route: 'Takes',
+        projectId: widget.projectId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _hearing = null;
+        _error = 'That one would not play. Try it again in a moment.';
+      });
     }
   }
 
