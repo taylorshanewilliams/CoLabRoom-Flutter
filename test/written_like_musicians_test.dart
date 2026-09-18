@@ -52,6 +52,33 @@ void main() {
       expect(spellInKey('C#dim', 'D minor'), 'C#dim');
       expect(spellInKey('A#', 'D minor'), 'Bb');
     });
+
+    test('a slash bass is spelled as the chord tone it is', () {
+      // The third of D is an F of some kind, so a flat key cannot call it Gb.
+      expect(spellInKey('D/F#', 'D minor'), 'D/F#');
+      expect(spellInKey('A/C#', 'D minor'), 'A/C#');
+      // Basses the key already spelled right are spelled the same way still.
+      expect(spellInKey('Bb/D', 'F major'), 'Bb/D');
+      expect(spellInKey('Eb/G', 'Bb major'), 'Eb/G');
+      expect(spellInKey('C/E', 'Eb major'), 'C/E');
+      expect(spellInKey('Bbm7/F', 'Eb major'), 'Bbm7/F');
+    });
+
+    test('a bass that is not a chord tone follows the key', () {
+      expect(spellInKey('C/Bb', 'Eb major'), 'C/Bb');
+      expect(spellInKey('C/A#', 'Eb major'), 'C/Bb');
+      // A degree rather than a note, and a quality with a slash in it.
+      expect(spellInKey('G#:maj/3', 'Eb major'), 'Ab:maj/3');
+      expect(spellInKey('C#6/9', 'Eb major'), 'Db6/9');
+    });
+
+    test('a flat bass somebody wrote is not corrected to a sharp', () {
+      // The chord rule reads the same third in D/Gb and would call it F#.
+      // Somebody typed that Gb, and a spelling somebody chose is theirs --
+      // the same promise the key rule makes (review, 17 September 2026).
+      expect(spellInKey('D/Gb', 'D minor'), 'D/Gb');
+      expect(spellInKey('C+/Ab', 'Eb major'), 'C+/Ab');
+    });
   });
 
   group('one word for one sound', () {

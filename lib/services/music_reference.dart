@@ -59,6 +59,18 @@ bool keyUsesFlats(String? key) {
 /// they wrote it. A minor key keeps its raised seventh sharp -- the C♯ of an
 /// A7 in D minor is a C♯ -- because that is the one sharp a flat minor key
 /// really has.
+///
+/// A slash chord's *sharp* bass is spelled from the chord it belongs to when
+/// it is one of that chord's own notes. The key rule on its own read D/F♯ in D
+/// minor as D/G♭, and that F♯ is the major third of D: a third is two letters
+/// up from the root whatever the key is doing, so it has to be written as
+/// some kind of F (Every Musician, Same Song, 17 September 2026). A bass that
+/// is not a chord tone is nothing to do with the chord, and is left to the
+/// key rule.
+///
+/// Only a sharp bass goes through it, for the same reason only sharps are
+/// respelled at all: a bass somebody wrote as a G♭ is theirs, and the chord
+/// rule is not allowed to correct it either (review, 17 September 2026).
 String spellInKey(String written, String? key) {
   if (!keyUsesFlats(key)) return written;
   final tonic = RegExp(r'^([A-G][#b]?)').firstMatch(key!.trim())?.group(1);
@@ -66,11 +78,64 @@ String spellInKey(String written, String? key) {
   final rest = key.trim().substring(tonic?.length ?? 0).trim().toLowerCase();
   final minor = rest.startsWith('min') || rest == 'm' || rest.startsWith('aeolian');
   final leadingTone = minor && tonicPitch != null ? (tonicPitch + 11) % 12 : null;
-  return written.replaceAllMapped(RegExp(r'([A-G])#'), (match) {
-    final pitch = _pitchValues['${match.group(1)}#'];
-    if (pitch == null || pitch == leadingTone) return match.group(0)!;
-    return _flatNames[pitch];
-  });
+
+  final slash = written.lastIndexOf('/');
+  if (slash > 0 && written.substring(slash + 1).contains('#')) {
+    // The root is spelled in the key first, because the bass is then counted
+    // in letters from whatever the root ended up being called.
+    final chord = _flattenSharps(written.substring(0, slash), leadingTone);
+    final bass = _bassAsChordTone(chord, written.substring(slash + 1));
+    if (bass != null) return '$chord/$bass';
+  }
+  return _flattenSharps(written, leadingTone);
+}
+
+String _flattenSharps(String written, int? leadingTone) =>
+    written.replaceAllMapped(RegExp(r'([A-G])#'), (match) {
+      final pitch = _pitchValues['${match.group(1)}#'];
+      if (pitch == null || pitch == leadingTone) return match.group(0)!;
+      return _flatNames[pitch];
+    });
+
+/// How far up the alphabet a chord tone is written from the root: a third is
+/// two letters up, a fifth four, a seventh six. Flattened or sharpened, a
+/// third is still a third — the flat fifth of a diminished chord is a G of
+/// some kind over a C, never an F♯.
+const Map<int, int> _chordToneLetters = <int, int>{
+  3: 2, 4: 2,
+  6: 4, 7: 4, 8: 4,
+  10: 6, 11: 6,
+};
+
+const String _letters = 'CDEFGAB';
+const List<int> _letterPitches = <int>[0, 2, 4, 5, 7, 9, 11];
+
+/// The bass of a slash chord spelled as the chord tone it is, or null when
+/// [bass] is not a third, fifth or seventh of [chord] and the key should
+/// spell it instead.
+String? _bassAsChordTone(String chord, String bass) {
+  final bassPitch = _pitchValues[bass.trim()];
+  final match = RegExp(r'^([A-G][#b]?)(.*)$').firstMatch(chord.trim());
+  if (bassPitch == null || match == null) return null;
+  final root = match.group(1)!;
+  final rootPitch = _pitchValues[root];
+  if (rootPitch == null) return null;
+  final suffix = match.group(2)!;
+  final quality = _qualities[_writtenSuffixes[suffix] ?? suffix];
+  if (quality == null) return null;
+
+  final interval = (bassPitch - rootPitch + 12) % 12;
+  final letters = _chordToneLetters[interval];
+  if (letters == null) return null;
+  if (!quality.intervals.any((tone) => tone % 12 == interval)) return null;
+
+  final letter = (_letters.indexOf(root[0]) + letters) % 7;
+  final shift = (bassPitch - _letterPitches[letter] + 18) % 12 - 6;
+  // A double flat is correct arithmetic and no help on a music stand — the
+  // diminished seventh of C is a B double-flat — so those fall back to the
+  // key rule and its plain A.
+  if (shift < -1 || shift > 1) return null;
+  return '${_letters[letter]}${shift == 1 ? '#' : shift == -1 ? 'b' : ''}';
 }
 
 /// Spelling follows the name you were given. A song in Eb should not be told
@@ -105,8 +170,10 @@ String noteName(int pitch, {required bool flats}) {
 /// [midi] is the number the melody and the tuner both speak in, where 69 is
 /// A4, so the octave comes out with the name. The accidentals are the printed
 /// ones those two have always used (F♯4, not F#4), and which accidental to use
-/// is [spellInKey]'s decision -- the same rule the chords go through, so a
-/// note under a word and the chord over it cannot call one pitch two things.
+/// is [spellInKey]'s decision -- the key rule, which is what the chords go
+/// through too everywhere except a slash bass. A sung note has no chord to be
+/// the third of, so in D minor a D/F♯ over a word can sit above a G♭4 under
+/// it: the chord names that pitch from the chord, the note from the key.
 String noteInKey(int midi, String? key) {
   final spelled = spellInKey(noteName(midi, flats: false), key)
       .replaceAll('#', '♯')

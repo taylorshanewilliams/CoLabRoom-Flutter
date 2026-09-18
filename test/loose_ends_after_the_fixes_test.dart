@@ -265,8 +265,12 @@ void main() {
       expect(box.height, greaterThanOrEqualTo(48));
       // The chip is still a label on a song, not a button: 40 pixels, drawn
       // where it always was, centred in a line that was already 48 tall.
-      final painted =
-          tester.getRect(find.descendant(of: chip, matching: find.byType(Row)));
+      //
+      // The chip's outer Row, which is the one the Container draws around.
+      // #357 put "· writing" beside the label in a Row of its own, so this
+      // has to say which of the two it means rather than any Row in the chip.
+      final painted = tester.getRect(
+          find.descendant(of: chip, matching: find.byType(Row)).first);
       expect(painted.height, lessThanOrEqualTo(40));
       expect(painted.center.dy, box.center.dy);
 

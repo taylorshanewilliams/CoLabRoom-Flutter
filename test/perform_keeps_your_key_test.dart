@@ -54,6 +54,14 @@ void main() {
       expect(chordAsPlayed('G/D', transpose: 4, key: 'G'), 'B/F#');
     });
 
+    test('a minor key does not flatten the third under the chord', () {
+      // E minor dropped two is D minor, where D/F# was reading D/Gb: the key
+      // is flat, but that note is the chord's own third.
+      expect(chordAsPlayed('E/G#', transpose: -2, key: 'E minor'), 'D/F#');
+      expect(chordAsPlayed('D/F#', transpose: 0, key: 'D minor'), 'D/F#');
+      expect(chordAsPlayed('E:maj/3', transpose: -2, key: 'E minor'), 'D/F#');
+    });
+
     test('a Harte degree in the bass is not moved as if it were a note', () {
       // G:maj/3 is G over its own third. Moving the root has already moved
       // the third; the degree stays a degree.
