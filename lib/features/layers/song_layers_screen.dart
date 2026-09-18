@@ -6,6 +6,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../services/audio_source_for.dart';
 import 'package:path_provider/path_provider.dart';
@@ -18,8 +19,8 @@ import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/moment_note.dart';
 import '../../domain/music_models.dart';
+import '../../services/click_player.dart';
 import '../../services/multitrack.dart';
-import '../../services/onset_align.dart';
 import '../../services/overdub_session.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
@@ -37,6 +38,7 @@ import 'song_level_store.dart';
 import 'layer_group.dart';
 import 'sealing_a_take.dart';
 import 'sending_a_take.dart';
+import 'take_count_in.dart';
 import 'take_lane.dart';
 import 'take_prompt.dart';
 import 'then_and_now.dart';
@@ -396,6 +398,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     unawaited(_recorder.dispose());
     unawaited(_mic.dispose());
     unawaited(_player.dispose());
+    unawaited(_countClick?.dispose());
     unawaited(_voice?.dispose());
     // Every other screen in the app is a player, not a recorder.
     unawaited(OverdubSession.end());
@@ -1093,6 +1096,26 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       if (_thenAndNow != null) await _stopThenAndNow();
       _punchInAt = _position;
       final hasBacking = await _rebuildMix();
+      // A punch-in into a song with a beat of its own is counted in: one bar
+      // of the song's time, and the song back in on the downbeat (Every
+      // Musician, Same Song, 17 September 2026). Decided here, after the mix
+      // exists, because only a take with the song under it has anything to
+      // be counted into -- and a click on its own is not the song: it counts
+      // from zero at a tempo somebody chose, not from the analysis's bars.
+      // Every other take starts exactly as it did.
+      _counted = Duration.zero;
+      final countIn = hasBacking && _lastMixPath != null && !_loopingClick
+          ? takeCountInFor(_reference, punchInMs: _punchInAt.inMilliseconds)
+          : null;
+      if (countIn != null) {
+        // The take lands on the top of the bar the playhead was in, which is
+        // where the count hands over: see TakeCountIn.downbeatMs.
+        _punchInAt = Duration(milliseconds: countIn.downbeatMs);
+        // Before the recorder starts, so none of the getting ready is on the
+        // front of the take and the recorder's head start stays as quiet as
+        // it has always been.
+        await _readyTheCount(countIn);
+      }
       await _recorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
@@ -1128,7 +1151,13 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         await Future<void>.delayed(
           const Duration(milliseconds: _recorderHeadStartMs),
         );
-        await _playMix(from: _punchInAt);
+        if (countIn == null) {
+          await _playMix(from: _punchInAt);
+        } else if (!await _countInAndComeIn(countIn)) {
+          // The screen went away during the bar, and took the recorder with
+          // it. Nobody is left to bring a song in for.
+          return;
+        }
       }
 
       _elapsed = Duration.zero;
@@ -1140,16 +1169,109 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           _recording = true;
           _playing = hasBacking;
           _busy = false;
+          _countingIn = null;
         });
       }
     } catch (error) {
+      // Silenced on the way out, and never allowed to throw on its own.
+      // Backing out during the bar disposes this player and the recorder
+      // together, so the throw that brings us here is often a call on a
+      // recorder that is already gone -- and stopping a disposed player
+      // would then raise a second error with nobody left to catch it.
+      unawaited(_countClick?.stop().catchError((Object _) {}));
       if (mounted) {
         setState(() {
           _error = reportAndDescribe(error, service: 'layers', route: 'Takes');
           _busy = false;
+          _countingIn = null;
         });
       }
     }
+  }
+
+  /// The bar being counted before a take, and the beat it is on. Null the
+  /// rest of the time, which is what takes the scrim down.
+  TakeCountIn? _countingIn;
+  int _countInBeat = 0;
+
+  /// How long the count before the last take really took. All of it is on
+  /// the front of that take's recording, so [_alignedOffsetFor] takes it off
+  /// again. Zero for a take that was not counted in.
+  Duration _counted = Duration.zero;
+
+  /// The count's own player, made the first time somebody is counted in.
+  ///
+  /// Never the player the song is on. That one is sitting on the downbeat
+  /// with the mix loaded while the bar is counted, and a click played through
+  /// it would be the song's source replaced by four ticks.
+  ClickPlayer? _countClick;
+
+  /// Gets the song and the click ready for [countIn], and puts the bar on
+  /// screen.
+  ///
+  /// The song is loaded and left silent on the downbeat now, so that coming
+  /// in is a resume and nothing else. play() is source, seek, resume in that
+  /// order; this is the same three calls with the last one held back for a
+  /// bar, which is how Perform has come in since #363. Asking for all three
+  /// on the downbeat instead would bring the song in late by however long a
+  /// four-minute wav takes to open, after a count that had just promised
+  /// where it would be.
+  Future<void> _readyTheCount(TakeCountIn countIn) async {
+    try {
+      // Record can be pressed while the song is playing. A source set on a
+      // player that is playing starts as soon as it has loaded.
+      await _player.stop();
+    } catch (_) {
+      // Nothing was loaded. That is what was wanted.
+    }
+    final path = _lastMixPath;
+    if (path != null) {
+      await _player.setReleaseMode(ReleaseMode.release);
+      await _player.setSource(audioSourceFor(path));
+      if (_punchInAt > Duration.zero) await _player.seek(_punchInAt);
+    }
+    if (_countClick == null) {
+      // The same session the song's player is given in initState, for the
+      // same reason: this one sounds while the recorder is running.
+      final player = AudioPlayer();
+      await OverdubSession.applyTo(player);
+      _countClick = WavClickPlayer(player: player);
+    }
+    if (!mounted) return;
+    setState(() {
+      // The playhead and the button's label move to where the take will
+      // land, so the bar on screen is the bar being counted into.
+      _position = _punchInAt;
+      _playing = false;
+      _countingIn = countIn;
+      _countInBeat = 0;
+    });
+  }
+
+  /// Counts the bar and brings the song in on the downbeat. False when the
+  /// screen went away first.
+  Future<bool> _countInAndComeIn(TakeCountIn countIn) async {
+    final counted = await countInATake(
+      bar: countIn.bar,
+      // Made by _readyTheCount, which has always run by now: a count that
+      // could not be made ready threw before the recorder started.
+      click: _countClick!,
+      stillWanted: () => mounted,
+      onBeat: (beat) {
+        setState(() => _countInBeat = beat);
+        // Felt as well as seen and heard, the way Perform's is: the eyes are
+        // on the instrument in the bar before a take. Never allowed to fail
+        // a count, and nothing on a phone with no motor.
+        unawaited(HapticFeedback.selectionClick().catchError((Object _) {}));
+      },
+    );
+    if (counted == null) return false;
+    // Straight in, before anything is redrawn. What was measured ends here,
+    // and a rebuild between the measurement and the song would be time on
+    // the front of the take that nothing accounts for.
+    await _player.resume();
+    _counted = counted;
+    return true;
   }
 
   Future<void> _stop() async {
@@ -1365,19 +1487,17 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// chord still produces a number, and it is noise wearing the shape of an
   /// answer.
   int _alignedOffsetFor(Float64List samples) {
-    // The head start is known, not measured. A take that played along began
-    // recording before the music did, so that much of its front is the room
-    // before the song — and it is subtracted before anything is measured.
-    //
-    // This matters more than it sounds. alignToGrid searches at most half a
-    // beat, because a beat grid repeats and searching further lets a take
-    // snap a whole beat late and call itself aligned. At 120bpm half a beat
-    // is 250ms — less than the head start alone. Handing it the untrimmed
-    // take would put the true answer outside the only window it is allowed
-    // to look in.
-    final headStart = _backingWasPlaying ? _recorderHeadStartMs : 0;
-    final manual = headStart +
-        ((_layers ?? const <SharedLayer>[]).isEmpty ? 0 : _offsetMs);
+    // The head start is known, not measured by listening. A take that played
+    // along began recording before the music did -- by the recorder's head
+    // start, and by the bar that was counted if one was -- so that much of
+    // its front is the room before the song, and it comes off before anything
+    // is measured. trimForTake says why that matters, and is where the
+    // arithmetic went so that a test can reach it.
+    final headStart = takeHeadStartMs(
+      backingWasPlaying: _backingWasPlaying,
+      recorderMs: _recorderHeadStartMs,
+      counted: _counted,
+    );
     // The analysis's grid when there is one; the metronome's when there is
     // not. Recording against a click means the tempo is not inferred but
     // chosen, which is the one case automatic alignment could not answer
@@ -1392,36 +1512,30 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       );
     }
 
-    // Beats measured from where this take starts, not from the top of the
-    // song. A take punched in at 2:40 hears its first downbeat a few hundred
-    // milliseconds in, not two minutes and forty seconds in — handing the
-    // aligner the song's absolute grid would put every candidate shift far
-    // outside the half-beat window it is allowed to search, and it would
-    // decline to answer on a take it could have timed perfectly.
-    final punchedInAt = _punchInAt.inMilliseconds;
-    if (punchedInAt > 0 && beats.length > 1) {
-      beats = <int>[
-        for (final at in beats)
-          if (at >= punchedInAt) at - punchedInAt,
-      ];
-    }
-    if (beats.length < 2) return manual;
-
-    final skip = (headStart * Multitrack.rate / 1000).round();
-    if (skip >= samples.length) return manual;
-    final afterHeadStart =
-        skip == 0 ? samples : Float64List.sublistView(samples, skip);
-
-    final result = OnsetAlign.alignToGrid(
-      afterHeadStart,
-      beats,
-      rate: Multitrack.rate,
+    final trim = trimForTake(
+      samples,
+      headStartMs: headStart,
+      manualMs: (_layers ?? const <SharedLayer>[]).isEmpty ? 0 : _offsetMs,
+      beatsMs: beats,
+      punchedInAtMs: _punchInAt.inMilliseconds,
     );
-    if (result == null || !result.trustworthy) return manual;
+    if (!trim.measured) return trim.ms;
 
-    final total = headStart + result.shiftMs;
+    final total = trim.ms;
+    // A counted take says so, because the bar is most of the number.
+    //
+    // The trim of a take that played along used to be a few hundred
+    // milliseconds -- a phone's latency, which is what "trimmed" plainly
+    // means. A counted one is that plus the whole bar, so the same sentence
+    // would tell a musician their phone was two and a half seconds late.
+    // The number still matches the one the timing buttons work on, which is
+    // the point of naming the count rather than quietly subtracting it.
+    final countedIn = _backingWasPlaying && _counted > Duration.zero;
     _alignedNote = total > 0
-        ? 'Timed to the beat automatically — $total ms trimmed.'
+        ? countedIn
+            ? 'Counted you in and timed to the beat — $total ms trimmed, '
+                'the count included.'
+            : 'Timed to the beat automatically — $total ms trimmed.'
         : 'Timed to the beat automatically — nothing needed trimming.';
     return total;
   }
@@ -1523,7 +1637,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   }
 
   Future<void> _nudge(SharedLayer layer, int delta) async {
-    final next = (layer.offsetMs + delta).clamp(0, 1000);
+    // No ceiling of a second any more: see nudgedTrimMs. A take that was
+    // counted in has the bar in its trim.
+    final next = nudgedTrimMs(layer.offsetMs, delta);
     await _update(layer, <String, dynamic>{'offset_ms': next});
   }
 
@@ -1874,227 +1990,246 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: layers == null
-            ? Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    const CircularProgressIndicator(color: AppColors.gold),
-                    if (_status != null) ...<Widget>[
-                      const SizedBox(height: 14),
-                      Text(_status!,
-                          style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
-                    ],
-                  ],
-                ),
-              )
-            : console && _takes.isNotEmpty
-            // Sideways is the faders, and the notes underneath them.
-            //
-            // A teacher turns the phone to reach the faders while they listen
-            // to a student, and the notes have to come with them: pinning
-            // works sideways (the button is in the bottom bar, which does not
-            // rotate away) and until now nothing else did — no list, no way
-            // to hear a moment again, no way to take words back. There are no
-            // marks here because a fader strip has no time on it; the marks
-            // are on the lanes, which are the portrait view.
-            ? LayoutBuilder(
-                builder: (context, room) => Column(
-                  children: <Widget>[
-                    Expanded(
-                      child: LayerConsole(
-                        takes: _takes,
-                        silentIds: _silent,
-                        onToggle: (take) => _toggle(take.id),
-                        onGain: (take) {
-                          final layer = _layerFor(take);
-                          if (!_mine(take) || layer == null) return null;
-                          return (Take _, double value) =>
-                              unawaited(_setGain(layer, value));
-                        },
-                      ),
+      // A stack only so the bar being counted can sit over the takes. Loose,
+      // which is what a Scaffold hands its body anyway, so everything under
+      // the count is laid out exactly as it was without one.
+      body: Stack(
+        children: <Widget>[
+          SafeArea(
+            child: layers == null
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const CircularProgressIndicator(color: AppColors.gold),
+                        if (_status != null) ...<Widget>[
+                          const SizedBox(height: 14),
+                          Text(_status!,
+                              style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
+                        ],
+                      ],
                     ),
-                    // What went wrong has to be visible in the orientation
-                    // the buttons are offered in. The pin and say buttons
-                    // are in the bottom bar, which does not rotate away,
-                    // and until now this branch drew nothing when a note
-                    // failed to save: sideways, a teacher who held the
-                    // button and let go believed the note was left. That
-                    // is the silent failure 0152 exists to end.
-                    if (_error != null)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: _problemStrip(),
-                      ),
-                    if (_notes.isNotEmpty)
-                      ConstrainedBox(
-                        // A third of a landscape phone at most, so the desk
-                        // keeps the height it was rebuilt to fit in.
-                        constraints: BoxConstraints(
-                          maxHeight: math.min(132, room.maxHeight * 0.34),
-                        ),
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                          child: MomentNoteList(
-                            notes: _notes,
-                            focusedId: _noteLoop?.id,
-                            currentUserId: _me ?? '',
-                            labelFor: _takes.length > 1 ? _noteOnLabel : null,
-                            listeningTo: _hearing,
-                            onOpen: (note) => unawaited(_openNote(note)),
-                            onListen: (note) => unawaited(_listen(note)),
-                            onDelete: (note) => unawaited(_deleteNote(note)),
+                  )
+                : console && _takes.isNotEmpty
+                // Sideways is the faders, and the notes underneath them.
+                //
+                // A teacher turns the phone to reach the faders while they listen
+                // to a student, and the notes have to come with them: pinning
+                // works sideways (the button is in the bottom bar, which does not
+                // rotate away) and until now nothing else did — no list, no way
+                // to hear a moment again, no way to take words back. There are no
+                // marks here because a fader strip has no time on it; the marks
+                // are on the lanes, which are the portrait view.
+                ? LayoutBuilder(
+                    builder: (context, room) => Column(
+                      children: <Widget>[
+                        Expanded(
+                          child: LayerConsole(
+                            takes: _takes,
+                            silentIds: _silent,
+                            onToggle: (take) => _toggle(take.id),
+                            onGain: (take) {
+                              final layer = _layerFor(take);
+                              if (!_mine(take) || layer == null) return null;
+                              return (Take _, double value) =>
+                                  unawaited(_setGain(layer, value));
+                            },
                           ),
                         ),
-                      ),
-                  ],
-                ),
-              )
-            : RefreshIndicator(
-                onRefresh: _load,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
-                  children: <Widget>[
-                    if (!hasSomethingToHear) _EmptyState(),
-                    // What a browser cannot do, said before somebody presses
-                    // a fader and wonders why nothing moved.
-                    //
-                    // Mixing every take into one track, the click, punching in
-                    // and saving a copy all work by writing a WAV to disk and
-                    // playing or packing that. There is no disk here. Playing
-                    // one thing at a time does work, and that is worth having
-                    // -- it is how you hear what somebody sent you without
-                    // reaching for a phone.
-                    if (kIsWeb) ...<Widget>[
-                      Container(
-                        key: const Key('takes_web_note'),
-                        margin: const EdgeInsets.only(bottom: 14),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.cyan.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Text(
-                          'In a browser you can play the song and hear each '
-                          'take on its own. Mixing them together, the click, '
-                          'recording a new take and saving a copy need the '
-                          'app.',
-                          style: TextStyle(
-                              color: AppColors.cyan, fontSize: 12, height: 1.45),
-                        ),
-                      ),
-                    ],
-                    if (_referenceNote != null) ...<Widget>[
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 14),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.orange.withValues(alpha: 0.09),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(_referenceNote!,
+                        // What went wrong has to be visible in the orientation
+                        // the buttons are offered in. The pin and say buttons
+                        // are in the bottom bar, which does not rotate away,
+                        // and until now this branch drew nothing when a note
+                        // failed to save: sideways, a teacher who held the
+                        // button and let go believed the note was left. That
+                        // is the silent failure 0152 exists to end.
+                        if (_error != null)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: _problemStrip(),
+                          ),
+                        if (_notes.isNotEmpty)
+                          ConstrainedBox(
+                            // A third of a landscape phone at most, so the desk
+                            // keeps the height it was rebuilt to fit in.
+                            constraints: BoxConstraints(
+                              maxHeight: math.min(132, room.maxHeight * 0.34),
+                            ),
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                              child: MomentNoteList(
+                                notes: _notes,
+                                focusedId: _noteLoop?.id,
+                                currentUserId: _me ?? '',
+                                labelFor: _takes.length > 1 ? _noteOnLabel : null,
+                                listeningTo: _hearing,
+                                onOpen: (note) => unawaited(_openNote(note)),
+                                onListen: (note) => unawaited(_listen(note)),
+                                onDelete: (note) => unawaited(_deleteNote(note)),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
+                      children: <Widget>[
+                        if (!hasSomethingToHear) _EmptyState(),
+                        // What a browser cannot do, said before somebody presses
+                        // a fader and wonders why nothing moved.
+                        //
+                        // Mixing every take into one track, the click, punching in
+                        // and saving a copy all work by writing a WAV to disk and
+                        // playing or packing that. There is no disk here. Playing
+                        // one thing at a time does work, and that is worth having
+                        // -- it is how you hear what somebody sent you without
+                        // reaching for a phone.
+                        if (kIsWeb) ...<Widget>[
+                          Container(
+                            key: const Key('takes_web_note'),
+                            margin: const EdgeInsets.only(bottom: 14),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.cyan.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Text(
+                              'In a browser you can play the song and hear each '
+                              'take on its own. Mixing them together, the click, '
+                              'recording a new take and saving a copy need the '
+                              'app.',
+                              style: TextStyle(
+                                  color: AppColors.cyan, fontSize: 12, height: 1.45),
+                            ),
+                          ),
+                        ],
+                        if (_referenceNote != null) ...<Widget>[
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 14),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.orange.withValues(alpha: 0.09),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(_referenceNote!,
+                                style: const TextStyle(
+                                    color: AppColors.orange, fontSize: 12, height: 1.45)),
+                          ),
+                        ],
+                        // Said out loud, because silently moving somebody's
+                        // playing is worse than not moving it. If the timing is
+                        // wrong they need to know something adjusted it before
+                        // they go hunting for a fault in their own take.
+                        if (_alignedNote != null) ...<Widget>[
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 14),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.cyan.withValues(alpha: 0.09),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              children: <Widget>[
+                                const Icon(Icons.auto_fix_high_rounded,
+                                    size: 15, color: AppColors.cyan),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(_alignedNote!,
+                                      style: const TextStyle(
+                                          color: AppColors.cyan,
+                                          fontSize: 12,
+                                          height: 1.45)),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        if (_error != null) _problemStrip(),
+                        if (hasSomethingToHear) ...<Widget>[
+                          Text(
+                            hasLayers
+                                ? '${layers.length} take${layers.length == 1 ? '' : 's'}'
+                                // The recording is present and nobody has played
+                                // over it yet — said as an invitation rather than
+                                // as "0 takes", which reads like a failure.
+                                : 'The song, ready to play over',
                             style: const TextStyle(
-                                color: AppColors.orange, fontSize: 12, height: 1.45)),
-                      ),
-                    ],
-                    // Said out loud, because silently moving somebody's
-                    // playing is worse than not moving it. If the timing is
-                    // wrong they need to know something adjusted it before
-                    // they go hunting for a fault in their own take.
-                    if (_alignedNote != null) ...<Widget>[
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 14),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.cyan.withValues(alpha: 0.09),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          children: <Widget>[
-                            const Icon(Icons.auto_fix_high_rounded,
-                                size: 15, color: AppColors.cyan),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(_alignedNote!,
-                                  style: const TextStyle(
-                                      color: AppColors.cyan,
-                                      fontSize: 12,
-                                      height: 1.45)),
+                              color: AppColors.text,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Wear headphones when you add one, or the backing '
+                            'track goes down the microphone with you. '
+                            'Turn the phone sideways for the faders.',
+                            style: TextStyle(
+                                color: AppColors.muted, fontSize: 12, height: 1.45),
+                          ),
+                          // Your part forward, or everyone but you. Only on a
+                          // song with two takes or more, and not in a browser,
+                          // where there is no mix to apply it to.
+                          if (!kIsWeb) _myPartRow(),
+                          // Then and now, on a song where somebody has recorded
+                          // a part more than once. Not in a browser, for the
+                          // same reason: there is no mix to build it from.
+                          if (!kIsWeb) _thenAndNowRow(),
+                          const SizedBox(height: 14),
+                          _timeline(),
+                          if (_notes.isNotEmpty) ...<Widget>[
+                            const SizedBox(height: 16),
+                            MomentNoteList(
+                              notes: _notes,
+                              focusedId: _noteLoop?.id,
+                              currentUserId: _me ?? '',
+                              labelFor: _takes.length > 1 ? _noteOnLabel : null,
+                              listeningTo: _hearing,
+                              onOpen: (note) => unawaited(_openNote(note)),
+                              onListen: (note) => unawaited(_listen(note)),
+                              onDelete: (note) => unawaited(_deleteNote(note)),
                             ),
                           ],
-                        ),
-                      ),
-                    ],
-                    if (_error != null) _problemStrip(),
-                    if (hasSomethingToHear) ...<Widget>[
-                      Text(
-                        hasLayers
-                            ? '${layers.length} take${layers.length == 1 ? '' : 's'}'
-                            // The recording is present and nobody has played
-                            // over it yet — said as an invitation rather than
-                            // as "0 takes", which reads like a failure.
-                            : 'The song, ready to play over',
-                        style: const TextStyle(
-                          color: AppColors.text,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Wear headphones when you add one, or the backing '
-                        'track goes down the microphone with you. '
-                        'Turn the phone sideways for the faders.',
-                        style: TextStyle(
-                            color: AppColors.muted, fontSize: 12, height: 1.45),
-                      ),
-                      // Your part forward, or everyone but you. Only on a
-                      // song with two takes or more, and not in a browser,
-                      // where there is no mix to apply it to.
-                      if (!kIsWeb) _myPartRow(),
-                      // Then and now, on a song where somebody has recorded
-                      // a part more than once. Not in a browser, for the
-                      // same reason: there is no mix to build it from.
-                      if (!kIsWeb) _thenAndNowRow(),
-                      const SizedBox(height: 14),
-                      _timeline(),
-                      if (_notes.isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 16),
-                        MomentNoteList(
-                          notes: _notes,
-                          focusedId: _noteLoop?.id,
-                          currentUserId: _me ?? '',
-                          labelFor: _takes.length > 1 ? _noteOnLabel : null,
-                          listeningTo: _hearing,
-                          onOpen: (note) => unawaited(_openNote(note)),
-                          onListen: (note) => unawaited(_listen(note)),
-                          onDelete: (note) => unawaited(_deleteNote(note)),
-                        ),
+                          const SizedBox(height: 16),
+                          _MetronomeNote(
+                            on: _clickOn,
+                            bpm: _tempo,
+                            fromAnalysis: _reference?.bpm != null && _clickBpm == null,
+                            onToggle: (value) {
+                              setState(() => _clickOn = value);
+                              unawaited(_applyMixChange());
+                            },
+                            onTempo: (value) {
+                              setState(() => _clickBpm = value);
+                              unawaited(_applyMixChange());
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          _LatencyNote(
+                            offsetMs: _offsetMs,
+                            onChanged: (value) => setState(() => _offsetMs = value),
+                          ),
+                        ],
                       ],
-                      const SizedBox(height: 16),
-                      _MetronomeNote(
-                        on: _clickOn,
-                        bpm: _tempo,
-                        fromAnalysis: _reference?.bpm != null && _clickBpm == null,
-                        onToggle: (value) {
-                          setState(() => _clickOn = value);
-                          unawaited(_applyMixChange());
-                        },
-                        onTempo: (value) {
-                          setState(() => _clickBpm = value);
-                          unawaited(_applyMixChange());
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      _LatencyNote(
-                        offsetMs: _offsetMs,
-                        onChanged: (value) => setState(() => _offsetMs = value),
-                      ),
-                    ],
-                  ],
-                ),
+                    ),
+                  ),
+          ),
+          // On [_countingIn], not on the beat: the bar goes up the moment the
+          // button is pressed, and the first beat waits on the recorder's
+          // head start and the click. A screen that looked untouched for that
+          // half second would be pressed again.
+          if (_countingIn != null)
+            Positioned.fill(
+              child: TakeCountInScrim(
+                key: const Key('take_count_in'),
+                beats: _countingIn!.bar.beats,
+                beat: _countInBeat,
               ),
+            ),
+        ],
       ),
       bottomNavigationBar: SafeArea(
         top: false,

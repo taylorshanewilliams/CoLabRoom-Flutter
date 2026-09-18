@@ -163,11 +163,27 @@ class Multitrack {
   /// reference averaged into a straight line while a short take did not.
   /// Floored so a two-second stab still has a shape, capped so a ten-minute
   /// jam does not draw thousands of bars nobody can see.
+  ///
+  /// The shape of what is heard, so the trim comes off first. That was a few
+  /// hundred milliseconds nobody could see until takes were counted in (Every
+  /// Musician, Same Song, 17 September 2026); now the front of one is a whole
+  /// bar of clicks through the microphone, which the mix throws away and the
+  /// lane would otherwise draw as the first thing somebody played.
   static Future<List<double>> envelopeFor(Take take, {int? buckets}) async {
-    final samples = await samplesFor(take);
+    final samples = afterTrim(await samplesFor(take), take.offsetMs);
     final wanted =
         buckets ?? (samples.length / rate * 4).round().clamp(48, 260);
     return envelope(samples, buckets: wanted);
+  }
+
+  /// What is left of a recording once [offsetMs] has come off the front of
+  /// it, which is the part [mix] uses. Nothing at all when the trim is longer
+  /// than the recording: the mix hears nothing of such a take either.
+  static Float64List afterTrim(Float64List samples, int offsetMs) {
+    final trim = math.max(0, (offsetMs * rate / 1000).round());
+    if (trim == 0) return samples;
+    if (trim >= samples.length) return Float64List(0);
+    return Float64List.sublistView(samples, trim);
   }
 
   /// A click track, as samples.
