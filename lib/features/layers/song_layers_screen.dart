@@ -1461,6 +1461,13 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     if (choice == null || !mounted) return;
 
     setState(() => _busy = true);
+    // The key the band says the song is in, in front of the one the analysis
+    // heard, the same as the song sheet reads it (0144). Read before anything
+    // is awaited, while the rooms and this context are certainly still here.
+    final musicalKey = BetaScope.maybeOf(context, listen: false)
+            ?.projectById(widget.projectId)
+            ?.songKey(_reference?.musicalKey) ??
+        _reference?.musicalKey;
     try {
       final root = await getApplicationDocumentsDirectory();
       final stamp = DateTime.now().millisecondsSinceEpoch;
@@ -1477,7 +1484,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
               // somebody dialled in to play against; what a DAW needs is what
               // the recording actually runs at.
               bpm: _reference?.bpm,
-              musicalKey: _reference?.musicalKey,
+              musicalKey: musicalKey,
               sections: _reference?.structureSections ??
                   const <StructureSection>[],
               downbeatsMs: _reference?.downbeatsMs ?? const <int>[],

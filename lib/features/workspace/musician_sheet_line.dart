@@ -3,6 +3,7 @@ import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/practice_rules.dart';
+import 'package:colabroom/services/number_reading.dart';
 import 'package:flutter/material.dart';
 
 typedef MusicianChordTap = void Function(
@@ -53,6 +54,8 @@ class MusicianChordLyricLine extends StatelessWidget {
   const MusicianChordLyricLine({
     required this.line,
     required this.transpose,
+    this.capo = 0,
+    this.numbers = NumberReading.letters,
     this.musicalKey,
     required this.fontScale,
     required this.showChords,
@@ -68,7 +71,22 @@ class MusicianChordLyricLine extends StatelessWidget {
   });
 
   final MusicianSheetLine line;
+
+  /// How far this person has moved the song, instrument's part included.
+  /// What the *voice* reads: the note names under the words are this, and
+  /// the chords are this less [capo].
   final int transpose;
+
+  /// Which fret the capo is on, which moves the chords under the hand and
+  /// leaves the singing where it was. A guitarist who capos up four does not
+  /// sing four semitones lower, so the notes under the words must not move
+  /// with the shapes (Every Musician, Same Song, 17 September 2026).
+  final int capo;
+
+  /// Whether the chords are drawn as letters, Nashville numbers or Roman
+  /// numerals. Numbers are counted from [musicalKey] and do not move with
+  /// [transpose] at all -- see [chordAsRead].
+  final NumberReading numbers;
 
   /// The song's key before transposing, so chords are spelled the way the
   /// key writes them (B♭, not A♯). Null when none was found.
@@ -156,7 +174,8 @@ class MusicianChordLyricLine extends StatelessWidget {
               line: line,
               chord: placements[index],
               wordIndex: index,
-              transpose: transpose,
+              transpose: transpose - capo,
+              numbers: numbers,
               musicalKey: musicalKey,
               fontScale: fontScale,
               showChords: showChords,
@@ -231,6 +250,7 @@ class _ChordWord extends StatelessWidget {
     required this.chord,
     required this.wordIndex,
     required this.transpose,
+    this.numbers = NumberReading.letters,
     this.musicalKey,
     required this.fontScale,
     required this.showChords,
@@ -250,7 +270,11 @@ class _ChordWord extends StatelessWidget {
   final MusicianSheetLine line;
   final ChordCue? chord;
   final int wordIndex;
+
+  /// What the chords are written in: the person's key, their instrument's
+  /// part and their capo, already added up by the line.
   final int transpose;
+  final NumberReading numbers;
   final String? musicalKey;
   final double fontScale;
   final bool showChords;
@@ -285,8 +309,21 @@ class _ChordWord extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Written the way it goes on paper (ChordMini stores Harte, so without
-    // this the sheet reads "C:maj"), in the key being played.
+    // this the sheet reads "C:maj"), in the key being played -- or as the
+    // number it is of the song's key, for somebody reading it that way.
     final chordText = chord == null
+        ? ''
+        : chordAsRead(
+            chord!.chord,
+            transpose: transpose,
+            key: musicalKey,
+            numbers: numbers,
+          );
+    // The same chord in letters, for the reference sheet a tap opens. A
+    // number has no shape and no notes in it, so asking "what is a 4" would
+    // open an empty sheet -- the question is always about the chord the
+    // number stands for.
+    final chordInLetters = chord == null
         ? ''
         : chordAsPlayed(chord!.chord, transpose: transpose, key: musicalKey);
     final chordWidget = chord == null
@@ -305,7 +342,7 @@ class _ChordWord extends StatelessWidget {
                 ? _activate
                 : liveMode
                     ? null
-                    : () => showChordReference(context, chordText),
+                    : () => showChordReference(context, chordInLetters),
             borderRadius: BorderRadius.circular(5),
             // A chord that answers when tapped is worth nothing if nobody
             // taps it. On paper a chord is just ink, so it needs to look

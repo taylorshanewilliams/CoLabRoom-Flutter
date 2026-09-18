@@ -519,6 +519,198 @@ List<(String, String)> _bassMovesFor(int rootPitch, _Quality quality, bool flats
   ];
 }
 
+/// Where a degree sits, as (the number, the accidental in front of it).
+///
+/// The seven naturals are the major scale, and the five in between are named
+/// the way a chart names them: ♭3 and ♭7 rather than ♯2 and ♯6, because those
+/// are the borrowed chords people actually write, and ♯4 rather than ♭5
+/// because the tritone chord on a chart is the one going up to the 5.
+const List<(String, String)> _degreeNumbers = <(String, String)>[
+  ('1', ''),
+  ('2', '♭'),
+  ('2', ''),
+  ('3', '♭'),
+  ('3', ''),
+  ('4', ''),
+  ('4', '♯'),
+  ('5', ''),
+  ('6', '♭'),
+  ('6', ''),
+  ('7', '♭'),
+  ('7', ''),
+];
+
+/// The same twelve counted against the natural minor scale, which is how a
+/// harmony class numbers a minor key and how the key sheet's own chips
+/// already do (i ii° III iv v VI VII): the chords of the key carry no
+/// accidental, and only what comes from outside it does. The raised 6 and 7
+/// of the melodic and harmonic forms are ♯6 and ♯7 — except the leading-tone
+/// chord, which every harmony textbook writes as a plain vii° (see
+/// [_degreeText]).
+const List<(String, String)> _minorDegreeNumbers = <(String, String)>[
+  ('1', ''),
+  ('2', '♭'),
+  ('2', ''),
+  ('3', ''),
+  ('3', '♯'),
+  ('4', ''),
+  ('4', '♯'),
+  ('5', ''),
+  ('6', ''),
+  ('6', '♯'),
+  ('7', ''),
+  ('7', '♯'),
+];
+
+/// Diminished qualities, which is what makes a chord on the raised 7 of a
+/// minor key the leading-tone chord rather than something borrowed.
+const Set<String> _diminishedQualityIds = <String>{'dim', 'dim7', 'hdim7'};
+
+const Map<String, String> _romanNumerals = <String, String>{
+  '1': 'I', '2': 'II', '3': 'III', '4': 'IV', '5': 'V', '6': 'VI', '7': 'VII',
+};
+
+/// A quality written after a number, Nashville style: minor is a dash, which
+/// is how it is written on a chart because an "m" beside a number reads as a
+/// word. Everything else keeps the glyphs [chordDisplay] and the reference
+/// sheets already use, so one chord is spelled one way everywhere.
+const Map<String, String> _nashvilleSuffixes = <String, String>{
+  'maj': '', 'min': '-', 'dim': '°', 'aug': '+',
+  '7': '7', 'maj7': 'maj7', 'min7': '-7', 'dim7': '°7', 'hdim7': '-7♭5',
+  'maj6': '6', 'min6': '-6', 'sus2': 'sus2', 'sus4': 'sus4', 'add9': 'add9',
+  '9': '9', 'min9': '-9', 'maj9': 'maj9', '11': '11', '13': '13',
+};
+
+/// The same qualities after a Roman numeral, where minor is already said by
+/// the lower case — ii, not ii-. Half-diminished keeps its ø, which is the
+/// symbol that notation uses and the one a theory reader expects.
+const Map<String, String> _romanSuffixes = <String, String>{
+  'maj': '', 'min': '', 'dim': '°', 'aug': '+',
+  '7': '7', 'maj7': 'maj7', 'min7': '7', 'dim7': '°7', 'hdim7': 'ø7',
+  'maj6': '6', 'min6': '6', 'sus2': 'sus2', 'sus4': 'sus4', 'add9': 'add9',
+  '9': '9', 'min9': '9', 'maj9': 'maj9', '11': '11', '13': '13',
+};
+
+/// Qualities whose numeral is written in lower case: the ones with a minor
+/// third in them. A quality this does not know is drawn upper case, which is
+/// the plainer of the two guesses.
+const Set<String> _minorQualityIds = <String>{
+  'min', 'min7', 'min6', 'min9', 'dim', 'dim7', 'hdim7',
+};
+
+/// A chord written as its degree of [key]: `1`, `4`, `5`, `2-`, `5/7`, `4/1`
+/// in Nashville numbers, or `I`, `IV`, `V`, `ii` in Roman numerals.
+///
+/// [written] is a chord as a musician writes it — `G`, `Am7`, `G/B` — so
+/// Harte labels from the analysis go through [chordDisplay] first, which is
+/// also what resolves their degree bass to a note.
+///
+/// Numbers are the reason Nashville charts survive a singer changing key: the
+/// band drops the song a tone and the chart does not change a mark (Every
+/// Musician, Same Song, 17 September 2026). So this deliberately takes the
+/// song's own key and the chord as stored, and there is nowhere in it for a
+/// transpose to get in.
+///
+/// [fromMinorTonic] picks the Nashville convention for a minor key — see
+/// MinorNumbers. It is a Nashville question only: Roman numerals count a
+/// minor key from its own tonic against its own scale, so A minor's Am F C G
+/// is i VI III VII, which is what a theory class writes and what the key
+/// sheet's chips already say (review, 17 September 2026).
+///
+/// Returns null when [written] or [key] is not something this can read, which
+/// is a caller's cue to fall back to letters rather than print a guess.
+String? chordAsDegree(
+  String written,
+  String key, {
+  bool roman = false,
+  bool fromMinorTonic = false,
+}) {
+  final keyMatch = RegExp(r'^([A-G][#b]?)\s*(.*)$').firstMatch(key.trim());
+  if (keyMatch == null) return null;
+  final tonicPitch = _pitchValues[keyMatch.group(1)!];
+  if (tonicPitch == null) return null;
+  final rest = keyMatch.group(2)!.toLowerCase();
+  final minor =
+      rest.startsWith('min') || rest == 'm' || rest.startsWith('aeolian');
+  // A minor song counted from its relative major is counted from three
+  // semitones up: A minor against C, so the home chord is the 6. Only in
+  // Nashville numbers, which is the only system that has the choice.
+  final relative = minor && !roman && !fromMinorTonic;
+  final counted = relative ? tonicPitch + 3 : tonicPitch;
+  // Roman numerals in a minor key are counted against the minor scale, so
+  // the key's own III, VI and VII carry no flat.
+  final minorScale = minor && roman;
+
+  final raw = written.trim();
+  if (raw.isEmpty || raw == 'N' || raw == 'X') return null;
+  final match = RegExp(r'^([A-G][#b]?)(.*)$').firstMatch(raw);
+  if (match == null) return null;
+  final rootPitch = _pitchValues[match.group(1)!];
+  if (rootPitch == null) return null;
+
+  var suffix = match.group(2)!;
+  String? bass;
+  final slash = suffix.lastIndexOf('/');
+  if (slash >= 0) {
+    bass = suffix.substring(slash + 1).trim();
+    suffix = suffix.substring(0, slash);
+  }
+
+  final qualityId = _writtenSuffixes[suffix];
+  final head = _degreeText(
+    rootPitch - counted,
+    roman: roman,
+    minorScale: minorScale,
+    qualityId: qualityId,
+  );
+  // A quality nobody has a spelling for is carried through as the person
+  // wrote it. Dropping it would print a different chord, and guessing at it
+  // is the thing chordReference already refuses to do.
+  final tail = qualityId == null
+      ? suffix
+      : (roman ? _romanSuffixes : _nashvilleSuffixes)[qualityId] ?? suffix;
+
+  final bassPitch = bass == null || bass.isEmpty ? null : _pitchValues[bass];
+  // The bass is a plain number in both readings, never a second numeral: the
+  // bass of a slash chord is a note of the key, not a chord of its own, and
+  // "5/7" is how a chart writes a V with the leading tone under it. It is
+  // counted against the same scale as the chord above it, so a minor song
+  // in Roman numerals does not number its bass against a major one.
+  final under = bassPitch == null
+      ? (bass == null || bass.isEmpty ? '' : '/$bass')
+      : '/${_degreeText(bassPitch - counted, roman: false, minorScale: minorScale)}';
+
+  return '$head$tail$under';
+}
+
+/// One degree, as a number or a numeral with its accidental in front.
+///
+/// [minorScale] counts against the natural minor scale rather than the major
+/// one — see [_minorDegreeNumbers].
+String _degreeText(
+  int fromTonic, {
+  required bool roman,
+  bool minorScale = false,
+  String? qualityId,
+}) {
+  final step = (fromTonic % 12 + 12) % 12;
+  final (number, marked) =
+      (minorScale ? _minorDegreeNumbers : _degreeNumbers)[step];
+  // The leading-tone chord of a minor key is written vii°, not ♯vii°: the
+  // harmonic minor's raised 7 is assumed the way every textbook assumes it.
+  // Anything else on that note keeps its sharp, so it cannot be misread as
+  // the key's own VII a semitone below.
+  final leadingTone = minorScale &&
+      step == 11 &&
+      qualityId != null &&
+      _diminishedQualityIds.contains(qualityId);
+  final accidental = leadingTone ? '' : marked;
+  if (!roman) return '$accidental$number';
+  final numeral = _romanNumerals[number]!;
+  final lower = qualityId != null && _minorQualityIds.contains(qualityId);
+  return '$accidental${lower ? numeral.toLowerCase() : numeral}';
+}
+
 class KeyReference {
   const KeyReference({
     required this.display,

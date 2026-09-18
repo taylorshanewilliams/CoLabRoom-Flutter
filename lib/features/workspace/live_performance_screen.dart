@@ -18,6 +18,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../services/horn_reading.dart';
 import '../../services/music_reference.dart' show noteInKey;
+import '../../services/number_reading.dart';
 import '../../services/pitch.dart';
 import '../../services/pitch_listener.dart';
 import '../../services/play_along.dart';
@@ -193,6 +194,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// same song and read two different pages (Every Musician, Same Song, 17
   /// September 2026).
   HornReading _reading = HornReading.concert;
+
+  /// Which fret the capo is on and whether the chords read as numbers, both
+  /// as this person left them on the sheet. Personal like the transpose, and
+  /// read back here so a guitarist who set the song up before rehearsal still
+  /// has it on stage (Every Musician, Same Song, 17 September 2026).
+  int _capo = 0;
+  NumberReading _numbers = NumberReading.letters;
   double _fontScale = 1;
   Duration _songDuration = const Duration(minutes: 3, seconds: 30);
   Duration _elapsed = Duration.zero;
@@ -413,6 +421,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     unawaited(_loadCountdownPrefs());
     unawaited(_loadTranspose());
     unawaited(_loadReading());
+    unawaited(_loadCapo());
+    unawaited(_loadNumbers());
 
     final together = widget.together;
     if (together != null) {
@@ -725,6 +735,26 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final kept = await SongReadingStore.load(widget.project.id);
     if (!mounted || kept == _reading) return;
     setState(() => _reading = kept);
+    _markOffsetsDirty();
+  }
+
+  /// The capo and the number reading, chosen on the song sheet's key badge
+  /// and read back here for the same reason the instrument's part is.
+  Future<void> _loadCapo() async {
+    final kept = await SongCapoStore.load(widget.project.id);
+    if (!mounted || kept == _capo) return;
+    setState(() => _capo = kept);
+    _markOffsetsDirty();
+  }
+
+  Future<void> _loadNumbers() async {
+    final style = await SongNumbersStore.load(widget.project.id);
+    final minor = await MinorNumbersStore.load();
+    final kept = NumberReading(style: style, minor: minor);
+    if (!mounted || kept == _numbers) return;
+    setState(() => _numbers = kept);
+    // A chord name changes width when it becomes a number, which can move
+    // where a line wraps and so where the synced scroll thinks it is.
     _markOffsetsDirty();
   }
 
@@ -1657,7 +1687,16 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final lyricSize = baseSize * _fontScale;
     final sidePadding = landscape ? media.size.width * 0.12 : 24.0;
     final lines = _lines;
-    final songKey = widget.analysis?.reference?.musicalKey?.trim();
+    // What the band said the song is in, or failing that what the analysis
+    // found. The override stands in front of the detected key everywhere the
+    // key is read, here included, and it survives re-analysis because it
+    // lives on the song rather than on the recording (0144).
+    final songKey = widget.project.songKey(
+      widget.analysis?.reference?.musicalKey,
+    );
+    // A capo is a guitar answer about the key the band is in, so it is only
+    // ever in play in concert pitch -- see the capo rows in the key sheet.
+    final capo = _reading == HornReading.concert ? _capo : 0;
     // The typed words have no chords over them, so no key to be in either.
     // Nor does a sheet with its chords turned off: somebody reading only the
     // words has said they do not want the harmony, and a key over bare
@@ -1677,11 +1716,18 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         // A horn reading names both keys, because the written key is what
         // this player reads and the concert key is what they have to say to
         // everybody else before the count-in.
-        : _reading == HornReading.concert
-            ? 'Key of ${keyAsPlayed(songKey, _transpose)}'
-            : keyAsRead(songKey, transpose: _transpose, reading: _reading);
+        : _reading != HornReading.concert
+            ? keyAsRead(songKey, transpose: _transpose, reading: _reading)
+            : capo > 0
+                // Both keys, the shapes because they are what is under the
+                // hand and the sounding key because that is what the singer
+                // and everybody else are in.
+                ? capoLine(songKey, capo: capo, transpose: _transpose)
+                : 'Key of ${keyAsPlayed(songKey, _transpose)}';
     // The person's key with their instrument's transposition on top, which
-    // is what every chord and every note name under a word is written in.
+    // is what every note name under a word is written in. The chords come
+    // down by the capo on top of that; the notes do not, because a capo
+    // moves the hand and not the voice.
     final readTranspose = _transpose + _reading.semitones;
     // The key the chords and the note names are spelled by: the song's own
     // key before the move, which is what chordAsPlayed and noteAsPlayed both
@@ -1775,6 +1821,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                             compact: landscape,
                             showChords: _showChords,
                             transpose: readTranspose,
+                            capo: capo,
+                            numbers: _numbers,
                             musicalKey: spellingKey,
                             active: _mode == LiveScrollMode.synced &&
                                 _lineKey(i) == _activeLineKey,
@@ -1932,6 +1980,8 @@ class _PerformanceLine extends StatelessWidget {
     required this.compact,
     required this.showChords,
     required this.transpose,
+    this.capo = 0,
+    this.numbers = NumberReading.letters,
     this.active = false,
     this.elapsedMs,
     this.melody,
@@ -1945,6 +1995,13 @@ class _PerformanceLine extends StatelessWidget {
 
   /// Semitones this person has moved the song on this device.
   final int transpose;
+
+  /// Which fret the capo is on. The chords come down by it and the notes
+  /// under the words do not -- see MusicianChordLyricLine.capo.
+  final int capo;
+
+  /// Letters, numbers or numerals. See MusicianChordLyricLine.numbers.
+  final NumberReading numbers;
 
   final MusicianSheetLine line;
   final Color dotColor;
@@ -2032,6 +2089,8 @@ class _PerformanceLine extends StatelessWidget {
             child: MusicianChordLyricLine(
               line: line,
               transpose: transpose,
+              capo: capo,
+              numbers: numbers,
               musicalKey: musicalKey,
               fontScale: fontSize / 13.0,
               showChords: showChords,

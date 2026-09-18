@@ -172,7 +172,7 @@ class SupabaseMusicRepository implements MusicRepository {
         .select(
           'id, account_id, name, icon, created_at, updated_at, sort_order, logo_path, '
           'room_members(user_id, display_name, role, color_value, profiles(avatar_path)), '
-          'projects(id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, '
+          'projects(id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, '
           'project_audio_references(project_id, analysis_state), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at)))',
@@ -893,7 +893,7 @@ class SupabaseMusicRepository implements MusicRepository {
     final row = await client
         .from('projects')
         .select(
-          'id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, '
+          'id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, '
           'project_audio_references(project_id, analysis_state), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at))',
@@ -1475,6 +1475,19 @@ class SupabaseMusicRepository implements MusicRepository {
       params: <String, dynamic>{
         'target_project': projectId,
         'in_origin': origin.wireName,
+      },
+    );
+  }
+
+  @override
+  Future<void> setSongKey(String projectId, String? key) async {
+    final said = key?.trim();
+    await client.rpc<dynamic>(
+      'set_song_key',
+      params: <String, dynamic>{
+        'target_project': projectId,
+        // Null clears it, which is how "Use the detected key" is spelled.
+        'in_key': said == null || said.isEmpty ? null : said,
       },
     );
   }
@@ -2953,6 +2966,7 @@ class SupabaseMusicRepository implements MusicRepository {
       // throwing: 0142's check constraint can gain a value in a migration
       // that ships before the app that knows about it.
       songOrigin: SongOrigin.fromWireName(row['song_origin'] as String?),
+      keyOverride: row['key_override'] as String?,
     );
   }
 
@@ -3042,6 +3056,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'contributions': project.contributions.map(_contributionJson).toList(growable: false),
         'cover_image_path': project.coverImagePath,
         'song_origin': project.songOrigin?.wireName,
+        'key_override': project.keyOverride,
         'project_audio_references': project.hasAudioReference
             ? <String, dynamic>{'analysis_state': project.analysisState?.name}
             : null,

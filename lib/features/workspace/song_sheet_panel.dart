@@ -14,6 +14,7 @@ import 'package:colabroom/features/workspace/song_reading_store.dart';
 import 'package:colabroom/features/workspace/song_transpose_store.dart';
 import 'package:colabroom/services/chord_chart.dart';
 import 'package:colabroom/services/horn_reading.dart';
+import 'package:colabroom/services/number_reading.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:colabroom/services/user_facing_error.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -31,6 +32,7 @@ class SongSheetPanel extends StatefulWidget {
     required this.onReviewLyrics,
     required this.onOpenLive,
     this.onAnalysisChanged,
+    this.onSetKey,
     super.key,
   });
 
@@ -39,6 +41,17 @@ class SongSheetPanel extends StatefulWidget {
   final VoidCallback? onReviewLyrics;
   final VoidCallback? onOpenLive;
   final ValueChanged<SongAnalysisBundle>? onAnalysisChanged;
+
+  /// Says what key the band is really in, or hands the song back to the
+  /// detected key with a null.
+  ///
+  /// Null on a panel with nowhere to write it, and for somebody the room only
+  /// lets look, which leaves the key sheet a reference. The write lives with
+  /// the caller because it goes through the repository and has to refresh
+  /// the song afterwards, and so does the question of who may make it; a
+  /// refusal is thrown back here and said on the key sheet, where the person
+  /// tapped.
+  final Future<void> Function(String? key)? onSetKey;
 
   @override
   State<SongSheetPanel> createState() => _SongSheetPanelState();
@@ -62,6 +75,16 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   /// SongReadingStore). It stacks on [_transpose].
   HornReading _reading = HornReading.concert;
   bool _readingTouched = false;
+
+  /// Which fret this person has the capo on, kept on this device (see
+  /// SongCapoStore). It moves the chords and not the singing.
+  int _capo = 0;
+  bool _capoTouched = false;
+
+  /// Letters, numbers or numerals, and which note a minor song is counted
+  /// from (see SongNumbersStore and MinorNumbersStore).
+  NumberReading _numbers = NumberReading.letters;
+  bool _numbersTouched = false;
   double _fontScale = 1;
   bool _showChords = true;
   bool _editingChords = false;
@@ -105,6 +128,8 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     _bundle = widget.bundle;
     unawaited(_loadTranspose());
     unawaited(_loadReading());
+    unawaited(_loadCapo());
+    unawaited(_loadNumbers());
   }
 
   @override
@@ -120,8 +145,14 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       _transposeTouched = false;
       _reading = HornReading.concert;
       _readingTouched = false;
+      _capo = 0;
+      _capoTouched = false;
+      _numbers = NumberReading.letters;
+      _numbersTouched = false;
       unawaited(_loadTranspose());
       unawaited(_loadReading());
+      unawaited(_loadCapo());
+      unawaited(_loadNumbers());
     }
   }
 
@@ -139,6 +170,22 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     if (kept != _reading) setState(() => _reading = kept);
   }
 
+  Future<void> _loadCapo() async {
+    final projectId = widget.project.id;
+    final kept = await SongCapoStore.load(projectId);
+    if (!mounted || _capoTouched || widget.project.id != projectId) return;
+    if (kept != _capo) setState(() => _capo = kept);
+  }
+
+  Future<void> _loadNumbers() async {
+    final projectId = widget.project.id;
+    final style = await SongNumbersStore.load(projectId);
+    final minor = await MinorNumbersStore.load();
+    if (!mounted || _numbersTouched || widget.project.id != projectId) return;
+    final kept = NumberReading(style: style, minor: minor);
+    if (kept != _numbers) setState(() => _numbers = kept);
+  }
+
   void _chooseReading(HornReading reading) {
     setState(() {
       _readingTouched = true;
@@ -147,12 +194,62 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     unawaited(SongReadingStore.save(widget.project.id, reading));
   }
 
-  /// The song's own key, or null when the analysis never found one.
-  String? get _songKey {
-    final key = _bundle.reference?.musicalKey;
-    if (key == null || key.trim().isEmpty) return null;
-    return key;
+  void _chooseCapo(int capo) {
+    setState(() {
+      _capoTouched = true;
+      _capo = capo;
+    });
+    unawaited(SongCapoStore.save(widget.project.id, capo));
   }
+
+  void _chooseNumbers(NumberReading numbers) {
+    setState(() {
+      _numbersTouched = true;
+      _numbers = numbers;
+    });
+    unawaited(SongNumbersStore.save(widget.project.id, numbers.style));
+    // The convention is not per song -- somebody who reads 6- reads 6-
+    // everywhere -- so it is saved once and read back on every song.
+    unawaited(MinorNumbersStore.save(numbers.minor));
+  }
+
+  /// Where the 1 is, said to the room.
+  ///
+  /// The only thing on this panel that is not personal, so it is the only one
+  /// that can be refused: somebody who can only look cannot move everybody
+  /// else's numbers. A refusal is a sentence, not a silence — and it is
+  /// handed back to the key sheet to say, because that is where the person
+  /// tapped and a snackbar here would sit underneath it (review, 17
+  /// September 2026).
+  Future<String?> _sayTheKey(String? key) async {
+    final write = widget.onSetKey;
+    if (write == null) return null;
+    try {
+      await write(key);
+      return null;
+    } catch (error) {
+      return reportAndDescribe(
+        error,
+        service: 'app',
+        stage: 'set_song_key',
+        route: 'Song sheet',
+        projectId: widget.project.id,
+      );
+    }
+  }
+
+  /// The song's own key: what the band said it is in, or failing that what
+  /// the analysis found, or null when neither exists.
+  ///
+  /// Everything on this page reads the key through here, so the sheet, the
+  /// chart, the badge and both exports cannot end up half in one key and
+  /// half in the other (Every Musician, Same Song, 17 September 2026).
+  String? get _songKey =>
+      widget.project.songKey(_bundle.reference?.musicalKey);
+
+  /// Whether the key above is the band's answer rather than the analysis's.
+  bool get _keyOverridden =>
+      (widget.project.keyOverride ?? '').trim().isNotEmpty;
 
   /// The second way into the Read as choice.
   ///
@@ -169,6 +266,13 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       keyLabel: key == null ? null : keyAsPlayed(key, _shownTranspose),
       reading: _shownReading,
       onReading: _chooseReading,
+      numbers: _shownNumbers,
+      onNumbers: _chooseNumbers,
+      capo: _shownCapo,
+      onCapo: _chooseCapo,
+      songKey: key,
+      overridden: _keyOverridden,
+      onKey: widget.onSetKey == null ? null : _sayTheKey,
     ));
   }
 
@@ -198,6 +302,15 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   /// not against what a trumpet would call it.
   HornReading get _shownReading =>
       _editingChords ? HornReading.concert : _reading;
+
+  /// The capo and the number reading, set aside while chords are being
+  /// corrected for the same reason: a chord typed into the editor is saved as
+  /// written, and it has to be read against what is stored rather than
+  /// against a shape four frets down or a number.
+  int get _shownCapo => _editingChords ? 0 : _capo;
+
+  NumberReading get _shownNumbers =>
+      _editingChords ? NumberReading.letters : _numbers;
 
   void _toggleChordEditing() {
     setState(() {
@@ -261,7 +374,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
         project: widget.project,
         lines: _linesToExport(),
         transpose: _shownTranspose,
-        musicalKey: _bundle.reference?.musicalKey,
+        musicalKey: _songKey,
         bpm: _bundle.reference?.bpm,
       );
     } catch (error) {
@@ -275,7 +388,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
         project: widget.project,
         lines: _linesToExport(),
         transpose: _shownTranspose,
-        musicalKey: _bundle.reference?.musicalKey,
+        musicalKey: _songKey,
         bpm: _bundle.reference?.bpm,
       );
     } catch (error) {
@@ -531,6 +644,10 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     final transpose = _shownTranspose;
     final sheetLines = _sheetLines();
     final reading = _shownReading;
+    final numbers = _shownNumbers;
+    // A capo is a guitar answer about the key the band is in, so it is only
+    // ever in play in concert pitch -- see the capo rows in the key sheet.
+    final capo = reading == HornReading.concert ? _shownCapo : 0;
     final baseLabel = transpose == 0
         ? 'Original key'
         : transpose > 0
@@ -544,11 +661,16 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     // badge that usually says it is not there. On the sheet the badge says
     // both already, so this only names the part.
     final songKey = _songKey;
-    final readingLine = reading == HornReading.concert
-        ? null
-        : _view == SongSheetView.chart && songKey != null
+    final readingLine = reading != HornReading.concert
+        ? _view == SongSheetView.chart && songKey != null
             ? keyAsRead(songKey, transpose: transpose, reading: reading)
-            : 'For ${reading.label}';
+            : 'For ${reading.label}'
+        // The capo needs saying on the chart for the same reason: the chords
+        // in the bars came down four frets and the chart has no badge to say
+        // so. On the sheet the badge already says it.
+        : capo > 0 && _view == SongSheetView.chart && songKey != null
+            ? capoLine(songKey, capo: capo, transpose: transpose)
+            : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -786,12 +908,15 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
           ChordChartView(
             rows: _chart,
             // The chart is the same chords, so it reads the same way: the
-            // person's key with their instrument's transposition on top.
-            transpose: transpose + reading.semitones,
+            // person's key, their instrument's transposition on top, and
+            // their capo taken back off again. No words on a chart, so
+            // nothing here is sung and the capo needs no exception.
+            transpose: transpose + reading.semitones - capo,
+            numbers: numbers,
             fontScale: _fontScale,
             // The song, so a tapped chord can say where it sits in it rather
             // than only what it is.
-            musicalKey: _bundle.reference?.musicalKey,
+            musicalKey: songKey,
           )
         else
           Focus(
@@ -800,10 +925,18 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             child: MusicianSongSheet(
             title: widget.project.title,
             lines: sheetLines,
-            musicalKey: _bundle.reference?.musicalKey,
+            musicalKey: songKey,
             transpose: transpose,
             reading: reading,
             onReading: _editingChords ? null : _chooseReading,
+            numbers: numbers,
+            onNumbers: _editingChords ? null : _chooseNumbers,
+            capo: capo,
+            onCapo: _editingChords ? null : _chooseCapo,
+            keyOverridden: _keyOverridden,
+            onKey: _editingChords || widget.onSetKey == null
+                ? null
+                : _sayTheKey,
             fontScale: _fontScale,
             showChords: _showChords,
             editableChords: _editingChords && !_savingChord,

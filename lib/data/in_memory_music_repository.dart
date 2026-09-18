@@ -1185,6 +1185,23 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> setSongKey(String projectId, String? key) async {
+    final said = key?.trim();
+    for (final room in _rooms) {
+      for (final project in room.projects) {
+        if (project.id != projectId) continue;
+        // Null and empty both clear it, the way 0144's `nullif(btrim(...))`
+        // does, so "Use the detected key" reaches the same state whichever
+        // way a caller spells nothing.
+        _replaceProject(project.copyWith(
+          keyOverride: said == null || said.isEmpty ? null : said,
+        ));
+        return;
+      }
+    }
+  }
+
+  @override
   Future<MusicRoom> ideasRoom() async {
     for (final room in _rooms) {
       if (room.name.trim().toLowerCase() == 'ideas') return room;

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/horn_reading.dart';
+import '../../services/number_reading.dart';
 
 /// Which instrument somebody reads a song for, remembered on this device.
 ///
@@ -106,5 +107,119 @@ abstract final class SongReadingStore {
   static void resetForTesting() {
     _held.clear();
     _warming = null;
+  }
+}
+
+/// Where somebody has put a capo for a song, remembered on this device.
+///
+/// A capo is the guitarist's answer to the same question the transpose
+/// answers: this key is awkward under the hand, so play the shapes that are
+/// not. The shapes move and the band does not hear anything change, which is
+/// what makes it personal — nobody else in the room is affected by where your
+/// capo is (Every Musician, Same Song, 17 September 2026).
+///
+/// No held-and-warmed copy, unlike its two siblings. Those exist because
+/// Home's Tonight card names a chord and has to name it in the key the sheet
+/// will open in; a capo does not change what key the song is in, so nothing
+/// outside the song's own page has a reason to read it.
+abstract final class SongCapoStore {
+  static const String _prefix = 'song_capo_';
+
+  static String _key(String projectId) => '$_prefix$projectId';
+
+  /// Eleven frets. Twelve is the same shapes an octave up, which no guitar
+  /// has room for and nobody plays.
+  static const int limit = 11;
+
+  static Future<int> load(String projectId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final kept = prefs.getInt(_key(projectId)) ?? 0;
+      return kept.clamp(0, limit).toInt();
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  static Future<void> save(String projectId, int capo) async {
+    final within = capo.clamp(0, limit).toInt();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // No capo is the absence of a choice, so it is stored as nothing rather
+      // than as a row kept forever for every song ever opened.
+      if (within == 0) {
+        await prefs.remove(_key(projectId));
+      } else {
+        await prefs.setInt(_key(projectId), within);
+      }
+    } catch (_) {
+      // Not remembered this time; the sheet on screen is still right.
+    }
+  }
+}
+
+/// Whether somebody reads a song in letters, numbers or numerals, remembered
+/// on this device.
+///
+/// Per song, like the other readings, so the country player who reads one
+/// band's material in numbers and their own songs in letters gets both. The
+/// minor convention beside it is not per song — see [MinorNumbersStore].
+abstract final class SongNumbersStore {
+  static const String _prefix = 'song_numbers_';
+
+  static String _key(String projectId) => '$_prefix$projectId';
+
+  static Future<NumberStyle> load(String projectId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return NumberStyle.fromStored(prefs.getString(_key(projectId)));
+    } catch (_) {
+      return NumberStyle.letters;
+    }
+  }
+
+  static Future<void> save(String projectId, NumberStyle style) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (style == NumberStyle.letters) {
+        await prefs.remove(_key(projectId));
+      } else {
+        await prefs.setString(_key(projectId), style.stored);
+      }
+    } catch (_) {
+      // Not remembered this time; the sheet on screen is still right.
+    }
+  }
+}
+
+/// Which note this person counts a minor song from.
+///
+/// One setting for the whole app rather than one per song: somebody who reads
+/// 6- reads 6- everywhere, and being asked the same question again on the
+/// next song would be asking them what they read in, which they already
+/// answered.
+abstract final class MinorNumbersStore {
+  static const String _key = 'minor_numbers';
+
+  static Future<MinorNumbers> load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return MinorNumbers.fromStored(prefs.getString(_key));
+    } catch (_) {
+      return MinorNumbers.relativeMajor;
+    }
+  }
+
+  static Future<void> save(MinorNumbers convention) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (convention == MinorNumbers.relativeMajor) {
+        await prefs.remove(_key);
+      } else {
+        await prefs.setString(_key, convention.stored);
+      }
+    } catch (_) {
+      // Not remembered this time; the sheet on screen is still right.
+    }
   }
 }

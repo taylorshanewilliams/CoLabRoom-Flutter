@@ -7,6 +7,7 @@ import 'package:colabroom/services/chord_beat_grid.dart';
 import 'package:colabroom/services/chord_names.dart';
 import 'package:colabroom/services/horn_reading.dart';
 import 'package:colabroom/services/music_reference.dart';
+import 'package:colabroom/services/number_reading.dart';
 
 class MusicianSheetLine {
   const MusicianSheetLine({
@@ -438,6 +439,55 @@ String chordAsPlayed(String chord, {required int transpose, String? key}) =>
 String keyAsPlayed(String key, int transpose) {
   final moved = transposeChord(key, transpose);
   return spellInKey(moved, moved);
+}
+
+/// A chord as this person is reading it: letters in their key, or the number
+/// it is of the song's key.
+///
+/// The one call a sheet, a chart or Perform makes to draw a chord, so the
+/// same chord cannot read differently on two of them. [transpose] is how far
+/// the letters have moved — the person's own key, their instrument's part and
+/// their capo, already added up by the caller. Numbers ignore all of it on
+/// purpose: a chart in numbers is the same chart after the singer changes
+/// key, which is the entire reason those players read it (Every Musician,
+/// Same Song, 17 September 2026).
+///
+/// Falls back to letters when there is no key to count from, or when the
+/// chord is not one this can place. A number nobody can trust is worse than
+/// the letter it replaced.
+String chordAsRead(
+  String chord, {
+  required int transpose,
+  String? key,
+  NumberReading numbers = NumberReading.letters,
+}) {
+  final letters = chordAsPlayed(chord, transpose: transpose, key: key);
+  if (!numbers.on || key == null || key.trim().isEmpty) return letters;
+  return chordAsDegree(
+        chordDisplay(chord),
+        key,
+        roman: numbers.style == NumberStyle.roman,
+        fromMinorTonic: numbers.minor == MinorNumbers.minorTonic,
+      ) ??
+      letters;
+}
+
+/// The line a capo puts under the key: "Capo 4 · G shapes · sounds in B".
+///
+/// A capo does not change what the band hears, it changes where the hand
+/// goes — so both keys are named: the shapes because they are what is printed
+/// on the page in front of the player, and the sounding key because that is
+/// what they have to say out loud to everybody else. The same reason a horn
+/// reading never drops the concert key.
+///
+/// [key] is the song's own key and [transpose] the semitones this person has
+/// moved it, as everywhere else here. With no capo on it is just the key,
+/// because a sheet should not label something that has not changed.
+String capoLine(String key, {required int capo, required int transpose}) {
+  final sounds = keyAsPlayed(key, transpose);
+  if (capo <= 0) return sounds;
+  return 'Capo $capo · ${keyAsPlayed(key, transpose - capo)} shapes · '
+      'sounds in $sounds';
 }
 
 /// The key line a horn player reads: the written key, with the concert key

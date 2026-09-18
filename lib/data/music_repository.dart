@@ -297,6 +297,14 @@ abstract interface class MusicRepository {
   /// Musician, Same Song, 17 September 2026).
   Future<void> setSongOrigin(String projectId, SongOrigin origin);
 
+  /// Says what key the song is in, when the analysis got it wrong.
+  ///
+  /// Owner or editor, and shared with the room: a person's transpose and capo
+  /// are theirs, but where the 1 is changes what everybody's numbers mean, so
+  /// it belongs to the song (Every Musician, Same Song, 17 September 2026). A
+  /// null [key] hands the song back to the detected one.
+  Future<void> setSongKey(String projectId, String? key);
+
   /// The room a recording lands in when nobody has said where it goes.
   ///
   /// Created on first use rather than at signup, so an account that never

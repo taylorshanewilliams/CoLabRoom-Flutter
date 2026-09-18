@@ -9,6 +9,7 @@ import '../../services/what_works_here.dart';
 import '../../app/colabroom_theme.dart';
 import '../../services/horn_reading.dart';
 import '../../services/music_reference.dart';
+import '../../services/number_reading.dart';
 import 'guitar_chord_diagram.dart';
 import 'musician_sheet_logic.dart' show keyAsPlayed;
 
@@ -53,19 +54,40 @@ Future<void> showChordReference(
   );
 }
 
-/// The key, and — when the caller can remember it — which instrument this
-/// person reads it for.
+/// Says where the 1 is for the whole room, or hands the song back to the
+/// detected key with a null.
 ///
-/// [keyLabel] is the concert key as this person plays it. [onReading] is what
-/// makes the sheet a picker rather than a chart: the key badge is where
-/// somebody already goes to ask about the key, so it is where the answer to
-/// "which key is this for me" belongs, one small row rather than a banner on
-/// the sheet (Every Musician, Same Song, 17 September 2026).
+/// Completes with null once it has landed, or with the sentence to show when
+/// it did not. The sheet is where somebody tapped, so the sheet is where a
+/// refusal is said: a snackbar would land on the page underneath, hidden by
+/// the sheet it was about (review, 17 September 2026).
+typedef SayTheKey = Future<String?> Function(String? key);
+
+/// The key, and — when the caller can remember them — the readings this
+/// person has chosen for it.
+///
+/// [keyLabel] is the concert key as this person plays it. The callbacks are
+/// what make the sheet a picker rather than a chart: the key badge is where
+/// somebody already goes to ask about the key, so it is where the answers to
+/// "which key is this for me", "where do I put the capo" and "where is the 1"
+/// all belong, small rows rather than a banner on the sheet (Every Musician,
+/// Same Song, 17 September 2026).
+///
+/// [songKey] is the song's own key before this person moved it, which is the
+/// only one "Set the key" can be about — that one is a shared fact and the
+/// rest of this sheet is personal.
 Future<void> showKeyReference(
   BuildContext context,
   String keyLabel, {
   HornReading reading = HornReading.concert,
   ValueChanged<HornReading>? onReading,
+  NumberReading numbers = NumberReading.letters,
+  ValueChanged<NumberReading>? onNumbers,
+  int capo = 0,
+  ValueChanged<int>? onCapo,
+  String? songKey,
+  bool overridden = false,
+  SayTheKey? onKey,
 }) {
   if (keyReference(keyLabel) == null) return Future<void>.value();
   return showModalBottomSheet<void>(
@@ -77,6 +99,13 @@ Future<void> showKeyReference(
       concertKey: keyLabel,
       reading: reading,
       onReading: onReading,
+      numbers: numbers,
+      onNumbers: onNumbers,
+      capo: capo,
+      onCapo: onCapo,
+      songKey: songKey,
+      overridden: overridden,
+      onKey: onKey,
     ),
   );
 }
@@ -95,12 +124,34 @@ Future<void> showReadingChoice(
   String? keyLabel,
   required HornReading reading,
   required ValueChanged<HornReading> onReading,
+  NumberReading numbers = NumberReading.letters,
+  ValueChanged<NumberReading>? onNumbers,
+  int capo = 0,
+  ValueChanged<int>? onCapo,
+  String? songKey,
+  bool overridden = false,
+  SayTheKey? onKey,
 }) {
   final key = keyLabel;
   if (key != null && keyReference(key) != null) {
-    return showKeyReference(context, key, reading: reading,
-        onReading: onReading);
+    return showKeyReference(
+      context,
+      key,
+      reading: reading,
+      onReading: onReading,
+      numbers: numbers,
+      onNumbers: onNumbers,
+      capo: capo,
+      onCapo: onCapo,
+      songKey: songKey,
+      overridden: overridden,
+      onKey: onKey,
+    );
   }
+  // Numbers, a capo and "where is the 1" are all counted from a key, so on a
+  // song that has none there is nothing for them to say. The instrument row
+  // still works: the chords move whether or not anything can be said about
+  // the key they are in.
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
@@ -143,8 +194,9 @@ class _ReadingChoiceSheetState extends State<_ReadingChoiceSheet> {
           runSpacing: 8,
           children: <Widget>[
             for (final reading in HornReading.values)
-              _ReadingChip(
-                reading: reading,
+              _PickerChip(
+                label: reading.label,
+                itemKey: Key('read_as_${reading.name}'),
                 selected: reading == _reading,
                 onTap: () {
                   if (reading == _reading) return;
@@ -291,17 +343,53 @@ class _ChordReferenceSheet extends StatelessWidget {
   }
 }
 
+/// The twelve, written the way a chart writes them: the flat side of the
+/// circle in flats, because a song is far more often in E♭ than in D♯.
+///
+/// Stored with ASCII accidentals, which is what every key parser here reads,
+/// and drawn with printed ones.
+const List<String> _theTwelve = <String>[
+  'C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B',
+];
+
+String _printedKey(String stored) =>
+    stored.replaceAll('#', '♯').replaceAll('b', '♭');
+
 class _KeyReferenceSheet extends StatefulWidget {
   const _KeyReferenceSheet({
     required this.concertKey,
     required this.reading,
     this.onReading,
+    this.numbers = NumberReading.letters,
+    this.onNumbers,
+    this.capo = 0,
+    this.onCapo,
+    this.songKey,
+    this.overridden = false,
+    this.onKey,
   });
 
-  /// The key everybody else in the room is in.
+  /// The key everybody else in the room is in, as this person has moved it.
   final String concertKey;
   final HornReading reading;
   final ValueChanged<HornReading>? onReading;
+
+  final NumberReading numbers;
+  final ValueChanged<NumberReading>? onNumbers;
+
+  final int capo;
+  final ValueChanged<int>? onCapo;
+
+  /// The song's own key, before this person moved anything — the only key
+  /// "Set the key" can be about, because that one is the room's and the rest
+  /// of this sheet is this device's.
+  final String? songKey;
+  final bool overridden;
+
+  /// Null for somebody who can only look, which leaves "Where the 1 is" off
+  /// the sheet altogether: offering a choice the room will refuse is a
+  /// question with a wrong answer built in (review, 17 September 2026).
+  final SayTheKey? onKey;
 
   @override
   State<_KeyReferenceSheet> createState() => _KeyReferenceSheetState();
@@ -309,11 +397,44 @@ class _KeyReferenceSheet extends StatefulWidget {
 
 class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
   late HornReading _reading = widget.reading;
+  late NumberReading _numbers = widget.numbers;
+  late int _capo = widget.capo;
+  late String? _songKey = widget.songKey;
+  late bool _overridden = widget.overridden;
 
-  /// The key as this person's instrument writes it, which is what the scale,
-  /// the chords and the capo rows below are all about: a sax player asking
-  /// what is in this key wants their own seven notes, not the band's.
-  String get _written => keyAsPlayed(widget.concertKey, _reading.semitones);
+  /// True while a key is on its way to the room. One write at a time, so two
+  /// quick taps cannot land in the wrong order and leave the room in the key
+  /// that was tapped first.
+  bool _saying = false;
+
+  /// Why the last key did not land, said under the chords that were tapped.
+  String? _refused;
+
+  /// A capo is a guitar answer about the key the band is in. Worked out from
+  /// a written key it names frets that put the guitar a tone away from
+  /// everybody else, so it is only ever in play in concert pitch — the same
+  /// rule the capo chart itself has followed since the horn reading landed.
+  int get _capoOffset => _reading == HornReading.concert ? _capo : 0;
+
+  /// How far this person has moved the song, read off the two keys the sheet
+  /// was opened with, so a key set from here lands where their own key puts
+  /// it rather than back in the song's.
+  late final int _moved = _semitonesBetween(widget.songKey, widget.concertKey);
+
+  /// The band's key as this person has moved it — the one the sheet was
+  /// opened on, until somebody says where the 1 really is from here.
+  String get _concertKey {
+    final said = _songKey;
+    if (said == null || said == widget.songKey) return widget.concertKey;
+    return keyAsPlayed(said, _moved);
+  }
+
+  /// The key as this person's instrument and capo write it, which is what the
+  /// scale and the chords below are all about: a sax player asking what is in
+  /// this key wants their own seven notes, not the band's, and a guitarist
+  /// with a capo on 4 wants the shapes under their hand.
+  String get _written =>
+      keyAsPlayed(_concertKey, _reading.semitones - _capoOffset);
 
   void _choose(HornReading reading) {
     if (reading == _reading) return;
@@ -321,32 +442,148 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
     widget.onReading?.call(reading);
   }
 
+  void _chooseNumbers(NumberReading numbers) {
+    if (numbers == _numbers) return;
+    setState(() => _numbers = numbers);
+    widget.onNumbers?.call(numbers);
+  }
+
+  void _chooseCapo(int capo) {
+    if (capo == _capo) return;
+    setState(() => _capo = capo);
+    widget.onCapo?.call(capo);
+  }
+
+  /// Says where the 1 is. The sheet redraws in the new key straight away, so
+  /// the tap feels like it did something, and goes back to the key the room
+  /// actually has if the room says no — a sheet showing a key that was never
+  /// saved would send somebody away believing the band is in it.
+  Future<void> _sayTheKey(String key) async {
+    final say = widget.onKey;
+    if (say == null || _saying) return;
+    if (key == _songKey && _overridden) return;
+    final (keyBefore, overriddenBefore) = (_songKey, _overridden);
+    setState(() {
+      _saying = true;
+      _refused = null;
+      _songKey = key;
+      _overridden = true;
+    });
+    final refused = await say(key);
+    if (!mounted) return;
+    setState(() {
+      _saying = false;
+      _refused = refused;
+      if (refused != null) {
+        _songKey = keyBefore;
+        _overridden = overriddenBefore;
+      }
+    });
+  }
+
+  /// Hands the song back to the analysis. The sheet closes once that has
+  /// landed rather than redrawing, because the key it would redraw in is the
+  /// detected one and this sheet was never told what that is — the page
+  /// behind it was, and redraws itself. If it does not land, the sheet stays
+  /// open and says why.
+  Future<void> _useTheDetectedKey() async {
+    final say = widget.onKey;
+    if (say == null || _saying) return;
+    setState(() {
+      _saying = true;
+      _refused = null;
+    });
+    final refused = await say(null);
+    if (!mounted) return;
+    if (refused == null) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() {
+      _saying = false;
+      _refused = refused;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     // Transposing a real key always lands on a real key, so this cannot be
     // null once showKeyReference has checked the one it was handed.
     final reference = keyReference(_written)!;
-    // The band's key, never dropped from a transposed part: it is what this
-    // player has to say out loud to everybody else.
-    final concert =
-        keyReference(widget.concertKey)?.display ?? widget.concertKey;
+    // The band's key, never dropped from a transposed or capo'd part: it is
+    // what this player has to say out loud to everybody else.
+    final concert = keyReference(_concertKey)?.display ?? _concertKey;
+    // The capo chart is about the key that is sounding, not the shapes, so it
+    // is worked out from the concert key however this sheet is being read.
+    final capoRows =
+        keyReference(_concertKey)?.capo ?? const <(int, String)>[];
     return _SheetFrame(
       key: const Key('key_reference_sheet'),
       title: reference.display,
-      subtitle: _reading == HornReading.concert
-          ? 'Relative ${reference.relative}'
-          : 'Relative ${reference.relative} · concert $concert',
+      subtitle: <String>[
+        'Relative ${reference.relative}',
+        if (_capoOffset > 0) 'capo $_capo',
+        // The band's key, whichever of the two moved this sheet off it.
+        if (_reading != HornReading.concert)
+          'concert $concert'
+        else if (_capoOffset > 0)
+          'sounds in $concert',
+      ].join(' · '),
       children: <Widget>[
-        if (widget.onReading != null) ...<Widget>[
+        if (widget.onNumbers != null) ...<Widget>[
           _Section(
             heading: 'Read as',
             child: Wrap(
               spacing: 8,
               runSpacing: 8,
               children: <Widget>[
+                for (final style in NumberStyle.values)
+                  _PickerChip(
+                    label: style.label,
+                    itemKey: Key('read_numbers_${style.name}'),
+                    selected: style == _numbers.style,
+                    onTap: () => _chooseNumbers(_numbers.withStyle(style)),
+                  ),
+              ],
+            ),
+          ),
+          // Only on a minor song, and only once somebody is reading Nashville
+          // numbers: it is the one moment the two conventions say different
+          // things, and asking before then would be a settings screen. Roman
+          // numerals have no such choice — a minor key is i VI III VII in
+          // every theory class — so the chips, in Nashville's own spelling,
+          // are not offered there.
+          if (_numbers.style == NumberStyle.nashville &&
+              reference.minor) ...<Widget>[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final convention in MinorNumbers.values)
+                  _PickerChip(
+                    label: convention.label,
+                    itemKey: Key('minor_numbers_${convention.name}'),
+                    selected: convention == _numbers.minor,
+                    onTap: () =>
+                        _chooseNumbers(_numbers.withMinor(convention)),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 14),
+        ],
+        if (widget.onReading != null) ...<Widget>[
+          _Section(
+            heading: 'Written for',
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
                 for (final reading in HornReading.values)
-                  _ReadingChip(
-                    reading: reading,
+                  _PickerChip(
+                    label: reading.label,
+                    itemKey: Key('read_as_${reading.name}'),
                     selected: reading == _reading,
                     onTap: () => _choose(reading),
                   ),
@@ -404,7 +641,7 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
         // stay (review, 17 September 2026).
         if (_reading == HornReading.concert) ...<Widget>[
           const SizedBox(height: 14),
-          if (reference.capo.isEmpty)
+          if (capoRows.isEmpty && _capo == 0)
             const _Note(
               'This key already sits under open chords — no capo needed.',
             )
@@ -414,17 +651,153 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  for (final (fret, shapeKey) in reference.capo)
-                    _Row(
+                  // The rows were a chart you did the work off. Tapping one
+                  // does the work: the chords on the page become the shapes
+                  // under your hand and the badge says what it still sounds
+                  // like (Every Musician, Same Song, 17 September 2026).
+                  for (final (fret, shapeKey) in capoRows)
+                    _CapoRow(
                       label: 'Capo $fret',
                       value: 'play the $shapeKey shapes',
+                      selected: fret == _capo,
+                      onTap: widget.onCapo == null
+                          ? null
+                          : () => _chooseCapo(fret),
+                    ),
+                  if (widget.onCapo != null && _capo > 0)
+                    _CapoRow(
+                      label: 'No capo',
+                      value: 'play the $concert chords',
+                      selected: false,
+                      onTap: () => _chooseCapo(0),
                     ),
                 ],
               ),
             ),
         ],
+        // Last, because it is the only thing on this sheet that changes what
+        // everybody else sees, and because most songs never need it.
+        if (widget.onKey != null) ...<Widget>[
+          const SizedBox(height: 18),
+          const Divider(height: 1, color: AppColors.line),
+          const SizedBox(height: 14),
+          _Section(
+            heading: 'Where the 1 is',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text(
+                  'The scale, the chords and the numbers are all counted '
+                  'from this. Say where it really is if the recording was '
+                  'heard in the wrong key. Everybody in the room sees it.',
+                  style: TextStyle(
+                      color: AppColors.muted, fontSize: 12.5, height: 1.45),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: <Widget>[
+                    for (final root in _theTwelve)
+                      _PickerChip(
+                        label: _printedKey(root),
+                        itemKey: Key('the_one_is_$root'),
+                        selected: _sameRoot(root),
+                        onTap: () =>
+                            unawaited(_sayTheKey(_keyOf(root, _minorNow))),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: <Widget>[
+                    for (final minor in <bool>[false, true])
+                      _PickerChip(
+                        label: minor ? 'Minor' : 'Major',
+                        itemKey:
+                            Key('the_one_is_${minor ? 'minor' : 'major'}'),
+                        selected: minor == _minorNow,
+                        onTap: () => unawaited(
+                            _sayTheKey(_keyOf(_rootNow ?? 'C', minor))),
+                      ),
+                  ],
+                ),
+                // Here and not in a snackbar: one raised on the page would
+                // sit underneath this sheet, which is how a refusal went
+                // unseen before (review, 17 September 2026).
+                if (_refused != null) ...<Widget>[
+                  const SizedBox(height: 10),
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      _refused!,
+                      key: const Key('the_one_refused'),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontSize: 12.5,
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                ],
+                if (_overridden) ...<Widget>[
+                  const SizedBox(height: 6),
+                  TextButton(
+                    key: const Key('use_the_detected_key'),
+                    onPressed: _saying
+                        ? null
+                        : () => unawaited(_useTheDetectedKey()),
+                    child: const Text('Use the detected key'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ],
     );
+  }
+
+  /// The root of the key the song is in now, as the chips spell it.
+  String? get _rootNow {
+    final said = _songKey?.trim();
+    if (said == null || said.isEmpty) return null;
+    final root = RegExp(r'^([A-G][#b]?)').firstMatch(said)?.group(1);
+    if (root == null) return null;
+    // Matched by pitch, not by text: the analyser names every key with
+    // sharps, so an A♯ major song has to light up the B♭ chip rather than
+    // none of them.
+    for (final candidate in _theTwelve) {
+      if (samePitch(candidate, root)) return candidate;
+    }
+    return null;
+  }
+
+  bool _sameRoot(String root) => _rootNow == root;
+
+  /// A key written the way the analyser writes one, which is the shape 0144
+  /// accepts and every key parser here reads.
+  static String _keyOf(String root, bool minor) =>
+      '$root ${minor ? 'minor' : 'major'}';
+
+  /// Semitones from [from]'s root up to [to]'s, 0 to 11, or 0 when either is
+  /// not a key this can read.
+  static int _semitonesBetween(String? from, String to) {
+    final a = from == null
+        ? null
+        : RegExp(r'^([A-G][#b]?)').firstMatch(from.trim())?.group(1);
+    final b = RegExp(r'^([A-G][#b]?)').firstMatch(to.trim())?.group(1);
+    final pa = a == null ? null : pitchOf(a);
+    final pb = b == null ? null : pitchOf(b);
+    if (pa == null || pb == null) return 0;
+    return ((pb - pa) % 12 + 12) % 12;
+  }
+
+  bool get _minorNow {
+    final rest = _songKey?.trim().toLowerCase() ?? '';
+    return rest.contains('min') || rest.endsWith(' m') || rest.contains('aeolian');
   }
 }
 
@@ -575,19 +948,21 @@ class _NoteChip extends StatelessWidget {
   }
 }
 
-/// One instrument to read the song for.
+/// One way to read the song, or one note to read it from.
 ///
 /// Listed flat and in a fixed order, the way the plan asks readings to be
-/// listed: four languages for the same song, never a ladder from easy to
-/// advanced. Nothing here says what anybody plays.
-class _ReadingChip extends StatelessWidget {
-  const _ReadingChip({
-    required this.reading,
+/// listed: languages for the same song, never a ladder from easy to advanced.
+/// Nothing here says what anybody plays.
+class _PickerChip extends StatelessWidget {
+  const _PickerChip({
+    required this.label,
+    required this.itemKey,
     required this.selected,
     required this.onTap,
   });
 
-  final HornReading reading;
+  final String label;
+  final Key itemKey;
   final bool selected;
   final VoidCallback onTap;
 
@@ -597,7 +972,7 @@ class _ReadingChip extends StatelessWidget {
       button: true,
       selected: selected,
       child: InkWell(
-        key: Key('read_as_${reading.name}'),
+        key: itemKey,
         borderRadius: BorderRadius.circular(10),
         onTap: onTap,
         child: Container(
@@ -614,7 +989,7 @@ class _ReadingChip extends StatelessWidget {
             ),
           ),
           child: Text(
-            reading.label,
+            label,
             style: TextStyle(
               color: selected ? AppColors.gold : AppColors.text,
               fontSize: 13.5,
@@ -622,6 +997,77 @@ class _ReadingChip extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A capo row you can press, which is the difference between a chart and a
+/// setting. The selected one is marked the way a chosen chip is, so the sheet
+/// says where the capo is as well as where it could go.
+class _CapoRow extends StatelessWidget {
+  const _CapoRow({
+    required this.label,
+    required this.value,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final row = Container(
+      key: Key('set_${label.toLowerCase().replaceAll(' ', '_')}'),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      margin: const EdgeInsets.only(bottom: 4),
+      decoration: BoxDecoration(
+        color: selected ? AppColors.gold.withValues(alpha: 0.14) : null,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(
+          color: selected
+              ? AppColors.gold.withValues(alpha: 0.5)
+              : Colors.transparent,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          SizedBox(
+            width: 96,
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected ? AppColors.gold : AppColors.muted,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                color: selected ? AppColors.gold : AppColors.text,
+                fontSize: 13,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (onTap == null) return row;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(9),
+        onTap: onTap,
+        child: row,
       ),
     );
   }

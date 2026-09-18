@@ -136,14 +136,28 @@ async function gatherFacts(
     if (!firstSeen.includes(chord)) firstSeen.push(chord);
   }
 
-  const key = describeKey((reference?.musical_key as string | null) ?? null);
+  // The key the band says the song is in stands in front of the one the
+  // analysis heard, the same as on the song sheet (0144): a Mixolydian song
+  // the analyser called by the wrong chord would otherwise get theory answers
+  // about a key the band is not in. Read on its own and allowed to fail, so a
+  // deploy that lands before 0144 is applied answers from the heard key
+  // instead of not answering.
+  const { data: song } = await admin
+    .from('projects')
+    .select('key_override')
+    .eq('id', projectId)
+    .maybeSingle();
+  const said = ((song?.key_override as string | null) ?? '').trim();
+  const songKey = said || ((reference?.musical_key as string | null) ?? null);
+
+  const key = describeKey(songKey);
   const analysed = reference?.analysis_state === 'ready';
   if (key) {
     lines.push(
       `Key: ${key.display} (relative: ${key.relative}). Chords that belong to it, in degree order: ${key.diatonic.join(', ')}.`,
     );
-  } else if (reference?.musical_key) {
-    lines.push(`Key: ${reference.musical_key}.`);
+  } else if (songKey) {
+    lines.push(`Key: ${songKey}.`);
   }
   if (typeof reference?.bpm === 'number') {
     const beats = typeof reference.beats_per_bar === 'number' ? `${reference.beats_per_bar}/4` : 'time signature unknown';

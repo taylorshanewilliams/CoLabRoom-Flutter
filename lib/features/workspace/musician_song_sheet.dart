@@ -2,6 +2,7 @@ import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_line.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/services/horn_reading.dart';
+import 'package:colabroom/services/number_reading.dart';
 import 'package:flutter/material.dart';
 
 /// A "physical paper" chord+lyric sheet — chords sit directly above the word
@@ -20,6 +21,12 @@ class MusicianSongSheet extends StatelessWidget {
     required this.showChords,
     this.reading = HornReading.concert,
     this.onReading,
+    this.numbers = NumberReading.letters,
+    this.onNumbers,
+    this.capo = 0,
+    this.onCapo,
+    this.onKey,
+    this.keyOverridden = false,
     this.editableChords = false,
     this.selectedChordStartMs,
     this.onEditChord,
@@ -40,6 +47,27 @@ class MusicianSongSheet extends StatelessWidget {
   /// Where a new choice goes. Null on a sheet that has nowhere to keep one,
   /// which leaves the key badge the chart it always was.
   final ValueChanged<HornReading>? onReading;
+
+  /// Whether this person reads the chords as letters, numbers or numerals.
+  /// Personal, like the rest of them, and the only one that does not move
+  /// when [transpose] does.
+  final NumberReading numbers;
+  final ValueChanged<NumberReading>? onNumbers;
+
+  /// Which fret the capo is on, which moves the chords under the hand and
+  /// nothing the band hears. Personal, and only ever in play in concert
+  /// pitch — see the capo rows in the key sheet.
+  final int capo;
+  final ValueChanged<int>? onCapo;
+
+  /// Where the 1 is, which is the one thing on this badge that belongs to the
+  /// room rather than to this device. Null on a sheet whose caller cannot
+  /// write it, which leaves the key sheet a reference.
+  final SayTheKey? onKey;
+
+  /// Whether [musicalKey] is the band's answer rather than the analysis's, so
+  /// the sheet can offer to hand it back.
+  final bool keyOverridden;
   final double fontScale;
   final bool showChords;
   final bool editableChords;
@@ -53,9 +81,14 @@ class MusicianSongSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final key = musicalKey;
-    // What the chords and the key on this sheet are written in: the person's
-    // own key, then their instrument's transposition on top of it.
-    final written = transpose + reading.semitones;
+    // What the voice on this sheet reads: the person's own key, then their
+    // instrument's transposition on top of it. A capo is deliberately not in
+    // here — it moves the hand, not the singer — so it is handed to the lines
+    // separately and only the chords come down by it.
+    final sung = transpose + reading.semitones;
+    final capoHere = reading == HornReading.concert ? capo : 0;
+    // What the chords and the key badge are written in.
+    final written = sung - capoHere;
     final approximate = lines.any((line) => line.approximateTiming);
     return Container(
       key: const Key('musician_song_sheet'),
@@ -152,6 +185,13 @@ class MusicianSongSheet extends StatelessWidget {
                         keyAsPlayed(key, transpose),
                         reading: reading,
                         onReading: onReading,
+                        numbers: numbers,
+                        onNumbers: onNumbers,
+                        capo: capo,
+                        onCapo: onCapo,
+                        songKey: key,
+                        overridden: keyOverridden,
+                        onKey: onKey,
                       ),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -193,10 +233,22 @@ class MusicianSongSheet extends StatelessWidget {
                             // The band's key, never dropped: the written key
                             // is what this player reads, and the concert key
                             // is what they have to say out loud when they
-                            // call the tune.
+                            // call the tune. A capo is the same story with a
+                            // different cause — the shapes changed and the
+                            // song did not.
                             if (reading != HornReading.concert)
                               Text(
                                 'concert ${keyAsPlayed(key, transpose)}',
+                                style: const TextStyle(
+                                  color: Color(0xFF667263),
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              )
+                            else if (capoHere > 0)
+                              Text(
+                                'capo $capoHere · sounds in '
+                                '${keyAsPlayed(key, transpose)}',
                                 style: const TextStyle(
                                   color: Color(0xFF667263),
                                   fontSize: 8.5,
@@ -234,7 +286,9 @@ class MusicianSongSheet extends StatelessWidget {
                           else
                             MusicianChordLyricLine(
                               line: line,
-                              transpose: written,
+                              transpose: sung,
+                              capo: capoHere,
+                              numbers: numbers,
                               musicalKey: key,
                               fontScale: fontScale,
                               showChords: showChords,

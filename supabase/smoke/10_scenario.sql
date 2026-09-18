@@ -5862,4 +5862,220 @@ end $$;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- ---------------------------------------------------------------------
+-- This is the 1 (0144).
+--
+-- Key detection knows major and minor only, so a Mixolydian song or one that
+-- opens on its IV gets named by the wrong chord -- and the numbers, the
+-- scale and the capo chart are all counted from it. The band can say where
+-- the 1 really is. It is a shared fact and not a reading: a person's
+-- transpose and capo are theirs, and this one changes what everybody's
+-- numbers mean, so an editor can set it, somebody who can only look cannot,
+-- and neither can somebody who is not in the room at all.
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('7e401440-0000-0000-0000-000000000146', 'thebassist@smoke.test',
+   '{"display_name": "The Bassist"}'),
+  ('7e401440-0000-0000-0000-000000000147', 'justlistening@smoke.test',
+   '{"display_name": "Just Listening"}'),
+  -- Never inserted into room_members anywhere. room_role_for returns null for
+  -- this account, which is the case the `is distinct from` pair in
+  -- set_song_key exists for and the one a `not in` would wave through.
+  ('7e401440-0000-0000-0000-000000000148', 'nobodyshere@smoke.test',
+   '{"display_name": "Nobody From Here"}');
+
+insert into public.rooms (id, account_id, name)
+values ('7e401440-0000-0000-0000-000000000144',
+        '11111111-1111-1111-1111-111111111111', 'The Modal Room');
+
+-- Distinct colours, the same as every other room in this file: a room's
+-- members are uniquely coloured (room_members_room_color_unique, 0006).
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('7e401440-0000-0000-0000-000000000144', '11111111-1111-1111-1111-111111111111',
+   'The Writer', 'owner', 4294937165),
+  ('7e401440-0000-0000-0000-000000000144', '7e401440-0000-0000-0000-000000000146',
+   'The Bassist', 'editor', 4283215697),
+  ('7e401440-0000-0000-0000-000000000144', '7e401440-0000-0000-0000-000000000147',
+   'Just Listening', 'viewer', 4284000000);
+
+insert into public.projects (id, room_id, account_id, title, created_by) values
+  ('7e401440-0000-0000-0000-00000000014a', '7e401440-0000-0000-0000-000000000144',
+   '11111111-1111-1111-1111-111111111111', 'Mixolydian One',
+   '11111111-1111-1111-1111-111111111111'),
+  ('7e401440-0000-0000-0000-00000000014b', '7e401440-0000-0000-0000-000000000144',
+   '11111111-1111-1111-1111-111111111111', 'Starts On The Four',
+   '11111111-1111-1111-1111-111111111111');
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  -- Null is the honest default: nobody has corrected anything, and the
+  -- detected key stands.
+  if (select key_override from public.projects
+        where id = '7e401440-0000-0000-0000-00000000014a') is not null then
+    raise exception 'a new song arrived with a key nobody gave it';
+  end if;
+
+  perform public.set_song_key('7e401440-0000-0000-0000-00000000014a', 'A minor');
+  if (select key_override from public.projects
+        where id = '7e401440-0000-0000-0000-00000000014a')
+     is distinct from 'A minor' then
+    raise exception 'the owner could not say what key the song is in';
+  end if;
+
+  -- A bare root is a key too: that is what a bare letter means on a chart.
+  perform public.set_song_key('7e401440-0000-0000-0000-00000000014b', 'Bb');
+  if (select key_override from public.projects
+        where id = '7e401440-0000-0000-0000-00000000014b')
+     is distinct from 'Bb' then
+    raise exception 'a bare root was not accepted as a key';
+  end if;
+
+  -- Null clears it, which is how "Use the detected key" is spelled. It is a
+  -- real answer and not a missing argument, so it is not an error.
+  perform public.set_song_key('7e401440-0000-0000-0000-00000000014b', null);
+  if (select key_override from public.projects
+        where id = '7e401440-0000-0000-0000-00000000014b') is not null then
+    raise exception 'the detected key could not be asked for again';
+  end if;
+
+  -- And so does whitespace, so the app cannot leave a blank standing in for
+  -- a key by sending an empty box.
+  perform public.set_song_key('7e401440-0000-0000-0000-00000000014b', '   ');
+  if (select key_override from public.projects
+        where id = '7e401440-0000-0000-0000-00000000014b') is not null then
+    raise exception 'a blank was stored as a key';
+  end if;
+
+  -- Keys, and nothing else. A free-text scale or tradition name is a later,
+  -- separate piece; storing one here would have the sheet counting numbers
+  -- from something that has none.
+  begin
+    perform public.set_song_key('7e401440-0000-0000-0000-00000000014a',
+                                'Raag Yaman');
+    raise exception 'something that is not a key was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+
+  begin
+    perform public.set_song_key('7e401440-0000-0000-0000-00000000014a',
+                                'H major');
+    raise exception 'a note that does not exist was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- The check constraint says the same thing at the table, because 0005 lets
+  -- an owner update this row directly and a rule that lives only in a
+  -- function is one request away from nothing.
+  begin
+    update public.projects set key_override = 'Mixolydian'
+    where id = '7e401440-0000-0000-0000-00000000014a';
+    raise exception 'a plain update stored something that is not a key';
+  exception when check_violation then null;
+  end;
+end $$;
+
+-- An editor can say it. It is usually the player who noticed the numbers
+-- were wrong, not the person who owns the catalog.
+reset role;
+set local request.jwt.claims = '{"sub": "7e401440-0000-0000-0000-000000000146"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.set_song_key('7e401440-0000-0000-0000-00000000014b', 'G major');
+  if (select key_override from public.projects
+        where id = '7e401440-0000-0000-0000-00000000014b')
+     is distinct from 'G major' then
+    raise exception 'an editor could not say what key the song is in';
+  end if;
+end $$;
+
+-- Somebody who can only look cannot move everybody else's numbers.
+reset role;
+set local request.jwt.claims = '{"sub": "7e401440-0000-0000-0000-000000000147"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.set_song_key('7e401440-0000-0000-0000-00000000014a', 'C major');
+    raise exception 'somebody who can only look answered for the room';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- And somebody who is not in the room at all, which is the case the
+-- null-safety in set_song_key is actually for. The viewer above has a role,
+-- so `not in ('owner', 'editor')` would still refuse them -- this account has
+-- no role, `null not in (...)` is null, and the plain form would let a
+-- stranger with any valid token move a room's song into another key.
+reset role;
+set local request.jwt.claims = '{"sub": "7e401440-0000-0000-0000-000000000148"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.set_song_key('7e401440-0000-0000-0000-00000000014a', 'C major');
+    raise exception 'somebody outside the room answered for it';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select key_override from public.projects
+        where id = '7e401440-0000-0000-0000-00000000014a')
+     is distinct from 'A minor' then
+    raise exception 'somebody who cannot edit changed the song''s key';
+  end if;
+  if (select key_override from public.projects
+        where id = '7e401440-0000-0000-0000-00000000014b')
+     is distinct from 'G major' then
+    raise exception 'the editor''s answer did not stand';
+  end if;
+end $$;
+
+-- Tonight names its chord in the key the band said. The card suggests "a
+-- chord of the key this song has never reached for", so it has to be the
+-- band's key and not the analyser's -- 0144 restates tonight() from 0121 with
+-- the override in front. The bassist is in this one room only, and only the
+-- first song here has a recording and chords, so it is the song Tonight
+-- picks for them.
+insert into public.files (id, project_id, uploaded_by, storage_path, display_name, mime_type)
+values ('7e401440-0000-0000-0000-0000000001f1', '7e401440-0000-0000-0000-00000000014a',
+        '11111111-1111-1111-1111-111111111111',
+        'smoke/modal/reference.mp3', 'reference.mp3', 'audio/mpeg');
+
+insert into public.project_audio_references
+  (project_id, file_id, uploaded_by, analysis_state, musical_key)
+values ('7e401440-0000-0000-0000-00000000014a', '7e401440-0000-0000-0000-0000000001f1',
+        '11111111-1111-1111-1111-111111111111', 'ready', 'C major');
+
+insert into public.chord_cues (project_id, start_ms, end_ms, chord)
+values ('7e401440-0000-0000-0000-00000000014a', 0, 2000, 'A:min'),
+       ('7e401440-0000-0000-0000-00000000014a', 2000, 4000, 'G:maj');
+
+set local request.jwt.claims = '{"sub": "7e401440-0000-0000-0000-000000000146"}';
+set local role authenticated;
+
+do $$
+declare
+  said text;
+begin
+  select song_key into said from public.tonight() limit 1;
+  if said is distinct from 'A minor' then
+    raise exception 'Tonight named a chord in the heard key (%), not the band''s', said;
+  end if;
+end $$;
+
+reset role;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
 commit;

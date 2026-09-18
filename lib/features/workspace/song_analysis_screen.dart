@@ -77,6 +77,27 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
   /// restarting the app.
   late bool _roomsBelieveAudio = widget.project.hasAudioReference;
 
+  /// The song as this screen knows it, which is the project it was opened
+  /// with until somebody says what key the band is really in.
+  ///
+  /// Only the song sheet reads it, and only for the key: everything else on
+  /// this screen is about the recording, which the key override does not
+  /// touch. The room list behind is refreshed as well, so the copy the rest
+  /// of the app is holding catches up too.
+  late SongProject _project = widget.project;
+
+  @override
+  void didUpdateWidget(covariant SongAnalysisScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A newer copy of the song from the rooms -- another editor saying where
+    // the 1 is, or this screen's own write coming back from refreshProject --
+    // replaces the one held here. Compared by identity, so a rebuild that
+    // hands over the same copy cannot undo a key set a moment ago.
+    if (!identical(widget.project, oldWidget.project)) {
+      _project = widget.project;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -101,6 +122,23 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     // Unawaited: the marker is on a screen behind this one, and nothing here
     // should wait on a room reload to finish.
     unawaited(BetaScope.of(context).load());
+  }
+
+  /// Says what key the band is in, or hands the song back to the detected
+  /// key with a null.
+  ///
+  /// Owner or editor (0144). A refusal is thrown on rather than swallowed:
+  /// the sheet is where somebody tapped, so the sheet is where the sentence
+  /// belongs.
+  Future<void> _setSongKey(String? key) async {
+    final controller = BetaScope.of(context, listen: false);
+    await controller.repository.setSongKey(_project.id, key);
+    if (!mounted) return;
+    // The song itself carries the answer, and the sheet reads the key off
+    // the song -- so the local copy has to catch up before anything is
+    // drawn, and the rooms behind before anything else reads it.
+    setState(() => _project = _project.copyWith(keyOverride: key));
+    unawaited(controller.refreshProject(_project.id));
   }
 
   Future<void> _refresh() async {
@@ -367,7 +405,9 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
       MaterialPageRoute<void>(
         settings: RouteSettings(name: AppRoutes.songLive(widget.project.id)),
         builder: (_) => LivePerformanceScreen(
-          project: widget.project,
+          // The song as this screen knows it, so a key somebody corrected on
+          // the sheet a minute ago is the key Perform reads from.
+          project: _project,
           analysis: _bundle,
           me: me,
           ownMarkId: ownPracticeMarkId(
@@ -810,20 +850,37 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     // reading "Lyric match 87%" and "Chord changes 118" —
                     // the app grading its own homework in front of somebody
                     // who just wanted to see their song.
-                    SongSheetPanel(
-                      project: widget.project,
-                      bundle: bundle!,
-                      onReviewLyrics: (reference?.transcriptWords.isNotEmpty ?? false) ? _reviewLyrics : null,
-                      onOpenLive: _openLive,
-                      onAnalysisChanged: (updated) => setState(() => _bundle = updated),
-                    ),
+                    //
+                    // In a Builder of its own so that only the sheet listens
+                    // to the rooms, which is where who may say the song's key
+                    // is written down.
+                    Builder(builder: (context) {
+                      // Owner or editor, the same two set_song_key lets
+                      // through. Anybody else gets the key sheet as a
+                      // reference: offering "Where the 1 is" to somebody the
+                      // room will refuse is a question with the wrong answer
+                      // built in (review, 17 September 2026).
+                      final scope = BetaScope.maybeOf(context);
+                      final canSayTheKey = scope
+                              ?.roomById(_project.roomId)
+                              ?.canEditSongs(scope.meOrNobody) ??
+                          false;
+                      return SongSheetPanel(
+                        project: _project,
+                        bundle: bundle!,
+                        onReviewLyrics: (reference?.transcriptWords.isNotEmpty ?? false) ? _reviewLyrics : null,
+                        onOpenLive: _openLive,
+                        onAnalysisChanged: (updated) => setState(() => _bundle = updated),
+                        onSetKey: canSayTheKey ? _setSongKey : null,
+                      );
+                    }),
                     const SizedBox(height: 18),
                     // And everything the machine noticed on the way, for
                     // anybody who wants it. Folded, because a beginner
                     // reading "Chords cover 92%" learns only that there is a
                     // number they are supposed to care about.
                     _TheDetails(
-                      bundle: bundle,
+                      bundle: bundle!,
                       service: _service,
                       onRename: _renameSection,
                     ),
