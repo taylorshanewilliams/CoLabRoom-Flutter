@@ -8221,4 +8221,831 @@ reset role;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
+-- ---------------------------------------------------------------------
+-- A song for each student (0149).
+--
+-- A teacher sends one of their songs into two lesson rooms of their own
+-- and each gets its own copy: the words with their writers, the chords and
+-- word timings, and -- for a song marked ours that is hers -- the
+-- recording, copied to an object of the copy's own with its analysis,
+-- ready. A cover's copy carries the words and chords and no recording. A
+-- band's song she only edits is not hers to send at all: a song leaving
+-- its room is the room owner's decision, as putting it on the Open Mic is.
+-- Sending again sends nothing new, except to finish a copy whose recording
+-- never arrived, which comes back marked not fresh so the app does not
+-- count it. A lesson whose student has left is skipped; a room the teacher
+-- does not own is refused, null-safe, and one wrong room in a list sends
+-- nothing. Each student sees their own copy, can write in it, and cannot
+-- see the other's copy or the teacher's original.
+--
+-- The object itself is copied by Storage at the app's request, between
+-- the two halves. Here that copy is a storage.objects row written without
+-- a role, as the takedown block above writes one, because nobody holding a
+-- phone may write that table and SQL cannot copy a blob. Not here either:
+-- the storage read that lets the student hear it. It is
+-- room_files_read_members' first branch -- the object is under the
+-- student's own room -- and the shim grants storage.objects to
+-- service_role only, so a read as authenticated would be refused on the
+-- grant whatever the policy said (see 0148's block above).
+-- ---------------------------------------------------------------------
+
+reset role;
+
+-- Made fresh rather than borrowed, as 0143's block is: a refusal that
+-- happened for one of the older accounts' older reasons would look exactly
+-- like the refusal this block is checking.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('a5049149-0000-0000-0000-000000000001', 'the.voice.teacher@smoke.test',
+   '{"display_name": "Ms Rivera"}'),
+  ('a5049149-0000-0000-0000-000000000002', 'maya@smoke.test',
+   '{"display_name": "Maya"}'),
+  ('a5049149-0000-0000-0000-000000000003', 'jess.the.student@smoke.test',
+   '{"display_name": "Jess"}'),
+  ('a5049149-0000-0000-0000-000000000004', 'the.piano.teacher@smoke.test',
+   '{"display_name": "The Piano Teacher"}'),
+  ('a5049149-0000-0000-0000-000000000005', 'outside.the.studio@smoke.test',
+   '{"display_name": "Outside The Studio"}'),
+  ('a5049149-0000-0000-0000-000000000006', 'left.early@smoke.test',
+   '{"display_name": "Left Early"}'),
+  ('a5049149-0000-0000-0000-000000000007', 'blocked.the.teacher@smoke.test',
+   '{"display_name": "Blocked The Teacher"}');
+
+insert into public.rooms (id, account_id, name) values
+  -- The teacher's own studio shelf, where the songs to send live.
+  ('a5049149-0000-0000-0000-000000000010',
+   'a5049149-0000-0000-0000-000000000001', 'Rivera studio'),
+  -- Two lesson rooms of hers.
+  ('a5049149-0000-0000-0000-000000000011',
+   'a5049149-0000-0000-0000-000000000001', 'Voice lessons · Maya'),
+  ('a5049149-0000-0000-0000-000000000012',
+   'a5049149-0000-0000-0000-000000000001', 'Voice lessons · Jess'),
+  -- A band room she edits in but does not own.
+  ('a5049149-0000-0000-0000-000000000013',
+   'a5049149-0000-0000-0000-000000000004', 'The Band Room'),
+  -- Another teacher's lesson room, with the same student in it.
+  ('a5049149-0000-0000-0000-000000000014',
+   'a5049149-0000-0000-0000-000000000004', 'Piano lessons · Maya'),
+  -- A lesson of hers whose student left: the lesson_rooms row outlives
+  -- the membership (0129), so the room is still a lesson with nobody in it.
+  ('a5049149-0000-0000-0000-000000000015',
+   'a5049149-0000-0000-0000-000000000001', 'Voice lessons · Left Early'),
+  -- And one whose student has blocked her.
+  ('a5049149-0000-0000-0000-000000000016',
+   'a5049149-0000-0000-0000-000000000001', 'Voice lessons · Blocked The Teacher');
+
+-- Distinct colours, as every other room in this file (0006).
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('a5049149-0000-0000-0000-000000000010', 'a5049149-0000-0000-0000-000000000001',
+   'Ms Rivera', 'owner', 4294937170),
+  ('a5049149-0000-0000-0000-000000000011', 'a5049149-0000-0000-0000-000000000001',
+   'Ms Rivera', 'owner', 4294937171),
+  ('a5049149-0000-0000-0000-000000000011', 'a5049149-0000-0000-0000-000000000002',
+   'Maya', 'editor', 4283215701),
+  ('a5049149-0000-0000-0000-000000000012', 'a5049149-0000-0000-0000-000000000001',
+   'Ms Rivera', 'owner', 4294937172),
+  ('a5049149-0000-0000-0000-000000000012', 'a5049149-0000-0000-0000-000000000003',
+   'Jess', 'editor', 4283215702),
+  ('a5049149-0000-0000-0000-000000000013', 'a5049149-0000-0000-0000-000000000004',
+   'The Piano Teacher', 'owner', 4294937173),
+  ('a5049149-0000-0000-0000-000000000013', 'a5049149-0000-0000-0000-000000000001',
+   'Ms Rivera', 'editor', 4283215703),
+  ('a5049149-0000-0000-0000-000000000014', 'a5049149-0000-0000-0000-000000000004',
+   'The Piano Teacher', 'owner', 4294937174),
+  ('a5049149-0000-0000-0000-000000000014', 'a5049149-0000-0000-0000-000000000002',
+   'Maya', 'editor', 4283215704),
+  ('a5049149-0000-0000-0000-000000000015', 'a5049149-0000-0000-0000-000000000001',
+   'Ms Rivera', 'owner', 4294937175),
+  ('a5049149-0000-0000-0000-000000000016', 'a5049149-0000-0000-0000-000000000001',
+   'Ms Rivera', 'owner', 4294937176),
+  ('a5049149-0000-0000-0000-000000000016', 'a5049149-0000-0000-0000-000000000007',
+   'Blocked The Teacher', 'editor', 4283215707);
+
+insert into public.user_blocks (blocker_id, blocked_id) values
+  ('a5049149-0000-0000-0000-000000000007', 'a5049149-0000-0000-0000-000000000001');
+
+-- The lessons, written directly as 0143 writes them, because what is being
+-- checked is 0149's guard and not 0129's flow. The voice link is already
+-- closed: a teacher who took the poster down still teaches the people who
+-- scanned it.
+insert into public.lesson_links (id, teacher_id, code, title, closed_at) values
+  ('a5049149-0000-0000-0000-000000000020', 'a5049149-0000-0000-0000-000000000001',
+   '0149aaaabbbb', 'Voice lessons', now()),
+  ('a5049149-0000-0000-0000-000000000021', 'a5049149-0000-0000-0000-000000000004',
+   '0149ccccdddd', 'Piano lessons', null);
+insert into public.lesson_rooms (link_id, student_id, room_id) values
+  ('a5049149-0000-0000-0000-000000000020', 'a5049149-0000-0000-0000-000000000002',
+   'a5049149-0000-0000-0000-000000000011'),
+  ('a5049149-0000-0000-0000-000000000020', 'a5049149-0000-0000-0000-000000000003',
+   'a5049149-0000-0000-0000-000000000012'),
+  ('a5049149-0000-0000-0000-000000000021', 'a5049149-0000-0000-0000-000000000002',
+   'a5049149-0000-0000-0000-000000000014'),
+  ('a5049149-0000-0000-0000-000000000020', 'a5049149-0000-0000-0000-000000000006',
+   'a5049149-0000-0000-0000-000000000015'),
+  ('a5049149-0000-0000-0000-000000000020', 'a5049149-0000-0000-0000-000000000007',
+   'a5049149-0000-0000-0000-000000000016');
+
+-- Her own song, with a recording, its analysis, two lines with timings and
+-- two chords; a cover with the same shape; a song in a room she is not in
+-- at all; and the band's song, marked ours, with a recording the band
+-- attached, in the room she only edits.
+insert into public.projects (id, room_id, account_id, title, created_by, song_origin, key_override) values
+  ('a5049149-0000-0000-0000-000000000030', 'a5049149-0000-0000-0000-000000000010',
+   'a5049149-0000-0000-0000-000000000001', 'Caro mio ben',
+   'a5049149-0000-0000-0000-000000000001', 'ours', 'F major'),
+  ('a5049149-0000-0000-0000-000000000031', 'a5049149-0000-0000-0000-000000000010',
+   'a5049149-0000-0000-0000-000000000001', 'Somebody Else Wrote This',
+   'a5049149-0000-0000-0000-000000000001', 'cover', null),
+  ('a5049149-0000-0000-0000-000000000033', 'a5049149-0000-0000-0000-000000000014',
+   'a5049149-0000-0000-0000-000000000004', 'The Piano Song',
+   'a5049149-0000-0000-0000-000000000004', 'ours', null),
+  ('a5049149-0000-0000-0000-000000000034', 'a5049149-0000-0000-0000-000000000013',
+   'a5049149-0000-0000-0000-000000000004', 'The Band Song',
+   'a5049149-0000-0000-0000-000000000004', 'ours', null);
+
+insert into public.files (id, project_id, uploaded_by, storage_path, display_name, mime_type, byte_size, duration_ms, audio_sha256) values
+  ('a5049149-0000-0000-0000-000000000040', 'a5049149-0000-0000-0000-000000000030',
+   'a5049149-0000-0000-0000-000000000001',
+   'a5049149-0000-0000-0000-000000000010/a5049149-0000-0000-0000-000000000030/analysis/reference_1.mp3',
+   'reference.mp3', 'audio/mpeg', 5000000, 4000, 'sha-of-caro-mio-ben'),
+  ('a5049149-0000-0000-0000-000000000041', 'a5049149-0000-0000-0000-000000000031',
+   'a5049149-0000-0000-0000-000000000001',
+   'a5049149-0000-0000-0000-000000000010/a5049149-0000-0000-0000-000000000031/analysis/reference_1.mp3',
+   'reference.mp3', 'audio/mpeg', 5000000, 4000, 'sha-of-the-cover'),
+  ('a5049149-0000-0000-0000-000000000042', 'a5049149-0000-0000-0000-000000000034',
+   'a5049149-0000-0000-0000-000000000004',
+   'a5049149-0000-0000-0000-000000000013/a5049149-0000-0000-0000-000000000034/analysis/reference_1.mp3',
+   'band.mp3', 'audio/mpeg', 5000000, 4000, 'sha-of-the-band-song');
+
+insert into public.project_audio_references
+  (project_id, file_id, uploaded_by, analysis_state, duration_ms, bpm, musical_key, structure_sections)
+values
+  ('a5049149-0000-0000-0000-000000000030', 'a5049149-0000-0000-0000-000000000040',
+   'a5049149-0000-0000-0000-000000000001', 'ready', 4000, 72, 'F major',
+   '[{"startMs": 0, "endMs": 4000, "label": "Verse"}]'),
+  ('a5049149-0000-0000-0000-000000000031', 'a5049149-0000-0000-0000-000000000041',
+   'a5049149-0000-0000-0000-000000000001', 'ready', 4000, 100, 'G major', '[]'),
+  ('a5049149-0000-0000-0000-000000000034', 'a5049149-0000-0000-0000-000000000042',
+   'a5049149-0000-0000-0000-000000000004', 'ready', 4000, 120, 'A major', '[]');
+
+insert into public.contributions (id, project_id, author_id, author_name, body, color_value, position) values
+  ('a5049149-0000-0000-0000-000000000050', 'a5049149-0000-0000-0000-000000000030',
+   'a5049149-0000-0000-0000-000000000001', 'Ms Rivera', 'Caro mio ben', 4294937170, 1024),
+  ('a5049149-0000-0000-0000-000000000051', 'a5049149-0000-0000-0000-000000000030',
+   'a5049149-0000-0000-0000-000000000001', 'Ms Rivera', 'credimi almen', 4294937170, 2048),
+  ('a5049149-0000-0000-0000-000000000052', 'a5049149-0000-0000-0000-000000000031',
+   'a5049149-0000-0000-0000-000000000001', 'Ms Rivera', 'Words by somebody else', 4294937170, 1024),
+  ('a5049149-0000-0000-0000-000000000054', 'a5049149-0000-0000-0000-000000000034',
+   'a5049149-0000-0000-0000-000000000004', 'The Piano Teacher', 'The band wrote this', 4294937173, 1024);
+-- A line cut from the original stays cut: it is not part of the song.
+insert into public.contributions (id, project_id, author_id, author_name, body, color_value, position, deleted_at) values
+  ('a5049149-0000-0000-0000-000000000053', 'a5049149-0000-0000-0000-000000000030',
+   'a5049149-0000-0000-0000-000000000001', 'Ms Rivera', 'a line that was cut', 4294937170, 3072, now());
+
+insert into public.lyric_sync_cues (contribution_id, project_id, start_ms, end_ms, confidence) values
+  ('a5049149-0000-0000-0000-000000000050', 'a5049149-0000-0000-0000-000000000030', 0, 2000, 0.9),
+  ('a5049149-0000-0000-0000-000000000051', 'a5049149-0000-0000-0000-000000000030', 2000, 4000, 0.9);
+
+insert into public.chord_cues (project_id, start_ms, end_ms, chord) values
+  ('a5049149-0000-0000-0000-000000000030', 0, 2000, 'F:maj'),
+  ('a5049149-0000-0000-0000-000000000030', 2000, 4000, 'C:maj'),
+  ('a5049149-0000-0000-0000-000000000031', 0, 2000, 'G:maj'),
+  ('a5049149-0000-0000-0000-000000000034', 0, 4000, 'A:maj');
+
+-- Her own take on the song, which is hers and goes nowhere.
+insert into public.song_layers
+  (project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values
+  ('a5049149-0000-0000-0000-000000000030', 'a5049149-0000-0000-0000-000000000001',
+   'a5049149-0000-0000-0000-000000000010/a5049149-0000-0000-0000-000000000030/layers/guide.m4a',
+   'Guide', 'vocal', 4000, now());
+
+set local request.jwt.claims = '{"sub": "a5049149-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  sent record;
+  arrived integer := 0;
+  maya_copy uuid;
+  jess_copy uuid;
+  cover_copy uuid;
+begin
+  for sent in
+    select * from public.send_song_to_students(
+      'a5049149-0000-0000-0000-000000000030',
+      array['a5049149-0000-0000-0000-000000000011',
+            'a5049149-0000-0000-0000-000000000012']::uuid[])
+  loop
+    arrived := arrived + 1;
+    if sent.to_room = 'a5049149-0000-0000-0000-000000000011' then
+      maya_copy := sent.song_copy;
+    elsif sent.to_room = 'a5049149-0000-0000-0000-000000000012' then
+      jess_copy := sent.song_copy;
+    else
+      raise exception 'a copy went to a room nobody asked for (%)', sent.to_room;
+    end if;
+    -- A copy made now is fresh: it is what the app counts.
+    if sent.fresh is distinct from true then
+      raise exception 'a copy made now was not said to be fresh';
+    end if;
+    -- The recording to copy: hers, ours, and there, so it follows.
+    if sent.recording is distinct from
+       'a5049149-0000-0000-0000-000000000010/a5049149-0000-0000-0000-000000000030/analysis/reference_1.mp3' then
+      raise exception 'the send did not say which recording follows (got %)',
+        coalesce(sent.recording, '<null>');
+    end if;
+  end loop;
+  if arrived <> 2 or maya_copy is null or jess_copy is null then
+    raise exception 'sending to two students did not come back with two copies (%)', arrived;
+  end if;
+  perform set_config('smoke.maya_copy', maya_copy::text, true);
+  perform set_config('smoke.jess_copy', jess_copy::text, true);
+
+  -- Each copy is in its room, in the teacher's account, named for the
+  -- student because the original already has the title in this account,
+  -- and remembers where it came from and whose song it is.
+  if (select p.room_id from public.projects p where p.id = maya_copy)
+     <> 'a5049149-0000-0000-0000-000000000011' then
+    raise exception 'the copy is not in the student''s lesson room';
+  end if;
+  if (select p.account_id from public.projects p where p.id = maya_copy)
+     <> 'a5049149-0000-0000-0000-000000000001' then
+    raise exception 'the copy does not belong to the teacher''s account';
+  end if;
+  if (select p.title from public.projects p where p.id = maya_copy) <> 'Caro mio ben · Maya' then
+    raise exception 'the copy is not named for the student (got %)',
+      (select p.title from public.projects p where p.id = maya_copy);
+  end if;
+  if (select p.title from public.projects p where p.id = jess_copy) <> 'Caro mio ben · Jess' then
+    raise exception 'the second copy is not named for its student (got %)',
+      (select p.title from public.projects p where p.id = jess_copy);
+  end if;
+  if (select p.copied_from from public.projects p where p.id = maya_copy)
+     is distinct from 'a5049149-0000-0000-0000-000000000030'::uuid then
+    raise exception 'the copy does not say which song it was copied from';
+  end if;
+  if (select p.song_origin from public.projects p where p.id = maya_copy) is distinct from 'ours' then
+    raise exception 'the copy forgot whose song it is';
+  end if;
+  if (select p.key_override from public.projects p where p.id = maya_copy) is distinct from 'F major' then
+    raise exception 'the copy forgot the band''s key';
+  end if;
+  if (select p.open_mic_at from public.projects p where p.id = maya_copy) is not null then
+    raise exception 'a copy arrived on the Open Mic';
+  end if;
+
+  -- The words, in order, each with its writer, under ids of their own; the
+  -- cut line stays cut.
+  if (select string_agg(c.body, ' / ' order by c.position)
+      from public.contributions c where c.project_id = maya_copy and c.deleted_at is null)
+     <> 'Caro mio ben / credimi almen' then
+    raise exception 'the copy''s words are not the song''s words in order (got %)',
+      (select string_agg(c.body, ' / ' order by c.position)
+       from public.contributions c where c.project_id = maya_copy);
+  end if;
+  if exists (select 1 from public.contributions c
+             where c.project_id = maya_copy and c.body = 'a line that was cut') then
+    raise exception 'a cut line came back in the copy';
+  end if;
+  if exists (select 1 from public.contributions c
+             where c.project_id = maya_copy
+               and c.id in ('a5049149-0000-0000-0000-000000000050',
+                            'a5049149-0000-0000-0000-000000000051')) then
+    raise exception 'the copy reuses the original''s line ids';
+  end if;
+  if (select c.author_name from public.contributions c
+      where c.project_id = maya_copy and c.position = 1024) <> 'Ms Rivera' then
+    raise exception 'a line lost its writer in the copy';
+  end if;
+  if (select c.revision from public.contributions c
+      where c.project_id = maya_copy and c.position = 1024) <> 1 then
+    raise exception 'a copied line did not start its history afresh';
+  end if;
+
+  -- The timings followed each line under its new id, and the chords went.
+  if (select count(*) from public.lyric_sync_cues cue where cue.project_id = maya_copy) <> 2 then
+    raise exception 'the word timings did not follow the words';
+  end if;
+  if (select cue.start_ms from public.lyric_sync_cues cue
+      join public.contributions c on c.id = cue.contribution_id
+      where c.project_id = maya_copy and c.body = 'credimi almen') <> 2000 then
+    raise exception 'a timing followed the wrong line';
+  end if;
+  if (select string_agg(cue.chord, ' ' order by cue.start_ms)
+      from public.chord_cues cue where cue.project_id = maya_copy) <> 'F:maj C:maj' then
+    raise exception 'the chords did not go with the copy';
+  end if;
+
+  -- No recording yet: Storage has not copied the object, so the copy says
+  -- so rather than pointing at somebody else's.
+  if exists (select 1 from public.files f where f.project_id = maya_copy)
+     or exists (select 1 from public.project_audio_references r where r.project_id = maya_copy) then
+    raise exception 'the copy has a recording before Storage copied one';
+  end if;
+
+  -- Nobody's take, and nothing of the original touched.
+  if exists (select 1 from public.song_layers l where l.project_id = maya_copy) then
+    raise exception 'a take was copied';
+  end if;
+  if (select count(*) from public.contributions c
+      where c.project_id = 'a5049149-0000-0000-0000-000000000030' and c.deleted_at is null) <> 2
+     or (select count(*) from public.files f
+         where f.project_id = 'a5049149-0000-0000-0000-000000000030') <> 1
+     or (select p.room_id from public.projects p
+         where p.id = 'a5049149-0000-0000-0000-000000000030')
+        <> 'a5049149-0000-0000-0000-000000000010' then
+    raise exception 'sending a song changed the original';
+  end if;
+
+  -- The song's own room is skipped rather than refused: it is already there.
+  if (select count(*) from public.send_song_to_students(
+        'a5049149-0000-0000-0000-000000000030',
+        array['a5049149-0000-0000-0000-000000000010']::uuid[])) <> 0 then
+    raise exception 'a song was sent into the room it is already in';
+  end if;
+
+  -- A lesson with nobody in it is skipped, not refused: the student who
+  -- left, and the one who blocked her.
+  if (select count(*) from public.send_song_to_students(
+        'a5049149-0000-0000-0000-000000000030',
+        array['a5049149-0000-0000-0000-000000000015',
+              'a5049149-0000-0000-0000-000000000016']::uuid[])) <> 0 then
+    raise exception 'a song was sent to a student who is not there';
+  end if;
+  if exists (select 1 from public.projects p
+             where p.room_id in ('a5049149-0000-0000-0000-000000000015',
+                                 'a5049149-0000-0000-0000-000000000016')) then
+    raise exception 'a copy was left in an empty lesson';
+  end if;
+
+  -- A cover copies without its recording: the words and the chords go,
+  -- nothing that plays does, and the send says nothing follows.
+  arrived := 0;
+  for sent in
+    select * from public.send_song_to_students(
+      'a5049149-0000-0000-0000-000000000031',
+      array['a5049149-0000-0000-0000-000000000011']::uuid[])
+  loop
+    arrived := arrived + 1;
+    cover_copy := sent.song_copy;
+    if sent.recording is not null then
+      raise exception 'a cover''s recording was offered to follow it';
+    end if;
+    if sent.fresh is distinct from true then
+      raise exception 'a cover''s copy made now was not said to be fresh';
+    end if;
+  end loop;
+  if arrived <> 1 or cover_copy is null then
+    raise exception 'a cover did not copy';
+  end if;
+  perform set_config('smoke.cover_copy', cover_copy::text, true);
+  if exists (select 1 from public.files f where f.project_id = cover_copy)
+     or exists (select 1 from public.project_audio_references r where r.project_id = cover_copy) then
+    raise exception 'a cover''s recording was copied';
+  end if;
+  if (select p.song_origin from public.projects p where p.id = cover_copy) is distinct from 'cover' then
+    raise exception 'the copy of a cover forgot it is one';
+  end if;
+  if (select count(*) from public.contributions c where c.project_id = cover_copy) <> 1
+     or (select count(*) from public.chord_cues cue where cue.project_id = cover_copy) <> 1 then
+    raise exception 'a cover''s words and chords did not go';
+  end if;
+  -- Again, with an empty lesson in the list: nothing new, nothing refused,
+  -- and still one copy a room.
+  if (select count(*) from public.send_song_to_students(
+        'a5049149-0000-0000-0000-000000000031',
+        array['a5049149-0000-0000-0000-000000000015',
+              'a5049149-0000-0000-0000-000000000011']::uuid[])) <> 0 then
+    raise exception 'sending the same cover again sent it again';
+  end if;
+  if (select count(*) from public.projects p
+      where p.room_id = 'a5049149-0000-0000-0000-000000000011'
+        and p.copied_from = 'a5049149-0000-0000-0000-000000000031'
+        and p.deleted_at is null) <> 1 then
+    raise exception 'a student has two copies of one song';
+  end if;
+
+  -- The band's song, which she edits but does not own: not hers to send,
+  -- words, chords or recording. She can write on it; deciding that her
+  -- students' rooms may have it is the band's owner's decision, the way
+  -- putting it on the Open Mic is (0142). Nothing of it reaches Maya.
+  begin
+    perform public.send_song_to_students(
+      'a5049149-0000-0000-0000-000000000034',
+      array['a5049149-0000-0000-0000-000000000011']::uuid[]);
+    raise exception 'an editor sent the band''s song to their students';
+  exception when insufficient_privilege then null;
+  end;
+  if exists (select 1 from public.projects p
+             where p.copied_from = 'a5049149-0000-0000-0000-000000000034') then
+    raise exception 'a refused send of the band''s song left a copy behind';
+  end if;
+
+  -- Refused: a room she edits but does not own; another teacher's lesson;
+  -- a null room; nothing at all; a song she cannot write on.
+  begin
+    perform public.send_song_to_students(
+      'a5049149-0000-0000-0000-000000000030',
+      array['a5049149-0000-0000-0000-000000000013']::uuid[]);
+    raise exception 'a song was sent into a room the teacher does not own';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.send_song_to_students(
+      'a5049149-0000-0000-0000-000000000030',
+      array['a5049149-0000-0000-0000-000000000014']::uuid[]);
+    raise exception 'a song was sent into another teacher''s lesson';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.send_song_to_students(
+      'a5049149-0000-0000-0000-000000000030',
+      array[null::uuid]);
+    raise exception 'a song was sent into a room that is nothing';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.send_song_to_students(
+      'a5049149-0000-0000-0000-000000000030', null::uuid[]);
+    raise exception 'a song was sent to nobody';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.send_song_to_students(
+      'a5049149-0000-0000-0000-000000000030', array[]::uuid[]);
+    raise exception 'a song was sent to an empty list';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.send_song_to_students(
+      null, array['a5049149-0000-0000-0000-000000000011']::uuid[]);
+    raise exception 'nothing was sent as a song';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.send_song_to_students(
+      'a5049149-0000-0000-0000-000000000033',
+      array['a5049149-0000-0000-0000-000000000011']::uuid[]);
+    raise exception 'a teacher sent a song from a room they are not in';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- One wrong room in a list sends nothing: the cover was never sent to
+  -- Jess, and the refusal on the band room takes that with it.
+  begin
+    perform public.send_song_to_students(
+      'a5049149-0000-0000-0000-000000000031',
+      array['a5049149-0000-0000-0000-000000000012',
+            'a5049149-0000-0000-0000-000000000013']::uuid[]);
+    raise exception 'a list with a wrong room in it sent to the right one';
+  exception when insufficient_privilege then null;
+  end;
+  if exists (select 1 from public.projects p
+             where p.room_id = 'a5049149-0000-0000-0000-000000000012'
+               and p.copied_from = 'a5049149-0000-0000-0000-000000000031') then
+    raise exception 'a refused send left half of itself behind';
+  end if;
+end $$;
+
+-- The object, copied by Storage at the app's request. Written without a
+-- role, as the takedown block above writes one, because nobody holding a
+-- phone may write this table; Maya's arrives now, Jess's not yet.
+reset role;
+
+do $$
+begin
+  perform set_config('smoke.maya_path',
+    'a5049149-0000-0000-0000-000000000011/' || current_setting('smoke.maya_copy')
+      || '/analysis/reference_1.mp3', true);
+  perform set_config('smoke.jess_path',
+    'a5049149-0000-0000-0000-000000000012/' || current_setting('smoke.jess_copy')
+      || '/analysis/reference_1.mp3', true);
+  insert into storage.objects (bucket_id, name, owner)
+  values ('room-files', current_setting('smoke.maya_path'),
+          'a5049149-0000-0000-0000-000000000001')
+  on conflict do nothing;
+end $$;
+
+set local request.jwt.claims = '{"sub": "a5049149-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  maya_copy uuid := current_setting('smoke.maya_copy')::uuid;
+  jess_copy uuid := current_setting('smoke.jess_copy')::uuid;
+  maya_path text := current_setting('smoke.maya_path');
+  jess_path text := current_setting('smoke.jess_path');
+  sent record;
+  arrived integer := 0;
+begin
+  -- The second half: a files row of the copy's own, naming the copy's own
+  -- object and carrying the hash the cache is keyed by, and the analysis
+  -- carried over, ready, on a reference row of the copy's own. It says it
+  -- wrote them.
+  if not public.attach_sent_recording(maya_copy, maya_path) then
+    raise exception 'attaching the recording said it wrote nothing';
+  end if;
+  if (select count(*) from public.files f where f.project_id = maya_copy) <> 1 then
+    raise exception 'the copy does not have exactly one recording';
+  end if;
+  if (select f.storage_path from public.files f where f.project_id = maya_copy) <> maya_path then
+    raise exception 'the copy''s recording is not its own object';
+  end if;
+  if (select f.storage_path from public.files f where f.project_id = maya_copy)
+     = (select f.storage_path from public.files f where f.id = 'a5049149-0000-0000-0000-000000000040') then
+    raise exception 'the copy''s files row names the teacher''s object';
+  end if;
+  if (select f.audio_sha256 from public.files f where f.project_id = maya_copy)
+     <> 'sha-of-caro-mio-ben' then
+    raise exception 'the copy''s recording lost the hash the cache is keyed by';
+  end if;
+  if (select r.analysis_state from public.project_audio_references r where r.project_id = maya_copy)
+     <> 'ready' then
+    raise exception 'the copy''s analysis is not ready';
+  end if;
+  if (select r.bpm from public.project_audio_references r where r.project_id = maya_copy) <> 72 then
+    raise exception 'the analysis did not go with the copy';
+  end if;
+  if (select r.file_id from public.project_audio_references r where r.project_id = maya_copy)
+     = 'a5049149-0000-0000-0000-000000000040' then
+    raise exception 'the copy''s reference points at the original''s files row';
+  end if;
+
+  -- Attached twice, the second does nothing and says so: the object the
+  -- app copied for it is not the one the copy plays.
+  if public.attach_sent_recording(maya_copy, maya_path) then
+    raise exception 'attaching the recording twice said it wrote it again';
+  end if;
+  if (select count(*) from public.files f where f.project_id = maya_copy) <> 1 then
+    raise exception 'attaching the recording twice put two on the copy';
+  end if;
+
+  -- Sending again finishes Jess's copy, whose recording never arrived, and
+  -- leaves Maya's alone: one row back, the same copy, the same recording,
+  -- and not fresh, because Jess has had the song since it was sent.
+  for sent in
+    select * from public.send_song_to_students(
+      'a5049149-0000-0000-0000-000000000030',
+      array['a5049149-0000-0000-0000-000000000011',
+            'a5049149-0000-0000-0000-000000000012']::uuid[])
+  loop
+    arrived := arrived + 1;
+    if sent.song_copy is distinct from jess_copy
+       or sent.to_room <> 'a5049149-0000-0000-0000-000000000012' then
+      raise exception 'sending again made a second copy (% in %)', sent.song_copy, sent.to_room;
+    end if;
+    if sent.recording is distinct from
+       'a5049149-0000-0000-0000-000000000010/a5049149-0000-0000-0000-000000000030/analysis/reference_1.mp3' then
+      raise exception 'sending again did not say which recording still has to follow';
+    end if;
+    if sent.fresh is distinct from false then
+      raise exception 'a copy handed back to be finished was said to be fresh';
+    end if;
+  end loop;
+  if arrived <> 1 then
+    raise exception 'sending again did not hand back the one copy still waiting (%)', arrived;
+  end if;
+  if (select count(*) from public.projects p
+      where p.room_id = 'a5049149-0000-0000-0000-000000000012'
+        and p.copied_from = 'a5049149-0000-0000-0000-000000000030'
+        and p.deleted_at is null) <> 1 then
+    raise exception 'a student has two copies of one song';
+  end if;
+  if not public.attach_sent_recording(jess_copy, jess_path) then
+    raise exception 'finishing the second copy''s recording wrote nothing';
+  end if;
+  -- And now nothing is waiting.
+  if (select count(*) from public.send_song_to_students(
+        'a5049149-0000-0000-0000-000000000030',
+        array['a5049149-0000-0000-0000-000000000011',
+              'a5049149-0000-0000-0000-000000000012']::uuid[])) <> 0 then
+    raise exception 'sending the same song again sent it again';
+  end if;
+
+  -- Refused: a path outside the copy's own folder, which is how a row
+  -- could come to name any object at all; the folder itself; a cover's
+  -- copy; a song that was written rather than sent; nothing.
+  begin
+    perform public.attach_sent_recording(
+      current_setting('smoke.cover_copy')::uuid,
+      'a5049149-0000-0000-0000-000000000010/a5049149-0000-0000-0000-000000000030/analysis/reference_1.mp3');
+    raise exception 'a recording was attached from outside the copy''s folder';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.attach_sent_recording(
+      current_setting('smoke.cover_copy')::uuid,
+      'a5049149-0000-0000-0000-000000000011/' || current_setting('smoke.cover_copy') || '/');
+    raise exception 'a folder was attached as a recording';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.attach_sent_recording(
+      current_setting('smoke.cover_copy')::uuid,
+      'a5049149-0000-0000-0000-000000000011/' || current_setting('smoke.cover_copy')
+        || '/analysis/reference_1.mp3');
+    raise exception 'a cover''s recording was attached to its copy';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.attach_sent_recording(
+      'a5049149-0000-0000-0000-000000000030',
+      'a5049149-0000-0000-0000-000000000010/a5049149-0000-0000-0000-000000000030/analysis/reference_2.mp3');
+    raise exception 'a recording was attached to a song that was never sent';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.attach_sent_recording(null, maya_path);
+    raise exception 'a recording was attached to nothing';
+  exception when insufficient_privilege then null;
+  end;
+  if exists (select 1 from public.files f
+             where f.project_id = current_setting('smoke.cover_copy')::uuid) then
+    raise exception 'a refused attach left a files row behind';
+  end if;
+
+  -- The original still names its own object, and only that.
+  if (select count(*) from public.files f
+      where f.project_id = 'a5049149-0000-0000-0000-000000000030') <> 1
+     or (select f.storage_path from public.files f where f.id = 'a5049149-0000-0000-0000-000000000040')
+        <> 'a5049149-0000-0000-0000-000000000010/a5049149-0000-0000-0000-000000000030/analysis/reference_1.mp3' then
+    raise exception 'attaching recordings to copies changed the original';
+  end if;
+end $$;
+
+-- Each student is told, through the switch that covers somebody doing
+-- something to one of their songs. Read without a role, as 0129's block
+-- reads the teacher's: notifications are read-own, and the switch lives in
+-- a schema a phone cannot call into.
+reset role;
+
+do $$
+begin
+  if private.wants_project_updates('a5049149-0000-0000-0000-000000000002')
+     and not exists (
+       select 1 from public.notifications n
+       where n.user_id = 'a5049149-0000-0000-0000-000000000002'
+         and n.type = 'project_update'
+         and n.project_id = current_setting('smoke.maya_copy')::uuid
+         and n.room_id = 'a5049149-0000-0000-0000-000000000011'
+         and n.actor_id = 'a5049149-0000-0000-0000-000000000001'
+     ) then
+    raise exception 'the student was not told a song arrived';
+  end if;
+  -- And told that once. The words go in line by line, and a trigger on
+  -- contributions that told the room about each line -- 0018 had one, 0046
+  -- took it out -- would say "added to" twenty times over a song that did
+  -- not exist a moment ago. Whatever the switch says, nothing but the
+  -- arrival reaches the student.
+  if (select count(*) from public.notifications n
+      where n.user_id = 'a5049149-0000-0000-0000-000000000002'
+        and n.project_id = current_setting('smoke.maya_copy')::uuid) > 1
+     or exists (
+       select 1 from public.notifications n
+       where n.user_id = 'a5049149-0000-0000-0000-000000000002'
+         and n.project_id = current_setting('smoke.maya_copy')::uuid
+         and n.title not like '% sent you a song'
+     ) then
+    raise exception 'the student was told more than that a song arrived';
+  end if;
+  -- Jess's copy was handed back once to finish its recording; she was not
+  -- told a second time about a song she already had.
+  if (select count(*) from public.notifications n
+      where n.user_id = 'a5049149-0000-0000-0000-000000000003'
+        and n.project_id = current_setting('smoke.jess_copy')::uuid) > 1 then
+    raise exception 'the student was told twice about one song';
+  end if;
+  if exists (
+    select 1 from public.notifications n
+    where n.user_id = 'a5049149-0000-0000-0000-000000000001'
+      and n.project_id in (current_setting('smoke.maya_copy')::uuid,
+                           current_setting('smoke.jess_copy')::uuid)
+  ) then
+    raise exception 'the teacher was told about their own send';
+  end if;
+end $$;
+
+-- Maya sees her copy and nobody else's, can write in it, and can send
+-- nothing: the lesson runs one way.
+set local request.jwt.claims = '{"sub": "a5049149-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+declare
+  mine uuid := current_setting('smoke.maya_copy')::uuid;
+  theirs uuid := current_setting('smoke.jess_copy')::uuid;
+begin
+  if not exists (select 1 from public.projects p where p.id = mine) then
+    raise exception 'the student cannot see the song sent to them';
+  end if;
+  if exists (select 1 from public.projects p where p.id = theirs) then
+    raise exception 'a student can see another student''s copy';
+  end if;
+  if exists (select 1 from public.projects p where p.id = 'a5049149-0000-0000-0000-000000000030') then
+    raise exception 'a student can see the teacher''s original';
+  end if;
+  if (select count(*) from public.contributions c where c.project_id = mine) <> 2 then
+    raise exception 'the student cannot read the words on their copy';
+  end if;
+  if exists (select 1 from public.contributions c where c.project_id = theirs) then
+    raise exception 'a student can read another student''s words';
+  end if;
+  if not exists (select 1 from public.project_audio_references r where r.project_id = mine)
+     or not exists (select 1 from public.files f where f.project_id = mine) then
+    raise exception 'the student cannot see the recording on their copy';
+  end if;
+  -- The recording she sees is under her own room, not the teacher's: what
+  -- she can delete from her copy is hers alone.
+  if (select f.storage_path from public.files f where f.project_id = mine)
+     not like 'a5049149-0000-0000-0000-000000000011/%' then
+    raise exception 'the student''s recording is not in the student''s room';
+  end if;
+  if exists (select 1 from public.files f where f.id = 'a5049149-0000-0000-0000-000000000040') then
+    raise exception 'a student can see the original''s recording row';
+  end if;
+  if exists (select 1 from public.song_layers l
+             where l.project_id = 'a5049149-0000-0000-0000-000000000030') then
+    raise exception 'a student can hear the teacher''s own take';
+  end if;
+
+  -- Their copy is theirs to write in.
+  insert into public.contributions (project_id, author_id, author_name, body, position)
+  values (mine, 'a5049149-0000-0000-0000-000000000002', 'Maya', 'a breath before credimi', 3072);
+  if (select count(*) from public.contributions c where c.project_id = mine) <> 3 then
+    raise exception 'the student could not write in their copy';
+  end if;
+
+  begin
+    perform public.send_song_to_students(mine, array[theirs]::uuid[]);
+    raise exception 'a student sent a song';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.send_song_to_students(
+      mine, array['a5049149-0000-0000-0000-000000000011']::uuid[]);
+    raise exception 'a student sent a song into their own lesson';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.attach_sent_recording(
+      current_setting('smoke.cover_copy')::uuid,
+      'a5049149-0000-0000-0000-000000000011/' || current_setting('smoke.cover_copy')
+        || '/analysis/reference_1.mp3');
+    raise exception 'a student attached a recording to a copy';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Jess, likewise, sees only hers.
+reset role;
+set local request.jwt.claims = '{"sub": "a5049149-0000-0000-0000-000000000003"}';
+set local role authenticated;
+
+do $$
+begin
+  if not exists (select 1 from public.projects p
+                 where p.id = current_setting('smoke.jess_copy')::uuid) then
+    raise exception 'the second student cannot see the song sent to them';
+  end if;
+  if exists (select 1 from public.projects p
+             where p.id = current_setting('smoke.maya_copy')::uuid) then
+    raise exception 'the second student can see the first student''s copy';
+  end if;
+  if exists (select 1 from public.files f
+             where f.project_id = current_setting('smoke.maya_copy')::uuid) then
+    raise exception 'the second student can see the first student''s recording';
+  end if;
+end $$;
+
+-- Somebody with a valid token and nothing to do with any of it.
+reset role;
+set local request.jwt.claims = '{"sub": "a5049149-0000-0000-0000-000000000005"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.send_song_to_students(
+      'a5049149-0000-0000-0000-000000000030',
+      array['a5049149-0000-0000-0000-000000000011']::uuid[]);
+    raise exception 'a stranger sent somebody else''s song';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.attach_sent_recording(
+      current_setting('smoke.maya_copy')::uuid, current_setting('smoke.maya_path'));
+    raise exception 'a stranger attached a recording to somebody''s copy';
+  exception when insufficient_privilege then null;
+  end;
+  if exists (select 1 from public.projects p
+             where p.id in ('a5049149-0000-0000-0000-000000000030',
+                            current_setting('smoke.maya_copy')::uuid)) then
+    raise exception 'a stranger can see the teacher''s songs';
+  end if;
+end $$;
+
+reset role;
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
 commit;

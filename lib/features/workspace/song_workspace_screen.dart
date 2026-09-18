@@ -30,6 +30,7 @@ import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/microphone_disclosure.dart';
 import '../../widgets/on_this_phone_mark.dart';
 import '../lessons/leaving_practice.dart';
+import '../lessons/sending_a_song.dart';
 import 'continuous_song_editor.dart';
 import 'cut_lines_sheet.dart';
 import 'line_reconciliation.dart';
@@ -83,6 +84,10 @@ enum _SongMenuAction {
   /// Offered only to a teacher, and only in a lesson room of their own
   /// (0143). Everywhere else the entry is not in the menu at all.
   leavePractice,
+
+  /// A copy of this song into each chosen student's lesson room (0149).
+  /// Offered only to somebody who teaches, on a song they can write on.
+  sendToStudents,
 }
 
 /// What the middle of the song is showing.
@@ -191,6 +196,11 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   /// Null everywhere else, which is almost everywhere.
   ({String id, String name})? _leaveFor;
 
+  /// The lessons this song could be sent into (0149): every room this
+  /// person teaches, by name, when they can write on the song. Empty for
+  /// almost everybody, which keeps the entry out of the menu.
+  List<({String id, String name})> _sendTo = const <({String id, String name})>[];
+
   final ScrollController _contributionScroll = ScrollController();
   final ContinuousSongEditorController _continuousController = ContinuousSongEditorController();
   final SpeechToText _speech = SpeechToText();
@@ -250,6 +260,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     KeptSongs.changes.addListener(_keptSongsChanged);
     unawaited(_loadAudience());
     unawaited(_loadLessonStudent());
+    unawaited(_loadStudentsToSendTo());
     // Listening before joining, so a leader heard in the first second is
     // not missed.
     _together.addListener(_togetherChanged);
@@ -305,6 +316,81 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     } catch (_) {
       // Silent on purpose. Nothing here is worth a sentence on the song: the
       // menu keeps the entries it already had.
+    }
+  }
+
+  /// Which lessons this song could go to (0149), loaded the same way and
+  /// for the same reasons as the student above: never awaited, and silent
+  /// when it cannot be answered. Asked of the controller, which remembers
+  /// the answer for the session, so that opening a song does not cost a
+  /// request for the nearly-everybody who teaches nobody.
+  Future<void> _loadStudentsToSendTo() async {
+    final controller = BetaScope.maybeOf(context, listen: false);
+    if (controller == null) return;
+    try {
+      final taught = await controller.lessonRoomsTaught();
+      if (!mounted) return;
+      final rooms = lessonRoomsToSendTo(
+        taught: taught,
+        rooms: controller.rooms,
+        me: controller.meOrNobody,
+        songRoom: controller.roomForProject(widget.projectId),
+      );
+      if (rooms.length != _sendTo.length ||
+          rooms.indexed.any((entry) => entry.$2.id != _sendTo[entry.$1].id)) {
+        setState(() => _sendTo = rooms);
+      }
+    } catch (_) {
+      // Silent on purpose, as above.
+    }
+  }
+
+  /// A copy of this song into each ticked lesson (0149).
+  ///
+  /// Whose song it is gets asked first if nobody has been asked yet, the
+  /// way the audience dial asks it: sending to students is the first time
+  /// this song is heard outside its room, and the answer decides whether
+  /// the recording goes with it (0142). The repository does the copying;
+  /// what is said back is the one sentence with the one number in it.
+  Future<void> _sendToStudents(SongProject project) async {
+    final rooms = _sendTo;
+    if (rooms.isEmpty) return;
+    final controller = BetaScope.of(context, listen: false);
+    var origin = project.songOrigin;
+    if (origin == null) {
+      origin = await showWhoseSongSheet(context, songTitle: project.title);
+      // Dismissed without answering. The send waits rather than happening
+      // on an assumption, and the question comes back next time.
+      if (origin == null || !mounted) return;
+      if (!await _saveSongOrigin(project, origin) || !mounted) return;
+    }
+    final chosen = await showSendToStudents(
+      context,
+      songTitle: project.title,
+      rooms: rooms,
+      origin: origin,
+    );
+    if (chosen == null || chosen.isEmpty || !mounted) return;
+    try {
+      final sent = await controller.repository.sendSongToStudents(
+        projectId: project.id,
+        roomIds: chosen,
+      );
+      // The copies live in other rooms of this person's, so the library is
+      // read again rather than spliced: a song this device has not seen
+      // before has nothing to splice into (refreshProject says the same).
+      await controller.load();
+      if (!mounted) return;
+      _showMessage(sentSaid(sent.length));
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(reportAndDescribe(
+        error,
+        service: 'app',
+        stage: 'send_song_to_students',
+        route: 'Song',
+        projectId: project.id,
+      ));
     }
   }
 
@@ -1398,6 +1484,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       await _leavePractice(project);
       return;
     }
+    if (action == _SongMenuAction.sendToStudents) {
+      await _sendToStudents(project);
+      return;
+    }
     if (action == _SongMenuAction.markFinished) {
       await _markFinished(project);
       return;
@@ -1423,6 +1513,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         case _SongMenuAction.whoseSong:
         case _SongMenuAction.keepHere:
         case _SongMenuAction.leavePractice:
+        case _SongMenuAction.sendToStudents:
         case _SongMenuAction.cutLines:
           // Handled above, before this switch, because it opens a sheet
           // rather than producing an export.
@@ -2058,6 +2149,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 leavePracticeFor: _leaveFor?.name,
                 keptHere: _keptHere,
                 keepingHere: _keepingHere,
+                sendToStudents: _sendTo.isNotEmpty,
               )
             : Column(
                 children: <Widget>[
@@ -2073,6 +2165,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     leavePracticeFor: _leaveFor?.name,
                     keptHere: _keptHere,
                     keepingHere: _keepingHere,
+                    sendToStudents: _sendTo.isNotEmpty,
                   ),
                   _WorkspaceToolbar(
                     onOpenLayers: () => _openLayers(project),
@@ -2224,6 +2317,7 @@ class _PortraitProjectHeader extends StatelessWidget {
     this.leavePracticeFor,
     this.keptHere,
     this.keepingHere = false,
+    this.sendToStudents = false,
   });
 
   final SongProject project;
@@ -2245,6 +2339,10 @@ class _PortraitProjectHeader extends StatelessWidget {
   /// True while a keep is running, when the menu says so instead of
   /// offering another.
   final bool keepingHere;
+
+  /// Whether this person has lessons to send the song into (0149). False
+  /// for nearly everybody, and then the entry is not in the menu at all.
+  final bool sendToStudents;
 
   @override
   Widget build(BuildContext context) {
@@ -2315,20 +2413,32 @@ class _PortraitProjectHeader extends StatelessWidget {
             tooltip: 'Song options',
             onSelected: onExport,
             itemBuilder: (_) => <PopupMenuEntry<_SongMenuAction>>[
-              // First, and only in a lesson: it is the one thing in this menu
-              // that reaches another person's week.
-              if (leavePracticeFor != null) ...<PopupMenuEntry<_SongMenuAction>>[
-                PopupMenuItem<_SongMenuAction>(
-                  key: const Key('song_leave_practice'),
-                  value: _SongMenuAction.leavePractice,
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.repeat_rounded),
-                    title: Text(leavePracticeLabel(leavePracticeFor!)),
-                  ),
-                ),
-                const PopupMenuDivider(),
-              ],
+              // First, and only for a teacher: these are the entries that
+              // reach another person's week.
+              if (leavePracticeFor != null || sendToStudents)
+                ...<PopupMenuEntry<_SongMenuAction>>[
+                  if (leavePracticeFor != null)
+                    PopupMenuItem<_SongMenuAction>(
+                      key: const Key('song_leave_practice'),
+                      value: _SongMenuAction.leavePractice,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.repeat_rounded),
+                        title: Text(leavePracticeLabel(leavePracticeFor!)),
+                      ),
+                    ),
+                  if (sendToStudents)
+                    const PopupMenuItem<_SongMenuAction>(
+                      key: Key('song_send_to_students'),
+                      value: _SongMenuAction.sendToStudents,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.school_outlined),
+                        title: Text(sendToStudentsLabel),
+                      ),
+                    ),
+                  const PopupMenuDivider(),
+                ],
               const PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.tell,
                 child: ListTile(
@@ -2450,6 +2560,7 @@ class _LandscapeWorkspace extends StatelessWidget {
     this.leavePracticeFor,
     this.keptHere,
     this.keepingHere = false,
+    this.sendToStudents = false,
     super.key,
   });
 
@@ -2489,6 +2600,10 @@ class _LandscapeWorkspace extends StatelessWidget {
   /// the same entry as portrait, so a teacher at a desk is not quietly given
   /// a smaller app than the same teacher on a phone.
   final String? leavePracticeFor;
+
+  /// Whether this person has lessons to send the song into (0149), for the
+  /// same reason.
+  final bool sendToStudents;
 
   @override
   Widget build(BuildContext context) {
@@ -2580,20 +2695,32 @@ class _LandscapeWorkspace extends StatelessWidget {
                 tooltip: 'Song options',
                 onSelected: onExport,
                 itemBuilder: (_) => <PopupMenuEntry<_SongMenuAction>>[
-                  // First, and only in a lesson: it is the one thing in this
-                  // menu that reaches another person's week.
-                  if (leavePracticeFor != null) ...<PopupMenuEntry<_SongMenuAction>>[
-                    PopupMenuItem<_SongMenuAction>(
-                      key: const Key('song_leave_practice'),
-                      value: _SongMenuAction.leavePractice,
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.repeat_rounded),
-                        title: Text(leavePracticeLabel(leavePracticeFor!)),
-                      ),
-                    ),
-                    const PopupMenuDivider(),
-                  ],
+                  // First, and only for a teacher: these are the entries
+                  // that reach another person's week.
+                  if (leavePracticeFor != null || sendToStudents)
+                    ...<PopupMenuEntry<_SongMenuAction>>[
+                      if (leavePracticeFor != null)
+                        PopupMenuItem<_SongMenuAction>(
+                          key: const Key('song_leave_practice'),
+                          value: _SongMenuAction.leavePractice,
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.repeat_rounded),
+                            title: Text(leavePracticeLabel(leavePracticeFor!)),
+                          ),
+                        ),
+                      if (sendToStudents)
+                        const PopupMenuItem<_SongMenuAction>(
+                          key: Key('song_send_to_students'),
+                          value: _SongMenuAction.sendToStudents,
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.school_outlined),
+                            title: Text(sendToStudentsLabel),
+                          ),
+                        ),
+                      const PopupMenuDivider(),
+                    ],
                   const PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.importLyrics,
                     child: ListTile(

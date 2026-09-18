@@ -2645,6 +2645,93 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<String>> lessonRoomsTaught() async {
+    // lesson_rooms shows a row to its student and to the teacher whose link
+    // made it (0129). The inner join on lesson_links, which is read-own,
+    // keeps only the rooms this person is the teacher of; the filter says
+    // the same thing again in case a link ever becomes readable to more
+    // people than its teacher.
+    final rows = await client
+        .from('lesson_rooms')
+        .select('room_id, lesson_links!inner(teacher_id)')
+        .eq('lesson_links.teacher_id', currentUserId);
+    return (rows as List<dynamic>)
+        .map((each) => (each as Map<String, dynamic>)['room_id'] as String)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<String>> sendSongToStudents({
+    required String projectId,
+    required List<String> roomIds,
+  }) async {
+    // Two halves (0149). The server makes each copy and says which
+    // recording should follow it; Storage copies that object, server-side,
+    // into the copy's own folder; and the server puts the files row and the
+    // analysis on the copy. SQL cannot write storage, which is why the app
+    // is in the middle, and a copy gets an object of its own rather than a
+    // pointer at the teacher's because a files row owns the object it
+    // names: the delete policy and removeReference both act on it.
+    final rows = await client.rpc<dynamic>('send_song_to_students', params: <String, dynamic>{
+      'in_project': projectId,
+      'in_rooms': roomIds,
+    });
+    final sent = <String>[];
+    for (final each in rows as List<dynamic>? ?? const <dynamic>[]) {
+      final row = each as Map<String, dynamic>;
+      final room = row['to_room'] as String;
+      final copy = row['song_copy'] as String;
+      final recording = row['recording'] as String?;
+      // Counted only when the copy is new. A copy handed back so that its
+      // recording can be finished is a song the student has had since it
+      // was sent, and "Sent to 2 students" a week later would be about
+      // that week rather than this tap.
+      if (row['fresh'] as bool? ?? false) sent.add(room);
+      if (recording == null) continue;
+      // Named as attachReference names one, reference_<microseconds>, so
+      // the stem folder the analysis worker derives from it is the copy's
+      // own. A copy that fails here leaves the song without its recording
+      // and the copy on the list a resend hands back, so the teacher can
+      // finish it by sending again; a fresh copy is still counted, because
+      // the song did arrive.
+      final name = recording.split('/').last;
+      final dot = name.lastIndexOf('.');
+      final ext = dot == -1 ? '' : name.substring(dot);
+      final destination =
+          '$room/$copy/analysis/reference_${DateTime.now().microsecondsSinceEpoch}$ext';
+      try {
+        await client.storage.from('room-files').copy(recording, destination);
+        final attached = await client.rpc<dynamic>('attach_sent_recording', params: <String, dynamic>{
+          'in_copy': copy,
+          'in_storage_path': destination,
+        });
+        if (attached != true) {
+          // The copy got a recording of its own between the two halves --
+          // the student put one on it -- so the object just copied is the
+          // one nobody plays. It cannot be removed from here: no files row
+          // names it, and the delete policy (0013) deletes by files row.
+          // Reported with its path so it is at least visible; a policy for
+          // deleting orphans is more RLS than a race this narrow deserves.
+          unawaited(ErrorReporter().reportWarning(
+            service: 'app',
+            stage: 'sent_recording_unused',
+            message: destination,
+            projectId: copy,
+          ));
+        }
+      } catch (error) {
+        unawaited(ErrorReporter().reportWarning(
+          service: 'app',
+          stage: 'sent_recording',
+          message: error.toString(),
+          projectId: copy,
+        ));
+      }
+    }
+    return sent;
+  }
+
+  @override
   Future<String> myMeetingCode() async => '${await client.rpc<dynamic>('my_meeting_code')}';
 
   @override

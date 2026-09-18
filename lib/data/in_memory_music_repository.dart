@@ -12,6 +12,7 @@ import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/sung_in.dart';
+import '../domain/song_analysis_models.dart';
 import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
 import 'music_repository.dart';
@@ -2796,6 +2797,145 @@ class InMemoryMusicRepository implements MusicRepository {
     // own code never opened it. isLessonRoom asks by room either way.
     _lessonRooms['taught-${room.id}'] = room.id;
     return room;
+  }
+
+  /// A recording on a song, analysed and ready, for tests and previews of
+  /// what travels with a song and what does not (0149). This repository has
+  /// no analysis behind it, so a recording here is the fact of one and
+  /// nothing that plays.
+  void putARecordingOn(String projectId) {
+    final project = _allProjects.firstWhere((candidate) => candidate.id == projectId);
+    _replaceProject(project.copyWith(
+      hasAudioReference: true,
+      analysisState: SongAnalysisState.ready,
+    ));
+  }
+
+  /// Which song each copy made by [sendSongToStudents] came from, so that
+  /// sending again finds the copy rather than making a second (0149).
+  final Map<String, String> _copiedFrom = <String, String>{};
+
+  @override
+  Future<List<String>> lessonRoomsTaught() async => <String>[
+        for (final room in _rooms)
+          if (_lessonRooms.containsValue(room.id) &&
+              room.members.any((member) =>
+                  member.userId == currentUserId && member.role == RoomRole.owner))
+            room.id,
+      ];
+
+  @override
+  Future<List<String>> sendSongToStudents({
+    required String projectId,
+    required List<String> roomIds,
+  }) async {
+    // The refusals in the server's words (0149), in the server's order.
+    if (roomIds.isEmpty) throw const NameConflict('Pick a student first.');
+    final song = _allProjects.where((candidate) => candidate.id == projectId).firstOrNull;
+    if (song == null) throw const NameConflict('That song could not be found.');
+    final sourceRoom = _rooms.firstWhere((room) => room.id == song.roomId);
+    // The owner of the room the song lives in, and nobody else: a song
+    // leaving its room is the room owner's decision, as putting it on the
+    // Open Mic is (0142).
+    if (!sourceRoom.members
+        .any((member) => member.userId == currentUserId && member.role == RoomRole.owner)) {
+      throw const NameConflict('That song is not yours to send.');
+    }
+    // Every room is checked before anything is copied, because the server
+    // rolls the whole statement back: one wrong room sends nothing.
+    final taught = await lessonRoomsTaught();
+    for (final roomId in roomIds) {
+      if (!taught.contains(roomId)) {
+        throw const NameConflict('That is not a lesson of yours.');
+      }
+    }
+    // The recording goes only with a song that is ours or public domain
+    // (0142), and only when there is one. An unanswered question is not an
+    // answer. There is no storage here, so a recording is the fact of one
+    // and is copied whole.
+    final withAudio = song.hasAudioReference &&
+        (song.songOrigin == SongOrigin.ours || song.songOrigin == SongOrigin.publicDomain);
+    final sent = <String>[];
+    for (final roomId in roomIds) {
+      // Already there: the song's own room.
+      if (roomId == song.roomId) continue;
+      final room = _rooms.firstWhere((candidate) => candidate.id == roomId);
+      // A lesson with nobody on the other end is skipped, not refused: it
+      // is this person's room, there is just nobody in it to send to.
+      if (!room.members.any((member) => member.userId != currentUserId)) continue;
+      final already =
+          room.projects.where((candidate) => _copiedFrom[candidate.id] == song.id).firstOrNull;
+      if (already != null) {
+        // A copy whose recording never arrived is finished by sending
+        // again, the way the server hands such a copy back for the app to
+        // finish; the student, who has the song, is not given a second,
+        // and the room is not counted: the song did not arrive today.
+        if (withAudio && !already.hasAudioReference) {
+          _replaceProject(already.copyWith(
+            hasAudioReference: true,
+            analysisState: song.analysisState,
+          ));
+        }
+        continue;
+      }
+
+      // Named for the student when the title is already taken in the
+      // account, which it always is here: the original lives in it.
+      final student = room.members.where((member) => member.userId != currentUserId).firstOrNull;
+      final studentName =
+          (student?.displayName.trim().isEmpty ?? true) ? 'A student' : student!.displayName.trim();
+      var title = song.title;
+      var attempt = 1;
+      while (_allProjects.any((candidate) =>
+          candidate.accountId == room.accountId && NamePolicy.same(candidate.title, title))) {
+        attempt += 1;
+        title = '${song.title} · $studentName${attempt > 2 ? ' ${attempt - 1}' : ''}';
+      }
+
+      final now = DateTime.now();
+      final copyId = _id('song');
+      final maxSort = room.projects.isEmpty
+          ? 0.0
+          : room.projects.map((project) => project.sortOrder).reduce((a, b) => a > b ? a : b);
+      final copy = SongProject(
+        id: copyId,
+        roomId: room.id,
+        accountId: room.accountId,
+        title: title,
+        description: song.description,
+        createdAt: now,
+        updatedAt: now,
+        sortOrder: maxSort + 1024,
+        // Each line with its writer and its colour, under an id of its own.
+        // A voice note on a line is that person's and stays behind.
+        contributions: <Contribution>[
+          for (final line in song.contributions)
+            Contribution(
+              id: _id('line'),
+              projectId: copyId,
+              authorId: line.authorId,
+              authorName: line.authorName,
+              body: line.body,
+              colorValue: line.colorValue,
+              createdAt: now,
+              position: line.position,
+              kind: line.kind,
+            ),
+        ],
+        hasAudioReference: withAudio,
+        analysisState: withAudio ? song.analysisState : null,
+        createdBy: currentUserId,
+        songOrigin: song.songOrigin,
+        keyOverride: song.keyOverride,
+      );
+      _copiedFrom[copyId] = song.id;
+      _replaceRoom(room.copyWith(
+        projects: <SongProject>[...room.projects, copy],
+        updatedAt: now,
+      ));
+      sent.add(room.id);
+    }
+    return sent;
   }
 
   @override
