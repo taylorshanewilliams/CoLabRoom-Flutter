@@ -351,6 +351,31 @@ abstract final class ChordSheetExport {
       );
   }
 
+  /// The line under a chart's title: the key and the tempo, whichever are
+  /// known.
+  ///
+  /// The key is [musicalKey] moved by [transpose], unless [keyLabel] names
+  /// it outright. The stand-in's pack hands it the set's key as the band
+  /// wrote it, so a chart cannot disagree with the running order above it
+  /// about what key the song is done in: a song heard in A minor and done in
+  /// C major moves no chord, and the moved song key would still have read
+  /// "A minor" (review, 18 September 2026).
+  static List<String> chartFacts({
+    required int transpose,
+    String? musicalKey,
+    String? keyLabel,
+    double? bpm,
+  }) {
+    final named = keyLabel?.trim();
+    return <String>[
+      if (named != null && named.isNotEmpty)
+        'Key of $named'
+      else if (musicalKey != null && musicalKey.trim().isNotEmpty)
+        'Key of ${keyAsPlayed(musicalKey.trim(), transpose)}',
+      if (bpm != null && bpm > 0) '${bpm.round()} bpm',
+    ];
+  }
+
   /// The chart as pages that can go into a document of somebody else's.
   ///
   /// Split from [chartDocument] for the stand-in's pack (Every Musician, Same
@@ -364,6 +389,7 @@ abstract final class ChordSheetExport {
     required List<MusicianSheetLine> lines,
     required int transpose,
     String? musicalKey,
+    String? keyLabel,
     double? bpm,
   }) {
     final wordsTravel = ProjectExportService.wordsTravel(project);
@@ -379,11 +405,12 @@ abstract final class ChordSheetExport {
         ),
     ].where((line) => !line.isEmpty).toList(growable: false);
 
-    final facts = <String>[
-      if (musicalKey != null && musicalKey.trim().isNotEmpty)
-        'Key of ${keyAsPlayed(musicalKey.trim(), transpose)}',
-      if (bpm != null && bpm > 0) '${bpm.round()} bpm',
-    ];
+    final facts = chartFacts(
+      transpose: transpose,
+      musicalKey: musicalKey,
+      keyLabel: keyLabel,
+      bpm: bpm,
+    );
 
     final mono = pw.Font.courier();
     final monoBold = pw.Font.courierBold();

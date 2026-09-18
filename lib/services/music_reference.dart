@@ -47,9 +47,19 @@ bool keyUsesFlats(String? key) {
   if (match == null) return false;
   final pitch = _pitchValues[match.group(1)!];
   if (pitch == null) return false;
+  return keyIsMinor(key)
+      ? const <int>{2, 7, 0, 5, 10}.contains(pitch)
+      : const <int>{5, 10, 3, 8, 1}.contains(pitch);
+}
+
+/// Whether a key is a minor one, by the mode written after its root: "A
+/// minor", "Am", "A min", "A aeolian". A bare root is major, and so is
+/// anything that is not a key this can read.
+bool keyIsMinor(String? key) {
+  final match = key == null ? null : RegExp(r'^([A-G][#b]?)\s*(.*)$').firstMatch(key.trim());
+  if (match == null) return false;
   final rest = match.group(2)!.toLowerCase();
-  final minor = rest.startsWith('min') || rest == 'm' || rest.startsWith('aeolian');
-  return minor ? const <int>{2, 7, 0, 5, 10}.contains(pitch) : const <int>{5, 10, 3, 8, 1}.contains(pitch);
+  return rest.startsWith('min') || rest == 'm' || rest.startsWith('aeolian');
 }
 
 /// A chord or a key written the way its key writes it: B♭ rather than A♯ in

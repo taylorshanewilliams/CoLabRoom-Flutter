@@ -499,10 +499,11 @@ class _SetSongSheetState extends State<_SetSongSheet> {
     super.dispose();
   }
 
-  /// The root of the key the set says, as the chips spell it — matched by
-  /// pitch, so a key that arrived as A♯ lights the B♭ chip.
-  String? get _rootNow {
-    final said = _key?.trim();
+  /// The chip that spells [key]'s root — matched by pitch, so a key that
+  /// arrived as A♯ lights the B♭ chip. Null for no key, or one nothing here
+  /// can read.
+  static String? _chipFor(String? key) {
+    final said = key?.trim();
     if (said == null || said.isEmpty) return null;
     final root = RegExp(r'^([A-G][#b]?)').firstMatch(said)?.group(1);
     if (root == null) return null;
@@ -511,6 +512,14 @@ class _SetSongSheetState extends State<_SetSongSheet> {
     }
     return null;
   }
+
+  /// The root of the key the set says, as the chips spell it.
+  String? get _rootNow => _chipFor(_key);
+
+  /// Where Major or Minor starts from before a root has been picked: the
+  /// song's own root, so a band that only wants to say "we do it minor" gets
+  /// G minor over a song in G, not C minor (review, 18 September 2026).
+  String get _rootToStartFrom => _rootNow ?? _chipFor(widget.songSays.songKey) ?? 'C';
 
   bool get _minorNow => (_key ?? '').toLowerCase().contains('minor');
 
@@ -614,7 +623,7 @@ class _SetSongSheetState extends State<_SetSongSheet> {
                       label: minor ? 'Minor' : 'Major',
                       itemKey: Key('set_key_${minor ? 'minor' : 'major'}'),
                       selected: _key != null && minor == _minorNow,
-                      onTap: () => _pick(_rootNow ?? 'C', minor),
+                      onTap: () => _pick(_rootToStartFrom, minor),
                     ),
                 ],
               ),

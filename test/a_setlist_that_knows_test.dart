@@ -211,7 +211,7 @@ void main() {
           'Verse · The big one');
     });
 
-    test('semitones between keys count roots only, upward', () {
+    test('semitones between keys in the same mode count their roots, upward', () {
       expect(semitonesBetweenKeys('G', 'A major'), 2);
       expect(semitonesBetweenKeys('A minor', 'C minor'), 3);
       expect(semitonesBetweenKeys('G major', 'F'), 10);
@@ -219,6 +219,44 @@ void main() {
       expect(semitonesBetweenKeys(null, 'Bb'), 0);
       expect(semitonesBetweenKeys('G', null), 0);
       expect(semitonesBetweenKeys('Raag Yaman', 'G'), 0);
+    });
+
+    test('a key in the other mode is the same chords named another way', () {
+      // The relative: the usual way the analyser and a band disagree about a
+      // key, and the one the key sheet already names.
+      expect(semitonesBetweenKeys('A minor', 'C major'), 0);
+      expect(semitonesBetweenKeys('G major', 'E minor'), 0);
+      expect(semitonesBetweenKeys('G', 'E minor'), 0);
+      // The parallel: the band correcting the mode, not asking for a move.
+      expect(semitonesBetweenKeys('A minor', 'A major'), 0);
+      expect(semitonesBetweenKeys('G', 'G minor'), 0);
+      // Anything else counts a minor key from its relative major, the rule
+      // the numbers follow: A minor is C, so D major is up two from it.
+      expect(semitonesBetweenKeys('A minor', 'D major'), 2);
+      expect(semitonesBetweenKeys('G major', 'Bb minor'), 6);
+    });
+
+    test('a set key that is the relative of the song\'s key moves no chords', () {
+      final songs = SetlistPack.songs(
+        setlist: _set(const <SetlistSong>[SetlistSong(projectId: 'song-1', key: 'E minor')]),
+        projects: <SongProject>[_song('song-1', 'Midnight Signal')],
+        analyses: <String, SongAnalysisBundle?>{'song-1': _analysis('song-1', key: 'G')},
+      );
+
+      expect(songs.single.facts.key, 'E minor');
+      expect(songs.single.facts.transpose, 0);
+      expect(_chartChords(songs.single), <String>['G', 'C']);
+    });
+
+    test('a key the analyser wrote in sharps reads in flats on the set', () {
+      final facts = setSongFacts(
+        null,
+        _song('song-1', 'Midnight Signal'),
+        _analysis('song-1', key: 'A# major'),
+      );
+      expect(facts.key, 'Bb major');
+      expect(facts.songKey, 'Bb major');
+      expect(facts.line, startsWith('Bb major · '));
     });
   });
 
@@ -254,6 +292,25 @@ void main() {
       expect(_chartChords(songs[0]), <String>['A', 'D']);
       // And left alone on the one the set says nothing about.
       expect(_chartChords(songs[1]), <String>['G', 'C']);
+    });
+
+    test('the chart is headed with the key the set does the song in, as written', () {
+      // A song heard in G, done in E minor: no chord moves, and the header
+      // has to say what the running order says rather than "Key of G".
+      expect(
+        ChordSheetExport.chartFacts(transpose: 0, musicalKey: 'G', keyLabel: 'E minor', bpm: 96),
+        <String>['Key of E minor', '96 bpm'],
+      );
+      // The song's own print still names the moved key.
+      expect(
+        ChordSheetExport.chartFacts(transpose: 2, musicalKey: 'G'),
+        <String>['Key of A'],
+      );
+      // A blank label is no label.
+      expect(
+        ChordSheetExport.chartFacts(transpose: 0, musicalKey: 'G', keyLabel: ' '),
+        <String>['Key of G'],
+      );
     });
 
     test('the file is the running order, then one chart per song', () async {
@@ -442,6 +499,23 @@ void main() {
           reason: 'the set is about the occasion; the song keeps its key');
       expect(find.text('Bb major · 96 bpm · One bar of 4'), findsOneWidget);
       expect(find.text('Straight into the next one'), findsOneWidget);
+    });
+
+    testWidgets('saying only "minor" starts from the song\'s own root', (tester) async {
+      final (controller, id) = await open(tester);
+
+      await tester.tap(find.byKey(const Key('set_song_song-1')));
+      await tester.pumpAndSettle();
+      // The song is in G. Minor before any root is G minor, not C minor.
+      await tester.tap(find.byKey(const Key('set_key_minor')));
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('set_song_save')));
+      await tester.tap(find.byKey(const Key('set_song_save')));
+      await tester.pumpAndSettle();
+
+      expect(controller.setlistById(id)!.songFor('song-1')!.key, 'G minor');
+      // The parallel of the song's key: the chart is not moved by it.
+      expect(find.text('G minor · 96 bpm · One bar of 4'), findsOneWidget);
     });
 
     testWidgets('a tempo that is not a number is refused on the sheet', (tester) async {

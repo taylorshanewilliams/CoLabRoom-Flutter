@@ -90,8 +90,8 @@ SetSongFacts setSongFacts(
   SongAnalysisBundle? bundle,
 ) {
   final reference = bundle?.reference;
-  final songKey = project.songKey(reference?.musicalKey);
-  final key = entry?.key ?? songKey;
+  final songKey = _spelled(project.songKey(reference?.musicalKey));
+  final key = _spelled(entry?.key) ?? songKey;
   final counted = countInForSong(reference);
   return SetSongFacts(
     key: key,
@@ -103,6 +103,17 @@ SetSongFacts setSongFacts(
     songKey: songKey,
     transpose: entry?.key == null ? 0 : semitonesBetweenKeys(songKey, key),
   );
+}
+
+/// A key written the way a chart writes it: "Bb major" for the "A# major"
+/// the analyser names every flat key as (audit, 17 September 2026). The
+/// list, the sheet's hint and the chart's header all read a key through
+/// this, so one song cannot be "A# major" on the list and "Bb major" on the
+/// chart under it.
+String? _spelled(String? key) {
+  final said = key?.trim();
+  if (said == null || said.isEmpty) return null;
+  return keyAsPlayed(said, 0);
 }
 
 /// The shape of a song as its sections say it: "Intro · Verse · Chorus".
@@ -207,7 +218,10 @@ abstract final class SetlistPack {
   /// The chart page is the song's own ([ChordSheetExport.chartPage]), handed
   /// the song's key and the transpose the set asks for, so a chart in the
   /// pack is the same chart the song prints — moved into the set's key, and
-  /// carrying the set's tempo at the top where the song's would be.
+  /// carrying the set's tempo at the top where the song's would be. The
+  /// header names the set's key as the band wrote it, so it reads the same
+  /// as the running order; a song whose own key is unknown gets no key on
+  /// its chart, because its chords were not moved anywhere.
   static pw.Document document(Setlist setlist, List<SetlistPackSong> songs) {
     final document = pw.Document();
     document.addPage(
@@ -254,6 +268,17 @@ abstract final class SetlistPack {
                         style: pw.TextStyle(fontSize: 11, fontStyle: pw.FontStyle.italic),
                       ),
                     ),
+                  // Said on the list, so a dep in the van can tell a song
+                  // that has no chart from a page that went missing
+                  // (review, 18 September 2026).
+                  if (!song.hasChart)
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.only(left: 22, top: 2),
+                      child: pw.Text(
+                        'No chart',
+                        style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey600),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -268,6 +293,7 @@ abstract final class SetlistPack {
           lines: song.lines,
           transpose: song.facts.transpose,
           musicalKey: song.facts.songKey,
+          keyLabel: song.facts.songKey == null ? null : song.facts.key,
           bpm: song.facts.bpm,
         ),
       );
