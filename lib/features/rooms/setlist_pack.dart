@@ -92,7 +92,12 @@ SetSongFacts setSongFacts(
   final reference = bundle?.reference;
   final songKey = _spelled(project.songKey(reference?.musicalKey));
   final key = _spelled(entry?.key) ?? songKey;
-  final counted = countInForSong(reference);
+  // From bar 1 onward, the way Perform does it. The metre is the median gap
+  // between downbeats, and a count-in the beat tracker read as bars of its
+  // own can outvote a short song and count the band in on two; the song
+  // already says where its own bar 1 is, so the same guess is made from
+  // there (0161).
+  final counted = countInForSong(reference, barOne: project.barOne);
   return SetSongFacts(
     key: key,
     bpm: entry?.bpm ?? reference?.bpm,

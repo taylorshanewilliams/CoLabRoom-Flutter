@@ -1,13 +1,17 @@
+import 'dart:async';
+
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/practice_mark.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
+import 'package:colabroom/features/rooms/setlist_pack.dart';
 import 'package:colabroom/features/workspace/chord_chart_view.dart';
 import 'package:colabroom/features/workspace/count_in.dart';
 import 'package:colabroom/features/workspace/live_performance_screen.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/practice_rules.dart';
+import 'package:colabroom/features/workspace/song_sheet_panel.dart';
 import 'package:colabroom/services/chord_beat_grid.dart';
 import 'package:colabroom/services/chord_chart.dart';
 import 'package:colabroom/services/follow_me.dart';
@@ -15,6 +19,7 @@ import 'package:colabroom/services/midi_file.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Say where bar 1 is.
 ///
@@ -148,6 +153,34 @@ void main() {
       expect(barsLabel(0, 3), 'Pickup–bar 3');
       expect(barsLabel(9, 10), 'Bars 9–10');
     });
+
+    test('a loop that reaches back into it keeps playing, and is named',
+        () {
+      // Somebody had the first four bars on repeat to listen for where the
+      // song really starts, and then said bar 1 is the third downbeat. The
+      // same two times now begin inside the pickup. They are still a real
+      // passage on this recording, so they are still on repeat, and they
+      // have a name that reads (review, 18 September 2026).
+      final reached = loopFor(0, 2000, sections: sections,
+          downbeatsMs: downbeats, barOne: barOne)!;
+      expect(reached.label, 'Pickup–bar 2');
+      expect(reached.startMs, 0);
+      expect(reached.endMs, 2000);
+      expect(reached.firstBar, 0);
+      expect(reached.lastBar, 2);
+
+      // In the numbering the recording came with, the same two times are
+      // simply the first four bars.
+      expect(
+        loopFor(0, 2000, sections: sections, downbeatsMs: downbeats)?.label,
+        'Bars 1–4',
+      );
+      // And nothing ahead of the grid is a passage at all.
+      expect(
+        loopFor(-500, -100, downbeatsMs: downbeats, barOne: barOne),
+        isNull,
+      );
+    });
   });
 
   group('everything that names bars agrees', () {
@@ -264,6 +297,147 @@ void main() {
       const grid = <int>[0, 1000, 2000, 3000, 4000, 6000, 8000, 10000];
       expect(countInFor(bpm: 120, downbeatsMs: grid)?.beats, 2);
       expect(countInFor(bpm: 120, downbeatsMs: grid, barOne: 5)?.beats, 4);
+    });
+
+    test('the set list card counts the band in the same way', () {
+      // The same grid, on the card and in the printed set pack. Perform
+      // counts this band in on four; before 0161 reached here the pack still
+      // said two (review, 18 September 2026).
+      const grid = <int>[0, 1000, 2000, 3000, 4000, 6000, 8000, 10000];
+      const reference = ReferenceTrack(
+        projectId: 'song-bar-one',
+        fileId: 'file',
+        storagePath: 'room/song-bar-one/reference.m4a',
+        displayName: 'Four Before One.m4a',
+        state: SongAnalysisState.ready,
+        bpm: 120,
+        durationMs: 12000,
+        downbeatsMs: grid,
+      );
+      const sheet = SongAnalysisBundle(
+        reference: reference,
+        lyricCues: <LyricSyncCue>[],
+        chordCues: <ChordCue>[],
+      );
+      final song = SongProject(
+        id: 'song-bar-one',
+        roomId: 'room',
+        accountId: 'account',
+        title: 'Four Before One',
+        createdAt: day,
+        updatedAt: day,
+      );
+      expect(setSongFacts(null, song, sheet).countIn, 'One bar of 2');
+      expect(
+        setSongFacts(null, song.copyWith(barOneDownbeat: 5), sheet).countIn,
+        'One bar of 4',
+      );
+    });
+
+    test('Follow me carries where bar 1 is, so both chips say it', () {
+      // The likeliest moment to say it is in the middle of the lesson it
+      // fixes: the teacher hears the count-in, moves bar 1, and asks for bars
+      // nine to twelve. The student's phone was handed its copy of the song
+      // when Perform opened and never hears about the change any other way,
+      // so it rides on the heartbeat beside the times (review, 18 September
+      // 2026). It is a fact about the song, not a reading, so this does not
+      // break the rule that a person's numbers and capo stay on their phone.
+      final bars = barLoop(firstBar: 9, lastBar: 10, downbeatsMs: downbeats,
+          songEndMs: 6000, barOne: barOne)!;
+      final sent = FollowState(
+        sheet: true,
+        synced: true,
+        playing: true,
+        positionMs: 5200,
+        rate: 0.7,
+        sentAt: day.millisecondsSinceEpoch,
+        loopStartMs: bars.startMs,
+        loopEndMs: bars.endMs,
+        barOne: barOne,
+      );
+      final heard = FollowState.fromJson(sent.toJson())!;
+      expect(heard.barOne, barOne);
+      expect(
+        loopFor(heard.loopStartMs, heard.loopEndMs, sections: sections,
+            downbeatsMs: downbeats, barOne: heard.barOne!)?.label,
+        'Bars 9–10',
+      );
+
+      // Clearing it reaches them too: 0 is "use the detected bars", and it
+      // has to be on the wire, because a key left out reads as a build that
+      // does not say and leaves the follower on the bar 1 just cleared.
+      final cleared =
+          FollowState.fromJson(FollowState(
+        sheet: true,
+        synced: true,
+        playing: true,
+        positionMs: 0,
+        rate: 1,
+        sentAt: day.millisecondsSinceEpoch,
+        barOne: 0,
+      ).toJson())!;
+      expect(cleared.barOne, 0);
+      // A message from a build that predates this says nothing, and the
+      // follower keeps what its own copy of the song says.
+      expect(FollowState.fromJson(<String, dynamic>{
+        'at': 0,
+        'rate': 1,
+        'sent': day.millisecondsSinceEpoch,
+      })!.barOne, isNull);
+      // Saying it is a decision, sent at once rather than on the next beat.
+      expect(sent.sameDecisions(sent), isTrue);
+      expect(sent.sameDecisions(FollowState(
+        sheet: sent.sheet,
+        synced: sent.synced,
+        playing: sent.playing,
+        positionMs: sent.positionMs,
+        rate: sent.rate,
+        sentAt: sent.sentAt,
+        loopStartMs: sent.loopStartMs,
+        loopEndMs: sent.loopEndMs,
+        barOne: 0,
+      )), isFalse);
+    });
+
+    test('the chart starts a line on bar 1, so the margin can say so', () {
+      // A pickup with a chord in each bar and no section starting at bar 1.
+      // Four to a line from the top of the recording would put bar 1 third in
+      // its row under a blank margin, and nothing on the page would show
+      // where bar 1 is -- the one thing somebody just said (review, 18
+      // September 2026).
+      final played = <ChordCue>[
+        for (var i = 0; i < downbeats.length; i += 1)
+          ChordCue(
+            id: i + 1,
+            chord: i.isEven ? 'G' : 'C',
+            startMs: downbeats[i],
+            endMs: downbeats[i] + 500,
+            confidence: 0.9,
+          ),
+      ];
+      final rows = buildChartRows(buildChartBars(
+        cues: played,
+        beatsMs: const <int>[],
+        downbeatsMs: downbeats,
+        barOne: barOne,
+      ));
+      expect(rows.first.bars.every((bar) => bar.number == 0), isTrue,
+          reason: 'the pickup gets a line of its own, with a blank margin');
+      expect(
+        rows.skip(1).map((row) => row.firstBarNumber),
+        <int>[1, 5, 9],
+        reason: "the lines start where the printed part's lines start",
+      );
+
+      // With nobody having said anything the chart is exactly what it was:
+      // four to a line from the top, and no line of its own for a pickup
+      // that does not exist.
+      final detected = buildChartRows(buildChartBars(
+        cues: played,
+        beatsMs: const <int>[],
+        downbeatsMs: downbeats,
+      ));
+      expect(detected.map((row) => row.firstBarNumber), <int>[1, 5, 9]);
     });
   });
 
@@ -438,6 +612,38 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('a mark from before bar 1 moved still opens on its passage',
+        (tester) async {
+      // A mark kept on the first four bars, on a song that has since been
+      // told its bar 1 is the third downbeat. Those two times now begin
+      // inside the pickup. Practise has to open on that passage, named: a
+      // silent fall back to the whole song from 0:00 is the passage lost
+      // (review, 18 September 2026).
+      await sized(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project.copyWith(barOneDownbeat: barOne),
+          analysis: bundle,
+          me: 'u2',
+          practise: const PracticePart(
+            label: 'Bars 1–4',
+            rate: 1,
+            seconds: 240,
+            startMs: 0,
+            endMs: 2000,
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Pickup–bar 2'), findsOneWidget);
+      expect(find.text('Bars 1–4'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('holding a bar of the chart says it is bar 1', (tester) async {
       await sized(tester);
       final said = <int?>[];
@@ -479,7 +685,204 @@ void main() {
       await tester.pump();
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('a chart that is refused says so, rather than nothing',
+        (tester) async {
+      // Offline, on a build older than the migration, or after being made a
+      // viewer on another device. The long press closes its own sheet before
+      // the write starts, so the refusal is said on the page underneath it --
+      // and it is said, rather than becoming an unhandled error nobody sees
+      // (review, 18 September 2026).
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      tester.view.physicalSize = const Size(520, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: SongSheetPanel(
+              project: project,
+              bundle: const SongAnalysisBundle(
+                reference: ReferenceTrack(
+                  projectId: 'song-bar-one',
+                  fileId: 'file',
+                  storagePath: 'room/song-bar-one/reference.m4a',
+                  displayName: 'Four Before One.m4a',
+                  state: SongAnalysisState.ready,
+                  durationMs: 6000,
+                  musicalKey: 'G',
+                  downbeatsMs: downbeats,
+                  transcriptText: 'turning in the wind',
+                  transcriptWords: <TranscriptWord>[
+                    TranscriptWord(word: 'turning', startMs: 1000,
+                        endMs: 1800),
+                    TranscriptWord(word: 'wind', startMs: 2400, endMs: 3200),
+                  ],
+                ),
+                lyricCues: <LyricSyncCue>[],
+                chordCues: <ChordCue>[
+                  ChordCue(id: 1, chord: 'G', startMs: 0, endMs: 1000,
+                      confidence: 0.9),
+                  ChordCue(id: 2, chord: 'C', startMs: 1000, endMs: 2000,
+                      confidence: 0.9),
+                ],
+              ),
+              onReviewLyrics: null,
+              onOpenLive: null,
+              onSetBarOne: (downbeat) async => throw const PostgrestException(
+                message:
+                    'Only somebody who can edit this song can say where bar '
+                    '1 is.',
+                code: '42501',
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.text('Chart'));
+      await tester.pumpAndSettle();
+      await tester.longPress(find.text('C').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('chart_this_is_bar_one')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text("You don't have access to do that."), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('a follower hears where bar 1 is, and its chip agrees',
+        (tester) async {
+      // The lesson is where this gets said: the teacher hears the count-in
+      // mid-song and moves bar 1. The student's phone was handed its copy of
+      // the song when Perform opened, so without it on the heartbeat their
+      // chip would answer in different numbers for the rest of the hour
+      // (review, 18 September 2026).
+      await sized(tester);
+      final bus = _Bus();
+      final mine = FollowSession(
+        line: _Line(bus, 'me', 'u2', 'Jess'),
+        userId: 'u2',
+        name: 'Jess',
+      );
+      final teacher = _Line(bus, 'teacher', 'u1', 'Taylor')..arrive();
+      final since = DateTime.now().millisecondsSinceEpoch;
+      final bars = barLoop(firstBar: 9, lastBar: 10, downbeatsMs: downbeats,
+          songEndMs: 6000, barOne: barOne)!;
+      void beat({required int? barOneSaid}) =>
+          unawaited(teacher.sendFollow(<String, dynamic>{
+            'kind': 'lead',
+            'device': 'teacher',
+            'user': 'u1',
+            'name': 'Taylor',
+            'since': since,
+            'state': FollowState(
+              sheet: true,
+              synced: true,
+              playing: false,
+              positionMs: 5200,
+              rate: 1,
+              sentAt: DateTime.now().millisecondsSinceEpoch,
+              loopStartMs: bars.startMs,
+              loopEndMs: bars.endMs,
+              barOne: barOneSaid,
+            ).toJson(),
+          }));
+
+      beat(barOneSaid: 0);
+      mine.follow();
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          // This phone's copy of the song has heard nothing about bar 1.
+          project: project,
+          analysis: bundle,
+          together: mine,
+          me: 'u2',
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Bars 11–12'), findsOneWidget,
+          reason: 'the detected bars, which is all either phone has said');
+
+      // The teacher says it, mid-lesson, and the next heartbeat carries it.
+      beat(barOneSaid: barOne);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Bars 9–10'), findsOneWidget);
+      expect(find.text('Bars 11–12'), findsNothing);
+
+      // And putting the detected bars back reaches them too.
+      beat(barOneSaid: 0);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Bars 11–12'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      mine.dispose();
+      expect(tester.takeException(), isNull);
+    });
   });
+}
+
+/// The live connection two phones share, as far as Follow me is concerned.
+/// Copied from follow_me_test.dart, which is where it is explained.
+class _Bus {
+  // Lives as long as one test; nothing outlives it to leak into.
+  // ignore: close_sinks
+  final StreamController<Map<String, dynamic>> messages =
+      StreamController<Map<String, dynamic>>.broadcast(sync: true);
+  // ignore: close_sinks
+  final StreamController<List<SongDevice>> devices =
+      StreamController<List<SongDevice>>.broadcast(sync: true);
+  final Map<String, SongDevice> here = <String, SongDevice>{};
+  final List<Map<String, dynamic>> sent = <Map<String, dynamic>>[];
+
+  void announce() => devices.add(here.values.toList(growable: false));
+}
+
+class _Line implements FollowLine {
+  _Line(this.bus, this.device, this.userId, this.name) {
+    bus.here[device] =
+        SongDevice(device: device, userId: userId, displayName: name);
+  }
+
+  final _Bus bus;
+  @override
+  final String device;
+  final String userId;
+  final String name;
+
+  void arrive() => bus.announce();
+
+  @override
+  Stream<Map<String, dynamic>> get followMessages => bus.messages.stream;
+
+  @override
+  Stream<List<SongDevice>> get devices => bus.devices.stream;
+
+  @override
+  Future<void> sendFollow(Map<String, dynamic> message) async {
+    bus.sent.add(message);
+    bus.messages.add(message);
+  }
+
+  @override
+  Future<void> markFollowing(String? following) async {
+    bus.here[device] = SongDevice(
+        device: device,
+        userId: userId,
+        displayName: name,
+        following: following);
+    bus.announce();
+  }
 }
 
 Future<SongProject> _song(

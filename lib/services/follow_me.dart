@@ -36,6 +36,7 @@ class FollowState {
     this.loopStartMs,
     this.loopEndMs,
     this.lineKey,
+    this.barOne,
   });
 
   /// Reading the song sheet (true) or the words as typed in the song.
@@ -57,6 +58,21 @@ class FollowState {
   /// The line on the leader's anchor, for following when not [synced].
   final String? lineKey;
 
+  /// Which downbeat the song calls bar 1, or 0 when nobody has said and the
+  /// first downbeat stands (0161). Null only from a build that predates this,
+  /// and then the follower keeps whatever its own copy of the song says.
+  ///
+  /// This is not a reading and does not break the rule that readings stay on
+  /// the phone they were chosen on. A person's numbers, horn part and capo
+  /// are theirs; where bar 1 is belongs to the song, the way the band's key
+  /// does, and the likeliest moment for it to be said is in the middle of the
+  /// lesson it fixes — the teacher hears the count-in, moves bar 1, and asks
+  /// for bars nine to twelve. Without it on the heartbeat the student's chip
+  /// would answer with different numbers for the rest of the hour, and the
+  /// practice mark kept for them would be written in them too (review, 18
+  /// September 2026).
+  final int? barOne;
+
   /// The leader's wall clock, in milliseconds since the epoch.
   final int sentAt;
 
@@ -70,7 +86,8 @@ class FollowState {
       playing == other.playing &&
       rate == other.rate &&
       loopStartMs == other.loopStartMs &&
-      loopEndMs == other.loopEndMs;
+      loopEndMs == other.loopEndMs &&
+      barOne == other.barOne;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
         'sheet': sheet,
@@ -81,6 +98,12 @@ class FollowState {
         'sent': sentAt,
         if (looping) 'loop': <int>[loopStartMs!, loopEndMs!],
         if (lineKey != null) 'line': lineKey,
+        // Sent even when it is 0, unlike the two above: 0 is the leader
+        // saying "use the detected bars", and a key left out of the message
+        // would read on the other phone as an older build with nothing to
+        // say, which leaves the follower counting from the bar 1 that was
+        // just cleared.
+        if (barOne != null) 'bar1': barOne,
       };
 
   /// Null for anything that does not read as a state. A message from a
@@ -104,6 +127,7 @@ class FollowState {
       }
     }
     final line = json['line'];
+    final bar1 = json['bar1'];
     return FollowState(
       sheet: json['sheet'] == true,
       synced: json['synced'] == true,
@@ -114,6 +138,10 @@ class FollowState {
       loopStartMs: loopStart,
       loopEndMs: loopEnd,
       lineKey: line is String ? line : null,
+      // Anything that is not a number at all is a build that does not say,
+      // and a negative one is nonsense: both read as nothing said rather
+      // than as a reason to drop the whole message.
+      barOne: bar1 is num ? math.max(0, bar1.round()) : null,
     );
   }
 }

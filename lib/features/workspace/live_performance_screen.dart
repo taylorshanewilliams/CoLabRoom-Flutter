@@ -590,6 +590,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       loopStartMs: synced ? loop?.startMs : null,
       loopEndMs: synced ? loop?.endMs : null,
       lineKey: synced ? null : _lineOnAnchor(),
+      // Where bar 1 is goes with it, whether or not the song is the clock: a
+      // loop sent as two times is named on the other phone, and it can only
+      // be named in the same numbers if the other phone counts from the same
+      // bar 1 (0161). Sent as 0 when nobody has said, so that clearing it
+      // reaches the followers too.
+      barOne: _barOneSaid ?? 0,
     );
   }
 
@@ -611,6 +617,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _markLeaderId = leader.userId.isEmpty ? null : leader.userId;
     }
     _cancelCountdown();
+    // Before anything is named. This screen was handed its copy of the song
+    // once, when it was pushed, so a bar 1 said in the middle of the lesson
+    // never reaches it any other way — and the middle of the lesson is
+    // exactly when somebody notices the count-in (0161; review, 18 September
+    // 2026). A message from a build that does not say leaves it alone.
+    final saidBarOne = state.barOne;
+    if (saidBarOne != null) {
+      _barOneSaid = saidBarOne < 1 ? null : saidBarOne;
+    }
     final source = state.sheet && _sheetLines.isNotEmpty
         ? LiveLyricSource.songSheet
         : LiveLyricSource.workspace;

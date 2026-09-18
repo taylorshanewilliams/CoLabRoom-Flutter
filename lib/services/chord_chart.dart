@@ -196,6 +196,13 @@ List<ChartBar> _trimSilentEnds(List<ChartBar> bars) {
 /// A section always starts a new line, even mid-row, because that's what
 /// makes the shape of a song visible on paper. Otherwise it's a fixed number
 /// of bars to a line.
+///
+/// Bar 1 starts a new line too, for the same reason and one more: the margin
+/// prints only the first bar's number of each line, and a pickup bar has no
+/// number, so bar 1 arriving in the middle of a row would leave the page with
+/// nothing on it saying where bar 1 is — the one thing somebody just said.
+/// Given its own line, the pickup sits above a chart whose lines start on 1,
+/// 5, 9 like the printed part being read against it (0161).
 List<ChartRow> buildChartRows(
   List<ChartBar> bars, {
   int barsPerRow = defaultBarsPerRow,
@@ -214,7 +221,9 @@ List<ChartRow> buildChartRows(
   }
 
   for (final bar in bars) {
-    if (bar.sectionLabel != null && current.isNotEmpty) flush();
+    if ((bar.sectionLabel != null || bar.number == 1) && current.isNotEmpty) {
+      flush();
+    }
     if (current.isEmpty) currentLabel = bar.sectionLabel;
     current.add(bar);
     if (current.length == safePerRow) flush();

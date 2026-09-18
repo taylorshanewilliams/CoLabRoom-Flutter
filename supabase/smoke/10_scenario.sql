@@ -9772,6 +9772,46 @@ end $$;
 
 reset role;
 
+-- And the copy a teacher sends a student carries it, the way it already
+-- carries whose song it is and the band's key (0161's restatement of 0149's
+-- send_song_to_students). This is the flow the whole thing was written for:
+-- a teacher fixes bar 1 on a song with a count-in on the front, sends it to
+-- the class, and everybody's numbers then agree with the printed part she is
+-- holding. Ms Rivera and her lessons are 0149's, already set up above, with a
+-- second song of her own so the send is a fresh copy rather than one that
+-- is already there.
+insert into public.projects (id, room_id, account_id, title, created_by,
+                             bar_one_downbeat)
+values ('a5049149-0000-0000-0000-000000000031',
+        'a5049149-0000-0000-0000-000000000010',
+        'a5049149-0000-0000-0000-000000000001', 'Two Before One',
+        'a5049149-0000-0000-0000-000000000001', 3);
+
+set local request.jwt.claims = '{"sub": "a5049149-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  copy_id uuid;
+  carried integer;
+begin
+  select song_copy into copy_id
+  from public.send_song_to_students(
+    'a5049149-0000-0000-0000-000000000031',
+    array['a5049149-0000-0000-0000-000000000011']::uuid[]);
+  if copy_id is null then
+    raise exception 'the song never reached the student';
+  end if;
+  select p.bar_one_downbeat into carried
+  from public.projects p where p.id = copy_id;
+  if carried is distinct from 3 then
+    raise exception 'the student''s copy did not carry where bar 1 is (got %)',
+      coalesce(carried::text, '<null>');
+  end if;
+end $$;
+
+reset role;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 -- ---------------------------------------------------------------------

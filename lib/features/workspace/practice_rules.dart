@@ -299,11 +299,22 @@ PracticeLoop? loopFor(
       pickup.endMs == endMs) {
     return pickup;
   }
-  final first = barNumberAt(startMs, downbeatsMs, barOne: barOne);
+  var first = barNumberAt(startMs, downbeatsMs, barOne: barOne);
   // The end is where the loop turns round rather than a moment it plays, so
   // the last bar is the one the instant just before it sits in.
   final last = barNumberAt(endMs - 1, downbeatsMs, barOne: barOne);
-  if (first == null || last == null || last < first) return null;
+  if (last == null) return null;
+  // A loop that starts inside the pickup and runs on into numbered bars.
+  // This is what somebody already looping the first few bars is left holding
+  // the moment they say bar 1 is further in, and it has a name — "Pickup–bar
+  // 4" — so it keeps playing under that name rather than vanishing without a
+  // word (review, 18 September 2026). Its first bar is 0, the same internal
+  // marker the pickup itself uses, and barsLabel turns that back into the
+  // word, so no number below 1 is ever printed.
+  if (first == null && downbeatsMs.isNotEmpty && startMs >= downbeatsMs.first) {
+    first = 0;
+  }
+  if (first == null || last < first) return null;
   return PracticeLoop(
     startMs: startMs,
     endMs: endMs,

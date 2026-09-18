@@ -296,6 +296,34 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     }
   }
 
+  /// Where bar 1 is, said by holding down a bar of the chart (0161).
+  ///
+  /// The same shape as the key above and for the same reason: this is the
+  /// other thing on this panel that belongs to the room rather than to the
+  /// phone, so it is the other one that can come back refused — offline, on a
+  /// build older than the migration, or after being made a viewer somewhere
+  /// else. The refusal is a sentence here rather than a sentence handed back,
+  /// because the long press closes its own sheet before the write starts and
+  /// there is nothing left to say it on (review, 18 September 2026).
+  Future<void> _sayBarOne(int? downbeat) async {
+    final write = widget.onSetBarOne;
+    if (write == null) return;
+    try {
+      await write(downbeat);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(reportAndDescribe(
+          error,
+          service: 'app',
+          stage: 'set_bar_one',
+          route: 'Song sheet',
+          projectId: widget.project.id,
+        )),
+      ));
+    }
+  }
+
   /// Whether there are two sets of words to put side by side: lines somebody
   /// typed, and a transcript with a time on every word. With either missing
   /// the song offers nothing — the writing space already says where the
@@ -1079,8 +1107,9 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             // And the other half of the chart's own facts: whether bar 1 has
             // been moved, and whether this person may move it (0161).
             barOneSaid: widget.project.barOneDownbeat != null,
-            onSayBarOne:
-                _editingChords ? null : widget.onSetBarOne,
+            onSayBarOne: _editingChords || widget.onSetBarOne == null
+                ? null
+                : _sayBarOne,
           )
         else
           Focus(
