@@ -289,10 +289,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final controller = BetaScope.of(context);
     final invites = controller.invites;
     final asks = controller.asksForMe;
+    final questions = controller.partQuestions;
     final roomInvites = controller.roomInvitesForMe;
     final notifications = controller.notifications;
     final empty = invites.isEmpty &&
         asks.isEmpty &&
+        questions.isEmpty &&
         roomInvites.isEmpty &&
         notifications.isEmpty;
 
@@ -349,8 +351,34 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   // name, to play something — that is the most personal thing
                   // this inbox can hold and the one thing in it that another
                   // musician is waiting on.
-                  if (asks.isNotEmpty) ...<Widget>[
+                  //
+                  // And above that, somebody asking whether a part you
+                  // already played may go in front of everybody (0155): a
+                  // question about your own work, with a song waiting on
+                  // the answer. Same section, because to a person it is the
+                  // same kind of thing — a request that waits for a word.
+                  if (asks.isNotEmpty || questions.isNotEmpty)
                     const _SectionLabel('Asked of you'),
+                  for (final question in questions) ...<Widget>[
+                    _PartQuestionCard(
+                      question: question,
+                      busy: _busy,
+                      onYes: () => _run(
+                        () => controller.answerForMyPart(question.projectId,
+                            yes: true),
+                        'Your part goes out with ${question.songTitle}.',
+                      ),
+                      onNo: () => _run(
+                        () => controller.answerForMyPart(question.projectId,
+                            yes: false),
+                        'Your part stays with the room. They have been told.',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (questions.isNotEmpty && asks.isEmpty)
+                    const SizedBox(height: 8),
+                  if (asks.isNotEmpty) ...<Widget>[
                     for (final ask in asks) ...<Widget>[
                       _AskCard(
                         ask: ask,
@@ -605,6 +633,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 ),
                               ));
                             }
+                            // Somebody wants your part in front of
+                            // everybody (0155). While the question is
+                            // still waiting, the card at the top of this
+                            // screen is where it is answered, so the news
+                            // opens nothing. Once it is answered, the song
+                            // -- whose dial is where an answer is changed.
+                            if (notification.type ==
+                                    NotificationType.partQuestion &&
+                                notification.projectId != null &&
+                                controller.projectById(notification.projectId!) != null &&
+                                !questions.any((question) =>
+                                    question.projectId == notification.projectId)) {
+                              _openSong(notification.projectId!);
+                            }
                             // Somebody you left a note about has turned up:
                             // the useful next thing is their page.
                             if (notification.type ==
@@ -631,6 +673,99 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ],
                 ],
               ),
+      ),
+    );
+  }
+}
+
+/// Somebody wants to put a song with your part on it in front of everybody.
+///
+/// Every Musician, Same Song, 17 September 2026: everyone on it says yes
+/// before it goes out, and anyone can pull their part afterwards. The card
+/// says what a yes would do and what a no would do, and takes one tap for
+/// either. Nothing about how long it has waited, nothing about who else has
+/// answered, and no way to be reminded: a song waits for as long as its
+/// people take.
+class _PartQuestionCard extends StatelessWidget {
+  const _PartQuestionCard({
+    required this.question,
+    required this.busy,
+    required this.onYes,
+    required this.onNo,
+  });
+
+  final PartQuestion question;
+  final bool busy;
+  final VoidCallback onYes;
+  final VoidCallback onNo;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: Key('part_question_${question.projectId}'),
+      padding: const EdgeInsets.fromLTRB(16, 15, 16, 12),
+      decoration: BoxDecoration(
+        color: AppColors.raised,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.gold.withValues(alpha: 0.45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Padding(
+                padding: EdgeInsets.only(top: 1),
+                child: Icon(Icons.public_rounded, size: 20, color: AppColors.gold),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  question.headline,
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          Text(
+            question.detail,
+            style: const TextStyle(
+                color: AppColors.muted, fontSize: 12.5, height: 1.4),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: FilledButton(
+                  key: const Key('part_question_yes'),
+                  onPressed: busy ? null : onYes,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.gold,
+                    foregroundColor: AppColors.ink,
+                  ),
+                  child: const Text('Yes, with my part'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // A real answer, not a dismissal. The song can go out without
+              // this part, and the person who asked deserves to know that
+              // rather than to keep waiting.
+              TextButton(
+                key: const Key('part_question_no'),
+                onPressed: busy ? null : onNo,
+                style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+                child: const Text('Leave my part out'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1090,6 +1225,10 @@ class _NotificationCard extends StatelessWidget {
         // A pin, because that is the verb: the note is pinned to a second of
         // the recording rather than said about the song in general.
         return Icons.push_pin_outlined;
+      case NotificationType.partQuestion:
+        // The same globe as the top of the audience dial, because that is
+        // what the question is about: your part, in front of everybody.
+        return Icons.public_rounded;
       case NotificationType.unfamiliar:
         return Icons.notifications_none_rounded;
     }

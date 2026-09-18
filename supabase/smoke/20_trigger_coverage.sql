@@ -99,7 +99,16 @@ insert into smoke_covered (name) values
   -- 0154. The scenario has the room's owner try to open somebody else's
   -- opinions and asserts the refusal, has the asker open them, and asserts
   -- a second "I'm ready" leaves the first one's time alone.
-  ('project_asks_opinions_open');
+  ('project_asks_opinions_open'),
+  -- 0155. The scenario has the owner try to put a song up, and show it,
+  -- with a plain update while a bandmate's part is unanswered, and asserts
+  -- both refusals. The two functions refuse as well, so without this the
+  -- rest of that block would pass with the trigger dead.
+  ('projects_wait_for_everyone'),
+  -- 0155. The scenario shares a draft onto a song that is already out and
+  -- asserts its player was asked once, and that the part stayed with the
+  -- room until they answered.
+  ('song_layers_ask_on_share');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario

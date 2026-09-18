@@ -1512,14 +1512,58 @@ class SupabaseMusicRepository implements MusicRepository {
             songOnly: entry['song_only'] as bool? ?? false,
           ),
       ],
+      answers: <PersonsAnswer>[
+        for (final entry
+            in (row['answers'] as List<dynamic>? ?? const <dynamic>[]))
+          PersonsAnswer(
+            id: (entry as Map)['id'] as String? ?? '',
+            name: entry['name'] as String? ?? 'Somebody',
+            answer: PartAnswer.fromWireName(entry['answer'] as String?),
+          ),
+      ],
+      myAnswer: row['my_answer'] == null
+          ? null
+          : PartAnswer.fromWireName(row['my_answer'] as String?),
     );
   }
 
   @override
   Future<void> putOnOpenMic(String projectId) async {
+    // Returns the moment it went up, or null while it waits on somebody's
+    // answer (0155). Neither is read here: the workspace re-reads the
+    // audience afterwards, which says both and names who is still to answer.
     await client.rpc<dynamic>(
       'put_on_open_mic',
       params: <String, dynamic>{'target_project': projectId},
+    );
+  }
+
+  @override
+  Future<List<PartQuestion>> partQuestionsForMe() async {
+    final rows = await client.rpc<dynamic>('part_questions_for_me');
+    return <PartQuestion>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        PartQuestion(
+          projectId: (row as Map)['project_id'] as String,
+          songTitle: row['song_title'] as String? ?? 'A song',
+          askedById: row['asked_by'] as String?,
+          askedByName: row['asked_by_name'] as String?,
+          parts: <String>[
+            for (final part
+                in (row['parts'] as List<dynamic>? ?? const <dynamic>[]))
+              '$part',
+          ],
+          askedAt: DateTime.tryParse('${row['asked_at']}')?.toLocal() ??
+              DateTime.now(),
+        ),
+    ];
+  }
+
+  @override
+  Future<void> answerForMyPart(String projectId, {required bool yes}) async {
+    await client.rpc<dynamic>(
+      'answer_for_my_part',
+      params: <String, dynamic>{'target_project': projectId, 'in_yes': yes},
     );
   }
 

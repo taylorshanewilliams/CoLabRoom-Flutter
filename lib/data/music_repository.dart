@@ -312,17 +312,34 @@ abstract interface class MusicRepository {
   /// One of them, as somebody outside the room sees it.
   Future<OpenMicSong?> openMicSong(String projectId);
 
-  /// Offers a song to everybody, or takes it back. Owner only, and only ever
-  /// the takes the room has already heard.
   /// Who can hear [projectId], as one answer.
   ///
   /// Derived from the room, the per-song invitations and the Open Mic flag
   /// together — the three things that decide a song's audience and were
-  /// never shown anywhere at the same time.
+  /// never shown anywhere at the same time. Since 0155 it also carries who
+  /// has been asked about their part and what they said.
   Future<SongAudience?> songAudience(String projectId);
 
+  /// Offers a song to everybody, or takes it back. Owner only, and only ever
+  /// the parts their players have said yes to.
+  ///
+  /// The first press asks everybody with a shared take on the song and puts
+  /// nothing up; the song goes up on a press made after they have all
+  /// answered (Every Musician, Same Song, 17 September 2026). Neither
+  /// outcome is an error, so a caller reads [songAudience] afterwards to
+  /// find out which one it was and who is still to answer.
   Future<void> putOnOpenMic(String projectId);
   Future<void> takeOffOpenMic(String projectId);
+
+  /// The songs somebody wants to put in front of everybody with a part of
+  /// yours on them, waiting on your answer. One per song.
+  Future<List<PartQuestion>> partQuestionsForMe();
+
+  /// Yes or no, for every part of yours on [projectId], now or whenever you
+  /// change your mind. A no on a song that is already out takes your part
+  /// off it; the song stays up without it, or comes down if nothing audible
+  /// is left. Refused with a plain sentence when nobody has asked you.
+  Future<void> answerForMyPart(String projectId, {required bool yes});
 
   /// Says whose song it is: ours, public domain, or somebody else's.
   ///
