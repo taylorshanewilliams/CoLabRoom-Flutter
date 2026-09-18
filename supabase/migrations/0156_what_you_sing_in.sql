@@ -12,13 +12,16 @@
 -- rules it out by name. So this is a field a person fills in, in their own
 -- words, and an empty one means only that they have not said.
 --
--- **A closeness reason, never a filter.** It is `sounds_like` again (0076):
--- self-declared, five at most, folded to one spelling, and used to order a
--- feed sideways. A word you and somebody both wrote down is one more reason
--- the feed can give ("Also sings in Portuguese"). Nobody is hidden by it,
--- nobody is ranked by it, and somebody who declares nothing is exactly
--- where they were: every tier and every line below is unchanged for a row
--- where no word is shared.
+-- **A closeness reason, never a filter and never an order.** It is kept the
+-- way `sounds_like` is (0076): self-declared, five at most, folded to one
+-- spelling. A word you and somebody both wrote down is one more sentence
+-- the feed can say on a card ("Also sings in Portuguese"), and that is all
+-- it is. It does not move a song up or down. A shared sound can do that
+-- because no one sound is most people's; a language is different, because
+-- one of them is most people's, and a tier built on it would put everybody
+-- who typed "english" above a neighbour who typed nothing. So nobody is
+-- hidden by it, nobody is ranked by it, and somebody who declares nothing
+-- is exactly where they were, in every reader's feed.
 --
 -- One list rather than two. Languages and traditions sit together because
 -- which is which is the person's to say, and one cap of five keeps each
@@ -32,8 +35,8 @@ alter table public.profiles
 
 comment on column public.profiles.sings_in is
   'The languages this person sings in and the traditions they work in, in '
-  'their own words. Declared, never inferred. Used as one more closeness '
-  'reason in open_mic_feed, never as a filter and never as a rank.';
+  'their own words. Declared, never inferred. A shared word is a sentence '
+  'open_mic_feed can say on a card; it is never a filter and never an order.';
 
 -- ---------------------------------------------------------------------
 -- One spelling for one word
@@ -78,11 +81,20 @@ as $fn$
     when 'south indian classical' then 'carnatic'
     else w
   end
-  from (select regexp_replace(lower(trim(raw)), '\s+', ' ', 'g') as w) typed;
+  -- Collapsed first and trimmed after. `trim` takes off spaces and nothing
+  -- else, so a word pasted with a tab or a line end on it would have been
+  -- kept as " portuguese" and never matched anybody's. Dart's `trim()` in
+  -- lib/domain/sung_in.dart takes off every kind of white space, and the
+  -- two have to agree for one word to be one word.
+  from (
+    select btrim(regexp_replace(lower(coalesce(raw, '')), '\s+', ' ', 'g')) as w
+  ) typed;
 $fn$;
 
 -- As tidy_sounds_like (0135): folded, deduplicated, kept in the order
--- somebody chose them, five at most, nothing over forty characters.
+-- somebody chose them, five at most, nothing over forty characters. The
+-- length is read off the folded word, so something that was only white
+-- space is dropped rather than kept as an empty word.
 create or replace function private.tidy_sings_in(raw text[])
 returns text[]
 language sql
@@ -95,8 +107,8 @@ as $fn$
        from (
          select private.sung_in_word(t) as word, ord
          from unnest(coalesce(raw, '{}'::text[])) with ordinality as u(t, ord)
-         where char_length(trim(t)) between 1 and 40
        ) cleaned
+       where char_length(word) between 1 and 40
        group by word
        order by min(ord)
        limit 5
@@ -304,10 +316,18 @@ grant execute on function public.musician_profile(uuid) to authenticated;
 alter table public.project_asks
   add column if not exists sung_in text not null default '';
 
+-- The field on the ask sheets stops at eighty characters as a person counts
+-- them. Postgres counts code points, and in Devanagari, Tamil or Bengali
+-- one written character is often two or three of those, so a check of
+-- eighty here would have refused a Hindi line the field had just accepted,
+-- and taken the whole ask down with it. The check is three times the
+-- field, so the same visible length fits in every script, and both ways in
+-- cut to it rather than fail: `sungInLine` in lib/domain/sung_in.dart for
+-- the room's plain insert, and `left` in ask_musician below.
 alter table public.project_asks
   drop constraint if exists project_asks_sung_in_check;
 alter table public.project_asks
-  add constraint project_asks_sung_in_check check (char_length(sung_in) <= 80);
+  add constraint project_asks_sung_in_check check (char_length(sung_in) <= 240);
 
 comment on column public.project_asks.sung_in is
   'What somebody answering would be joining, in the asker''s own words: '
@@ -384,7 +404,7 @@ begin
      left(trim(coalesce(in_note, '')), 280), 'collaborators', cleaned_terms,
      -- Cut to the column's length rather than refused: a line that ran long
      -- is not a reason to lose the ask.
-     left(trim(coalesce(in_sung_in, '')), 80))
+     left(trim(coalesce(in_sung_in, '')), 240))
   returning id into new_ask;
 
   select display_name into asker_name
@@ -515,22 +535,29 @@ grant execute on function public.asks_for_me() to authenticated;
 -- The feed can say so
 -- ---------------------------------------------------------------------
 --
--- Restated from 0076, which is still its latest definition. Three changes,
--- and none of them touches a row where no word is shared:
+-- Restated from 0076, which is still its latest definition. Two changes,
+-- and neither moves a row:
 --
---   * A word you and the song's owner both sing in joins the taste tier,
---     beside a shared sound and not above or below it. It is the same kind
---     of closeness, and two kinds of taste do not need an order between
---     them. Same city is still tier 3 and a stranger is still tier 4, so
---     every fourth card is still somebody outside all of this.
---   * The reason line says it, after the shared sound and before "Nearby".
---     The word is stored lower case; the first letter comes up here because
---     a language is a proper noun in English.
+--   * The reason line can say "Also sings in Portuguese" when you and the
+--     song's owner both wrote the word. It comes after every reason that
+--     placed the card ("Needs a", "You have played together", "Both into",
+--     "Nearby"), because those are why the card is where it is and this is
+--     not: it is said on a card that would otherwise have had nothing to
+--     say, or "Nothing like what you play". The word is stored lower case;
+--     the first letter comes up here because a language is a proper noun
+--     in English.
 --   * The row carries the sung_in of the song's latest open ask to
 --     everybody, beside its note.
 --
--- Having declared a language is also something the feed knows about you, so
--- it counts towards "Nothing like what you play" being an honest sentence.
+-- The tiers, the strangers and every fourth card are 0076's, untouched. A
+-- language is most people's in a way a sound is not: once the field is
+-- filled in honestly, "english" is shared by most pairs, and a tier built
+-- on it would lift everybody who typed it over a neighbour who typed
+-- nothing. The plan says a person who declares nothing is not pushed down,
+-- so the word is a sentence and never an order (Every Musician, Same Song,
+-- 17 September 2026). `knows_me` is untouched as well: having said what you
+-- sing in is not having said what you play, and "Nothing like what you
+-- play" should not start appearing because of it.
 --
 -- Never a filter: nothing in the `where` reads sings_in, so nobody is
 -- hidden by what they did or did not declare.
@@ -586,7 +613,6 @@ as $fn$
     select
       coalesce(array_length((select plays from me), 1), 0) > 0
       or coalesce(array_length((select sounds_like from me), 1), 0) > 0
-      or coalesce(array_length((select sings_in from me), 1), 0) > 0
       or exists (select 1 from played_with)
       or (select city from me) is not null as yes
   ),
@@ -632,8 +658,7 @@ as $fn$
       case
         when fit.needs_you is not null then 0
         when fit.known then 1
-        when fit.shared_sound is not null
-          or fit.shared_sung_in is not null then 2
+        when fit.shared_sound is not null then 2
         when fit.same_city then 3
         else 4
       end as tier
@@ -726,10 +751,13 @@ as $fn$
       when rk.needs_you is not null then 'Needs a ' || rk.needs_you
       when rk.tier = 1 then 'You have played together'
       when rk.shared_sound is not null then 'Both into ' || rk.shared_sound
+      when rk.tier = 3 then 'Nearby'
+      -- After everything that placed the card, and before the line that
+      -- admits a card is a stranger's: a word you both wrote is a truer
+      -- thing to say about it than "Nothing like what you play".
       when rk.shared_sung_in is not null then
         'Also sings in ' || upper(left(rk.shared_sung_in, 1)) ||
           substr(rk.shared_sung_in, 2)
-      when rk.tier = 3 then 'Nearby'
       when (select yes from knows_me) then 'Nothing like what you play'
       else ''
     end,

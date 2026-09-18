@@ -6,6 +6,7 @@ import '../../app/colabroom_theme.dart';
 import '../../domain/musical_roles.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
+import '../../domain/sung_in.dart';
 import '../../services/push_registration.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/ask_terms_picker.dart';
@@ -217,6 +218,10 @@ class _AskBarState extends State<AskBar> {
       headline: ask.headline,
       askedBy: ask.askedBy,
       note: ask.note,
+      // What the song is in, where a bandmate reads the ask before they
+      // answer it. For a song that is not on the Open Mic this sheet is the
+      // only place the line is read, by the asker included.
+      sungIn: ask.sungIn,
       opinionsOpened: ask.opinionsOpened,
     );
     if (mounted) await _load();
@@ -601,7 +606,7 @@ class _AskSheetState extends State<_AskSheet> {
             TextField(
               key: const Key('ask_sung_in'),
               controller: _sungIn,
-              maxLength: 80,
+              maxLength: sungInLineLength,
               textInputAction: TextInputAction.done,
               style: const TextStyle(fontSize: 14),
               decoration: const InputDecoration(

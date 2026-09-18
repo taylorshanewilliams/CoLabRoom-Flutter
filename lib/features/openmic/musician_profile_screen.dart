@@ -2145,8 +2145,8 @@ class _PresenceSheetState extends State<_PresenceSheet> {
             const Text(
               'The languages you sing in and any traditions you work in, in '
               'your words. The app never guesses them. They show on your '
-              'page, and a word you share with somebody can be why their '
-              'song reaches you. Nobody is hidden or ranked by them.',
+              'page, and when you and somebody share a word, their song '
+              'says so. Nobody is hidden or ranked by them.',
               style:
                   TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4),
             ),
@@ -2275,17 +2275,30 @@ class _PresenceSheetState extends State<_PresenceSheet> {
               ),
             const SizedBox(height: 18),
             FilledButton(
-              onPressed: () => Navigator.pop(
-                context,
-                _Presence(
-                  discoverable: _discoverable,
-                  city: _city.text.trim(),
-                  locationVisibility: _visibility,
-                  plays: _plays.toList(growable: false),
-                  soundsLike: _soundsLike.toList(growable: false),
-                  singsIn: _singsIn.toList(growable: false),
-                ),
-              ),
+              key: const Key('presence_save'),
+              onPressed: () {
+                // A word still sitting in a field is a word somebody meant.
+                // "What you sing in" has no chips to tap, so typing and then
+                // Save is the likeliest way through it, and until this the
+                // sheet closed, the save succeeded and nothing was kept,
+                // without a word said. The same goes for a role or a sound
+                // typed and not added. Each of these does nothing when its
+                // field is empty.
+                _addSungIn();
+                _addOwnWords();
+                _addOwnRole();
+                Navigator.pop(
+                  context,
+                  _Presence(
+                    discoverable: _discoverable,
+                    city: _city.text.trim(),
+                    locationVisibility: _visibility,
+                    plays: _plays.toList(growable: false),
+                    soundsLike: _soundsLike.toList(growable: false),
+                    singsIn: _singsIn.toList(growable: false),
+                  ),
+                );
+              },
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(50),
               ),

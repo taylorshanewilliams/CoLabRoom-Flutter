@@ -7923,12 +7923,14 @@ end $$;
 -- Every Musician, Same Song, 17 September 2026. Four things have to hold.
 -- What somebody declares is kept the way sounds are: folded to one
 -- spelling, five at most, and left alone by a call that does not mention
--- it. A word two people both wrote is a reason the feed gives, and never a
--- filter: somebody who declared nothing sees exactly the feed they saw
--- before anybody declared anything, in the same order, and no song is
--- hidden from anybody. An ask says what it is in, to the room's card and to
--- the person asked, and a line written to one person never reaches the
--- card strangers read. And all of it runs as authenticated with a sound in
+-- it. A word two people both wrote is a sentence the feed says on a card,
+-- and never a filter or an order: somebody who declared nothing sees
+-- exactly the feed they saw before anybody declared anything, somebody who
+-- declared sees the same songs in the same order with one line changed,
+-- and no song is hidden from anybody. An ask says what it is in, to the
+-- room's card and to the person asked, in any script, and a line written
+-- to one person never reaches the card strangers read. And all of it runs
+-- as authenticated with a sound in
 -- the same call, because that is the call the settings sheet makes, and
 -- 0135's helper refused it to everybody but the superuser this file
 -- usually is.
@@ -7959,6 +7961,12 @@ begin
   perform set_config(
     'smoke.feed_before',
     (select string_agg(f.id::text || ':' || f.reason, ',' order by f.ordinality)
+       from public.open_mic_feed(24, null::text) with ordinality as f),
+    true);
+  -- The order alone, for the reader below who will have declared by then.
+  perform set_config(
+    'smoke.feed_order_before',
+    (select string_agg(f.id::text, ',' order by f.ordinality)
        from public.open_mic_feed(24, null::text) with ordinality as f),
     true);
 end $$;
@@ -8041,15 +8049,27 @@ reset role;
 set local request.jwt.claims = '{"sub": "51a60156-0000-0000-0000-000000000001"}';
 set local role authenticated;
 
+-- Pasted, with a tab in front and a line end behind, and beside it a word
+-- that is only white space. `trim` takes off spaces and nothing else, so
+-- the folding collapses first and trims after, or this would be kept as
+-- " portuguese " and never match anybody's.
 select public.set_open_mic_presence(
-  false, null, null, null, null, array['PORTUGUESE']
+  false, null, null, null, null, array[E'\tPORTUGUESE\n', E' \n ']
 );
 
 do $$
 declare
+  mine record;
   page record;
   track record;
+  order_now text;
 begin
+  select * into mine
+  from public.musician_profile('51a60156-0000-0000-0000-000000000001');
+  if mine.sings_in is distinct from array['portuguese'] then
+    raise exception 'a pasted word was kept as %', mine.sings_in;
+  end if;
+
   -- The page says it, to somebody allowed to see the page.
   select * into page
   from public.musician_profile('11111111-1111-1111-1111-111111111111');
@@ -8063,16 +8083,25 @@ begin
     raise exception 'a language two people share gave the reason "%"', track.reason;
   end if;
 
-  -- Never a filter. Every song the one who says nothing was shown is here
-  -- too; declaring a language hid nothing.
+  -- Never an order, and so never a filter either. This reader has said
+  -- nothing but a language, exactly as the one above had said nothing at
+  -- all, so the two of them are owed the same songs in the same places. A
+  -- shared word that lifted a song would move it here, and would push down
+  -- everybody on the page who had not typed one.
+  select string_agg(f.id::text, ',' order by f.ordinality) into order_now
+  from public.open_mic_feed(24, null::text) with ordinality as f;
+  if order_now is distinct from current_setting('smoke.feed_order_before') then
+    raise exception 'declaring a language moved the feed: % became %',
+      current_setting('smoke.feed_order_before'), order_now;
+  end if;
+
+  -- Having said what you sing in is not having said what you play, so a
+  -- card with no shared word still has nothing to claim about that.
   if exists (
-    select 1
-    from unnest(string_to_array(current_setting('smoke.feed_before'), ',')) as b(entry)
-    where split_part(b.entry, ':', 1)::uuid not in (
-      select id from public.open_mic_feed(24, null::text)
-    )
+    select 1 from public.open_mic_feed(24, null::text)
+    where reason = 'Nothing like what you play'
   ) then
-    raise exception 'declaring a language hid a song from the feed';
+    raise exception 'a language alone made the feed say "Nothing like what you play"';
   end if;
 end $$;
 
@@ -8111,9 +8140,26 @@ begin
   begin
     insert into public.project_asks (project_id, asked_by, part, sung_in)
     values ('e0e0e155-0000-0000-0000-00000000015a',
-            '11111111-1111-1111-1111-111111111111', 'sarangi', repeat('x', 81));
-    raise exception 'a line longer than eighty characters was kept on an ask';
+            '11111111-1111-1111-1111-111111111111', 'sarangi', repeat('x', 241));
+    raise exception 'a line far longer than the field allows was kept on an ask';
   exception when check_violation then null;
+  end;
+end $$;
+
+-- Sixty characters as a person counts them and a hundred and forty as
+-- Postgres does: the ask sheet's field takes this line, so the column has
+-- to. A check of eighty code points refused it, and the ask with it. Taken
+-- back again once it has been kept, so the card below still has exactly
+-- one line to read.
+do $$
+begin
+  begin
+    insert into public.project_asks (project_id, asked_by, part, sung_in)
+    values ('e0e0e155-0000-0000-0000-00000000015a',
+            '11111111-1111-1111-1111-111111111111', 'sarangi',
+            repeat('हिन्दी ', 20));
+    raise exception 'kept, and now taken back' using errcode = 'SM156';
+  exception when sqlstate 'SM156' then null;
   end;
 end $$;
 

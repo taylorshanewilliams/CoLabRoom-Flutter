@@ -1226,9 +1226,10 @@ class Musician {
   ///
   /// Declared, never inferred: not from a recording, a name or a city (Every
   /// Musician, Same Song, 17 September 2026). Five at most, kept the way
-  /// [soundsLike] is, and used the same way: a word you both wrote down is
-  /// one more reason the feed can give, and never a filter. Somebody who
-  /// wrote nothing here is not pushed down by anybody who did.
+  /// [soundsLike] is. A word you both wrote down is one more sentence the
+  /// feed can say on a card, and that is all: it is never a filter and it
+  /// moves no song, so somebody who wrote nothing here is not pushed down
+  /// by anybody who did.
   final List<String> singsIn;
 
   /// What somebody says about themselves, in their own words.

@@ -15,13 +15,20 @@ import 'package:flutter_test/flutter_test.dart';
 /// Every Musician, Same Song, 17 September 2026, from the world-traditions
 /// research. The languages somebody sings in and the traditions they work in
 /// are declared by the person and never inferred, and a word two people both
-/// wrote becomes a reason the Open Mic can give: "Also sings in Portuguese".
-/// It is never a filter. Nobody is hidden by it, and somebody who declares
-/// nothing is exactly where they were.
+/// wrote becomes a sentence the Open Mic can say: "Also sings in Portuguese".
+/// It is never a filter and never an order. Nobody is hidden by it, nobody
+/// is moved by it, and somebody who declares nothing is exactly where they
+/// were.
 ///
 /// Asks carry it too, as one free line ("Sa = C#, Rupak, Hindi"), so
 /// somebody answering knows what they are joining.
 const String _theLine = 'Sa = C#, Rupak, Hindi';
+
+/// About sixty characters as a person counts them, which is how the ask
+/// sheet's field counts them, and about a hundred and forty as Postgres
+/// does. A column checked at eighty code points refused a line like this
+/// and lost the whole ask.
+final String _inDevanagari = List<String>.filled(20, 'हिन्दी').join(' ');
 
 /// Notes what the ask bar sent, and otherwise is the seeded preview.
 class _Asking extends InMemoryMusicRepository {
@@ -147,6 +154,15 @@ void main() {
       expect(sungInWord('Brazilian Portuguese'), 'brazilian portuguese');
     });
 
+    test('white space of any kind around a word is not part of it', () {
+      // Pasted, with a tab in front and a line end behind. The server
+      // collapses before it trims for the same reason (0156): a word kept
+      // as " portuguese" never matches anybody's.
+      expect(sungInWord('\tPortuguês\n'), 'portuguese');
+      expect(sungInWord('north\tindian\n classical'), 'hindustani');
+      expect(sungInWord(' \n\t '), '');
+    });
+
     test('a kept word folds to itself', () {
       for (final word in <String>['portuguese', 'hindustani', 'carnatic']) {
         expect(sungInWord(word), word);
@@ -255,6 +271,63 @@ void main() {
       expect(find.text('Portuguese'), findsOneWidget);
     });
 
+    test('white space alone is not a word', () async {
+      final repository = InMemoryMusicRepository.seeded();
+      await repository.setOpenMicPresence(
+          discoverable: false, singsIn: <String>[' \n ', '\tHindi\n', '']);
+      expect((await repository.loadMusician(repository.currentUserId))!.singsIn,
+          <String>['hindi']);
+    });
+
+    testWidgets('a word typed and never added is still kept by Save',
+        (tester) async {
+      // There are no chips to tap under "What you sing in", on purpose, so
+      // typing and then Save is the likeliest way through it. The sheet used
+      // to close, the save used to succeed, and nothing was kept.
+      final repository = InMemoryMusicRepository.seeded();
+      await _openProfile(tester, repository);
+
+      await tester.tap(find.byTooltip('Open Mic settings'));
+      await _pumpAWhile(tester);
+
+      final field = find.byKey(const Key('sings_in_field'));
+      await tester.ensureVisible(field);
+      await tester.pump();
+      await tester.enterText(field, 'Português');
+
+      final save = find.byKey(const Key('presence_save'));
+      await tester.ensureVisible(save);
+      await tester.pump();
+      await tester.tap(save);
+      await _pumpAWhile(tester);
+      expect(tester.takeException(), isNull);
+
+      final me = await repository.loadMusician(repository.currentUserId);
+      expect(me!.singsIn, <String>['portuguese']);
+      expect(await _reveal(tester, find.text('SINGS IN')), findsOneWidget);
+      expect(find.text('Portuguese'), findsOneWidget);
+    });
+
+    testWidgets('an empty field adds nothing when Save is tapped',
+        (tester) async {
+      final repository = InMemoryMusicRepository.seeded();
+      final before = await repository.loadMusician(repository.currentUserId);
+      await _openProfile(tester, repository);
+
+      await tester.tap(find.byTooltip('Open Mic settings'));
+      await _pumpAWhile(tester);
+      final save = find.byKey(const Key('presence_save'));
+      await tester.ensureVisible(save);
+      await tester.pump();
+      await tester.tap(save);
+      await _pumpAWhile(tester);
+
+      final me = await repository.loadMusician(repository.currentUserId);
+      expect(me!.singsIn, isEmpty);
+      expect(me.soundsLike, before!.soundsLike);
+      expect(me.plays, before.plays);
+    });
+
     testWidgets('a page says it in their words and their order',
         (tester) async {
       final repository = InMemoryMusicRepository.seeded();
@@ -281,7 +354,7 @@ void main() {
       expect(alsoSingsIn(''), '');
     });
 
-    test('a word you both wrote is why the song reached you', () async {
+    test('a word you both wrote is said on their song', () async {
       final repository = InMemoryMusicRepository.seeded();
       await repository.setOpenMicPresence(
           discoverable: false, singsIn: <String>['Português']);
@@ -377,6 +450,99 @@ void main() {
         ).askSungIn,
         isEmpty,
       );
+    });
+
+    test('a line in Devanagari is kept whole', () async {
+      // The field stops at eighty written characters and the column counts
+      // code points, which in this script is two or three times as many.
+      expect(_inDevanagari.characters.length,
+          lessThanOrEqualTo(sungInLineLength));
+      expect(_inDevanagari.runes.length, greaterThan(sungInLineLength));
+      expect(_inDevanagari.runes.length,
+          lessThanOrEqualTo(sungInLineCodePoints));
+      expect(sungInLine('  $_inDevanagari '), _inDevanagari);
+
+      final repository = InMemoryMusicRepository.seeded();
+      final said = await repository.askFor(
+        projectId: 'preview-project-1',
+        part: 'tabla',
+        sungIn: _inDevanagari,
+      );
+      expect(said.sungIn, _inDevanagari);
+    });
+
+    test('a line longer than the column is cut, never refused', () {
+      // Eighty of a character that is seven code points each: the field
+      // takes it and the column cannot. It is cut to what the column holds,
+      // between code points and never inside a pair, and the ask still goes.
+      final family = String.fromCharCodes(<int>[
+        0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467, 0x200D, 0x1F466,
+      ]);
+      final long = List<String>.filled(sungInLineLength, family).join();
+      expect(long.characters.length, sungInLineLength);
+
+      final sent = sungInLine(long);
+      expect(sent.runes.length, lessThanOrEqualTo(sungInLineCodePoints));
+      expect(sent, isNotEmpty);
+      expect(long.startsWith(sent), isTrue);
+      // Half of a surrogate pair reads back as a code point of its own, in
+      // the range no whole character lives in.
+      expect(sent.runes.every((r) => r < 0xD800 || r > 0xDFFF), isTrue);
+
+      // And an ordinary line is only trimmed.
+      expect(sungInLine('  $_theLine '), _theLine);
+      expect(sungInLine('   '), '');
+    });
+
+    testWidgets('a bandmate reads the line where they answer the ask',
+        (tester) async {
+      // The room's own ask, on a song that is not on the Open Mic. The
+      // thread is where somebody in the room reads an ask before answering
+      // it, and it is the only place this line is read at all.
+      final repository = InMemoryMusicRepository.seeded();
+      final ask = await repository.askFor(
+          projectId: 'song-1', part: 'tabla', sungIn: _theLine);
+
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: Scaffold(
+          body: AskBar(projectId: 'song-1', repository: repository),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(Key('ask_chip_${ask.id}')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('ask_thread_headline')), findsOneWidget);
+      expect(find.byKey(const Key('ask_thread_detail')), findsOneWidget);
+      expect(find.text(_theLine), findsOneWidget);
+    });
+
+    testWidgets('an ask that did not say has no empty line in its thread',
+        (tester) async {
+      final repository = InMemoryMusicRepository.seeded();
+      final ask = await repository.askFor(projectId: 'song-1', part: 'drums');
+
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: Scaffold(
+          body: AskBar(projectId: 'song-1', repository: repository),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(Key('ask_chip_${ask.id}')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('ask_thread_headline')), findsOneWidget);
+      expect(find.byKey(const Key('ask_thread_detail')), findsNothing);
+    });
+
+    testWidgets('the person asked reads it in the thread as well as the card',
+        (tester) async {
+      await _openInbox(tester, _theLine);
+      await tester.tap(find.byKey(const Key('ask_card_reply')).first);
+      await _pumpAWhile(tester);
+      expect(find.byKey(const Key('ask_thread_detail')), findsOneWidget);
     });
 
     testWidgets('the room\'s ask carries the line typed above the parts',

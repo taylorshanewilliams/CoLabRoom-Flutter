@@ -407,6 +407,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           // yourself, so this end always gets the doors.
                           askedBy: ask.askedById ?? '',
                           note: ask.note,
+                          sungIn: ask.sungIn,
                         )),
                       ),
                       const SizedBox(height: 10),

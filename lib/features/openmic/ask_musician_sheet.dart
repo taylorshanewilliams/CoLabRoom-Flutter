@@ -6,6 +6,7 @@ import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../domain/musical_roles.dart';
+import '../../domain/sung_in.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/ask_terms_picker.dart';
 import '../../widgets/problem_report.dart';
@@ -309,7 +310,7 @@ class _AskMusicianSheetState extends State<AskMusicianSheet> {
                 TextField(
                   key: const Key('ask_musician_sung_in'),
                   controller: _sungIn,
-                  maxLength: 80,
+                  maxLength: sungInLineLength,
                   decoration: const InputDecoration(
                     hintText: 'Sa = C#, Rupak, Hindi',
                     counterText: '',

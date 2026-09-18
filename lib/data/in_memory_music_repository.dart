@@ -1260,10 +1260,11 @@ class InMemoryMusicRepository implements MusicRepository {
         askingFor: const <String>['harmony'],
         musicalKey: 'D',
         durationMs: 142000,
-        // A word you both sing in is a reason, the way open_mic_feed gives
-        // it (0156). With nothing declared this is the line it always was,
-        // and either way the song stays where it was in the list: closeness
-        // is a sentence on a card, never a filter.
+        // A word you both sing in is said on the card, the way open_mic_feed
+        // says it (0156): in place of the stranger's line, and after every
+        // reason that placed a card. With nothing declared this is the line
+        // it always was, and either way the song stays where it was in the
+        // list: the word is a sentence, never a filter and never an order.
         reason: _alsoSingsIn('preview-dev') ?? 'Nothing like what you play',
       ),
     ];
@@ -1834,13 +1835,13 @@ class InMemoryMusicRepository implements MusicRepository {
             }.take(5).toList(growable: false),
       // The same again for tidy_sings_in (0156): folded to one spelling,
       // in the order chosen, five at most, nothing over forty characters.
-      // Null leaves what was declared alone.
+      // The length is read off the folded word, as it is there, so white
+      // space alone is dropped. Null leaves what was declared alone.
       singsIn: singsIn == null
           ? _me.singsIn
           : <String>{
-              for (final t in singsIn)
-                if (t.trim().isNotEmpty && t.trim().length <= 40)
-                  sungInWord(t),
+              for (final word in singsIn.map(sungInWord))
+                if (word.isNotEmpty && word.length <= 40) word,
             }.take(5).toList(growable: false),
       partsRecorded: _me.partsRecorded,
       songsPlayedOn: _me.songsPlayedOn,
@@ -3013,8 +3014,10 @@ class InMemoryMusicRepository implements MusicRepository {
       part: cleaned == null || cleaned.isEmpty ? null : cleaned,
       note: note.trim(),
       // Kept as typed, and only what was typed: an ask that did not say
-      // stays empty rather than borrowing from anybody's profile.
-      sungIn: sungIn.trim(),
+      // stays empty rather than borrowing from anybody's profile. Cut to
+      // the column the way the real insert is, so a line in any script is
+      // kept whole here exactly when it would be there.
+      sungIn: sungInLine(sungIn),
       terms: terms,
     );
     _asks.putIfAbsent(projectId, () => <SongAsk>[]).add(ask);

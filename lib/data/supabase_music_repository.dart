@@ -15,6 +15,7 @@ import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
 import '../domain/song_analysis_models.dart' show SongAnalysisState;
+import '../domain/sung_in.dart';
 import 'music_repository.dart';
 import '../services/error_reporter.dart';
 
@@ -1749,7 +1750,9 @@ class SupabaseMusicRepository implements MusicRepository {
         'in_part': part,
         'in_note': note,
         'in_terms': terms.wireName,
-        'in_sung_in': sungIn.trim(),
+        // Cut to the column here as the server cuts it there, so the two
+        // ways an ask is made agree about how long the line can be.
+        'in_sung_in': sungInLine(sungIn),
       },
     );
   }
@@ -2160,8 +2163,12 @@ class SupabaseMusicRepository implements MusicRepository {
           // that comes back is the last word on what answering meant.
           'terms': terms.wireName,
           // The asker's words, as typed (0156). Never filled in from a
-          // profile or a recording: declared, never inferred.
-          'sung_in': sungIn.trim(),
+          // profile or a recording: declared, never inferred. This is a
+          // plain insert with a check on the column, and the check counts
+          // code points where the field counted written characters, so a
+          // Hindi line the field accepted could be refused here and take
+          // the whole ask with it. `sungInLine` cuts to the column instead.
+          'sung_in': sungInLine(sungIn),
         })
         .select(
             'id, project_id, asked_by, part, note, sung_in, terms, created_at, status')
