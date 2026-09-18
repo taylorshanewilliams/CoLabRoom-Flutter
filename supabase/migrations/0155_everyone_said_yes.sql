@@ -1109,6 +1109,43 @@ $fn$;
 revoke all on function public.songs_by(uuid) from public, anon;
 grant execute on function public.songs_by(uuid) to authenticated;
 
+-- Restated from 0085, which is still its latest definition. The song a
+-- person's card plays in find_musicians is the newest one they can be heard
+-- on, and somebody who pulled their part cannot be heard on that song.
+create or replace function private.heard_from(target_profile uuid)
+returns table (
+  song_id uuid,
+  title text,
+  storage_path text,
+  duration_ms integer
+)
+language sql
+stable
+security definer
+set search_path = public
+as $fn$
+  select p.id, p.title, audio.storage_path, audio.duration_ms
+  from public.projects p
+  left join lateral private.song_audio(p.id) audio on true
+  where p.open_mic_at is not null
+    and p.deleted_at is null
+    and audio.storage_path is not null
+    and (
+      p.created_by = target_profile
+      or exists (
+        select 1 from public.song_layers l
+        where l.project_id = p.id
+          and l.recorded_by = target_profile
+          and private.take_is_public(l.id)
+      )
+    )
+  order by p.open_mic_at desc
+  limit 1;
+$fn$;
+
+revoke all on function private.heard_from(uuid)
+  from public, anon, authenticated;
+
 -- Restated from 0096, which is still its latest definition. The players
 -- named on a colabroom.com page are the ones whose parts are on it.
 create or replace function public.public_songs(
