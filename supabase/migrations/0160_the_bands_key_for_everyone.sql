@@ -27,6 +27,13 @@
 -- reads whole here. The key travels in a column the app already maps, so an
 -- app that has not updated shows the band's key the moment this is applied.
 --
+-- **Applied in number order, after 0155 and 0156.** Those are the
+-- definitions these were copied from. 0156 looks after itself: it changed
+-- the shapes of the feed and the brief, so on a database that has not had
+-- it `create or replace` refuses and this file stops. 0155 does not: the
+-- showcase and colabroom.com's list have the shapes they had before it, so
+-- 0155 applied after this would put the analysed key back without a word.
+--
 -- **Not here, on purpose.** my_open_mic, open_mic_songs and songs_by return
 -- no key, so there is nothing in them to correct. The tempo beside the key
 -- is still the analyser's, because a song has no tempo of its own to
