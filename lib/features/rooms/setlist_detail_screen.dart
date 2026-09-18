@@ -117,6 +117,13 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
     }
 
     Future<void> editSong(SongProject project) async {
+      // The hints are the song's own answers, and the analysis they come
+      // from may still be on its way when the tune icon is tapped a moment
+      // after arriving. The sheet opens at once with what is known and fills
+      // the hints in when the rest lands, rather than making the tap wait on
+      // the network (review, 18 September 2026).
+      final songSaysLater =
+          _analysisFor(project.id).then((bundle) => setSongFacts(null, project, bundle));
       await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
@@ -126,6 +133,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
           project: project,
           entry: setlist.songFor(project.id) ?? SetlistSong(projectId: project.id),
           songSays: setSongFacts(null, project, _analyses[project.id]),
+          songSaysLater: songSaysLater,
           onSave: save,
         ),
       );
@@ -443,6 +451,7 @@ class _SetSongSheet extends StatefulWidget {
     required this.project,
     required this.entry,
     required this.songSays,
+    required this.songSaysLater,
     required this.onSave,
   });
 
@@ -451,8 +460,10 @@ class _SetSongSheet extends StatefulWidget {
   /// What the band has said so far.
   final SetlistSong entry;
 
-  /// What the song says on its own, for the hints.
+  /// What the song says on its own, for the hints: what is known as the
+  /// sheet opens, and the same again once the song's analysis has arrived.
   final SetSongFacts songSays;
+  final Future<SetSongFacts> songSaysLater;
 
   /// Completes with null once it has landed, or with the sentence to show
   /// when it did not — said here, where the person tapped, because a
@@ -474,6 +485,17 @@ class _SetSongSheetState extends State<_SetSongSheet> {
   late final TextEditingController _note = TextEditingController(text: widget.entry.note ?? '');
   bool _saving = false;
   String? _refused;
+
+  /// The song's own answers, replaced once when the analysis lands.
+  late SetSongFacts _songSays = widget.songSays;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(widget.songSaysLater.then((facts) {
+      if (mounted) setState(() => _songSays = facts);
+    }));
+  }
 
   /// The twelve, written the way a chart writes them: the flat side of the
   /// circle in flats, because a song is far more often in E♭ than in D♯.
@@ -519,7 +541,7 @@ class _SetSongSheetState extends State<_SetSongSheet> {
   /// Where Major or Minor starts from before a root has been picked: the
   /// song's own root, so a band that only wants to say "we do it minor" gets
   /// G minor over a song in G, not C minor (review, 18 September 2026).
-  String get _rootToStartFrom => _rootNow ?? _chipFor(widget.songSays.songKey) ?? 'C';
+  String get _rootToStartFrom => _rootNow ?? _chipFor(_songSays.songKey) ?? 'C';
 
   bool get _minorNow => (_key ?? '').toLowerCase().contains('minor');
 
@@ -567,8 +589,8 @@ class _SetSongSheetState extends State<_SetSongSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final songKey = widget.songSays.songKey;
-    final tempo = widget.songSays.bpm;
+    final songKey = _songSays.songKey;
+    final tempo = _songSays.bpm;
     return SafeArea(
       top: false,
       child: Padding(
@@ -656,7 +678,7 @@ class _SetSongSheetState extends State<_SetSongSheet> {
                 textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
                   labelText: 'Count-in',
-                  hintText: widget.songSays.countIn ?? 'Who counts it, and how',
+                  hintText: _songSays.countIn ?? 'Who counts it, and how',
                   isDense: true,
                 ),
               ),
@@ -667,7 +689,7 @@ class _SetSongSheetState extends State<_SetSongSheet> {
                 textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
                   labelText: 'Form',
-                  hintText: widget.songSays.form ?? 'Intro · Verse · Chorus',
+                  hintText: _songSays.form ?? 'Intro · Verse · Chorus',
                   isDense: true,
                 ),
               ),

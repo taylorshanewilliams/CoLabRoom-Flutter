@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:colabroom/app/beta_scope.dart';
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
@@ -433,18 +435,23 @@ void main() {
       );
     });
 
-    test('a song that is not in the set cannot be written to it', () async {
+    test('a song that is not in the set cannot be written to it, and the owner is told that', () async {
+      // The set is theirs; the song has gone from it (taken out on another
+      // device). Refused, and not with "not yours".
       final repository = InMemoryMusicRepository.seeded();
       final set = await repository.createSetlist('Saturday');
       await expectLater(
         repository.saveSetlistSong(set, const SetlistSong(projectId: 'song-1', note: 'Faster')),
-        throwsA(isA<StateError>()),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', MusicRepository.songNotInSet)),
       );
     });
   });
 
   group('on the page', () {
-    Future<(MusicBetaController, String)> open(WidgetTester tester) async {
+    Future<(MusicBetaController, String)> open(
+      WidgetTester tester, {
+      LoadAnalysis? loadAnalysis,
+    }) async {
       final controller = MusicBetaController(InMemoryMusicRepository.seeded());
       await controller.load();
       addTearDown(controller.dispose);
@@ -459,7 +466,7 @@ void main() {
           theme: CoLabRoomTheme.dark(),
           home: SetlistDetailScreen(
             setlistId: set.id,
-            loadAnalysis: (projectId) async => _analysis(projectId),
+            loadAnalysis: loadAnalysis ?? ((projectId) async => _analysis(projectId)),
           ),
         ),
       ));
@@ -516,6 +523,33 @@ void main() {
       expect(controller.setlistById(id)!.songFor('song-1')!.key, 'G minor');
       // The parallel of the song's key: the chart is not moved by it.
       expect(find.text('G minor · 96 bpm · One bar of 4'), findsOneWidget);
+    });
+
+    testWidgets('a sheet opened before the analysis arrives fills its hints in when it does',
+        (tester) async {
+      // A slow connection: the tune icon is tapped before the song's
+      // analysis has come back. The sheet opens at once rather than waiting
+      // on the network, and the hints, and where Minor starts from, catch up
+      // when it lands.
+      final arrives = Completer<SongAnalysisBundle?>();
+      final (controller, id) = await open(tester, loadAnalysis: (_) => arrives.future);
+
+      await tester.tap(find.byKey(const Key('set_song_song-1')));
+      await tester.pumpAndSettle();
+      expect(find.text('The song has no key yet.'), findsOneWidget);
+
+      arrives.complete(_analysis('song-1'));
+      await tester.pumpAndSettle();
+      expect(find.text("The song's key is G."), findsOneWidget);
+      expect(find.text('The song has no key yet.'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('set_key_minor')));
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('set_song_save')));
+      await tester.tap(find.byKey(const Key('set_song_save')));
+      await tester.pumpAndSettle();
+      expect(controller.setlistById(id)!.songFor('song-1')!.key, 'G minor',
+          reason: 'Minor starts from the song\'s own root once it is known');
     });
 
     testWidgets('a tempo that is not a number is refused on the sheet', (tester) async {

@@ -643,9 +643,11 @@ class InMemoryMusicRepository implements MusicRepository {
     if (setlist.ownerId != 'preview-user') {
       throw StateError(MusicRepository.notYourSet);
     }
+    // And the other silence: the set is theirs, but the song is not in it
+    // any more. Said as that, not as "not yours".
     final held = _setlists.where((value) => value.id == setlist.id).firstOrNull;
     if (held == null || !held.projectIds.contains(song.projectId)) {
-      throw StateError(MusicRepository.notYourSet);
+      throw StateError(MusicRepository.songNotInSet);
     }
     _replaceSetlist(held.copyWith(
       songs: held.songs

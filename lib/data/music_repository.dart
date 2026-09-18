@@ -171,6 +171,13 @@ abstract interface class MusicRepository {
   static const String notYourSet =
       'Only the person whose set this is can change what it says.';
 
+  /// What [saveSetlistSong] says when the set is theirs but the song is not
+  /// in it any more: taken out on another device, or in a room they can no
+  /// longer see. Told apart from [notYourSet] so the owner of a set is not
+  /// told it is somebody else's (review, 18 September 2026).
+  static const String songNotInSet =
+      'That song is no longer in this set. Reopen the set and try again.';
+
   /// What the band does with one song in this set: the key, the tempo, the
   /// count-in, the form, the ending and the note (Every Musician, Same Song,
   /// 17 September 2026). A null field means "what the song says".

@@ -922,6 +922,11 @@ class SupabaseMusicRepository implements MusicRepository {
     // the set owner's and nobody else's, which is a rule the table already
     // has. An update the policy refuses affects no row and raises nothing,
     // so the row is asked for back, and none coming back is the refusal.
+    //
+    // The same silence answers the owner when the song has left the set
+    // (removed on another device) or sits in a room they can no longer read
+    // (0005's read policy asks for membership, and the update's where goes
+    // through it). Which of the two it was is told by whose set it is.
     final rows = await client
         .from('setlist_projects')
         .update(<String, dynamic>{
@@ -936,7 +941,11 @@ class SupabaseMusicRepository implements MusicRepository {
         .eq('project_id', song.projectId)
         .select('project_id');
     if ((rows as List<dynamic>).isEmpty) {
-      throw StateError(MusicRepository.notYourSet);
+      throw StateError(
+        setlist.ownerId == client.auth.currentUser?.id
+            ? MusicRepository.songNotInSet
+            : MusicRepository.notYourSet,
+      );
     }
   }
 
