@@ -483,15 +483,15 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
     ];
   }
 
-  static String _joined(LessonLink link) => switch (link.students) {
-        0 => 'Nobody has joined yet',
-        1 => '1 student has joined',
-        _ => '${link.students} students have joined',
-      };
+  /// Whether the poster has worked yet, and nothing more: no number (Every
+  /// Musician, Same Song, 17 September 2026: no counts anywhere). A teacher
+  /// who wants the names has them, as rooms, under Your music.
+  static String _joined(LessonLink link) =>
+      link.students == 0 ? 'Nobody has joined yet' : 'Students have joined';
 }
 
-/// One link in the list: its name, whether it is a class, and who has
-/// joined. Tapping it opens the code.
+/// One link in the list: its name, and whether it is a class. Tapping it
+/// opens the code.
 class _LinkRow extends StatelessWidget {
   const _LinkRow({required this.link, required this.onTap});
 
@@ -500,7 +500,6 @@ class _LinkRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final joined = _LessonLinkScreenState._joined(link);
     return Material(
       color: AppColors.raised,
       borderRadius: BorderRadius.circular(14),
@@ -514,10 +513,9 @@ class _LinkRow extends StatelessWidget {
           link.title,
           style: const TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w700),
         ),
-        subtitle: Text(
-          link.isClass ? 'Class · $joined' : joined,
-          style: const TextStyle(color: AppColors.muted, fontSize: 13),
-        ),
+        subtitle: link.isClass
+            ? const Text('Class', style: TextStyle(color: AppColors.muted, fontSize: 13))
+            : null,
         trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
       ),
     );

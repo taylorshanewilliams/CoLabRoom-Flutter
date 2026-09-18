@@ -157,7 +157,8 @@ void main() {
       expect(plain.isClass, isFalse);
     });
 
-    test('turning the class off leaves the room; turning it on again makes a new one beside it', () async {
+    test('turning the class off leaves the room; on again is the same room, and a fresh one only once it is gone',
+        () async {
       final repository = adult();
       final controller = MusicBetaController(repository);
       final link = await repository.openLessonLink('Jazz studio', asClass: true);
@@ -168,14 +169,25 @@ void main() {
       await controller.load();
       expect(controller.roomById(firstRoom), isNotNull, reason: 'a room with people in it is theirs');
 
+      // On again: the room the class is already in, not an empty second one
+      // for a switch flipped twice on a phone.
       await repository.setLessonLinkClass(link.id, asClass: true);
       final again = (await repository.myLessonLinks()).single;
-      expect(again.classRoomId, isNot(firstRoom));
-      expect(again.classRoomName, 'Jazz studio 2');
+      expect(again.classRoomId, firstRoom);
+      expect(again.classRoomName, 'Jazz studio');
 
       // Saying it twice makes one.
       await repository.setLessonLinkClass(link.id, asClass: true);
-      expect((await repository.myLessonLinks()).single.classRoomId, again.classRoomId);
+      expect((await repository.myLessonLinks()).single.classRoomId, firstRoom);
+
+      // Only once the room is gone is a fresh one made, and until the switch
+      // is touched again the link reads as no class.
+      await repository.deleteRoom(controller.roomById(firstRoom)!);
+      expect((await repository.myLessonLinks()).single.isClass, isFalse);
+      await repository.setLessonLinkClass(link.id, asClass: true);
+      final fresh = (await repository.myLessonLinks()).single;
+      expect(fresh.classRoomId, isNot(firstRoom));
+      expect(fresh.classRoomName, 'Jazz studio');
     });
 
     testWidgets('the form asks; the code page shows which room the poster opens into, and changes it',
@@ -194,16 +206,24 @@ void main() {
       expect(tester.widget<SwitchListTile>(find.byKey(const Key('lesson_class'))).value, isTrue);
       expect(find.textContaining('lands in Jazz studio with the whole class'), findsOneWidget);
 
+      // The list says which links are classes, and nothing else about them:
+      // no count of who has joined (Every Musician, Same Song: none anywhere).
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.text('Class'), findsOneWidget);
+      expect(find.textContaining('joined'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('lesson_link_row_a1b2c3d4e5f6')));
+      await tester.pumpAndSettle();
+      await scrollTo(tester, const Key('lesson_class'));
       await tester.tap(find.byKey(const Key('lesson_class')));
       await tester.pumpAndSettle();
       expect((await repository.myLessonLinks()).single.isClass, isFalse);
       expect(tester.widget<SwitchListTile>(find.byKey(const Key('lesson_class'))).value, isFalse);
 
-      // And the list says which links are classes.
       await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
-      expect(find.text('Nobody has joined yet'), findsOneWidget);
-      expect(find.text('Class · Nobody has joined yet'), findsNothing);
+      expect(find.text('Class'), findsNothing);
     });
 
     test('the poster names the class', () async {
@@ -246,7 +266,13 @@ void main() {
       }
 
       await useCode('0123-4567-89AB');
-      expect(find.text('Your lesson room is ready. It is under Your music.'), findsOneWidget);
+      // Told about both rooms: they opened a link, not a room with other
+      // people in it.
+      expect(
+        find.text('Your lesson room is ready: Jazz studio · Taylor. You are also in Jazz studio '
+            'with the whole class, to listen. Both are under Your music.'),
+        findsOneWidget,
+      );
       expect(controller.rooms.length, before + 2);
 
       final me = repository.currentUserId;

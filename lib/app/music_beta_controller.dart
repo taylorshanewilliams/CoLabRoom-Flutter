@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 
 import '../domain/activity.dart';
 import '../data/music_repository.dart';
+import '../domain/lesson_link.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/tonight_models.dart';
@@ -870,11 +871,26 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Opens somebody's lesson link and returns the room it gave you, with
-  /// the library reloaded so the room is already on the shelf.
-  Future<MusicRoom?> joinLessonLink(String code) async {
+  /// the library reloaded so the room is already on the shelf -- and the
+  /// class room, when this was the scan that put you in one (0148). The
+  /// server says only which room is yours, so the class room is whichever
+  /// room of the teacher's you are a viewer in now and were not before, the
+  /// way join_from_address finds an invitation's room.
+  Future<LessonJoined> joinLessonLink(String code) async {
+    final before = _rooms.map((room) => room.id).toSet();
     final roomId = await repository.joinLessonLink(code);
     await load();
-    return roomById(roomId);
+    final room = roomById(roomId);
+    if (room == null) return const LessonJoined(room: null);
+    final me = repository.currentUserId;
+    final classRoom = _rooms
+        .where((each) =>
+            each.id != room.id &&
+            !before.contains(each.id) &&
+            each.accountId == room.accountId &&
+            each.members.any((member) => member.userId == me && member.role == RoomRole.viewer))
+        .firstOrNull;
+    return LessonJoined(room: room, classRoom: classRoom);
   }
 
   Future<void> declineInvite(BetaInvite invite) async {

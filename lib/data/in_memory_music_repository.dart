@@ -766,6 +766,10 @@ class InMemoryMusicRepository implements MusicRepository {
   /// the link again finds the same room rather than making a second.
   final Map<String, String> _classRoomsJoined = <String, String>{};
 
+  /// The class room each of this person's own links has, by link id, kept
+  /// while the class is turned off so that on again is the same room (0148).
+  final Map<String, String> _classRoomOfLink = <String, String>{};
+
   /// Somebody else's lesson link this repository will open. There is only
   /// one person in an in-memory world, so the teacher on the other end of a
   /// lesson has to be put there by hand, for tests and previews. With
@@ -2093,7 +2097,21 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<List<LessonLink>> myLessonLinks() async => List<LessonLink>.unmodifiable(_lessonLinks);
+  Future<List<LessonLink>> myLessonLinks() async => List<LessonLink>.unmodifiable(
+        // A class whose room is gone reads as no class, as my_lesson_links
+        // reports it (0148).
+        _lessonLinks.map((link) => link.classRoomId != null && !_rooms.any((room) => room.id == link.classRoomId)
+            ? _withoutClass(link)
+            : link),
+      );
+
+  static LessonLink _withoutClass(LessonLink link) => LessonLink(
+        id: link.id,
+        code: link.code,
+        title: link.title,
+        createdAt: link.createdAt,
+        students: link.students,
+      );
 
   /// The age rule both ends of a lesson link meet, as 0139 applies it: an
   /// account that answered under 13 is closed to them, one that has never
@@ -2135,6 +2153,7 @@ class InMemoryMusicRepository implements MusicRepository {
       classRoomName: classRoom?.name,
     );
     _lessonLinks.add(link);
+    if (classRoom != null) _classRoomOfLink[link.id] = classRoom.id;
     return link;
   }
 
@@ -2145,19 +2164,16 @@ class InMemoryMusicRepository implements MusicRepository {
     _lessonsNeedAnAdult();
     final link = _lessonLinks[index];
     if (!asClass) {
-      // The room and everybody in it stay: a room with people in it is theirs
-      // and not the link's.
-      _lessonLinks[index] = LessonLink(
-        id: link.id,
-        code: link.code,
-        title: link.title,
-        createdAt: link.createdAt,
-        students: link.students,
-      );
+      // The room and everybody in it stay, and the link remembers it: a room
+      // with people in it is theirs and not the link's, and on again must be
+      // that room rather than an empty second one.
+      _lessonLinks[index] = _withoutClass(link);
       return;
     }
-    if (link.classRoomId != null && _rooms.any((room) => room.id == link.classRoomId)) return;
-    final classRoom = _makeClassRoom(link.title);
+    // The room the link had, if it is still there; a fresh one only if not.
+    final kept = _classRoomOfLink[link.id];
+    final classRoom = _rooms.where((room) => room.id == kept).firstOrNull ?? _makeClassRoom(link.title);
+    _classRoomOfLink[link.id] = classRoom.id;
     _lessonLinks[index] = LessonLink(
       id: link.id,
       code: link.code,

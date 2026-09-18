@@ -23,7 +23,10 @@
 --     director's recordings of the parts, the songs being worked on. Opening
 --     a class link puts the student in the class room as a viewer and makes
 --     their own two-person lesson room in the same step. They record in
---     their own room, never in front of the class.
+--     their own room, never in front of the class. A class turned off keeps
+--     its room, and turned on again is the same room: a switch flipped twice
+--     on a phone must not split a class between two rooms. A fresh room is
+--     made only when the old one is gone.
 --
 --   * A viewer listens and talks and does nothing else, in SQL. The role has
 --     existed since 0001 and every policy on songs and words already keeps
@@ -35,9 +38,9 @@
 --     our song". Owners and editors are untouched.
 --
 -- What this does not do. It counts nothing about a student: my_lesson_links
--- carries how many people joined each link, which 0129's screen already
--- showed, and that is the size of the teacher's own list rather than a mark
--- on anybody. It does not rename a link -- a code already on a poster is
+-- carries how many people joined each link, and the app says only whether
+-- anybody has -- no number on any screen (Every Musician, Same Song: no
+-- badges, streaks or counts anywhere). It does not rename a link -- a code already on a poster is
 -- kept by turning the link off and making another, which is what a teacher
 -- with eight of them will do anyway. And both ends of a link are still
 -- adults (0139): every function here that makes or changes a link asks the
@@ -48,8 +51,13 @@ drop index if exists public.lesson_links_one_open;
 -- Which room the whole class listens in, when the link is a class. Set null
 -- when the room goes, so a link outlives a room the teacher deleted and
 -- simply stops being a class.
+--
+-- class_off_at is the class turned off while the room is kept: scans stop
+-- joining the room, and turning the class back on clears it and opens the
+-- same room again. The room is only ever forgotten by going away.
 alter table public.lesson_links
-  add column class_room_id uuid references public.rooms(id) on delete set null;
+  add column class_room_id uuid references public.rooms(id) on delete set null,
+  add column class_off_at timestamptz;
 
 create index lesson_links_class_room_idx
   on public.lesson_links (class_room_id) where class_room_id is not null;
@@ -152,7 +160,9 @@ $fn$;
 revoke all on function private.make_class_room(uuid, text) from public, anon, authenticated;
 
 -- Your open links, oldest first, each with how many students have joined
--- through it and the class room it opens into, if it still exists.
+-- through it and the class room it opens into -- if it still exists and the
+-- class is on. A class turned off reads as no class, which is what the switch
+-- shows; the room it kept is the server's business until the switch goes on.
 create or replace function public.my_lesson_links()
 returns table (
   id uuid,
@@ -172,7 +182,7 @@ as $fn$
          room.id, room.name
   from public.lesson_links l
   left join public.rooms room
-    on room.id = l.class_room_id and room.deleted_at is null
+    on room.id = l.class_room_id and room.deleted_at is null and l.class_off_at is null
   where l.teacher_id = auth.uid() and l.closed_at is null
   order by l.created_at, l.id;
 $fn$;
@@ -232,10 +242,12 @@ revoke all on function public.open_lesson_link(text, boolean) from public, anon;
 grant execute on function public.open_lesson_link(text, boolean) to authenticated;
 
 -- Marks a link as a class, or stops it being one. On: the link's class room,
--- made now if it has none (or if the one it had was deleted). Off: new
--- students stop joining the room; the room and everybody in it stay, because
--- a room with people in it is theirs and not the link's. Returns the class
--- room, or null.
+-- the same one it had if that room is still there, made now if not. Off:
+-- new students stop joining the room; the room and everybody in it stay,
+-- because a room with people in it is theirs and not the link's -- and the
+-- link remembers it, so on again after off is the room the class is already
+-- in rather than an empty second one the poster would open into while the
+-- teacher's recordings stay in the first. Returns the class room, or null.
 --
 -- Nobody but the link's teacher, and only while it is open: a closed link
 -- opens nothing, so there is nothing for it to be a class of.
@@ -269,7 +281,9 @@ begin
   perform private.lessons_need_an_adult(me);
 
   if not coalesce(in_class, false) then
-    update public.lesson_links set class_room_id = null where id = link.id;
+    update public.lesson_links
+    set class_off_at = coalesce(class_off_at, now())
+    where id = link.id;
     return null;
   end if;
 
@@ -278,8 +292,10 @@ begin
   where room.id = link.class_room_id and room.deleted_at is null;
   if class_room is null then
     class_room := private.make_class_room(me, link.title);
-    update public.lesson_links set class_room_id = class_room where id = link.id;
   end if;
+  update public.lesson_links
+  set class_room_id = class_room, class_off_at = null
+  where id = link.id;
   return class_room;
 end;
 $fn$;
@@ -317,6 +333,14 @@ grant execute on function public.close_lesson_link(uuid) to authenticated;
 -- next time they scan the poster, which is what the teacher will tell them
 -- to do. Somebody the teacher already put in that room by hand keeps the
 -- role they were given.
+--
+-- The other side of "every time": somebody the teacher took out of the class
+-- room by hand is back in it, as a viewer, the next time they scan. Removal
+-- is not sticky here, on purpose -- the alternative, joining the class only
+-- on a first scan, would leave every student who joined before the link
+-- became a class with no way in by the poster. Keeping somebody out is a
+-- block, which refuses the link itself (blocked_between, below), or turning
+-- the link off.
 create or replace function public.join_lesson_link(in_code text)
 returns uuid
 language plpgsql
@@ -360,8 +384,9 @@ begin
 
   -- The class, as a viewer: listening and talking, never a take in front of
   -- everybody (song_layers_insert_members, above). The colour is the
-  -- trigger's to pick (0047).
-  if link.class_room_id is not null and exists (
+  -- trigger's to pick (0047). Not while the class is turned off: the room
+  -- is kept for when it comes back on, and nobody new joins it meanwhile.
+  if link.class_room_id is not null and link.class_off_at is null and exists (
     select 1 from public.rooms room
     where room.id = link.class_room_id and room.deleted_at is null
   ) then
@@ -381,12 +406,15 @@ begin
   delete from public.lesson_rooms r where r.link_id = link.id and r.student_id = me;
 
   -- "Guitar lessons · Jess", and "Guitar lessons · Jess 2" for the second
-  -- Jess: room names are unique within the teacher's account.
+  -- Jess: room names are unique within the teacher's account -- among rooms
+  -- still there, which is what rooms_account_name_unique says and what
+  -- make_class_room asks, so the two loops agree.
   base_name := left(link.title, 60) || ' · ' || left(coalesce(student_name, 'A student'), 40);
   room_name := base_name;
   while exists (
     select 1 from public.rooms room
     where room.account_id = link.teacher_id
+      and room.deleted_at is null
       and lower(regexp_replace(trim(room.name), '\s+', ' ', 'g'))
         = lower(regexp_replace(trim(room_name), '\s+', ' ', 'g'))
   ) loop

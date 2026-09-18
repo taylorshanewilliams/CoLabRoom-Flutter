@@ -232,7 +232,7 @@ void main() {
       }
 
       await useCode('0123-4567-89AB');
-      expect(find.text('Your lesson room is ready. It is under Your music.'), findsOneWidget);
+      expect(find.text('Your lesson room is ready: Guitar lessons · Taylor. It is under Your music.'), findsOneWidget);
       expect(controller.rooms.length, before + 1);
       final room = controller.rooms.firstWhere((each) => each.name.startsWith('Guitar lessons'));
       expect(room.members.map((member) => member.role), containsAll(<RoomRole>[RoomRole.owner, RoomRole.editor]));

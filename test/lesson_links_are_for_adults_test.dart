@@ -74,7 +74,7 @@ void main() {
 
       expect(find.text('One question first'), findsNothing);
       expect(controller.rooms.length, before + 1);
-      expect(find.text('Your lesson room is ready. It is under Your music.'), findsOneWidget);
+      expect(find.text('Your lesson room is ready: Guitar lessons · Taylor. It is under Your music.'), findsOneWidget);
     });
 
     testWidgets('an adult who has not is asked, and then it opens', (tester) async {
@@ -149,7 +149,7 @@ void main() {
 
       expect(controller.rooms.length, before);
       expect(await repository.myCallStanding(), CallStanding.unknown);
-      expect(find.text('Your lesson room is ready. It is under Your music.'), findsNothing);
+      expect(find.textContaining('Your lesson room is ready'), findsNothing);
       expect(find.byType(SnackBar), findsNothing, reason: 'nothing happened, so nothing is said');
     });
   });

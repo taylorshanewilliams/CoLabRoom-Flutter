@@ -6501,8 +6501,9 @@ end $$;
 -- touch the words -- refused by the policies, not by an app -- while the
 -- same person in their own lesson room still can. One student's lesson
 -- room is closed to the other. Turning the class off leaves the room and
--- its people; a teacher is still an adult; nobody but the teacher says what
--- a link is.
+-- its people and stops new scans joining it; turning it back on is the same
+-- room, and a fresh one is made only once that room is gone. A teacher is
+-- still an adult; nobody but the teacher says what a link is.
 --
 -- Not here: the storage policy the audio arrives through, which 0148 also
 -- closes to viewers. The shim grants storage.objects to service_role only,
@@ -6513,11 +6514,13 @@ end $$;
 
 insert into auth.users (id, email, raw_user_meta_data) values
   ('c1a55148-0000-0000-0000-000000000001', 'alto.one@smoke.test', '{"display_name": "Alto One"}'),
-  ('c1a55148-0000-0000-0000-000000000002', 'alto.two@smoke.test', '{"display_name": "Alto Two"}');
+  ('c1a55148-0000-0000-0000-000000000002', 'alto.two@smoke.test', '{"display_name": "Alto Two"}'),
+  ('c1a55148-0000-0000-0000-000000000003', 'alto.three@smoke.test', '{"display_name": "Alto Three"}');
 
 insert into private.birth_months (person_id, born) values
   ('c1a55148-0000-0000-0000-000000000001', date '1991-03-01'),
-  ('c1a55148-0000-0000-0000-000000000002', date '1993-11-01');
+  ('c1a55148-0000-0000-0000-000000000002', date '1993-11-01'),
+  ('c1a55148-0000-0000-0000-000000000003', date '1990-07-01');
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 set local role authenticated;
@@ -6777,9 +6780,111 @@ begin
   end if;
 end $$;
 
--- Turning the class off leaves the room and its people. Turning it back on
--- makes a room again -- a fresh one, named beside the first, because the
--- first belongs to the people in it now -- and saying it twice makes one.
+-- Turning the class off leaves the room and its people, and a student who
+-- scans meanwhile gets a lesson room and no class. Turning it back on is the
+-- same room -- a switch flipped twice on a phone must not split a class
+-- between two rooms -- and the student who scanned meanwhile is in it the
+-- next time they scan. Saying "class" twice makes one. Only once the room is
+-- gone does turning the class on make a fresh one, holding only the teacher.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  link uuid := current_setting('smoke.class_link')::uuid;
+begin
+  if public.set_lesson_link_class(link, false) is not null then
+    raise exception 'turning a class off answered with a room';
+  end if;
+  if (select l.class_room_id from public.my_lesson_links() l where l.id = link) is not null then
+    raise exception 'a link turned off as a class still opens into a class room';
+  end if;
+end $$;
+
+-- The third student scans while the class is off.
+set local request.jwt.claims = '{"sub": "c1a55148-0000-0000-0000-000000000003", "email": "alto.three@smoke.test"}';
+
+select public.join_lesson_link(:'class_link_code') as alto_three_room \gset
+select set_config('smoke.alto_three_room', :'alto_three_room', true);
+
+do $$
+begin
+  if current_setting('smoke.alto_three_room') = current_setting('smoke.class_room') then
+    raise exception 'scanning a link whose class is off gave back the class room';
+  end if;
+  if exists (select 1 from public.rooms where id = current_setting('smoke.class_room')::uuid) then
+    raise exception 'a student who scanned while the class was off is in the class room';
+  end if;
+  if not exists (select 1 from public.rooms where id = current_setting('smoke.alto_three_room')::uuid) then
+    raise exception 'a student who scanned while the class was off got no lesson room';
+  end if;
+end $$;
+
+-- Back on: the same room, under the same name, with the same people in it.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+
+do $$
+declare
+  link uuid := current_setting('smoke.class_link')::uuid;
+  first_room uuid := current_setting('smoke.class_room')::uuid;
+begin
+  if public.set_lesson_link_class(link, true) is distinct from first_room then
+    raise exception 'turning the class back on did not open the room the class is in';
+  end if;
+  if (select l.class_room_id from public.my_lesson_links() l where l.id = link)
+     is distinct from first_room then
+    raise exception 'the link does not open into the class room again';
+  end if;
+  if (select l.class_room_name from public.my_lesson_links() l where l.id = link) <> 'Jazz studio' then
+    raise exception 'the class room came back under another name (got %)',
+      (select l.class_room_name from public.my_lesson_links() l where l.id = link);
+  end if;
+  if public.set_lesson_link_class(link, true) is distinct from first_room then
+    raise exception 'saying "class" twice made two class rooms';
+  end if;
+end $$;
+
+-- The student who scanned meanwhile scans again: the same lesson room, and
+-- now the class.
+set local request.jwt.claims = '{"sub": "c1a55148-0000-0000-0000-000000000003", "email": "alto.three@smoke.test"}';
+
+select public.join_lesson_link(:'class_link_code') as alto_three_room_again \gset
+select set_config('smoke.alto_three_room_again', :'alto_three_room_again', true);
+
+do $$
+begin
+  if current_setting('smoke.alto_three_room_again') <> current_setting('smoke.alto_three_room') then
+    raise exception 'scanning again once the class was on made a second lesson room';
+  end if;
+  if not exists (select 1 from public.rooms where id = current_setting('smoke.class_room')::uuid) then
+    raise exception 'a student who scanned again once the class was on is not in the class room';
+  end if;
+end $$;
+
+reset role;
+
+do $$
+declare
+  class_room uuid := current_setting('smoke.class_room')::uuid;
+begin
+  if (select count(*) from public.room_members where room_id = class_room) <> 4 then
+    raise exception 'the class room does not hold the teacher and all three students (holds %)',
+      (select count(*) from public.room_members where room_id = class_room);
+  end if;
+  if (select role from public.room_members
+      where room_id = class_room and user_id = 'c1a55148-0000-0000-0000-000000000003')
+     is distinct from 'viewer' then
+    raise exception 'the student who joined the class late is not a viewer in it';
+  end if;
+  -- The room goes. The app deletes a room outright and the column is set
+  -- null with it; this is the other way a room is gone, and the one every
+  -- guard in 0148 reads.
+  update public.rooms set deleted_at = now() where id = class_room;
+end $$;
+
+-- With the room gone, turning the class on makes a fresh one, holding only
+-- the teacher, under the name the old room let go of: the unique name index
+-- and make_class_room both look past rooms that are gone.
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 set local role authenticated;
 
@@ -6789,27 +6894,20 @@ declare
   first_room uuid := current_setting('smoke.class_room')::uuid;
   again uuid;
 begin
-  if public.set_lesson_link_class(link, false) is not null then
-    raise exception 'turning a class off answered with a room';
-  end if;
   if (select l.class_room_id from public.my_lesson_links() l where l.id = link) is not null then
-    raise exception 'a link turned off as a class still opens into a class room';
+    raise exception 'a link still opens into a class room that is gone';
   end if;
-
   again := public.set_lesson_link_class(link, true);
   if again is null or again = first_room then
-    raise exception 'turning the class back on did not make a class room';
+    raise exception 'turning the class on with its room gone did not make a class room';
   end if;
   if (select l.class_room_id from public.my_lesson_links() l where l.id = link)
      is distinct from again then
     raise exception 'the link does not open into the new class room';
   end if;
-  if (select l.class_room_name from public.my_lesson_links() l where l.id = link) <> 'Jazz studio 2' then
-    raise exception 'the second class room is not named beside the first (got %)',
+  if (select l.class_room_name from public.my_lesson_links() l where l.id = link) <> 'Jazz studio' then
+    raise exception 'the new class room did not take the name the old one let go of (got %)',
       (select l.class_room_name from public.my_lesson_links() l where l.id = link);
-  end if;
-  if public.set_lesson_link_class(link, true) is distinct from again then
-    raise exception 'saying "class" twice made two class rooms';
   end if;
   perform set_config('smoke.class_room_again', again::text, true);
 end $$;
@@ -6819,8 +6917,8 @@ reset role;
 do $$
 begin
   if (select count(*) from public.room_members
-      where room_id = current_setting('smoke.class_room')::uuid) <> 3 then
-    raise exception 'turning the class off emptied the class room';
+      where room_id = current_setting('smoke.class_room')::uuid) <> 4 then
+    raise exception 'turning the class off and on lost the people in the class room';
   end if;
   if (select count(*) from public.room_members
       where room_id = current_setting('smoke.class_room_again')::uuid) <> 1 then

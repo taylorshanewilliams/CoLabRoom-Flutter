@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import 'music_models.dart';
+
 /// A teacher's standing link (migration 0129): one QR code on a studio
 /// wall, and a room of their own with the teacher for everybody who opens
 /// it.
@@ -28,7 +30,9 @@ class LessonLink {
   final String title;
   final DateTime createdAt;
 
-  /// How many people have joined through it.
+  /// How many people have joined through it. The app says only whether
+  /// anybody has (Every Musician, Same Song, 17 September 2026: no counts
+  /// anywhere); the number is the server's.
   final int students;
 
   /// The room the whole class listens in, when this link is a class (0148);
@@ -40,6 +44,33 @@ class LessonLink {
   final String? classRoomName;
 
   bool get isClass => classRoomId != null;
+}
+
+/// What opening a lesson link gave you: your own room with the teacher
+/// (0129), and the class room this scan put you in, when the link is a class
+/// and you were not in that room already (0148). A null [room] means the
+/// link opened but the library has not shown the room yet.
+@immutable
+class LessonJoined {
+  const LessonJoined({required this.room, this.classRoom});
+
+  final MusicRoom? room;
+  final MusicRoom? classRoom;
+
+  /// What to tell the person. The class room is said whenever this scan put
+  /// them in it: they opened a link, not a room with other people in it, and
+  /// nobody is put anywhere without being told (the rule since 0129). With
+  /// [sayWhere], where the rooms are, for a screen that does not open one.
+  String sentence({bool sayWhere = false}) {
+    final own = room;
+    final together = classRoom;
+    if (own == null) return 'Your lesson room is ready. It is under Your music.';
+    if (together == null) {
+      return 'Your lesson room is ready: ${own.name}.${sayWhere ? ' It is under Your music.' : ''}';
+    }
+    return 'Your lesson room is ready: ${own.name}. You are also in ${together.name} '
+        'with the whole class, to listen.${sayWhere ? ' Both are under Your music.' : ''}';
+  }
 }
 
 /// How many lesson links a teacher can keep open at once (0148): enough for
