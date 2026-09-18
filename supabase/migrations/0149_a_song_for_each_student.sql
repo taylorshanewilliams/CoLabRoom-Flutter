@@ -214,6 +214,14 @@ begin
       raise exception 'That is not a lesson of yours.' using errcode = '42501';
     end if;
 
+    -- The song's own room is skipped before anything is asked of it: the
+    -- song is already there, and the caller owns that room (the gate
+    -- above), so whether it is a lesson does not matter. A song written in
+    -- a lesson room and sent on to the other lessons passes through here.
+    if target = song.room_id then
+      continue;
+    end if;
+
     -- The lesson itself: a room made by this caller's own lesson link, still
     -- there, for a student named in it. lesson_links is joined without a
     -- closed_at filter on purpose, as 0143 does -- a teacher who took their
@@ -248,10 +256,7 @@ begin
       continue;
     end if;
 
-    -- Already there: the song's own room, or a room holding a live copy.
-    if target = song.room_id then
-      continue;
-    end if;
+    -- Already there: a room holding a live copy.
     existing := null;
     select p.id into existing
     from public.projects p
