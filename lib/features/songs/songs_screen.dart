@@ -15,7 +15,6 @@ import '../../domain/activity.dart';
 import '../../domain/music_models.dart';
 import '../../domain/practice_mark.dart';
 import '../../domain/sealed_take.dart';
-import '../../domain/song_analysis_models.dart' show SongAnalysisBundle;
 import '../../services/kept_songs.dart';
 import '../../services/now_playing.dart';
 import '../../services/song_analysis_service.dart';
