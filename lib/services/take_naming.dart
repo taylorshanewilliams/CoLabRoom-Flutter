@@ -210,6 +210,23 @@ class TakeNaming {
     return '$possessive ${part.label}';
   }
 
+  /// The part and the person: "Alto 2 — Jess".
+  ///
+  /// For choosing whose part to bring forward, where a name on its own is
+  /// not enough. [describe] already says both for a part it composed
+  /// ("Jess's harmony"); a part somebody named by hand says only the name
+  /// ("Alto 2"), and a choir has five of those by five people. The person is
+  /// added after a dash unless the typed name already mentions them.
+  static String partAndPerson(Take take) {
+    final name = describe(take);
+    final performer = take.performer?.trim();
+    if (!take.namedByHand || performer == null || performer.isEmpty) {
+      return name;
+    }
+    if (name.toLowerCase().contains(performer.toLowerCase())) return name;
+    return '$name — $performer';
+  }
+
   /// A whole version, described by what is switched on inside it.
   ///
   /// Caps at three layers and counts the rest. A list of six is not a name,
