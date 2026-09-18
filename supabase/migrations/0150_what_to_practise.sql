@@ -98,8 +98,9 @@ for select to authenticated using (
   or teacher_id = (select auth.uid())
 );
 
--- Written only through set_song_briefs, which checks the lesson.
-revoke all on table public.song_briefs from anon, authenticated;
+-- Written only through set_song_briefs, which checks the lesson. Reading is
+-- the one thing a phone may do here, and the policy above decides for whom.
+revoke all on table public.song_briefs from public, anon, authenticated;
 grant select on table public.song_briefs to authenticated;
 
 -- ---------------------------------------------------------------------

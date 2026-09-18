@@ -2780,7 +2780,12 @@ class SupabaseMusicRepository implements MusicRepository {
         .select('id, project_id, teacher_id, student_id, teacher_name, passage, '
             'start_ms, end_ms, rate, listening_for, due_words, set_at')
         .order('set_at', ascending: false)
-        .limit(40);
+        // One brief a song, so this counts copies rather than weeks: a
+        // studio of nine students with a few pieces each on the go is the
+        // teacher's whole side of it, and a student's side is one a lesson.
+        // Past this the oldest stops drawing its line on its song, which is
+        // the mildest way for a read to run out.
+        .limit(200);
     return <SongBrief>[
       for (final each in rows as List<dynamic>) _songBrief(Map<String, dynamic>.from(each as Map)),
     ];
