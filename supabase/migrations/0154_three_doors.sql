@@ -70,10 +70,31 @@ comment on column public.project_asks.opinions_opened_at is
 -- ---------------------------------------------------------------------
 -- Who reads what
 -- ---------------------------------------------------------------------
---
+
+-- Whether the person asking is the one who asked, and has said they are
+-- ready. Security definer for the reason can_see_ask (0110) is: the asker
+-- of a direct ask on a song shared on its own need not be in the room, and
+-- project_asks's own read policies (0049, 0061) never name asked_by, so a
+-- subquery run as the asker could fail to find their own ask.
+create or replace function private.ready_for_opinions(target_ask uuid)
+returns boolean
+language sql
+security definer set search_path = ''
+stable
+as $$
+  select exists (
+    select 1 from public.project_asks a
+    where a.id = target_ask
+      and a.asked_by = auth.uid()
+      and a.opinions_opened_at is not null
+  );
+$$;
+
+revoke all on function private.ready_for_opinions(uuid) from public, anon;
+grant execute on function private.ready_for_opinions(uuid) to authenticated;
+
 -- Restated from 0110, which is still its latest definition. The first line
 -- is 0110's rule untouched; the rest is the door.
-
 drop policy if exists ask_replies_read on public.ask_replies;
 create policy ask_replies_read on public.ask_replies
 for select to authenticated using (
@@ -83,12 +104,7 @@ for select to authenticated using (
     -- pass, and only an opinion goes on to the next two lines.
     kind is distinct from 'opinion'
     or author_id = (select auth.uid())
-    or exists (
-      select 1 from public.project_asks a
-      where a.id = ask_id
-        and a.asked_by = (select auth.uid())
-        and a.opinions_opened_at is not null
-    )
+    or private.ready_for_opinions(ask_id)
   )
 );
 

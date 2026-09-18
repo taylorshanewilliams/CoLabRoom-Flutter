@@ -6462,17 +6462,16 @@ begin
   end if;
 end $$;
 
--- The first "I'm ready" stands. Backdated because now() does not move
--- inside one transaction, so a second tap that did overwrite the time
--- would otherwise be invisible.
+-- The first "I'm ready" stands. The app sends its own clock rather than
+-- now(), so a second tap from a second device arrives as a different time;
+-- an hour ahead here, because now() does not move inside one transaction
+-- and a second tap that did overwrite the first would otherwise be
+-- invisible. Not an error: a decision already made is not a thing to fail
+-- over.
 reset role;
-update public.project_asks
-set opinions_opened_at = now() - interval '1 hour'
-where id = 'cc154000-0000-0000-0000-000000000030';
-
 set local request.jwt.claims = '{"sub": "cc154000-0000-0000-0000-000000000001"}';
 set local role authenticated;
-update public.project_asks set opinions_opened_at = now()
+update public.project_asks set opinions_opened_at = now() + interval '1 hour'
 where id = 'cc154000-0000-0000-0000-000000000030';
 reset role;
 
@@ -6480,7 +6479,7 @@ do $$
 begin
   if (select opinions_opened_at from public.project_asks
       where id = 'cc154000-0000-0000-0000-000000000030')
-     is distinct from now() - interval '1 hour' then
+     is distinct from now() then
     raise exception 'a second "I''m ready" moved the first one';
   end if;
 end $$;
