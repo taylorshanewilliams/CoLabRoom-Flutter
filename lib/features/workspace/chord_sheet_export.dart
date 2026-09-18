@@ -92,6 +92,11 @@ abstract final class ChordSheetExport {
     final wordRow = StringBuffer();
     for (var index = 0; index < words.length; index += 1) {
       if (index > 0) wordRow.write(' ');
+      // A placeholder is not a word. An instrumental line carries one marker
+      // per chord so the chords have something to sit over on screen (see
+      // [instrumentalMark]); printed as written it is a page of dots handed
+      // to somebody as if they were lyrics.
+      final word = words[index] == instrumentalMark ? '' : words[index];
       final cue = placements[index];
       final name = cue == null ? '' : named(cue);
       if (name.isNotEmpty) {
@@ -107,7 +112,7 @@ abstract final class ChordSheetExport {
         chordRow.write(' ' * (at - chordRow.length));
         chordRow.write(name);
       }
-      wordRow.write(words[index]);
+      wordRow.write(word);
     }
     return ChartTextLine(
       chords: chordRow.toString().trimRight(),
@@ -186,7 +191,7 @@ abstract final class ChordSheetExport {
     final out = StringBuffer('{title: ${_directiveSafe(project.title)}}\n');
     if (musicalKey != null && musicalKey.trim().isNotEmpty) {
       out.writeln(
-        '{key: ${_directiveSafe(keyAsPlayed(musicalKey.trim(), transpose))}}',
+        '{key: ${_directiveSafe(chordProKey(keyAsPlayed(musicalKey.trim(), transpose)))}}',
       );
     }
     if (bpm != null && bpm > 0) out.writeln('{tempo: ${bpm.round()}}');
@@ -208,8 +213,12 @@ abstract final class ChordSheetExport {
         // A chorus is the one part of a song ChordPro has a shape for, and
         // the one a reader most wants set apart on the page. Everything else
         // is a comment, which every reader of the format prints as a heading.
-        if (label.toLowerCase().contains('chorus')) {
-          out.writeln('{start_of_chorus}');
+        // The name goes into the directive either way: the block is what a
+        // chorus looks like, the label is which chorus it is, and a file that
+        // opens three unnamed blocks in a row has thrown away the second
+        // half of what a chart is read for.
+        if (_namesAChorus(label)) {
+          out.writeln('{start_of_chorus: $label}');
           inChorus = true;
         } else {
           out.writeln('{comment: $label}');
@@ -231,6 +240,48 @@ abstract final class ChordSheetExport {
     }
     if (inChorus) out.writeln('{end_of_chorus}');
     return out.toString();
+  }
+
+  /// Whether a part's name is the chorus itself, rather than a part that
+  /// merely has the word in its name.
+  ///
+  /// This used to be `contains('chorus')`, which made a pre-chorus and a
+  /// post-chorus into the chorus — a formatted block around the wrong bars,
+  /// and in a reader that indents a chorus, a page that lies about the shape
+  /// of the song. Matched from the front instead, so "Chorus", "Chorus 2"
+  /// and "Chorus (last time)" open the block and "Pre-Chorus" falls through
+  /// to a comment like every other part.
+  ///
+  /// A label is whatever the band called the part (see
+  /// [StructureSection.displayLabel]), so this has to be a judgement about
+  /// text rather than a lookup.
+  static bool _namesAChorus(String label) =>
+      _chorusLabel.hasMatch(label.trim());
+
+  static final RegExp _chorusLabel = RegExp(r'^chorus\b', caseSensitive: false);
+
+  /// A key written the way ChordPro's `{key}` directive means it: a chord,
+  /// not a sentence.
+  ///
+  /// The key on the page is English — the separation worker returns "A minor"
+  /// — and printed as "Key of A minor" that is exactly right. In the file it
+  /// is not: OnSong and Planning Center transpose the whole song by this
+  /// value and both want a chord shape, so "A minor" arriving verbatim is a
+  /// key neither of them can use and a transpose control with nothing to work
+  /// from. Only the directive is folded; the printed sentence stays a
+  /// sentence.
+  ///
+  /// The test for a minor key is the one `keyUsesFlats` already uses, so a
+  /// mode named two ways cannot be read two ways. Anything else — a dorian,
+  /// a mixolydian, a word nothing recognises — comes out as its tonic alone,
+  /// which is a key a reader can at least transpose by.
+  static String chordProKey(String key) {
+    final match = RegExp(r'^([A-G][#b]?)\s*(.*)$').firstMatch(key.trim());
+    if (match == null) return key.trim();
+    final rest = match.group(2)!.toLowerCase();
+    final minor =
+        rest.startsWith('min') || rest == 'm' || rest.startsWith('aeolian');
+    return minor ? '${match.group(1)!}m' : match.group(1)!;
   }
 
   static String _chordProLine(
@@ -266,7 +317,10 @@ abstract final class ChordSheetExport {
       }
       if (index > 0) out.write(' ');
       if (name.isNotEmpty) out.write('[$name]');
-      out.write(words[index]);
+      // The same rule as the printed chart: a marker is where a word would
+      // be, not a word. `[G]· [C]·` for a whole song is a lyric sheet of
+      // middle dots in OnSong.
+      if (words[index] != instrumentalMark) out.write(words[index]);
     }
     return out.toString().trimRight();
   }
@@ -400,10 +454,18 @@ abstract final class ChordSheetExport {
   /// Hands the ChordPro out as a `.cho` file through the share sheet the
   /// rest of the app uses.
   ///
-  /// Shared as bytes rather than written to disk first, so this is the same
-  /// one path on a phone and in a browser — the takes export learned that
-  /// the hard way, by throwing `MissingPluginException` out of path_provider
-  /// on the web and reporting it as a fault.
+  /// Shared as bytes rather than written to disk first, which keeps
+  /// path_provider out of it — the takes export learned that the hard way,
+  /// by throwing `MissingPluginException` out of path_provider on the web
+  /// and reporting it as a fault.
+  ///
+  /// That is only half of it, though, and the half that is left is why the
+  /// button is not offered in a browser. share_plus on the web hands a file
+  /// to `navigator.share`, which desktop Firefox and Safari do not have, so
+  /// this would throw there for a reason that is a limit of the browser
+  /// rather than anything broken. A limit reported as a fault is the exact
+  /// shape the takes screen already removed. The caller gates on `kIsWeb`
+  /// and says so in a sentence instead.
   static Future<void> shareChordPro({
     required SongProject project,
     required List<MusicianSheetLine> lines,

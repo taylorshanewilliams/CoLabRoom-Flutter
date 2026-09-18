@@ -169,6 +169,12 @@ class ProjectExportService {
   /// export that fails. Carrying those properly needs a Unicode font
   /// embedded in the app, which is a megabyte of asset for a case nobody has
   /// hit yet.
+  ///
+  /// The one answer. The lesson poster and the provenance record print
+  /// through the same built-in fonts and call this rather than keeping a
+  /// rule of their own, because a teacher called "José 王" getting "José " on
+  /// one page and "José ?" on another, from the same app in the same
+  /// session, is two answers to one question.
   static String printable(String value) {
     final folded = value
         .replaceAll('‘', "'")
@@ -195,10 +201,13 @@ class ProjectExportService {
 
   /// A title turned into something a file system will accept.
   ///
-  /// Public alongside [wordsTravel]: the chart and the ChordPro file are
-  /// named the same way this one is.
-  static String fileName(String title) {
+  /// Public alongside [wordsTravel]: the chart, the ChordPro file, the lesson
+  /// poster and the provenance record are all named the same way, and each
+  /// one holding its own copy of the same regular expression is how they
+  /// stop being the same way. [fallback] is what a title made entirely of
+  /// punctuation leaves behind, which is the only part that differs.
+  static String fileName(String title, {String fallback = 'CoLabRoom'}) {
     final cleaned = title.replaceAll(RegExp(r'[^A-Za-z0-9 _-]'), '').trim();
-    return cleaned.isEmpty ? 'CoLabRoom' : cleaned.replaceAll(' ', '-');
+    return cleaned.isEmpty ? fallback : cleaned.replaceAll(RegExp(r'\s+'), '-');
   }
 }

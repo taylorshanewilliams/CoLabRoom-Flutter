@@ -59,8 +59,15 @@ void main() {
         teacher: 'Taylor',
       ).save();
       expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
-      expect(LessonPoster.printable('Guitar lessons 🎸'), 'Guitar lessons ');
+      // One rule for every page this app prints, rather than one here and
+      // another on a song print, which disagreed about the same name (review,
+      // 17 September 2026). A character the built-in fonts cannot draw says
+      // so; it is no longer silently deleted.
+      expect(LessonPoster.printable('Guitar lessons 🎸'), 'Guitar lessons ?');
       expect(LessonPoster.printable('José'), 'José');
+      // And a name typed on a phone keyboard keeps its apostrophe, which the
+      // poster's own rule used to drop.
+      expect(LessonPoster.printable('Taylor’s'), "Taylor's");
       // No name, no "with"; and it still lays out on the shorter US page.
       final anonymous = await LessonPoster.document(
         title: '',

@@ -593,6 +593,15 @@ List<MusicianSheetLine> transcriptSheetLines({
   }).toList(growable: false);
 }
 
+/// The marker an instrumental line puts under each chord in place of a word.
+///
+/// Named rather than typed twice, because it is not only a layout detail any
+/// more: anything carrying the sheet off the phone has to be able to tell a
+/// placeholder from a lyric, or it hands somebody a page of dots and calls
+/// them words (Every Musician, Same Song, 17 September 2026 — see
+/// ChordSheetExport).
+const String instrumentalMark = '·';
+
 /// For a genuinely instrumental recording (no sung words at all, so no
 /// transcript to build lines from): the chord chart is still worth
 /// showing rather than an empty sheet. Chord placement is driven by
@@ -614,7 +623,8 @@ List<MusicianSheetLine> _chordOnlyLines(
       for (final bar in bars)
         MusicianSheetLine(
           contributionId: null,
-          body: List<String>.filled(bar.chords.length, '·').join('   '),
+          body:
+              List<String>.filled(bar.chords.length, instrumentalMark).join('   '),
           section: false,
           startMs: bar.startMs,
           endMs: bar.endMs,
@@ -631,7 +641,7 @@ List<MusicianSheetLine> _chordOnlyLines(
     lines.add(
       MusicianSheetLine(
         contributionId: null,
-        body: List<String>.filled(slice.length, '·').join('   '),
+        body: List<String>.filled(slice.length, instrumentalMark).join('   '),
         section: false,
         startMs: slice.first.startMs,
         endMs: slice.last.endMs,

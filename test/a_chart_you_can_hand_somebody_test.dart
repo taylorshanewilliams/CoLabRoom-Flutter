@@ -4,6 +4,7 @@ import 'package:colabroom/features/workspace/chord_sheet_export.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/song_sheet_panel.dart';
 import 'package:colabroom/services/project_export_service.dart';
+import 'package:colabroom/services/provenance_export.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -212,10 +213,93 @@ void main() {
 {comment: Verse}
 [G]Streetlights blur [C]like a warning sign
 
-{start_of_chorus}
+{start_of_chorus: Chorus}
 [D]Hold on [Em]the night is long
 {end_of_chorus}
 ''');
+    });
+
+    test('every chorus keeps its own name, and a pre-chorus is not one', () {
+      final text = ChordSheetExport.chordPro(
+        project: _song(),
+        lines: <MusicianSheetLine>[
+          _sectionLine('Intro', 0),
+          _sectionLine('Verse 1', 100),
+          _sung('one', startMs: 100, chords: const <ChordCue>[]),
+          _sectionLine('Pre-Chorus', 200),
+          _sung('two', startMs: 200, chords: const <ChordCue>[]),
+          _sectionLine('Chorus 1', 300),
+          _sung('three', startMs: 300, chords: const <ChordCue>[]),
+          _sectionLine('Chorus 2', 400),
+          _sung('four', startMs: 400, chords: const <ChordCue>[]),
+        ],
+        transpose: 0,
+      );
+
+      // Three unlabelled blocks back to back is what `contains('chorus')`
+      // made of this, with the pre-chorus formatted and read as the chorus
+      // and both chorus numbers gone.
+      expect(text, contains('{start_of_chorus: Chorus 1}'));
+      expect(text, contains('{start_of_chorus: Chorus 2}'));
+      expect(text, contains('{comment: Pre-Chorus}'));
+      expect(text, isNot(contains('{start_of_chorus}')));
+      expect(text, isNot(contains('{start_of_chorus: Pre-Chorus}')));
+      // The block that opened for Chorus 1 closes before Chorus 2 opens.
+      expect('{end_of_chorus}'.allMatches(text).length, 2);
+      expect(
+        text.indexOf('{end_of_chorus}'),
+        lessThan(text.indexOf('{start_of_chorus: Chorus 2}')),
+      );
+    });
+
+    test('an intro is not a chorus because a section above it was', () {
+      final text = ChordSheetExport.chordPro(
+        project: _song(),
+        lines: <MusicianSheetLine>[
+          _sectionLine('Chorus', 0),
+          _sung('one', startMs: 0, chords: const <ChordCue>[]),
+          _sectionLine('Outro', 100),
+          _sung('two', startMs: 100, chords: const <ChordCue>[]),
+        ],
+        transpose: 0,
+      );
+
+      expect(text, contains('{comment: Outro}'));
+      expect(
+        text.indexOf('{end_of_chorus}'),
+        lessThan(text.indexOf('{comment: Outro}')),
+      );
+    });
+
+    test('the key directive is a chord, because that is what it is read as',
+        () {
+      // The separation worker returns a key with its mode as an English word.
+      // "Key of A minor" is right on paper; {key: A minor} is a value nothing
+      // in OnSong or Planning Center can transpose by.
+      expect(ChordSheetExport.chordProKey('A minor'), 'Am');
+      expect(ChordSheetExport.chordProKey('A major'), 'A');
+      expect(ChordSheetExport.chordProKey('Bb'), 'Bb');
+      expect(ChordSheetExport.chordProKey('F# aeolian'), 'F#m');
+      expect(ChordSheetExport.chordProKey('Em'), 'Em');
+
+      final text = ChordSheetExport.chordPro(
+        project: _song(),
+        lines: _twoSections(),
+        transpose: 0,
+        musicalKey: 'A minor',
+      );
+      expect(text, contains('{key: Am}'));
+
+      // And it still follows the transpose, like everything else on the page.
+      expect(
+        ChordSheetExport.chordPro(
+          project: _song(),
+          lines: _twoSections(),
+          transpose: 2,
+          musicalKey: 'A minor',
+        ),
+        contains('{key: Bm}'),
+      );
     });
 
     test('an unanalyzed song still exports, without inventing a key', () {
@@ -266,7 +350,7 @@ void main() {
 
       expect(text, contains('{comment: ${ProjectExportService.wordsStayHome}}'));
       expect(text, contains('[G] [C]'));
-      expect(text, contains('{start_of_chorus}'));
+      expect(text, contains('{start_of_chorus: Chorus}'));
       expect(text, isNot(contains('Streetlights')));
       // Not one word of either line, only the shape they sat in.
       for (final word in <String>['blur', 'warning', 'Hold', 'long']) {
@@ -300,6 +384,80 @@ void main() {
         expect(text, contains('Streetlights'));
         expect(text, isNot(contains(ProjectExportService.wordsStayHome)));
       }
+    });
+  });
+
+  group('an instrumental hands out chords, not a page of dots', () {
+    /// What the sheet builds for a recording with chords and no transcript:
+    /// one marker under each chord, so the chords have something to sit over
+    /// on screen. They are placeholders, not words.
+    List<MusicianSheetLine> _instrumental() => buildMusicianSheetLines(
+          _song(origin: SongOrigin.ours),
+          const SongAnalysisBundle(
+            reference: ReferenceTrack(
+              projectId: 'song-1',
+              fileId: 'file-1',
+              storagePath: 'room/song/reference.wav',
+              displayName: 'reference.wav',
+              state: SongAnalysisState.ready,
+              durationMs: 8000,
+              musicalKey: 'G',
+              bpm: 96,
+            ),
+            lyricCues: <LyricSyncCue>[],
+            chordCues: <ChordCue>[
+              ChordCue(startMs: 0, endMs: 2000, chord: 'G:maj', confidence: .9),
+              ChordCue(
+                  startMs: 2000, endMs: 4000, chord: 'C:maj', confidence: .9),
+              ChordCue(
+                  startMs: 4000, endMs: 6000, chord: 'A:min', confidence: .9),
+              ChordCue(
+                  startMs: 6000, endMs: 8000, chord: 'F:maj', confidence: .9),
+            ],
+          ),
+          ignoreWorkspaceLyrics: true,
+        );
+
+    test('the sheet really does build markers, so this is worth testing', () {
+      final lines = _instrumental();
+      expect(lines, isNotEmpty);
+      expect(lines.first.body, contains(instrumentalMark));
+    });
+
+    test('the ChordPro is chords alone, with no markers in the words', () {
+      final text = ChordSheetExport.chordPro(
+        project: _song(origin: SongOrigin.ours),
+        lines: _instrumental(),
+        transpose: 0,
+        musicalKey: 'G',
+      );
+
+      expect(text, isNot(contains(instrumentalMark)));
+      expect(text, contains('[G] [C] [Am] [F]'));
+    });
+
+    test('the printed chart leaves the word row empty', () {
+      final printed = <ChartTextLine>[
+        for (final line in _instrumental())
+          ChordSheetExport.textLine(line, transpose: 0, musicalKey: 'G'),
+      ];
+
+      for (final line in printed) {
+        expect(line.words, isEmpty);
+        expect(line.words, isNot(contains(instrumentalMark)));
+      }
+      expect(
+        printed.map((line) => line.chords).join(' ').split(RegExp(r'\s+')),
+        <String>['G', 'C', 'Am', 'F'],
+      );
+    });
+
+    test('a real word that happens to sit under a chord is still a word', () {
+      final line = ChordSheetExport.textLine(
+        _sung('now', startMs: 0, chords: <ChordCue>[_cue('G:maj', 0)]),
+        transpose: 0,
+      );
+      expect(line.words, 'now');
     });
   });
 
@@ -441,6 +599,28 @@ void main() {
       // columns are counted is what keeps C over "no".
       expect(line.words, 'yes... no');
       expect(line.chords.indexOf('C'), line.words.indexOf('no'));
+    });
+
+    test('the record you can hand a solicitor reaches page two', () async {
+      // The repeated page header was written with an em dash, so any history
+      // long enough to need a second page threw on save and the document
+      // never printed at all (review, 17 September 2026). The names and the
+      // details are typed by people, which is the rest of it.
+      final document = ProvenanceExport.document(
+        'Midnight Signal — demo',
+        <ProvenanceEvent>[
+          for (var index = 0; index < 90; index += 1)
+            ProvenanceEvent(
+              at: DateTime(2026, 9, 17, 9, index % 60),
+              event: 'lyric written',
+              whoName: 'José 王',
+              detail: 'line $index — “first pass”',
+            ),
+        ],
+      );
+
+      expect(await document.save(), isNotEmpty);
+      expect(document.document.pdfPageList.pages.length, greaterThan(1));
     });
 
     test('the sentence a cover prints instead of its words is printable', () {
