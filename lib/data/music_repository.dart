@@ -165,6 +165,21 @@ abstract interface class MusicRepository {
   /// must contain the same set of ids currently in the setlist).
   Future<void> reorderSetlistProjects(Setlist setlist, List<String> orderedProjectIds);
 
+  /// What [saveSetlistSong] says when the set belongs to somebody else. One
+  /// sentence for both repositories, so the fake refuses the way the
+  /// database does.
+  static const String notYourSet =
+      'Only the person whose set this is can change what it says.';
+
+  /// What the band does with one song in this set: the key, the tempo, the
+  /// count-in, the form, the ending and the note (Every Musician, Same Song,
+  /// 17 September 2026). A null field means "what the song says".
+  ///
+  /// The set's owner's to write, the way the set is. Throws with a sentence
+  /// when the set is not theirs, and [ArgumentError] for a field the columns
+  /// will not hold (see [SetlistSong.cleaned]).
+  Future<void> saveSetlistSong(Setlist setlist, SetlistSong song);
+
   Future<void> moveProjects(Iterable<SongProject> projects, MusicRoom targetRoom);
 
   /// One song, with its lyrics — rather than the whole library.

@@ -300,7 +300,7 @@ class SupabaseMusicRepository implements MusicRepository {
         .from('setlists')
         .select(
           'id, owner_id, name, created_at, updated_at, '
-          'setlist_projects(project_id, position)',
+          'setlist_projects(project_id, position, played_key, bpm, count_in, form, ending, note)',
         )
         .order('updated_at', ascending: false);
     return (rows as List<dynamic>).map((value) {
@@ -316,7 +316,17 @@ class SupabaseMusicRepository implements MusicRepository {
         name: row['name'] as String,
         createdAt: DateTime.parse(row['created_at'] as String),
         updatedAt: DateTime.parse(row['updated_at'] as String),
-        projectIds: entries.map((entry) => entry['project_id'] as String).toList(growable: false),
+        songs: entries
+            .map((entry) => SetlistSong(
+                  projectId: entry['project_id'] as String,
+                  key: entry['played_key'] as String?,
+                  bpm: (entry['bpm'] as num?)?.toDouble(),
+                  countIn: entry['count_in'] as String?,
+                  form: entry['form'] as String?,
+                  ending: entry['ending'] as String?,
+                  note: entry['note'] as String?,
+                ))
+            .toList(growable: false),
       );
     }).toList(growable: false);
   }
@@ -903,6 +913,31 @@ class SupabaseMusicRepository implements MusicRepository {
       ],
       onConflict: 'setlist_id,project_id',
     );
+  }
+
+  @override
+  Future<void> saveSetlistSong(Setlist setlist, SetlistSong song) async {
+    final cleaned = song.cleaned();
+    // Written through 0005's update policy rather than a function: the row is
+    // the set owner's and nobody else's, which is a rule the table already
+    // has. An update the policy refuses affects no row and raises nothing,
+    // so the row is asked for back, and none coming back is the refusal.
+    final rows = await client
+        .from('setlist_projects')
+        .update(<String, dynamic>{
+          'played_key': cleaned.key,
+          'bpm': cleaned.bpm,
+          'count_in': cleaned.countIn,
+          'form': cleaned.form,
+          'ending': cleaned.ending,
+          'note': cleaned.note,
+        })
+        .eq('setlist_id', setlist.id)
+        .eq('project_id', song.projectId)
+        .select('project_id');
+    if ((rows as List<dynamic>).isEmpty) {
+      throw StateError(MusicRepository.notYourSet);
+    }
   }
 
   @override

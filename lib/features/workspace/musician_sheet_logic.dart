@@ -441,6 +441,26 @@ String keyAsPlayed(String key, int transpose) {
   return spellInKey(moved, moved);
 }
 
+/// Semitones from [from]'s root up to [to]'s, 0 to 11, or 0 when either is
+/// missing or not a key this can read.
+///
+/// The transpose that takes a song from its own key to the one a set does
+/// it in, and the one the key sheet works out from the two keys it was
+/// opened with. Roots only: a song in A minor done in C minor is up three,
+/// whatever either mode is called.
+int semitonesBetweenKeys(String? from, String? to) {
+  final a = from == null
+      ? null
+      : RegExp(r'^([A-G][#b]?)').firstMatch(from.trim())?.group(1);
+  final b = to == null
+      ? null
+      : RegExp(r'^([A-G][#b]?)').firstMatch(to.trim())?.group(1);
+  final pa = a == null ? null : pitchOf(a);
+  final pb = b == null ? null : pitchOf(b);
+  if (pa == null || pb == null) return 0;
+  return ((pb - pa) % 12 + 12) % 12;
+}
+
 /// A chord as this person is reading it: letters in their key, or the number
 /// it is of the song's key.
 ///

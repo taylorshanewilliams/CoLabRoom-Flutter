@@ -11,7 +11,7 @@ import '../../services/horn_reading.dart';
 import '../../services/music_reference.dart';
 import '../../services/number_reading.dart';
 import 'guitar_chord_diagram.dart';
-import 'musician_sheet_logic.dart' show keyAsPlayed;
+import 'musician_sheet_logic.dart' show keyAsPlayed, semitonesBetweenKeys;
 
 /// The reference sheets, opened from the thing they describe.
 ///
@@ -419,7 +419,7 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
   /// How far this person has moved the song, read off the two keys the sheet
   /// was opened with, so a key set from here lands where their own key puts
   /// it rather than back in the song's.
-  late final int _moved = _semitonesBetween(widget.songKey, widget.concertKey);
+  late final int _moved = semitonesBetweenKeys(widget.songKey, widget.concertKey);
 
   /// The band's key as this person has moved it — the one the sheet was
   /// opened on, until somebody says where the 1 really is from here.
@@ -781,19 +781,6 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
   /// accepts and every key parser here reads.
   static String _keyOf(String root, bool minor) =>
       '$root ${minor ? 'minor' : 'major'}';
-
-  /// Semitones from [from]'s root up to [to]'s, 0 to 11, or 0 when either is
-  /// not a key this can read.
-  static int _semitonesBetween(String? from, String to) {
-    final a = from == null
-        ? null
-        : RegExp(r'^([A-G][#b]?)').firstMatch(from.trim())?.group(1);
-    final b = RegExp(r'^([A-G][#b]?)').firstMatch(to.trim())?.group(1);
-    final pa = a == null ? null : pitchOf(a);
-    final pb = b == null ? null : pitchOf(b);
-    if (pa == null || pb == null) return 0;
-    return ((pb - pa) % 12 + 12) % 12;
-  }
 
   bool get _minorNow {
     final rest = _songKey?.trim().toLowerCase() ?? '';
