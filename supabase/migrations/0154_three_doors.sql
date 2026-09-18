@@ -108,6 +108,16 @@ for select to authenticated using (
   )
 );
 
+-- Said out loud, the way 0141 did for moment_notes. Hosted Supabase's
+-- default privileges already give authenticated these on both tables, so
+-- production does not change; the smoke run replays this file on a stock
+-- Postgres where nothing grants on a table by itself, and this slice's
+-- block is the first to write either table as a signed-in person rather
+-- than as the superuser. Each grant is exactly what the table's policies
+-- (0049, 0110) let that role do, and no more.
+grant select, insert, delete on table public.ask_replies to authenticated;
+grant select, insert, update on table public.project_asks to authenticated;
+
 -- ---------------------------------------------------------------------
 -- Only the asker says when
 -- ---------------------------------------------------------------------
