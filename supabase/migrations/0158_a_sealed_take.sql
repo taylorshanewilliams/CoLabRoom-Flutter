@@ -81,6 +81,14 @@ create index if not exists song_layers_sealed_idx
 -- off than ten years (it is an exemption from expiry, and an exemption with
 -- no end is free storage for ever), the day it was sealed is the day it was
 -- sealed, and a sealed take is never a shared one.
+--
+-- The retention sweep's side of it is here too, so that it holds however
+-- the seal was written. A warning given before a take was put away is not a
+-- warning about the day it comes back, so sealing clears it and the take is
+-- owed a fresh one. And a seal ending starts the clock again: a take that
+-- comes back after a year has not been "unopened for a year" in any sense
+-- tools/expire_layers.py means, and without this the first Sunday after
+-- "Not now" would warn it and the second would delete it.
 create or replace function private.a_seal_has_a_day()
 returns trigger
 language plpgsql
@@ -90,6 +98,10 @@ begin
   if new.sealed_until is null then
     -- Not sealed, or a seal ending. Nothing is kept about one that ended.
     new.sealed_at := null;
+    if tg_op = 'UPDATE' and old.sealed_until is not null then
+      new.last_opened_at := now();
+      new.expiry_warned_at := null;
+    end if;
     return new;
   end if;
 
@@ -116,6 +128,7 @@ begin
   end if;
 
   new.sealed_at := now();
+  new.expiry_warned_at := null;
   return new;
 end;
 $fn$;
@@ -260,10 +273,8 @@ grant execute on function public.seal_take(uuid, timestamptz) to authenticated;
 -- their own idea would be one.
 --
 -- The take goes back among their takes exactly as it was, still private. The
--- retention clock starts again from now, and so does the warning it is owed:
--- a take that comes back after a year has not been "unopened for a year" in
--- any sense the sweep means, and a warning given before it was put away is
--- not a warning about now.
+-- retention clock starting again is the trigger's doing, above, so that it
+-- holds for a seal ended by a plain update as well.
 --
 -- Quiet when there is nothing to end, like unshare_layer (0057): already
 -- ended, or not yours, and neither is worth an error in front of somebody.
@@ -274,9 +285,7 @@ security invoker
 set search_path = ''
 as $fn$
   update public.song_layers
-  set sealed_until = null,
-      last_opened_at = now(),
-      expiry_warned_at = null
+  set sealed_until = null
   where id = target_layer
     and recorded_by = auth.uid()
     and sealed_until is not null;

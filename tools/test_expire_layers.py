@@ -292,8 +292,9 @@ class ASealedTake(unittest.TestCase):
 
     def test_a_take_whose_seal_has_ended_is_an_ordinary_take(self):
         # unseal_take clears the day, so there is nothing on the row to keep
-        # it by. What keeps it then is last_opened_at, which the same call
-        # set to now -- so it is not a candidate at all until a quarter on.
+        # it by. What keeps it then is last_opened_at, which the table sets
+        # to now when a seal ends -- so it is not a candidate at all until a
+        # quarter on.
         self.assertFalse(sweep.kept_while_sealed(layer("answered"), self.OPENED_AFTER))
 
     def test_a_day_that_cannot_be_read_keeps_the_take(self):

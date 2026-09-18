@@ -67,8 +67,9 @@ has by definition gone unopened for a year, so rule 1 would warn it on the
 first Sunday and delete it on the second, months before the day it was kept
 for. So it is held out of both passes until its day and for RETENTION_DAYS
 after it, which is rule 1 counted from the day the take comes back rather
-than the day it went away; when the person answers the card the app starts
-last_opened_at again and clears the seal, and the take is an ordinary one.
+than the day it went away; when the person answers the card the seal is
+cleared, the table starts last_opened_at again and forgets any old warning
+(0158's trigger), and the take is an ordinary one.
 Somebody who never comes back for it is not kept for ever: past that window
 the take is warned on one run and deleted on a later one, like everything
 else here. The table refuses a day more than ten years off, so this is an

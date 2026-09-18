@@ -8284,7 +8284,9 @@ insert into storage.objects (bucket_id, name, owner) values
    '5ea1ed00-0000-0000-0000-000000000001')
 on conflict do nothing;
 
--- Warned once already, so the end of the seal can be seen to clear it.
+-- Warned by the retention sweep already, so sealing can be seen to clear it:
+-- a warning given before a take was put away is not one about the day it
+-- comes back.
 update public.song_layers set expiry_warned_at = now()
 where id = '5ea1ed00-0000-0000-0000-00000000000c';
 
@@ -8343,6 +8345,10 @@ begin
      or opens < now() + interval '364 days'
      or opens > now() + interval '367 days' then
     raise exception 'a seal with no day given did not open a year on (%)', opens;
+  end if;
+  if (select expiry_warned_at from public.song_layers
+        where id = '5ea1ed00-0000-0000-0000-00000000000c') is not null then
+    raise exception 'a take went into its seal still carrying an old expiry warning';
   end if;
 
   -- Once. A second sealing keeps the first day.
@@ -8449,6 +8455,9 @@ end $$;
 
 -- The day comes. Nothing but time can make it come, so the table's own rule
 -- is stepped round for this one statement, as the role that owns the table.
+-- A year unopened, and warned again in that year, which is how the sweep
+-- would have left it if it had not been kept: the end of the seal has both
+-- to undo.
 reset role;
 
 do $$
@@ -8465,7 +8474,8 @@ set local session_replication_role = replica;
 update public.song_layers
 set sealed_at = now() - interval '1 year',
     sealed_until = now() - interval '1 minute',
-    last_opened_at = now() - interval '1 year'
+    last_opened_at = now() - interval '1 year',
+    expiry_warned_at = now() - interval '1 month'
 where id = '5ea1ed00-0000-0000-0000-00000000000c';
 set local session_replication_role = origin;
 
