@@ -49,6 +49,14 @@
 -- first real people. Their takes count as agreed without a row, so the
 -- seeder's plain update still works and the demo songs still play.
 --
+-- **A take whose player is gone.** 0065 keeps a shared take when the account
+-- that made it is deleted, with `recorded_by` set to null: the band cannot
+-- re-record a bass part. There is nobody to ask about it and nobody who
+-- said yes, so it stays with the room -- never audible to strangers -- and
+-- the song does not wait on it. The one thing that must never happen is a
+-- consent row with no person on it, which is what a question addressed to
+-- a null player would be.
+--
 -- **The audio, not only the row.** A take that is not public is hidden
 -- three ways -- its row, its bytes, and the fallback in `private.song_audio`
 -- that plays the earliest shared take as "the song" when a song has no
@@ -114,8 +122,10 @@ grant select on table public.take_consents to authenticated;
 
 -- Whether a take may be heard by people the room never chose. Shared, and
 -- either its player said yes or its player is one of the app's own demo
--- accounts. Used by the read policies, the storage policy, the audio
--- fallback and the public lists, so that all of them can only ever agree.
+-- accounts. A take whose player is gone (0065) has neither, and reads as
+-- not public without a special case. Used by the read policies, the storage
+-- policy, the audio fallback and the public lists, so that all of them can
+-- only ever agree.
 create or replace function private.take_is_public(target_layer uuid)
 returns boolean
 language sql
@@ -138,7 +148,8 @@ grant execute on function private.take_is_public(uuid) to authenticated;
 
 -- Whether anybody with a shared take on a song has not answered yet. This
 -- is the whole gate: a song waits while this is true, and nothing else
--- about the answers matters to whether it goes out.
+-- about the answers matters to whether it goes out. A take with no player
+-- left to ask is not anybody.
 create or replace function private.waiting_on_anyone(target_project uuid)
 returns boolean
 language sql
@@ -152,6 +163,7 @@ as $fn$
     left join public.profiles pr on pr.id = l.recorded_by
     where l.project_id = target_project
       and l.shared_at is not null
+      and l.recorded_by is not null
       and not coalesce(pr.is_demo, false)
       and (c.layer_id is null or c.answered_at is null)
   );
@@ -160,9 +172,9 @@ $fn$;
 revoke all on function private.waiting_on_anyone(uuid)
   from public, anon, authenticated;
 
--- "bass", "bass and vocal", "bass, keys and vocal". The one part with no
--- name of its own ('other') reads as "part", so a sentence never says
--- "with your other on it".
+-- "bass", "bass and vocal", "bass, keys and vocal", in the order given. The
+-- one part with no name of its own ('other') reads as "part", so a sentence
+-- never says "with your other on it".
 create or replace function private.parts_in_words(parts text[])
 returns text
 language sql
@@ -177,10 +189,10 @@ as $fn$
   end
   from (
     select coalesce(
-      array_agg(case when p = 'other' then 'part' else p end),
+      array_agg(case when p = 'other' then 'part' else p end order by n),
       '{}'::text[]
     ) as list
-    from unnest(coalesce(parts, '{}'::text[])) as p
+    from unnest(coalesce(parts, '{}'::text[])) with ordinality as u(p, n)
   ) named;
 $fn$;
 
@@ -231,6 +243,9 @@ begin
     'Somebody'
   );
 
+  -- Never a take whose player is gone (0065): there is nobody to write a
+  -- row for, and a question with no person on it is a not-null violation
+  -- that would stop the owner's own song going up.
   for person in
     select l.recorded_by as id,
            array_agg(distinct l.part order by l.part) as parts
@@ -238,6 +253,7 @@ begin
     left join public.profiles pr on pr.id = l.recorded_by
     where l.project_id = target_project
       and l.shared_at is not null
+      and l.recorded_by is not null
       and l.recorded_by is distinct from me
       and not coalesce(pr.is_demo, false)
       and not exists (
@@ -484,7 +500,8 @@ begin
   if song.open_mic_at is null and song.showcased_at is null then
     return new;
   end if;
-  if coalesce(
+  -- Nobody to ask: a demo account, or a take whose player is gone.
+  if new.recorded_by is null or coalesce(
        (select pr.is_demo from public.profiles pr where pr.id = new.recorded_by),
        false) then
     return new;

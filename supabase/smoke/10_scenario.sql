@@ -1787,15 +1787,11 @@ values
    :'room' || '/aaaaaaaa-0000-0000-0000-00000000000a/layers/secret.m4a',
    'Scratch', 'rhythm', 9000, null);
 
-select public.put_on_open_mic('aaaaaaaa-0000-0000-0000-00000000000a');
-
--- Since 0155 the bandmate's bass (shared a few blocks up) is theirs to say
--- yes to, so that press asked them and put nothing up. They say yes and the
--- owner presses again. The 0155 block at the end of this file proves the
--- waiting; here the song only has to get up.
-set local request.jwt.claims = '{"sub": "22222222-2222-2222-2222-222222222222"}';
-select public.answer_for_my_part('aaaaaaaa-0000-0000-0000-00000000000a', true);
-set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+-- Up on the first press, still, since 0155: the only shared take here that
+-- is not the writer's own is the bass whose player deleted their account a
+-- few blocks up, and a take with nobody left to ask is not waited on. It is
+-- not heard by strangers either; the 0155 block at the end of this file is
+-- where somebody is actually asked.
 select public.put_on_open_mic('aaaaaaaa-0000-0000-0000-00000000000a');
 
 -- A stranger: joiner one is in another catalog entirely.
