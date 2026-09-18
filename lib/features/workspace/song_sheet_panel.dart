@@ -12,6 +12,7 @@ import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/musician_song_sheet.dart';
 import 'package:colabroom/features/workspace/song_reading_store.dart';
 import 'package:colabroom/features/workspace/song_transpose_store.dart';
+import 'package:colabroom/features/workspace/sung_and_written_sheet.dart';
 import 'package:colabroom/services/chord_chart.dart';
 import 'package:colabroom/services/chord_repeats.dart';
 import 'package:colabroom/services/horn_reading.dart';
@@ -34,6 +35,7 @@ class SongSheetPanel extends StatefulWidget {
     required this.onOpenLive,
     this.onAnalysisChanged,
     this.onSetKey,
+    this.onUseSung,
     this.analysisService,
     super.key,
   });
@@ -43,6 +45,12 @@ class SongSheetPanel extends StatefulWidget {
   final VoidCallback? onReviewLyrics;
   final VoidCallback? onOpenLive;
   final ValueChanged<SongAnalysisBundle>? onAnalysisChanged;
+
+  /// Takes what was sung into one written line, from the sung-and-written
+  /// sheet. Null for somebody the room only lets look, which leaves that
+  /// sheet something to read (Every Musician, Same Song, 17 September 2026,
+  /// slice 37).
+  final UseSungLine? onUseSung;
 
   /// Where corrections are written. Null for the real one; a test hands in
   /// one that remembers instead.
@@ -266,6 +274,23 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
         projectId: widget.project.id,
       );
     }
+  }
+
+  /// Whether there are two sets of words to put side by side: lines somebody
+  /// typed, and a transcript with a time on every word. With either missing
+  /// the song offers nothing — the writing space already says where the
+  /// words are when the page is empty and the sheet has them.
+  bool get _hasSungAndWritten =>
+      visibleMusicianLyrics(widget.project).isNotEmpty &&
+      (_bundle.reference?.transcriptWords.isNotEmpty ?? false);
+
+  void _openSungAndWritten() {
+    unawaited(showSungAndWritten(
+      context,
+      project: widget.project,
+      bundle: _bundle,
+      onUseSung: widget.onUseSung,
+    ));
   }
 
   /// The song's own key: what the band said it is in, or failing that what
@@ -1121,6 +1146,22 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
               ),
             ),
           ],
+        ],
+        // What the recording says beside what is on the page, line by line.
+        // Its own row, in the same voice as the exports above it: it is not
+        // a way of reading the sheet, so it is not a segment, and it is not
+        // a correction, so it is not in the editing box.
+        if (_hasSungAndWritten) ...<Widget>[
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            key: const Key('sung_and_written'),
+            onPressed: _openSungAndWritten,
+            icon: const Icon(Icons.hearing_rounded, size: 17),
+            label: const Text(
+              'Sung and written',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
         ],
         const SizedBox(height: 14),
         Row(

@@ -141,6 +141,29 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     unawaited(controller.refreshProject(_project.id));
   }
 
+  /// Takes what was sung into one written line: the recording's words for
+  /// that line become the line, through the same write as editing it by hand,
+  /// so the line keeps its writer, its place and its history (Every Musician,
+  /// Same Song, 17 September 2026, slice 37). One line, never the page —
+  /// the page at once is "Fill in my lyrics from the Song Sheet", which asks.
+  ///
+  /// The local copy of the song catches up straight away, the way it does
+  /// for the key, because a host that opened this screen as a route hands
+  /// it the project once and never again.
+  Future<void> _useSungLine(Contribution line, String words) async {
+    final controller = BetaScope.of(context, listen: false);
+    await controller.updateContribution(line, words);
+    if (!mounted) return;
+    setState(() {
+      _project = _project.copyWith(
+        contributions: <Contribution>[
+          for (final each in _project.contributions)
+            each.id == line.id ? each.copyWith(body: words) : each,
+        ],
+      );
+    });
+  }
+
   Future<void> _refresh() async {
     try {
       final bundle = await _service.load(widget.project.id);
@@ -856,12 +879,15 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     // is written down.
                     Builder(builder: (context) {
                       // Owner or editor, the same two set_song_key lets
-                      // through. Anybody else gets the key sheet as a
-                      // reference: offering "Where the 1 is" to somebody the
-                      // room will refuse is a question with the wrong answer
-                      // built in (review, 17 September 2026).
+                      // through, and the same two who may change a line
+                      // (0013's contributions_update_room_editors). Anybody
+                      // else gets the key sheet as a reference and the
+                      // sung-and-written sheet as a reading: offering
+                      // "Where the 1 is" to somebody the room will refuse is
+                      // a question with the wrong answer built in (review,
+                      // 17 September 2026).
                       final scope = BetaScope.maybeOf(context);
-                      final canSayTheKey = scope
+                      final canEditTheSong = scope
                               ?.roomById(_project.roomId)
                               ?.canEditSongs(scope.meOrNobody) ??
                           false;
@@ -871,7 +897,8 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                         onReviewLyrics: (reference?.transcriptWords.isNotEmpty ?? false) ? _reviewLyrics : null,
                         onOpenLive: _openLive,
                         onAnalysisChanged: (updated) => setState(() => _bundle = updated),
-                        onSetKey: canSayTheKey ? _setSongKey : null,
+                        onSetKey: canEditTheSong ? _setSongKey : null,
+                        onUseSung: canEditTheSong ? _useSungLine : null,
                       );
                     }),
                     const SizedBox(height: 18),
