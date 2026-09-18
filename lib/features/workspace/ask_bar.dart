@@ -198,14 +198,17 @@ class _AskBarState extends State<AskBar> {
     await PushRegistration.enable();
   }
 
-  /// The thread on an ask, then the bar again with its counts current.
+  /// The thread on an ask, then the bar again, in case the ask changed
+  /// while the sheet was up.
   Future<void> _openThread(SongAsk ask) async {
     await showAskThread(
       context,
       repository: widget.repository,
       askId: ask.id,
       headline: ask.headline,
+      askedBy: ask.askedBy,
       note: ask.note,
+      opinionsOpened: ask.opinionsOpened,
     );
     if (mounted) await _load();
   }
@@ -278,12 +281,16 @@ class _AskBarState extends State<AskBar> {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
+              // The label and nothing else. The chip used to grow a count
+              // of what had been said back; a tally of somebody's sentences
+              // is the kind of number this app does not draw (Every
+              // Musician, Same Song, 17 September 2026), and one that
+              // included held opinions would say what the asker has not yet
+              // chosen to hear.
               for (final ask in asks)
                 _AskChip(
                   key: Key('ask_chip_${ask.id}'),
-                  label: ask.replyCount > 0
-                      ? '${ask.label} · ${ask.replyCount}'
-                      : ask.label,
+                  label: ask.label,
                   specific: ask.isSpecific,
                   writing: ask.terms == AskTerms.write,
                   writingKey: Key('ask_chip_writing_${ask.id}'),

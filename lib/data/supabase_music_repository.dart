@@ -2020,10 +2020,11 @@ class SupabaseMusicRepository implements MusicRepository {
   Future<List<SongAsk>> loadAsks(String projectId) async {
     final rows = await client
         .from('project_asks')
-        // The count of what has been said back rides along, so the chip can
-        // say "· 2" without a second round trip per ask.
+        // No count of what has been said back: a chip that said "· 2" was a
+        // tally of somebody's sentences, and the app does not keep those
+        // (Every Musician, Same Song, 17 September 2026).
         .select(
-            'id, project_id, asked_by, part, note, terms, created_at, status, ask_replies(count)')
+            'id, project_id, asked_by, part, note, terms, created_at, status, opinions_opened_at')
         .eq('project_id', projectId)
         .eq('status', 'open')
         .order('created_at', ascending: false);
@@ -2117,12 +2118,6 @@ class SupabaseMusicRepository implements MusicRepository {
 
   SongAsk _ask(Map<String, dynamic> row) {
     final part = row['part'] as String?;
-    // PostgREST hands an embedded count back as [{count: n}]; absent when the
-    // select did not ask for it, which reads as nothing said.
-    final counts = row['ask_replies'];
-    final replyCount = counts is List && counts.isNotEmpty && counts.first is Map
-        ? ((counts.first as Map)['count'] as num?)?.toInt() ?? 0
-        : 0;
     return SongAsk(
       id: row['id'] as String,
       projectId: row['project_id'] as String,
@@ -2133,13 +2128,26 @@ class SupabaseMusicRepository implements MusicRepository {
       part: part,
       note: row['note'] as String? ?? '',
       closed: (row['status'] as String? ?? 'open') != 'open',
-      replyCount: replyCount,
+      // A time, read as a yes or no: the app never shows when.
+      opinionsOpened: row['opinions_opened_at'] != null,
       terms: AskTerms.fromWireName(row['terms'] as String?),
     );
   }
 
+  @override
+  Future<void> openOpinions(String askId) async {
+    // A plain update: the table's own trigger (0154) refuses anybody but
+    // the asker and keeps the first time if this is a second tap.
+    await client
+        .from('project_asks')
+        .update(<String, dynamic>{
+          'opinions_opened_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', askId);
+  }
+
   static const String _replyColumns =
-      'id, ask_id, author_id, body, created_at, '
+      'id, ask_id, author_id, body, kind, created_at, '
       'author:profiles!ask_replies_author_id_fkey(display_name)';
 
   @override
@@ -2156,14 +2164,20 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<AskReply> replyToAsk(
-      {required String askId, required String body}) async {
+  Future<AskReply> replyToAsk({
+    required String askId,
+    required String body,
+    ReplyDoor? door,
+  }) async {
     final row = await client
         .from('ask_replies')
         .insert(<String, dynamic>{
           'ask_id': askId,
           'author_id': _userId,
           'body': body.trim(),
+          // Left out for a plain line rather than sent as null: a plain
+          // line has no door, and the column's own default says so.
+          if (door != null) 'kind': door.wireName,
         })
         .select(_replyColumns)
         .single();
@@ -2188,6 +2202,7 @@ class SupabaseMusicRepository implements MusicRepository {
       createdAt:
           DateTime.tryParse(row['created_at'] as String? ?? '')?.toLocal() ??
               DateTime.now(),
+      door: ReplyDoor.fromWireName(row['kind'] as String?),
     );
   }
 

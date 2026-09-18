@@ -8,11 +8,12 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// The thread is the first place in the app a person can type a sentence to
 /// another person about a request. These tests pin the shape: a reply lands
-/// on the ask and counts on its chip, the chip opens the thread, and your
-/// own words can be taken back.
+/// on the ask, the chip opens the thread, and your own words can be taken
+/// back. The chip used to count the replies; it does not any more (see
+/// three_ways_to_answer_a_song_test.dart).
 void main() {
   group('the repository', () {
-    test('a reply lands on the ask and counts on it', () async {
+    test('a reply lands on the ask and can be taken back', () async {
       final repo = InMemoryMusicRepository.seeded();
       final ask = await repo.askFor(projectId: 'song-1', part: 'drums');
       expect(await repo.loadAskReplies(ask.id), isEmpty);
@@ -26,12 +27,8 @@ void main() {
       final replies = await repo.loadAskReplies(ask.id);
       expect(replies.map((r) => r.body), <String>['Thursday works']);
 
-      final asks = await repo.loadAsks('song-1');
-      expect(asks.single.replyCount, 1);
-
       await repo.deleteAskReply(reply);
       expect(await repo.loadAskReplies(ask.id), isEmpty);
-      expect((await repo.loadAsks('song-1')).single.replyCount, 0);
     });
   });
 
@@ -47,6 +44,7 @@ void main() {
             repository: repo,
             askId: ask.id,
             headline: 'Asking for drums',
+            askedBy: ask.askedBy,
             note: 'brushes, not sticks',
           ),
         ),
@@ -89,7 +87,7 @@ void main() {
   });
 
   group('the chip on the song', () {
-    testWidgets('carries the count and opens the thread', (tester) async {
+    testWidgets('opens the thread and stays a label', (tester) async {
       final repo = InMemoryMusicRepository.seeded();
       final ask = await repo.askFor(projectId: 'song-1', part: 'drums');
       await repo.replyToAsk(askId: ask.id, body: 'I can do Thursday');
@@ -101,7 +99,7 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      expect(find.text('needs drums · 1'), findsOneWidget);
+      expect(find.text('needs drums'), findsOneWidget);
 
       await tester.tap(find.byKey(Key('ask_chip_${ask.id}')));
       await tester.pumpAndSettle();
@@ -115,10 +113,12 @@ void main() {
       await tester.tap(find.byKey(const Key('ask_thread_send')));
       await tester.pumpAndSettle();
 
-      // Closing the sheet brings the count on the chip up to date.
+      // Closing the sheet leaves the chip exactly as it was: a label, and
+      // never a number of what has been said.
       await tester.tapAt(const Offset(10, 10));
       await tester.pumpAndSettle();
-      expect(find.text('needs drums · 2'), findsOneWidget);
+      expect(find.text('needs drums'), findsOneWidget);
+      expect(find.textContaining('needs drums ·'), findsNothing);
     });
   });
 }

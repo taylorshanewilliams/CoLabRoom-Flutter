@@ -683,7 +683,7 @@ class SongAsk {
     this.part,
     this.note = '',
     this.closed = false,
-    this.replyCount = 0,
+    this.opinionsOpened = false,
     this.terms = AskTerms.play,
   });
 
@@ -701,9 +701,15 @@ class SongAsk {
   final DateTime createdAt;
   final bool closed;
 
-  /// How many things have been said back on it. Zero is the normal case and
-  /// draws nothing; the chip only grows a number once somebody has spoken.
-  final int replyCount;
+  /// Whether the person who asked has said they are ready to read opinions.
+  ///
+  /// Until they have, every opinion on this ask is held from them (Every
+  /// Musician, Same Song, 17 September 2026). Once they have, opinions
+  /// arrive normally. Nothing here says whether any are waiting: that would
+  /// be the badge this slice must not draw. The ask used to carry a count of
+  /// what had been said back; it does not any more, because a reply is a
+  /// sentence and a sentence is not a tally.
+  final bool opinionsOpened;
 
   /// What answering it means, chosen when the ask was made and fixed there.
   final AskTerms terms;
@@ -718,7 +724,7 @@ class SongAsk {
   String get headline =>
       isSpecific ? 'Asking for ${part!.trim()}' : 'Asking what this needs';
 
-  SongAsk copyWith({bool? closed, int? replyCount}) => SongAsk(
+  SongAsk copyWith({bool? closed, bool? opinionsOpened}) => SongAsk(
         id: id,
         projectId: projectId,
         askedBy: askedBy,
@@ -726,12 +732,52 @@ class SongAsk {
         part: part,
         note: note,
         closed: closed ?? this.closed,
-        replyCount: replyCount ?? this.replyCount,
+        opinionsOpened: opinionsOpened ?? this.opinionsOpened,
         // Not a parameter. Terms are settled when the ask is sent and the
         // database refuses to change them, so nothing in the app should be
         // able to hand back a copy that says something else.
         terms: terms,
       );
+}
+
+/// The three ways to answer a song somebody asked you about.
+///
+/// Every Musician, Same Song, 17 September 2026: feedback without scores.
+/// The person answering picks a door before they write, and the door shapes
+/// what gets written. [stayed] and [question] arrive the way replies always
+/// have. [opinion] is held until the person who asked says they are ready,
+/// and is read by them and by its writer, never by the room. There is no
+/// number anywhere in this: no rating, no count, no mark that a reply helped.
+enum ReplyDoor {
+  stayed('stayed', 'What stayed with me', 'What stayed with you?'),
+  question('question', 'A question', 'What do you want to know?'),
+  opinion('opinion', 'An opinion', 'What do you think?');
+
+  const ReplyDoor(this.wireName, this.label, this.hint);
+
+  /// What `ask_replies.kind` holds.
+  final String wireName;
+
+  /// The door's name, on the button and above the line it produced.
+  final String label;
+
+  /// What the box says before anything is typed through this door.
+  final String hint;
+
+  /// Null for a plain line: every reply from before the doors existed, and
+  /// the asker answering back in their own thread.
+  static ReplyDoor? fromWireName(String? value) {
+    for (final door in values) {
+      if (door.wireName == value) return door;
+    }
+    return null;
+  }
+
+  /// The one thing the writer has to know before they send. Null for the
+  /// two doors that arrive normally.
+  String? get notice => this == ReplyDoor.opinion
+      ? "They'll read this when they're ready."
+      : null;
 }
 
 /// One thing somebody said back on an ask.
@@ -747,6 +793,7 @@ class AskReply {
     required this.authorName,
     required this.body,
     required this.createdAt,
+    this.door,
   });
 
   final String id;
@@ -755,6 +802,9 @@ class AskReply {
   final String authorName;
   final String body;
   final DateTime createdAt;
+
+  /// Which door this came through, or null for a plain line.
+  final ReplyDoor? door;
 }
 
 /// One line between you and one other person.

@@ -359,6 +359,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           repository: controller.repository,
                           askId: ask.id,
                           headline: ask.headline,
+                          // Never you: the database refuses an ask to
+                          // yourself, so this end always gets the doors.
+                          askedBy: ask.askedById ?? '',
                           note: ask.note,
                         )),
                       ),

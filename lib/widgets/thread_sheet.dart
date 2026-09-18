@@ -14,6 +14,7 @@ class ThreadLine {
     required this.authorName,
     required this.body,
     required this.createdAt,
+    this.label,
     this.source,
   });
 
@@ -23,9 +24,41 @@ class ThreadLine {
   final String body;
   final DateTime createdAt;
 
+  /// A word for what kind of line this is, drawn above it -- the door it
+  /// came through. Null for a plain line, which is most of them.
+  final String? label;
+
   /// The stored object this line came from, handed back to
   /// [ThreadSheet.takeBack] so the caller need not look it up again.
   final Object? source;
+}
+
+/// One way in to saying something: a name for what you are about to write,
+/// chosen before you write it.
+///
+/// Every Musician, Same Song, 17 September 2026: the reply to a song offers
+/// three of these, and the choice is the point. A sheet with doors shows
+/// them where the box would be; tapping one opens the box under that name.
+class ThreadDoor {
+  const ThreadDoor({
+    required this.id,
+    required this.label,
+    required this.hint,
+    this.notice,
+  });
+
+  /// Names the widget keys, so a test can find one door.
+  final String id;
+
+  /// On the button, and again above the box once chosen.
+  final String label;
+
+  /// What the box says before anything is typed.
+  final String hint;
+
+  /// One line under the box, for the one thing the writer has to know
+  /// before sending through this door. Null for most doors.
+  final String? notice;
 }
 
 /// Opens a thread as a sheet over whatever is on screen.
@@ -61,6 +94,9 @@ class ThreadSheet extends StatefulWidget {
     this.stage = 'thread',
     this.changes,
     this.header,
+    this.belowHeader,
+    this.doors,
+    this.sendThrough,
     super.key,
   });
 
@@ -98,6 +134,18 @@ class ThreadSheet extends StatefulWidget {
   /// and [note]; the headline still names the sheet for accessibility.
   final Widget? header;
 
+  /// One quiet thing under the header, above the lines. The ask thread
+  /// puts the asker's "I'm ready for opinions" here. Null for nothing.
+  final Widget? belowHeader;
+
+  /// The ways in, offered where the box would be. Null or empty means the
+  /// box is simply there, which is every thread but the one on an ask.
+  final List<ThreadDoor>? doors;
+
+  /// How a line goes through a door. Required when [doors] are offered;
+  /// [send] still serves a sheet without them.
+  final Future<ThreadLine> Function(ThreadDoor door, String body)? sendThrough;
+
   @override
   State<ThreadSheet> createState() => _ThreadSheetState();
 }
@@ -109,6 +157,12 @@ class _ThreadSheetState extends State<ThreadSheet> {
   String? _problem;
   bool _sending = false;
   Timer? _rereadDebounce;
+
+  /// The door the next line goes through. Null while the doors are still
+  /// being offered, and always null for a sheet without doors.
+  ThreadDoor? _door;
+
+  bool get _offersDoors => widget.doors?.isNotEmpty ?? false;
 
   @override
   void initState() {
@@ -167,13 +221,19 @@ class _ThreadSheetState extends State<ThreadSheet> {
   Future<void> _send() async {
     final body = _composer.text.trim();
     if (body.isEmpty || _sending) return;
+    final door = _door;
     setState(() => _sending = true);
     try {
-      final line = await widget.send(body);
+      final line = door == null
+          ? await widget.send(body)
+          : await widget.sendThrough!(door, body);
       if (!mounted) return;
       setState(() {
         _lines = <ThreadLine>[...?_lines, line];
         _composer.clear();
+        // Back to the doors. The choice is made once per line, because the
+        // choice is the point.
+        _door = null;
       });
       _scrollToNewest();
     } catch (error) {
@@ -247,6 +307,14 @@ class _ThreadSheetState extends State<ThreadSheet> {
                 ],
               ),
             ),
+            if (widget.belowHeader != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: widget.belowHeader,
+                ),
+              ),
             const Divider(height: 1, color: AppColors.line),
             Expanded(
               child: lines == null
@@ -290,46 +358,127 @@ class _ThreadSheetState extends State<ThreadSheet> {
             const Divider(height: 1, color: AppColors.line),
             SafeArea(
               top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: <Widget>[
-                    Expanded(
-                      child: SendOnEnter(
-                        onSend: () => unawaited(_send()),
-                        child: TextField(
-                        key: _key('composer'),
-                        controller: _composer,
-                        minLines: 1,
-                        maxLines: 4,
-                        maxLength: 500,
-                        textCapitalization: TextCapitalization.sentences,
-                        style: const TextStyle(
-                            color: AppColors.text, fontSize: 14.5),
-                        decoration: const InputDecoration(
-                          hintText: 'Say something…',
-                          counterText: '',
-                          isDense: true,
-                          border: OutlineInputBorder(),
-                        ),
-                        onSubmitted: (_) => unawaited(_send()),
-                      ),
-                      ),
-                    ),
-                    IconButton(
-                      key: _key('send'),
-                      tooltip: 'Send',
-                      onPressed: _sending ? null : () => unawaited(_send()),
-                      color: AppColors.cyan,
-                      icon: const Icon(Icons.send_rounded),
-                    ),
-                  ],
-                ),
-              ),
+              child: _offersDoors && _door == null ? _doorRow() : _box(),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// The doors, where the box would be. Plain words on plain buttons: the
+  /// labels are the whole explanation.
+  Widget _doorRow() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: <Widget>[
+          for (final door in widget.doors!)
+            OutlinedButton(
+              key: _key('door_${door.id}'),
+              onPressed: () => setState(() => _door = door),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.cyan,
+                side: BorderSide(color: AppColors.cyan.withValues(alpha: 0.35)),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+              ),
+              child: Text(
+                door.label,
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The box, under the chosen door's name when there is one.
+  Widget _box() {
+    final door = _door;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          if (door != null)
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    door.label,
+                    key: _key('door_chosen'),
+                    style: const TextStyle(
+                      color: AppColors.cyan,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                // Labelled, like "Take back": a way out of a door that a
+                // person would otherwise have to find by guessing.
+                TextButton(
+                  key: _key('door_change'),
+                  onPressed: _sending
+                      ? null
+                      : () => setState(() => _door = null),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.muted,
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  child: const Text('Change', style: TextStyle(fontSize: 11.5)),
+                ),
+              ],
+            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: <Widget>[
+              Expanded(
+                child: SendOnEnter(
+                  onSend: () => unawaited(_send()),
+                  child: TextField(
+                    key: _key('composer'),
+                    controller: _composer,
+                    autofocus: door != null,
+                    minLines: 1,
+                    maxLines: 4,
+                    maxLength: 500,
+                    textCapitalization: TextCapitalization.sentences,
+                    style: const TextStyle(
+                        color: AppColors.text, fontSize: 14.5),
+                    decoration: InputDecoration(
+                      hintText: door?.hint ?? 'Say something…',
+                      counterText: '',
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => unawaited(_send()),
+                  ),
+                ),
+              ),
+              IconButton(
+                key: _key('send'),
+                tooltip: 'Send',
+                onPressed: _sending ? null : () => unawaited(_send()),
+                color: AppColors.cyan,
+                icon: const Icon(Icons.send_rounded),
+              ),
+            ],
+          ),
+          if (door?.notice != null) ...<Widget>[
+            const SizedBox(height: 4),
+            Text(
+              door!.notice!,
+              key: _key('door_notice'),
+              style: const TextStyle(
+                  color: AppColors.muted, fontSize: 11.5, height: 1.35),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -381,6 +530,19 @@ class _LineRow extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 2),
+        // The door it came through, as a word above the line. Not a badge
+        // and not a colour: the reader is being told what kind of sentence
+        // this is, nothing more.
+        if (line.label != null)
+          Text(
+            line.label!,
+            style: const TextStyle(
+              color: AppColors.muted,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              height: 1.4,
+            ),
+          ),
         Text(
           line.body,
           style: const TextStyle(

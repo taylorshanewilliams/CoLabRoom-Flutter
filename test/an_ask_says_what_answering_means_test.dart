@@ -256,7 +256,7 @@ void main() {
     // copyWith takes no terms — 0145 refuses the update in the database, and
     // a model that could hand back a different answer would be the argument
     // again with an audit trail.
-    expect(posted.copyWith(replyCount: 3).terms, AskTerms.write);
+    expect(posted.copyWith(opinionsOpened: true).terms, AskTerms.write);
     expect(posted.copyWith(closed: true).terms, AskTerms.write);
 
     final open = await repository.loadAsks('preview-project-1');
