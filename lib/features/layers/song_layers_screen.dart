@@ -938,6 +938,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       songEndMs: _reference?.durationMs,
     );
     if (passage == null) return;
+    // Busy while the file is written -- a second on a long song -- so a
+    // second tap, Play or Record waits rather than racing it.
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       final track = await ThenAndNow.write(
         takes: MyPartMix.apply(_takes, _myPart),
@@ -965,6 +971,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         _position = Duration(milliseconds: passage.startMs);
         _noteLoop = null;
         _playing = true;
+        _busy = false;
       });
       await _player.setReleaseMode(ReleaseMode.release);
       await _player.play(audioSourceFor(track.path));
@@ -976,6 +983,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       setState(() {
         _thenAndNow = null;
         _playing = false;
+        _busy = false;
         _error = reportAndDescribe(
           error,
           service: 'layers',
