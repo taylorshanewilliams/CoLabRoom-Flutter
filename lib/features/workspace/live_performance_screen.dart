@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/audio_source_for.dart';
 import '../../services/chord_beat_grid.dart' show barNumberAt;
+import '../../services/click_player.dart';
 import '../../services/follow_me.dart';
 import 'package:flutter/services.dart';
 
@@ -22,6 +23,7 @@ import '../../services/play_along.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
+import 'count_in.dart';
 import 'follow_me_bar.dart';
 import 'live_countdown_store.dart';
 import 'musician_sheet_line.dart';
@@ -83,8 +85,13 @@ class LivePerformanceScreen extends StatefulWidget {
     this.keepPractice,
     this.ownMarkId,
     this.practise,
+    this.click,
     super.key,
   });
+
+  /// What counts the band in on the song's own bar. Production leaves this
+  /// null and uses the metronome's click; a test hands in a silent one.
+  final ClickPlayer? click;
 
   /// Where what a session leaves behind goes: the part worked on, the speed,
   /// and the leader's note when there was a leader. Null keeps nothing, which
@@ -149,6 +156,22 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   bool _countdownEnabled = false;
   int _countdownSeconds = LiveCountdownStore.defaultSeconds;
   int? _countdownRemaining;
+
+  /// The bar being counted in, when the song has a beat of its own, and which
+  /// beat of it is sounding now. The bar is set the moment play is pressed;
+  /// the beat only once the click is actually going, so the dots and the
+  /// clicks start together rather than a click's loading time apart.
+  CountIn? _countInBar;
+  int? _countInBeat;
+
+  /// Which count-in is the current one. A second tap while the click is still
+  /// being prepared must not leave the first one to start counting after it.
+  int _countInGeneration = 0;
+
+  /// The click that counts the bar, made only if a song ever needs one.
+  ClickPlayer? _clickPlayer;
+  ClickPlayer get _click => _clickPlayer ??= widget.click ?? WavClickPlayer();
+
   LiveScrollMode _mode = LiveScrollMode.off;
   bool _playing = false;
   bool _controlsVisible = true;
@@ -788,6 +811,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _ticker?.cancel();
     _hideControls?.cancel();
     _countdownTimer?.cancel();
+    // Only if a song ever needed counting in: the click makes an audio player
+    // the first time it is asked for, and most songs never ask.
+    final click = _clickPlayer;
+    if (click != null) {
+      unawaited(click.stop().then((_) => click.dispose()));
+    }
     _ear?.reading.removeListener(_earChanged);
     _ear?.dispose();
     _scroll.dispose();
@@ -1086,17 +1115,93 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// starting playback (if enabled), rather than starting the scroll/sync
   /// instantly. Pausing, and tapping play again mid-countdown to cancel it,
   /// both skip straight to _togglePlay.
+  ///
+  /// Two counts, because a count-in is two different things. A song the
+  /// analysis found a beat in is counted in on its own bar, at its own tempo
+  /// and at whatever speed it is about to play at. A song with no beat keeps
+  /// the seconds, which promise nothing about the song (Every Musician, Same
+  /// Song, 17 September 2026).
   void _onPlayPressed() {
     _takeOver();
-    if (_countdownRemaining != null) {
+    if (_countdownRemaining != null || _countInBar != null) {
       _cancelCountdown();
       return;
     }
     if (!_playing && _countdownEnabled) {
-      _startCountdown();
+      final countIn = countInForSong(widget.analysis?.reference, rate: _rate);
+      if (countIn == null) {
+        _startCountdown();
+      } else {
+        unawaited(_startCountIn(countIn));
+      }
       return;
     }
     _togglePlay();
+  }
+
+  /// One bar of the song, counted out loud, seen and felt.
+  ///
+  /// The bar of clicks is one file, so the beats inside it are exactly where
+  /// the tempo puts them; a click fired from a timer drifts by however long
+  /// each play call takes. It is started first and waited for, and the dots
+  /// and the haptics run from a timer alongside it — a count you can see a
+  /// beat away from the one you can hear is worse than either on its own.
+  ///
+  /// The song comes in one whole bar after the first beat of the count, which
+  /// is the beat after the last one counted: [_togglePlay] resumes from
+  /// wherever the song is sitting, which is the loop's first bar when a loop
+  /// is on (see _setLoop) and the top of the song when one is not.
+  Future<void> _startCountIn(CountIn countIn) async {
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+    final generation = ++_countInGeneration;
+    setState(() {
+      _countInBar = countIn;
+      _countInBeat = null;
+    });
+    try {
+      await _click.play(
+        bpm: countIn.bpm,
+        beatsPerBar: countIn.beats,
+        bars: 1,
+        loop: false,
+      );
+    } catch (_) {
+      // No click on this device, or no audio at all. The bar is still
+      // counted, seen and felt — a silent count-in beats no count-in.
+    }
+    // Tapped again, or left, while the click was being prepared.
+    if (!mounted || generation != _countInGeneration) return;
+    setState(() => _countInBeat = 1);
+    _feelBeat();
+    _countdownTimer = Timer.periodic(countIn.beat, (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final next = (_countInBeat ?? 0) + 1;
+      if (next > countIn.beats) {
+        timer.cancel();
+        _countdownTimer = null;
+        setState(() {
+          _countInBar = null;
+          _countInBeat = null;
+        });
+        _togglePlay();
+        return;
+      }
+      setState(() => _countInBeat = next);
+      _feelBeat();
+    });
+  }
+
+  /// A light tick on each beat of the count.
+  ///
+  /// So the bar can be felt with the phone on a stand and both eyes on the
+  /// instrument, which is where they are in the four beats before a song.
+  /// Nothing on a device with no motor, and never allowed to fail a count-in.
+  void _feelBeat() {
+    unawaited(HapticFeedback.selectionClick().catchError((Object _) {}));
   }
 
   void _startCountdown() {
@@ -1120,7 +1225,17 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   void _cancelCountdown() {
     _countdownTimer?.cancel();
     _countdownTimer = null;
-    if (mounted) setState(() => _countdownRemaining = null);
+    // Also disowns a bar count-in whose click is still being written, so it
+    // cannot start counting a song somebody has already moved on from.
+    _countInGeneration += 1;
+    unawaited(_clickPlayer?.stop());
+    if (mounted) {
+      setState(() {
+        _countdownRemaining = null;
+        _countInBar = null;
+        _countInBeat = null;
+      });
+    }
   }
 
   void _togglePlay() {
@@ -1696,10 +1811,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                     ),
                   ),
                 ),
-                if (_countdownRemaining != null)
+                if (_countdownRemaining != null || _countInBeat != null)
                   Positioned.fill(
                     child: _CountdownOverlay(
-                      remaining: _countdownRemaining!,
+                      key: const Key('live_count_in'),
+                      count: _countInBeat ?? _countdownRemaining!,
+                      beatsInBar: _countInBeat == null ? null : _countInBar?.beats,
                       onCancel: _cancelCountdown,
                     ),
                   ),
@@ -1719,6 +1836,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       builder: (_) => _CountdownSettingsSheet(
         enabled: _countdownEnabled,
         seconds: _countdownSeconds,
+        // The seconds are for songs with no beat of their own. This one has
+        // one, so a slider setting how long it is would set nothing.
+        onTheBeat: countInForSong(widget.analysis?.reference) != null,
         onChanged: (enabled, seconds) {
           setState(() {
             _countdownEnabled = enabled;
@@ -1994,14 +2114,42 @@ class _TopLiveBar extends StatelessWidget {
 /// Full-screen scrim shown between tapping play and the scroll/sync actually
 /// starting, when the count-in is enabled — gives the band a beat to get
 /// instruments up and eyes on the screen before anything moves.
+///
+/// Two shapes. Without [beatsInBar] it is the seconds Perform has always
+/// counted, swelling one into the next. With it, the song has a beat of its
+/// own and this is a bar of that beat: a dot for each one, filling as the
+/// count goes, and a number that snaps rather than swells — a count-in is
+/// four hard edges, and an animation across them is exactly the wrong
+/// feeling to hand somebody about to play.
 class _CountdownOverlay extends StatelessWidget {
-  const _CountdownOverlay({required this.remaining, required this.onCancel});
+  const _CountdownOverlay({
+    required this.count,
+    required this.onCancel,
+    this.beatsInBar,
+    super.key,
+  });
 
-  final int remaining;
+  /// The seconds left, or — with [beatsInBar] — the beat being counted.
+  final int count;
+
+  /// Beats in the bar, when the count is on the song's own beat.
+  final int? beatsInBar;
+
   final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
+    final beats = beatsInBar;
+    final number = Text(
+      '$count',
+      key: ValueKey<int>(count),
+      style: const TextStyle(
+        color: AppColors.gold,
+        fontSize: 118,
+        fontWeight: FontWeight.w900,
+        height: 1,
+      ),
+    );
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onCancel,
@@ -2011,25 +2159,41 @@ class _CountdownOverlay extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              transitionBuilder: (child, animation) =>
-                  ScaleTransition(scale: animation, child: FadeTransition(opacity: animation, child: child)),
-              child: Text(
-                '$remaining',
-                key: ValueKey<int>(remaining),
-                style: const TextStyle(
-                  color: AppColors.gold,
-                  fontSize: 118,
-                  fontWeight: FontWeight.w900,
-                  height: 1,
-                ),
+            if (beats == null)
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                transitionBuilder: (child, animation) =>
+                    ScaleTransition(scale: animation, child: FadeTransition(opacity: animation, child: child)),
+                child: number,
+              )
+            else ...<Widget>[
+              number,
+              const SizedBox(height: 18),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  for (var beat = 1; beat <= beats; beat += 1)
+                    Container(
+                      key: Key('live_count_in_dot_$beat'),
+                      width: beat == count ? 17 : 11,
+                      height: beat == count ? 17 : 11,
+                      margin: const EdgeInsets.symmetric(horizontal: 7),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: beat == count
+                            ? AppColors.gold
+                            : beat < count
+                                ? AppColors.gold.withValues(alpha: 0.35)
+                                : Colors.white.withValues(alpha: 0.18),
+                      ),
+                    ),
+                ],
               ),
-            ),
+            ],
             const SizedBox(height: 14),
-            const Text(
-              'Get ready — tap to skip',
-              style: TextStyle(color: AppColors.muted, fontSize: 13, fontWeight: FontWeight.w600),
+            Text(
+              beats == null ? 'Get ready — tap to skip' : 'Counting you in — tap to skip',
+              style: const TextStyle(color: AppColors.muted, fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ],
         ),
@@ -2043,10 +2207,16 @@ class _CountdownSettingsSheet extends StatefulWidget {
     required this.enabled,
     required this.seconds,
     required this.onChanged,
+    this.onTheBeat = false,
   });
 
   final bool enabled;
   final int seconds;
+
+  /// Whether this song has a beat of its own to be counted in on. The seconds
+  /// belong to the songs that do not, so offering both here would be a slider
+  /// that changes nothing.
+  final bool onTheBeat;
 
   /// Fired whenever either value changes — the sheet applies live rather
   /// than waiting for a "Done" tap, matching every other Live setting
@@ -2076,9 +2246,12 @@ class _CountdownSettingsSheetState extends State<_CountdownSettingsSheet> {
               style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 4),
-            const Text(
-              "Give the band a few seconds to get ready before the scroll or sync starts.",
-              style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.4),
+            Text(
+              widget.onTheBeat
+                  ? 'This song has a beat, so play is counted in one bar of it — '
+                      'clicked, seen and felt.'
+                  : 'Give the band a few seconds to get ready before the scroll or sync starts.',
+              style: const TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.4),
             ),
             const SizedBox(height: 12),
             SwitchListTile(
@@ -2091,7 +2264,7 @@ class _CountdownSettingsSheetState extends State<_CountdownSettingsSheet> {
               },
               title: const Text('Enabled', style: TextStyle(color: AppColors.text, fontSize: 14)),
             ),
-            if (_enabled) ...<Widget>[
+            if (_enabled && !widget.onTheBeat) ...<Widget>[
               const SizedBox(height: 4),
               Row(
                 children: <Widget>[

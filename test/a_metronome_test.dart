@@ -1,5 +1,6 @@
 import 'package:colabroom/features/workspace/metronome_sheet.dart';
 import 'package:colabroom/features/workspace/practice_rules.dart';
+import 'package:colabroom/services/click_player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -9,7 +10,12 @@ class _SilentClick implements ClickPlayer {
   final List<String> log = <String>[];
 
   @override
-  Future<void> play({required double bpm, required int beatsPerBar}) async =>
+  Future<void> play({
+    required double bpm,
+    required int beatsPerBar,
+    int bars = 8,
+    bool loop = true,
+  }) async =>
       log.add('play ${bpm.round()}/$beatsPerBar');
 
   @override

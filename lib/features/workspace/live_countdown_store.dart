@@ -3,6 +3,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Persists the Live Performance "count-in" preference locally on-device —
 /// a personal setup habit (how long a band wants to get ready before the
 /// scroll/sync starts), not data that needs to sync across devices.
+///
+/// The seconds are what a song with no beat of its own gets counted in with.
+/// A song the analysis found a tempo and downbeats in is counted in on one
+/// bar of its own time instead, which needs no setting because the song
+/// already says how long it is (see count_in.dart). The switch here governs
+/// both.
 abstract final class LiveCountdownStore {
   static const _enabledKey = 'live_countdown_enabled';
   static const _secondsKey = 'live_countdown_seconds';

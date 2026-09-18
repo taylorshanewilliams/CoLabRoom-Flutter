@@ -1,58 +1,11 @@
 import 'dart:async';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../app/colabroom_theme.dart';
-import '../../services/audio_source_for.dart';
-import '../../services/multitrack.dart';
+import '../../services/click_player.dart';
 import '../../services/user_facing_error.dart';
 import 'practice_rules.dart';
-
-/// Something that clicks at a tempo. The sheet talks to this so a test can
-/// hand it a silent one.
-abstract class ClickPlayer {
-  Future<void> play({required double bpm, required int beatsPerBar});
-  Future<void> stop();
-  Future<void> dispose();
-}
-
-/// The click the takes console already makes, looped on its own.
-///
-/// Eight bars written to a temporary file and played on repeat -- safe to
-/// loop in a way a backing track never is, because there is nothing else
-/// playing for it to drift against.
-class _WavClickPlayer implements ClickPlayer {
-  final AudioPlayer _player = AudioPlayer();
-  int _generation = 0;
-
-  @override
-  Future<void> play({required double bpm, required int beatsPerBar}) async {
-    final generation = ++_generation;
-    final directory = await getTemporaryDirectory();
-    final path = '${directory.path}/metronome_${bpm.round()}_$beatsPerBar.wav';
-    await Multitrack.writeClickOnly(
-      bpm: bpm,
-      outputPath: path,
-      beatsPerBar: beatsPerBar,
-    );
-    // A slower tap arrived while this file was being written.
-    if (generation != _generation) return;
-    await _player.stop();
-    await _player.setReleaseMode(ReleaseMode.loop);
-    await _player.play(audioSourceFor(path));
-  }
-
-  @override
-  Future<void> stop() async {
-    _generation++;
-    await _player.stop();
-  }
-
-  @override
-  Future<void> dispose() => _player.dispose();
-}
 
 /// A metronome, on the sheet you record from.
 ///
@@ -84,7 +37,7 @@ class MetronomeSheet extends StatefulWidget {
 }
 
 class _MetronomeSheetState extends State<MetronomeSheet> {
-  late final ClickPlayer _player = widget.player ?? _WavClickPlayer();
+  late final ClickPlayer _player = widget.player ?? WavClickPlayer();
   late double _bpm = clampBpm(widget.initialBpm ?? 100);
   int _beatsPerBar = 4;
   bool _playing = false;
