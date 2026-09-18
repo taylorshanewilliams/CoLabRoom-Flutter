@@ -69,6 +69,10 @@ const double kSingingLineFraction = 0.38;
 /// is being practised.
 const Duration kPerformTick = Duration(milliseconds: 50);
 
+/// What Perform says when the song's recording could not be fetched.
+const String recordingNotLoaded =
+    'The recording could not be loaded. The words are here; the song is not.';
+
 /// The scroll offset that puts the line at [lineOffset] on the anchor.
 ///
 /// Clamped, because the first lines of a song cannot be pushed below the top
@@ -99,12 +103,24 @@ class LivePerformanceScreen extends StatefulWidget {
     this.ownMarkId,
     this.practise,
     this.click,
+    this.missing,
     super.key,
   });
 
   /// What counts the band in on the song's own bar. Production leaves this
   /// null and uses the metronome's click; a test hands in a silent one.
   final ClickPlayer? click;
+
+  /// What this phone could not get for this song, said once as the screen
+  /// opens. Null when nothing is missing, which is nearly always.
+  ///
+  /// The door that opens Perform asks for the sheet and may get neither the
+  /// server's nor a copy kept on this phone. Opened silently with the words
+  /// alone, that looks exactly like a song that has no recording, and a
+  /// person in a basement would not know whether to blame the song or the
+  /// signal (Every Musician, Same Song, 17 September 2026). See
+  /// SongAnalysisService.sheetForPerform for the sentences.
+  final String? missing;
 
   /// Where what a session leaves behind goes: the part worked on, the speed,
   /// and the leader's note when there was a leader. Null keeps nothing, which
@@ -479,6 +495,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     unawaited(_loadReading());
     unawaited(_loadCapo());
     unawaited(_loadNumbers());
+    final missing = widget.missing;
+    if (missing != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _say(missing));
+    }
 
     final together = widget.together;
     if (together != null) {
@@ -819,8 +839,21 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// was only ever a guess at where you should be, with no way to actually
   /// hear whether it lines up.
   Future<void> _prepareAudio(ReferenceTrack reference) async {
+    final String path;
     try {
-      final path = await _analysis.ensureLocalReference(reference);
+      path = await _analysis.ensureLocalReference(reference);
+    } catch (_) {
+      // Said, not swallowed. A recording that will not fetch -- no signal
+      // and no copy kept on this phone, most often -- used to leave the
+      // words scrolling on their own with no word about why, which is
+      // exactly what a song with no recording looks like (Every Musician,
+      // Same Song, 17 September 2026). The player failing, below, stays
+      // quiet as it always did: that is the phone, not the song.
+      _say(recordingNotLoaded);
+      if (!_referenceReady.isCompleted) _referenceReady.complete();
+      return;
+    }
+    try {
       if (!mounted) return;
       _referencePath = path;
       // The path is all a part mix needs, so a part kept from last time can

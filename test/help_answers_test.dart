@@ -52,6 +52,10 @@ void main() {
       // moment") and the one everything else on the internet uses.
       'how do i leave a note at a moment': 'moment-note',
       'can i pin a comment at a timestamp': 'moment-note',
+      // Keep this song on your phone (Every Musician, Same Song, slice 18).
+      'does it work offline': 'offline',
+      'there is no signal in our basement': 'offline',
+      'can i perform without internet': 'offline',
     };
 
     cases.forEach((typed, expected) {

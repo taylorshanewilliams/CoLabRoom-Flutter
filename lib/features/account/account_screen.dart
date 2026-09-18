@@ -13,6 +13,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
+import '../../services/kept_songs.dart';
 import '../../services/now_playing.dart';
 import '../../services/picture_for_upload.dart';
 import '../../services/user_facing_error.dart';
@@ -235,6 +236,12 @@ class _AccountScreenState extends State<AccountScreen> {
       await client.rpc<void>('delete_my_account');
       await PushRegistration.forget();
       await NowPlaying.instance.forget();
+      // Before signing out, while the phone still knows whose they were.
+      // Songs kept here are as often other people's recordings as this
+      // person's own, and the right to hear them has just gone with the
+      // account. Signing out alone leaves them: the same person signing
+      // back in finds them where they were, and nobody else ever sees them.
+      await KeptSongs().removeAll();
       await client.auth.signOut();
     } catch (error) {
       if (context.mounted) {
