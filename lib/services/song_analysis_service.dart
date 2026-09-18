@@ -10,6 +10,7 @@ import '../domain/music_models.dart';
 import '../domain/song_analysis_models.dart';
 import 'audio_analysis_utils.dart';
 import 'chord_beat_grid.dart';
+import 'chord_repeats.dart';
 import 'error_reporter.dart';
 
 export 'audio_analysis_utils.dart' show SongAnalysisProgress;
@@ -291,9 +292,14 @@ class SongAnalysisService {
         .select('contribution_id, start_ms, end_ms, confidence')
         .eq('project_id', projectId)
         .order('start_ms');
+    // id and source were never in this select, so every cue the app loaded
+    // came back with no id and as 'automatic' — which read a hand-typed chord
+    // as a detected one everywhere the difference matters, and this is the
+    // first place it decides anything (a correction may not spread over a
+    // chord somebody typed; see chord_repeats.dart).
     final chordRows = await client
         .from('chord_cues')
-        .select('start_ms, end_ms, chord, confidence')
+        .select('id, start_ms, end_ms, chord, confidence, source')
         .eq('project_id', projectId)
         .order('start_ms');
 
@@ -399,6 +405,43 @@ class SongAnalysisService {
       'confidence': 1.0,
       'source': 'manual',
     });
+    return load(projectId);
+  }
+
+  /// The same correction, in every place the passage repeats.
+  ///
+  /// Each target is what findChordRepeats worked out: the detected cue that
+  /// stood there goes, and the corrected chord is written in its place as
+  /// the same manual row a single correction writes, so nothing reading the
+  /// cues afterwards can tell the two apart (Every Musician, Same Song, 17
+  /// September 2026). Only ever called after the person said yes.
+  Future<SongAnalysisBundle> applyChordToRepeats({
+    required String projectId,
+    required String chord,
+    required List<ChordRepeatTarget> targets,
+  }) async {
+    if (targets.isEmpty) return load(projectId);
+    for (final target in targets) {
+      final gone = target.replaces;
+      if (gone == null) continue;
+      await _deleteChordRow(
+        projectId: projectId,
+        cueId: gone.id,
+        startMs: gone.startMs,
+        chord: gone.chord,
+      );
+    }
+    await client.from('chord_cues').insert(<Map<String, dynamic>>[
+      for (final target in targets)
+        <String, dynamic>{
+          'project_id': projectId,
+          'start_ms': target.startMs,
+          'end_ms': target.endMs,
+          'chord': chord,
+          'confidence': 1.0,
+          'source': 'manual',
+        },
+    ]);
     return load(projectId);
   }
 

@@ -13,6 +13,7 @@ import 'package:colabroom/features/workspace/musician_song_sheet.dart';
 import 'package:colabroom/features/workspace/song_reading_store.dart';
 import 'package:colabroom/features/workspace/song_transpose_store.dart';
 import 'package:colabroom/services/chord_chart.dart';
+import 'package:colabroom/services/chord_repeats.dart';
 import 'package:colabroom/services/horn_reading.dart';
 import 'package:colabroom/services/number_reading.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
@@ -33,6 +34,7 @@ class SongSheetPanel extends StatefulWidget {
     required this.onOpenLive,
     this.onAnalysisChanged,
     this.onSetKey,
+    this.analysisService,
     super.key,
   });
 
@@ -41,6 +43,10 @@ class SongSheetPanel extends StatefulWidget {
   final VoidCallback? onReviewLyrics;
   final VoidCallback? onOpenLive;
   final ValueChanged<SongAnalysisBundle>? onAnalysisChanged;
+
+  /// Where corrections are written. Null for the real one; a test hands in
+  /// one that remembers instead.
+  final SongAnalysisService? analysisService;
 
   /// Says what key the band is really in, or hands the song back to the
   /// detected key with a null.
@@ -58,7 +64,8 @@ class SongSheetPanel extends StatefulWidget {
 }
 
 class _SongSheetPanelState extends State<SongSheetPanel> {
-  final SongAnalysisService _service = SongAnalysisService();
+  late final SongAnalysisService _service =
+      widget.analysisService ?? SongAnalysisService();
 
   late SongAnalysisBundle _bundle;
   SongSheetView _view = SongSheetView.sheet;
@@ -89,6 +96,16 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   bool _showChords = true;
   bool _editingChords = false;
   bool _savingChord = false;
+
+  /// The correction just made, and where else the passage it fixed comes
+  /// round — held while the one line asking about it is on screen.
+  ///
+  /// It is an offer attached to the action, not a banner: it appears in the
+  /// editing box the moment a chord is saved, and anything that moves on from
+  /// that correction — another edit, a nudge, Done, the chart, a bundle from
+  /// outside — takes it away without applying it. Declining is the default in
+  /// every direction (Every Musician, Same Song, 17 September 2026).
+  ChordRepeatOffer? _repeatOffer;
 
   /// The bar grid, worked out once per bundle rather than once per frame.
   ///
@@ -135,10 +152,23 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   @override
   void didUpdateWidget(covariant SongSheetPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.bundle, widget.bundle)) {
+    // The parent hands every correction straight back (onAnalysisChanged,
+    // its setState, this bundle), so a bundle the panel is already holding
+    // is not news. It used to be compared with the last widget's bundle
+    // alone, which read that echo as a change and would have taken the
+    // repeat offer away in the same frame it was made. A host that does not
+    // echo rebuilds for its own reasons with the bundle it always had, and
+    // that is not news either: it must not put a correction back the way it
+    // was. Only a bundle the parent changed and the panel has not seen — a
+    // re-analysis, a sync from elsewhere — resets what was built from the
+    // old one, and the offer goes with it: the correction it asked about may
+    // not be there any more.
+    if (!identical(widget.bundle, oldWidget.bundle) &&
+        !identical(widget.bundle, _bundle)) {
       _bundle = widget.bundle;
       _chartRows = null;
       _lines = null;
+      _repeatOffer = null;
     }
     if (oldWidget.project.id != widget.project.id) {
       _transpose = 0;
@@ -316,6 +346,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     setState(() {
       _editingChords = !_editingChords;
       _showChords = true;
+      _repeatOffer = null;
     });
   }
 
@@ -459,6 +490,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     setState(() {
       _savingChord = true;
       _selectedWord = target;
+      _repeatOffer = null;
     });
     try {
       final updated = await _service.saveManualChordCue(
@@ -556,6 +588,8 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     ChordCue? existing,
   }) async {
     if (_savingChord || line.section || line.body.trim().isEmpty) return;
+    // A new correction is a new question; the last one's offer is over.
+    if (_repeatOffer != null) setState(() => _repeatOffer = null);
     final result = await showModalBottomSheet<ChordEditResult>(
       context: context,
       showDragHandle: true,
@@ -572,6 +606,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     setState(() => _savingChord = true);
     try {
       SongAnalysisBundle updated;
+      ChordRepeatOffer? offer;
       if (result.delete && existing != null) {
         updated = await _service.deleteChordCue(
           projectId: widget.project.id,
@@ -608,6 +643,12 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             ? math.min(referenceEnd, preferredEnd).toInt()
             : preferredEnd;
 
+        final savedEnd = math.max(startMs + 120, endMs).toInt();
+        // What read at that moment before the correction: the detected chord
+        // being replaced, or the one still ringing under a word that had
+        // none. A repeat is only the same passage if it reads the same there.
+        final before = existing?.chord ??
+            chordSoundingAt(_bundle.chordCues, startMs)?.chord;
         updated = await _service.saveManualChordCue(
           projectId: widget.project.id,
           cueId: existing?.id,
@@ -615,12 +656,24 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
           originalChord: existing?.chord,
           chord: result.chord,
           startMs: startMs,
-          endMs: math.max(startMs + 120, endMs).toInt(),
+          endMs: savedEnd,
+        );
+        // The correction is saved where it was made. Where else the passage
+        // comes round is a question, asked below, and until it is answered
+        // nothing else has changed.
+        offer = findChordRepeats(
+          bundle: updated,
+          chord: result.chord,
+          originalChord: before,
+          startMs: startMs,
+          endMs: savedEnd,
+          originalStartMs: existing?.startMs,
         );
       }
       if (!mounted) return;
       setState(() {
         _bundle = updated;
+        _repeatOffer = offer;
         // A corrected chord changes the bars too — the cached grid has to go
         // with the cues it was built from, and so do the sheet's lines.
         _chartRows = null;
@@ -638,6 +691,53 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       if (mounted) setState(() => _savingChord = false);
     }
   }
+
+  /// Yes: the same correction in every repeat the offer found.
+  ///
+  /// Every repeat's bars change, so the cached grid goes the way it does for
+  /// a single correction (it is empty by now in practice, because the
+  /// correction that raised the offer emptied it and the chart view takes
+  /// the offer away, but the rule is stated here so it does not depend on
+  /// that), and the sheet's lines with it, which are on screen under the
+  /// question and would otherwise keep showing one Am; the chart and the
+  /// sheet are both rebuilt from the bundle that comes back, and Perform
+  /// gets that bundle through onAnalysisChanged and builds its own lines
+  /// from it when it opens, so all three read the same chord in the same
+  /// bars.
+  Future<void> _applyToRepeats() async {
+    final offer = _repeatOffer;
+    if (offer == null || _savingChord) return;
+    setState(() => _savingChord = true);
+    try {
+      final updated = await _service.applyChordToRepeats(
+        projectId: widget.project.id,
+        chord: offer.chord,
+        targets: offer.targets,
+      );
+      if (!mounted) return;
+      setState(() {
+        _bundle = updated;
+        _repeatOffer = null;
+        _chartRows = null;
+        _lines = null;
+      });
+      widget.onAnalysisChanged?.call(updated);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Could not change the other parts: $error'),
+          ),
+        );
+    } finally {
+      if (mounted) setState(() => _savingChord = false);
+    }
+  }
+
+  /// No: the one place already changed is the only place that changes.
+  void _declineRepeats() => setState(() => _repeatOffer = null);
 
   @override
   Widget build(BuildContext context) {
@@ -777,6 +877,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
                               _view = next;
                               if (next == SongSheetView.chart) {
                                 _editingChords = false;
+                                _repeatOffer = null;
                               }
                             }),
                   ),
@@ -847,16 +948,29 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    _savingChord
-                        ? 'Saving chord correction…'
-                        : 'Tap a chord to correct or remove it. Tap any lyric word to add a chord or move one there.',
-                    style: const TextStyle(
-                      color: AppColors.text,
-                      fontSize: 10.5,
-                      height: 1.35,
-                    ),
-                  ),
+                  child: _savingChord
+                      ? const Text(
+                          'Saving chord correction…',
+                          style: TextStyle(
+                            color: AppColors.text,
+                            fontSize: 10.5,
+                            height: 1.35,
+                          ),
+                        )
+                      : _repeatOffer != null
+                          ? _RepeatOfferLine(
+                              question: _repeatOffer!.question,
+                              onEverywhere: _applyToRepeats,
+                              onHereOnly: _declineRepeats,
+                            )
+                          : const Text(
+                              'Tap a chord to correct or remove it. Tap any lyric word to add a chord or move one there.',
+                              style: TextStyle(
+                                color: AppColors.text,
+                                fontSize: 10.5,
+                                height: 1.35,
+                              ),
+                            ),
                 ),
               ],
             ),
@@ -1035,6 +1149,67 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
                 ),
               ),
           ],
+        ),
+      ],
+    );
+  }
+}
+
+/// The one line that asks: "Also in the other two choruses?", a yes, and a
+/// no that says what it does.
+///
+/// In the editing box in place of its instruction, because the correction
+/// was made from there and this is the last step of it — not a snackbar
+/// sliding up over the words, and not a second sheet to dismiss. Both
+/// answers are the same size and the same weight: neither is the one you
+/// are supposed to press.
+class _RepeatOfferLine extends StatelessWidget {
+  const _RepeatOfferLine({
+    required this.question,
+    required this.onEverywhere,
+    required this.onHereOnly,
+  });
+
+  final String question;
+  final VoidCallback onEverywhere;
+  final VoidCallback onHereOnly;
+
+  @override
+  Widget build(BuildContext context) {
+    final compact = TextButton.styleFrom(
+      foregroundColor: AppColors.gold,
+      minimumSize: const Size(0, 30),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+    // Size and weight on the labels, where they merge into the theme's
+    // style, and never on the button (see button_labels_keep_their_font).
+    const label = TextStyle(fontSize: 11, fontWeight: FontWeight.w800);
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: Text(
+            question,
+            key: const Key('repeat_correction_question'),
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 10.5,
+              height: 1.35,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        TextButton(
+          key: const Key('repeat_correction_here_only'),
+          style: compact,
+          onPressed: onHereOnly,
+          child: const Text('Just here', style: label),
+        ),
+        TextButton(
+          key: const Key('repeat_correction_everywhere'),
+          style: compact,
+          onPressed: onEverywhere,
+          child: const Text('Yes', style: label),
         ),
       ],
     );
