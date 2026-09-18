@@ -14,7 +14,9 @@ import '../../widgets/player_face.dart';
 import '../../domain/activity.dart';
 import '../../domain/music_models.dart';
 import '../../domain/practice_mark.dart';
+import '../../services/kept_songs.dart';
 import '../../services/song_analysis_service.dart';
+import '../../widgets/on_this_phone_mark.dart';
 import '../workspace/live_performance_screen.dart';
 import '../workspace/practice_marks.dart';
 import '../../widgets/app_surface.dart';
@@ -197,9 +199,25 @@ class _SongsScreenState extends State<SongsScreen> {
 
   SongAnalysisService get _analysis => widget.analysisService ?? SongAnalysisService();
 
+  /// The songs kept on this phone, for the small phone on their rows: what
+  /// is ready for a basement, seen from the list rather than from a dozen
+  /// menus opened one by one (review, 18 September 2026). Empty in a
+  /// browser, which keeps nothing.
+  Set<String> _keptIds = const <String>{};
+
+  Future<void> _loadKeptIds() async {
+    if (!KeptSongs.supported) return;
+    final ids = await _analysis.kept.keptIds();
+    if (mounted) setState(() => _keptIds = ids);
+  }
+
+  void _keptSongsChanged() => unawaited(_loadKeptIds());
+
   @override
   void initState() {
     super.initState();
+    unawaited(_loadKeptIds());
+    KeptSongs.changes.addListener(_keptSongsChanged);
     // After the first frame: BetaScope needs a mounted context, and the strip
     // is a convenience the screen works without.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -227,6 +245,7 @@ class _SongsScreenState extends State<SongsScreen> {
   @override
   void dispose() {
     AppRelease.minimum.removeListener(_releaseChanged);
+    KeptSongs.changes.removeListener(_keptSongsChanged);
     _searchController.dispose();
     super.dispose();
   }
@@ -1346,6 +1365,7 @@ class _SongsScreenState extends State<SongsScreen> {
                   _RoomSection(
                     room: room,
                     controller: controller,
+                    keptIds: _keptIds,
                     onOpenSong: _open,
                     onOpenRoom: () => _openRoom(room),
                     expanded: _expandedRoomIds.contains(room.id),
@@ -1370,6 +1390,7 @@ class _SongsScreenState extends State<SongsScreen> {
                   return _SongRow(
                     result: result,
                     onTap: () => _open(result.project),
+                    keptHere: _keptIds.contains(result.project.id),
                     owner: author?.displayName,
                     ownerColor:
                         author == null ? null : Color(author.colorValue),
@@ -1398,6 +1419,7 @@ class _RoomSection extends StatelessWidget {
   const _RoomSection({
     required this.room,
     required this.controller,
+    required this.keptIds,
     required this.onOpenSong,
     required this.onOpenRoom,
     required this.expanded,
@@ -1406,6 +1428,9 @@ class _RoomSection extends StatelessWidget {
 
   final MusicRoom room;
   final MusicBetaController controller;
+
+  /// The songs kept on this phone, for the mark on their rows.
+  final Set<String> keptIds;
   final ValueChanged<SongProject> onOpenSong;
   final VoidCallback onOpenRoom;
 
@@ -1492,6 +1517,7 @@ class _RoomSection extends StatelessWidget {
                     match: SongMatch.title,
                   ),
                   onTap: () => onOpenSong(project),
+                  keptHere: keptIds.contains(project.id),
                   owner: room.authorOf(project)?.displayName,
                   ownerColor: room.authorOf(project) == null
                       ? null
@@ -1748,6 +1774,7 @@ class _SongRow extends StatelessWidget {
   const _SongRow({
     required this.result,
     required this.onTap,
+    this.keptHere = false,
     this.owner,
     this.ownerColor,
     this.ownerPhoto,
@@ -1755,6 +1782,10 @@ class _SongRow extends StatelessWidget {
 
   final SongSearchResult result;
   final VoidCallback onTap;
+
+  /// Whether the song is kept on this phone. One more small state at the
+  /// end of the row, beside "has a recording" and "finished".
+  final bool keptHere;
 
   /// Who started it — see MusicRoom.authorOf. Null in a room of one.
   final String? owner;
@@ -1833,6 +1864,11 @@ class _SongRow extends StatelessWidget {
               const Padding(
                 padding: EdgeInsets.only(left: 6),
                 child: Icon(Icons.check_circle_rounded, size: 15, color: AppColors.cyan),
+              ),
+            if (keptHere)
+              const Padding(
+                padding: EdgeInsets.only(left: 6),
+                child: OnThisPhoneMark(),
               ),
             const SizedBox(width: 4),
             const Icon(Icons.chevron_right_rounded, color: AppColors.muted, size: 20),

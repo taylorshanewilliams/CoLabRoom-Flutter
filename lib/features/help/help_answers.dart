@@ -245,8 +245,9 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
         'in its own ⋮ menu, and keeps every song in it.\n\n'
         'That fetches the words, the song sheet, the recording and its '
         'separated parts, so Perform plays the song with its chords and '
-        'beats with no connection at all. The menu then says On this phone; '
-        'press it again to take the song off.\n\n'
+        'beats with no connection at all. The menu then says On this phone, '
+        'and a small phone sits beside the name of the song; press the menu '
+        'entry again to take the song off.\n\n'
         'If the app cannot open because there is no signal, the songs you '
         'kept are listed on that screen, ready to perform.\n\n'
         'It is only for you and only on this phone: nobody in the room is '
@@ -255,8 +256,10 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
         'missing. In a browser there is nowhere to keep a song, so the menu '
         'does not offer it there.',
     keywords: <String>[
+      // Not "connection": the people somebody plays with are connections
+      // too, and "how do I remove a connection" is a question about them.
       'offline', 'signal', 'airplane', 'aeroplane', 'wifi', 'internet',
-      'connection', 'reception', 'basement', 'van', 'kept',
+      'reception', 'basement', 'van', 'kept',
     ],
   ),
   HelpAnswer(

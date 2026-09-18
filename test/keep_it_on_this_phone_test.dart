@@ -8,13 +8,16 @@ import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
+import 'package:colabroom/features/auth/supabase_auth_gate.dart';
 import 'package:colabroom/features/rooms/setlist_detail_screen.dart';
 import 'package:colabroom/features/songs/kept_here.dart';
+import 'package:colabroom/features/songs/songs_screen.dart';
 import 'package:colabroom/features/workspace/live_performance_screen.dart';
 import 'package:colabroom/features/workspace/song_workspace_screen.dart';
 import 'package:colabroom/services/kept_songs.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:colabroom/services/song_layer_service.dart';
+import 'package:colabroom/widgets/on_this_phone_mark.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -54,8 +57,13 @@ class _Bucket {
   final List<String> asked = <String>[];
   Set<String> refuse = <String>{};
 
+  /// How long each object takes to arrive, for the tests about two things
+  /// happening to one song at once.
+  Duration delay = Duration.zero;
+
   Future<Uint8List> download(String storagePath) async {
     asked.add(storagePath);
+    if (delay > Duration.zero) await Future<void>.delayed(delay);
     if (refuse.contains(storagePath)) {
       throw const SocketException('Failed host lookup: supabase.co');
     }
@@ -89,6 +97,11 @@ class _MemoryKept extends KeptSongs {
   final Map<String, KeptSong> songs = <String, KeptSong>{};
   final Map<String, String> audio = <String, String>{};
   final List<String> kept = <String>[];
+  final List<String> followed = <String>[];
+
+  /// Held shut by a test that wants to look around while a keep is running:
+  /// the recording has been asked for and has not arrived.
+  Completer<void>? arrives;
 
   static String _key(String projectId, String storagePath) => '$projectId|$storagePath';
 
@@ -116,15 +129,17 @@ class _MemoryKept extends KeptSongs {
     void Function(String stage)? onProgress,
   }) async {
     kept.add(project.id);
-    songs[project.id] = KeptSong(project: project, sheet: sheet);
     final reference = sheet.reference;
     if (reference != null) {
       onProgress?.call('Fetching the recording…');
+      if (arrives != null) await arrives!.future;
       audio[_key(project.id, reference.storagePath)] = '/kept/${project.id}/recording.m4a';
     }
     for (final stem in sheet.stems) {
       audio[_key(project.id, stem.storagePath)] = '/kept/${project.id}/${stem.kind.name}.mp3';
     }
+    songs[project.id] = KeptSong(project: project, sheet: sheet);
+    KeptSongs.noteChange();
   }
 
   @override
@@ -133,9 +148,18 @@ class _MemoryKept extends KeptSongs {
   }
 
   @override
+  Future<void> followWords(SongProject project) async {
+    final here = songs[project.id];
+    if (here == null) return;
+    followed.add(project.id);
+    songs[project.id] = KeptSong(project: project, sheet: here.sheet);
+  }
+
+  @override
   Future<void> remove(String projectId) async {
     songs.remove(projectId);
     audio.removeWhere((key, _) => key.startsWith('$projectId|'));
+    KeptSongs.noteChange();
   }
 }
 
@@ -564,6 +588,78 @@ void main() {
       expect(back.project.title, 'Midnight Signal (live)');
       expect(back.sheet.reference!.storagePath, _referenceFor('song-1', 'reference_2'));
     });
+
+    test('two keeps of one song at once take turns, and neither spoils the other', () async {
+      // A second tap on a slow connection, or the menu's keep beside the
+      // refresh Perform's door fires without waiting. Each screen builds a
+      // store of its own, so the turns are taken across stores. Both used to
+      // write the same .part file and rename it, and the loser either failed
+      // or renamed a half-written recording into place for good.
+      final bucket = _bucketFor(<String>['song-1'])..delay = const Duration(milliseconds: 30);
+      final kept = _keptIn(bucket);
+
+      await Future.wait(<Future<void>>[
+        kept.keep(_project('song-1'), _analysis('song-1')),
+        _keptIn(bucket).keep(_project('song-1'), _analysis('song-1')),
+        _keptIn(bucket).refresh(_project('song-1'), _analysis('song-1')),
+      ]);
+
+      expect(bucket.asked, <String>[_referenceFor('song-1'), _vocalsFor('song-1')],
+          reason: 'the second and third found every file already here');
+      expect(await kept.isKept('song-1'), isTrue);
+      expect(await File((await kept.audioPath('song-1', _referenceFor('song-1')))!).readAsBytes(),
+          _recordingBytes);
+      final left = await Directory('${_tmp.path}/kept/user-1/song-1')
+          .list()
+          .map((entry) => entry.path)
+          .where((path) => path.endsWith('.part'))
+          .toList();
+      expect(left, isEmpty, reason: 'nothing half-written is left lying about');
+    });
+
+    test('a refresh that set out before the song was taken off does not put it back', () async {
+      final bucket = _Bucket(<String, List<int>>{
+        _referenceFor('song-1'): _recordingBytes,
+        _referenceFor('song-1', 'reference_2'): <int>[7, 7],
+        _vocalsFor('song-1'): _vocalsBytes,
+      });
+      final kept = _keptIn(bucket);
+      await kept.keep(_project('song-1'), _analysis('song-1'));
+
+      // Perform's door is still fetching a replaced recording when the song
+      // is taken off, and the library's own refresh arrives after that.
+      bucket.delay = const Duration(milliseconds: 30);
+      await Future.wait(<Future<void>>[
+        kept.refresh(_project('song-1'), _analysis('song-1', reference: 'reference_2')),
+        kept.remove('song-1'),
+        kept.refresh(_project('song-1'), _analysis('song-1')),
+      ]);
+
+      expect(await kept.load('song-1'), isNull);
+      expect(await kept.keptIds(), isEmpty);
+      expect(await Directory('${_tmp.path}/kept/user-1/song-1').exists(), isFalse);
+    });
+
+    test('the words follow the library, for a song that is kept and for no other', () async {
+      final kept = _keptIn(_bucketFor(<String>['song-1']));
+      await kept.keep(_project('song-1'), _analysis('song-1'));
+
+      // What a library load holds on Thursday: a new name and a new key.
+      await kept.followWords(
+          _project('song-1', keyOverride: 'E major').copyWith(title: 'Midnight Signal (live)'));
+
+      final back = (await kept.load('song-1'))!;
+      expect(back.project.title, 'Midnight Signal (live)');
+      expect(back.project.keyOverride, 'E major');
+      expect(back.sheet.reference!.storagePath, _referenceFor('song-1'),
+          reason: 'the sheet is not the library\'s to touch');
+      expect(await kept.isKept('song-1'), isTrue);
+
+      // A song that is not kept is not started on by the library.
+      await kept.followWords(_project('song-2'));
+      expect(await kept.keptIds(), <String>{'song-1'});
+      expect(await Directory('${_tmp.path}/kept/user-1/song-2').exists(), isFalse);
+    });
   });
 
   group('Perform without signal', () {
@@ -736,6 +832,7 @@ void main() {
       expect(find.text('Keep on this phone'), findsOneWidget);
       expect(find.text('On this phone'), findsNothing);
 
+      expect(find.byType(OnThisPhoneMark), findsNothing);
       await tester.tap(find.text('Keep on this phone'));
       await tester.pumpAndSettle();
       expect(await kept.isKept('song-1'), isTrue);
@@ -743,16 +840,72 @@ void main() {
           reason: 'the sheet is fetched fresh, not taken from the toolbar');
       expect(kept.songs['song-1']!.project.title, 'Midnight Signal');
       expect(find.text('Midnight Signal is on this phone.'), findsOneWidget);
+      // The plain state, beside the song's name and not only inside a menu.
+      expect(find.byType(OnThisPhoneMark), findsOneWidget);
+      expect(find.byTooltip('On this phone'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('song_options_menu')));
       await tester.pumpAndSettle();
       expect(find.text('On this phone'), findsOneWidget);
       expect(find.text('Keep on this phone'), findsNothing);
 
+      // Taking it off is asked about first: it cannot be undone in the van.
       await tester.tap(find.text('On this phone'));
+      await tester.pumpAndSettle();
+      expect(find.text('Take Midnight Signal off this phone?'), findsOneWidget);
+      await tester.tap(find.text('Leave it here'));
+      await tester.pumpAndSettle();
+      expect(await kept.isKept('song-1'), isTrue);
+      expect(find.byType(OnThisPhoneMark), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('song_options_menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('On this phone'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('take_song_off_confirm')));
       await tester.pumpAndSettle();
       expect(await kept.isKept('song-1'), isFalse);
       expect(find.text('Midnight Signal is no longer kept on this phone.'), findsOneWidget);
+      expect(find.byType(OnThisPhoneMark), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a keep that is running says so, goes on saying so, and cannot be started twice',
+        (tester) async {
+      final kept = _MemoryKept()..arrives = Completer<void>();
+      final service = _Online(kept, <String, SongAnalysisBundle>{'song-1': _analysis('song-1')});
+      await boot(tester, kept, SongWorkspaceScreen(projectId: 'song-1', analysisService: service));
+
+      await tester.tap(find.byKey(const Key('song_options_menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Keep on this phone'));
+      await tester.pumpAndSettle();
+
+      // A recording on a slow connection is minutes. The line about it used
+      // to leave after four seconds, with nothing to say the keep was still
+      // going.
+      await tester.pump(const Duration(seconds: 20));
+      await tester.pumpAndSettle();
+      expect(find.text('Fetching the recording…'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('song_options_menu')));
+      await tester.pumpAndSettle();
+      expect(find.text('Keeping on this phone…'), findsOneWidget);
+      expect(find.text('Keep on this phone'), findsNothing);
+      await tester.tap(find.text('Keeping on this phone…'));
+      await tester.pumpAndSettle();
+      expect(kept.kept, <String>['song-1'], reason: 'one keep, however often it is pressed');
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+
+      kept.arrives!.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('Fetching the recording…'), findsNothing);
+      expect(find.text('Midnight Signal is on this phone.'), findsOneWidget);
+      expect(kept.kept, <String>['song-1']);
+      await tester.tap(find.byKey(const Key('song_options_menu')));
+      await tester.pumpAndSettle();
+      expect(find.text('On this phone'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -804,6 +957,8 @@ void main() {
       expect(await kept.isKept('song-1'), isTrue);
       expect(await kept.isKept(second.id), isTrue);
       expect(find.text('Saturday is on this phone.'), findsOneWidget);
+      // Each row says so, so a set half here would show which half.
+      expect(find.byType(OnThisPhoneMark), findsNWidgets(2));
 
       await tester.tap(find.byTooltip('Setlist options'));
       await tester.pumpAndSettle();
@@ -811,9 +966,131 @@ void main() {
       await tester.tap(find.text('On this phone'));
       await tester.pumpAndSettle();
 
+      // Asked about first, and leaving them leaves them.
+      expect(find.text('Take Saturday off this phone?'), findsOneWidget);
+      expect(find.textContaining('another kept set'), findsNothing);
+      await tester.tap(find.text('Leave them here'));
+      await tester.pumpAndSettle();
+      expect(await kept.isKept('song-1'), isTrue);
+      expect(await kept.isKept(second.id), isTrue);
+
+      await tester.tap(find.byTooltip('Setlist options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('On this phone'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('take_set_off_confirm')));
+      await tester.pumpAndSettle();
+
       expect(await kept.isKept('song-1'), isFalse);
       expect(await kept.isKept(second.id), isFalse);
       expect(find.text('Saturday is no longer kept on this phone.'), findsOneWidget);
+      expect(find.byType(OnThisPhoneMark), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('taking one set off leaves the songs another kept set also has', (tester) async {
+      // Friday's and Saturday's sets share a song. Songs are kept one by one,
+      // so taking Friday's off used to take the shared one too, and Saturday
+      // went back to "Keep this set" without a word.
+      final repository = InMemoryMusicRepository.seeded();
+      final setup = MusicBetaController(repository);
+      await setup.load();
+      final second = await setup.createSong(setup.rooms.first, 'Second Song');
+      final third = await setup.createSong(setup.rooms.first, 'Third Song');
+      final friday = await setup.createSetlist('Friday');
+      await setup.addProjectsToSetlist(friday, <String>['song-1', second.id]);
+      final saturday = await setup.createSetlist('Saturday');
+      await setup.addProjectsToSetlist(saturday, <String>['song-1', third.id]);
+      final onlyShared = await setup.createSetlist('Encore');
+      await setup.addProjectsToSetlist(onlyShared, <String>['song-1']);
+      setup.dispose();
+
+      final kept = _MemoryKept();
+      for (final id in <String>['song-1', second.id, third.id]) {
+        await kept.keep(_project(id), _analysis(id));
+      }
+      final service = _Online(kept, <String, SongAnalysisBundle>{});
+      await boot(
+        tester,
+        kept,
+        SetlistDetailScreen(setlistId: friday.id, analysisService: service),
+        repository: repository,
+      );
+
+      await tester.tap(find.byTooltip('Setlist options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('On this phone'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Songs another kept set also has stay.'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('take_set_off_confirm')));
+      await tester.pumpAndSettle();
+
+      expect(await kept.isKept(second.id), isFalse);
+      expect(await kept.isKept('song-1'), isTrue, reason: 'Saturday still needs it');
+      expect(await kept.isKept(third.id), isTrue);
+      expect(find.text('Friday is no longer kept on this phone.'), findsOneWidget);
+      expect(find.byType(OnThisPhoneMark), findsOneWidget, reason: 'the shared song, still here');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a set whose every song another kept set has says they stay', (tester) async {
+      final repository = InMemoryMusicRepository.seeded();
+      final setup = MusicBetaController(repository);
+      await setup.load();
+      final second = await setup.createSong(setup.rooms.first, 'Second Song');
+      final saturday = await setup.createSetlist('Saturday');
+      await setup.addProjectsToSetlist(saturday, <String>['song-1', second.id]);
+      final encore = await setup.createSetlist('Encore');
+      await setup.addProjectsToSetlist(encore, <String>['song-1']);
+      setup.dispose();
+
+      final kept = _MemoryKept();
+      for (final id in <String>['song-1', second.id]) {
+        await kept.keep(_project(id), _analysis(id));
+      }
+      await boot(
+        tester,
+        kept,
+        SetlistDetailScreen(
+          setlistId: encore.id,
+          analysisService: _Online(kept, <String, SongAnalysisBundle>{}),
+        ),
+        repository: repository,
+      );
+
+      await tester.tap(find.byTooltip('Setlist options'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('On this phone'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Every song here is also in another set kept on this phone, so they stay.'),
+          findsOneWidget);
+      expect(await kept.isKept('song-1'), isTrue);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the Songs list marks the songs that are on this phone', (tester) async {
+      final kept = _MemoryKept();
+      await kept.keep(_project('song-1'), _analysis('song-1'));
+      await boot(
+        tester,
+        kept,
+        Scaffold(
+          body: SongsScreen(
+            displayName: 'Taylor',
+            onOpenAccount: () {},
+            onOpenNotifications: () {},
+            analysisService: _NoSignal(kept),
+          ),
+        ),
+      );
+
+      expect(find.byType(OnThisPhoneMark), findsOneWidget);
+
+      // Taken off from anywhere, the list catches up without being asked.
+      await kept.remove('song-1');
+      await tester.pumpAndSettle();
+      expect(find.byType(OnThisPhoneMark), findsNothing);
       expect(tester.takeException(), isNull);
     });
   });
@@ -863,6 +1140,69 @@ void main() {
       expect(find.text('On this phone'), findsNothing);
     });
 
+    // No signal fails quickly and lands on the screen above. One bar in a
+    // basement does not fail: the library hangs, and the gate shows its
+    // spinner for as long as it does.
+    Widget opening(SongAnalysisService service, {bool signedIn = true, bool keptAtOnce = false}) =>
+        MaterialApp(
+          theme: CoLabRoomTheme.dark(),
+          home: OpeningYourRooms(
+            signedIn: signedIn,
+            keptAtOnce: keptAtOnce,
+            analysisService: service,
+          ),
+        );
+
+    testWidgets('a library that hangs offers the kept songs under its spinner after a moment',
+        (tester) async {
+      final kept = _MemoryKept();
+      await kept.keep(_project('song-1'), _analysis('song-1'));
+      final service = _NoSignal(kept);
+      _phone(tester);
+
+      await tester.pumpWidget(opening(service));
+      await tester.pump(SongAnalysisService.keptAnswersAfter - const Duration(seconds: 1));
+      expect(find.text('Opening your rooms…'), findsOneWidget);
+      expect(find.byKey(const Key('kept_here')), findsNothing,
+          reason: 'a start with signal has its library by now, and never sees the list');
+
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      expect(find.text('Midnight Signal'), findsOneWidget);
+      expect(find.text('Opening your rooms…'), findsOneWidget,
+          reason: 'the library goes on trying underneath');
+
+      await tester.tap(find.byKey(const Key('kept_song_song-1')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byType(LivePerformanceScreen), findsOneWidget);
+      expect(service.resolved, <String>['/kept/song-1/recording.m4a']);
+      expect(tester.takeException(), isNull);
+
+      await _closePerform(tester);
+    });
+
+    testWidgets('the spinner offers nothing before anybody is signed in, and at once after Try Again',
+        (tester) async {
+      final kept = _MemoryKept();
+      await kept.keep(_project('song-1'), _analysis('song-1'));
+      _phone(tester);
+
+      await tester.pumpWidget(opening(_NoSignal(kept), signedIn: false));
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+      expect(find.byKey(const Key('kept_here')), findsNothing);
+
+      // Try Again was pressed on the screen that lists them: they do not
+      // blink away under the thumb that pressed it.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(opening(_NoSignal(kept), keptAtOnce: true));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Midnight Signal'), findsOneWidget);
+    });
+
     testWidgets('a song taken off since the list was drawn says so instead of opening',
         (tester) async {
       final kept = _MemoryKept();
@@ -909,8 +1249,77 @@ void main() {
       await controller.load();
 
       await _until(() async => !(await kept.keptIds()).contains('song-gone'));
+      await controller.keptSongsFollowed;
       expect(await kept.keptIds(), <String>{'song-1'});
       expect(await kept.isKept('song-1'), isTrue);
+    });
+
+    test('the library brings a kept song up to date: its words every load, its sheet once',
+        () async {
+      // Kept on Monday. By Thursday a bandmate has renamed it and replaced
+      // the recording, and nobody opens Perform on it before Friday's
+      // basement -- but the app is opened, and the library loads.
+      final bucket = _Bucket(<String, List<int>>{
+        _referenceFor('song-1'): _recordingBytes,
+        _referenceFor('song-1', 'reference_2'): <int>[7, 7],
+        _vocalsFor('song-1'): _vocalsBytes,
+      });
+      final kept = _keptIn(bucket);
+      await kept.keep(_project('song-1').copyWith(title: 'Monday\'s name'), _analysis('song-1'));
+
+      final asked = <String>[];
+      final controller = MusicBetaController(
+        InMemoryMusicRepository.seeded(),
+        kept: kept,
+        loadSheet: (id) async {
+          asked.add(id);
+          return _analysis(id, reference: 'reference_2');
+        },
+      );
+      addTearDown(controller.dispose);
+      await controller.load();
+      await controller.keptSongsFollowed;
+
+      final library = controller.projectById('song-1')!;
+      final back = (await kept.load('song-1'))!;
+      expect(back.project.title, library.title);
+      expect(back.project.title, isNot('Monday\'s name'));
+      expect(back.project.contributions.map((line) => line.body),
+          library.contributions.map((line) => line.body));
+      expect(back.sheet.reference!.storagePath, _referenceFor('song-1', 'reference_2'));
+      expect(await kept.audioPath('song-1', _referenceFor('song-1', 'reference_2')), isNotNull);
+      expect(await kept.isKept('song-1'), isTrue);
+
+      // The library reloads whenever anybody changes anything. The sheet is
+      // not asked for again; the words are free and follow every time.
+      await controller.load();
+      await controller.keptSongsFollowed;
+      expect(asked, <String>['song-1'], reason: 'once a session');
+    });
+
+    test('a sheet the library could not fetch leaves the kept copy as it was', () async {
+      final kept = _keptIn(_bucketFor(<String>['song-1']));
+      await kept.keep(_project('song-1'), _analysis('song-1'));
+
+      var asked = 0;
+      final controller = MusicBetaController(
+        InMemoryMusicRepository.seeded(),
+        kept: kept,
+        loadSheet: (id) async {
+          asked++;
+          throw const SocketException('Failed host lookup: supabase.co');
+        },
+      );
+      addTearDown(controller.dispose);
+      await controller.load();
+      await controller.keptSongsFollowed;
+
+      expect(await kept.isKept('song-1'), isTrue);
+      expect((await kept.load('song-1'))!.sheet.reference!.storagePath, _referenceFor('song-1'));
+      // Not marked as done: the next load asks again.
+      await controller.load();
+      await controller.keptSongsFollowed;
+      expect(asked, 2);
     });
   });
 }

@@ -8,14 +8,21 @@ import '../data/music_repository.dart';
 import '../domain/lesson_link.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
+import '../domain/song_analysis_models.dart';
 import '../domain/tonight_models.dart';
 import '../services/kept_songs.dart';
 import '../services/retry.dart';
+import '../services/song_analysis_service.dart';
 import '../services/user_facing_error.dart';
 import '../services/error_reporter.dart';
 
 class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
-  MusicBetaController(this.repository, {KeptSongs? kept}) : _kept = kept ?? KeptSongs() {
+  MusicBetaController(
+    this.repository, {
+    KeptSongs? kept,
+    Future<SongAnalysisBundle> Function(String projectId)? loadSheet,
+  })  : _kept = kept ?? KeptSongs(),
+        _loadSheetOverride = loadSheet {
     _changesSubscription = repository.changes.listen((_) {
       _reloadDebounce?.cancel();
       _reloadDebounce = Timer(const Duration(milliseconds: 300), load);
@@ -450,8 +457,8 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       // anybody who never went, the picture they uploaded never appeared.
       unawaited(loadAvatar());
       // The library loaded, so it can say which kept songs are still this
-      // person's to hear.
-      unawaited(_dropKeptSongsNoLongerMine());
+      // person's to hear, and bring the rest up to date.
+      unawaited(_followKeptSongs());
     } catch (error) {
       // The most consequential failure in the app: nothing loaded, so from
       // the outside it simply did not open. It has never been reported —
@@ -464,11 +471,34 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// The songs kept on this phone (KeptSongs), for the one rule about them
-  /// that is the library's to apply. See [_dropKeptSongsNoLongerMine].
+  /// The songs kept on this phone (KeptSongs), for the two rules about them
+  /// that are the library's to apply. See [_followKeptSongs].
   final KeptSongs _kept;
 
-  /// Takes off this phone any kept song this person can no longer open.
+  /// Where a kept song's sheet is asked for. Null in production, which
+  /// reaches for the real service; a test hands in its own.
+  final Future<SongAnalysisBundle> Function(String projectId)? _loadSheetOverride;
+
+  Future<SongAnalysisBundle> _loadSheet(String projectId) =>
+      (_loadSheetOverride ?? SongAnalysisService(kept: _kept).load)(projectId);
+
+  /// The kept songs whose sheet the library has already brought up to date
+  /// since the app was opened. Once each is enough: the library reloads on
+  /// every change anybody makes, and five requests a song each time would
+  /// be a great deal of asking about songs nobody is looking at.
+  final Set<String> _sheetsFollowed = <String>{};
+
+  /// The follow that is running now, if one is. A second load while it runs
+  /// joins it rather than starting another beside it.
+  Future<void>? _keptFollowed;
+
+  /// What the last library load is still doing about the kept songs. A test
+  /// waits on it before it takes the disk away.
+  @visibleForTesting
+  Future<void> get keptSongsFollowed => _keptFollowed ?? Future<void>.value();
+
+  /// Takes off this phone any kept song this person can no longer open, and
+  /// brings the others up to date.
   ///
   /// A kept copy is only ever made of something this person's own session
   /// could download, which is the same storage policy that decides what
@@ -478,15 +508,39 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// missing from a library that did not load is not missing at all -- it
   /// is the very case the copy was kept for. A kept song the library does
   /// not list is asked about by id, and dropped only on a clear no; a
-  /// question the server did not answer keeps it. Quiet throughout, and
-  /// after the library is shown: nothing here may cost anybody their songs.
-  Future<void> _dropKeptSongsNoLongerMine() async {
+  /// question the server did not answer keeps it.
+  ///
+  /// And a copy must not quietly fall behind the song while the menu goes
+  /// on saying "On this phone". A set kept on Monday for Friday is not
+  /// opened in Perform song by song in between, so Perform's own refresh
+  /// never runs; the library is what does open (review, 18 September 2026).
+  /// The words cost nothing, because this load already carries them, so
+  /// they follow every time. The sheet is asked for once a session.
+  ///
+  /// Quiet throughout, and after the library is shown: nothing here may
+  /// cost anybody their songs.
+  Future<void> _followKeptSongs() =>
+      _keptFollowed ??= _followKeptSongsNow().whenComplete(() => _keptFollowed = null);
+
+  Future<void> _followKeptSongsNow() async {
     try {
       final ids = await _kept.keptIds();
       for (final id in ids) {
-        if (projectById(id) != null) continue;
-        final still = await repository.loadProject(id);
-        if (still == null) await _kept.remove(id);
+        final project = projectById(id);
+        if (project == null) {
+          final still = await repository.loadProject(id);
+          if (still == null) await _kept.remove(id);
+          continue;
+        }
+        await _kept.followWords(project);
+        if (_sheetsFollowed.contains(id)) continue;
+        try {
+          await _kept.refresh(project, await _loadSheet(id));
+          _sheetsFollowed.add(id);
+        } catch (_) {
+          // The sheet as it was kept. The next load asks again, and so
+          // does Perform's own door.
+        }
       }
     } catch (_) {
       // Next load.

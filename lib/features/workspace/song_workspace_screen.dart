@@ -28,6 +28,7 @@ import '../../services/user_facing_error.dart';
 import '../../widgets/offer_notifications.dart';
 import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/microphone_disclosure.dart';
+import '../../widgets/on_this_phone_mark.dart';
 import '../lessons/leaving_practice.dart';
 import 'continuous_song_editor.dart';
 import 'cut_lines_sheet.dart';
@@ -101,15 +102,30 @@ enum _WorkspacePanel { words, sheet, takes }
 /// The menu's one line about this phone: the plain state when the song is
 /// kept here, the offer when it is not. Shared by the portrait and landscape
 /// menus so a desk and a phone read the same words.
-PopupMenuItem<_SongMenuAction> _keepHereEntry(bool kept) {
+///
+/// While a keep is running it says so and cannot be pressed. A recording
+/// and six stems on a slow connection is minutes, and an entry that still
+/// read "Keep on this phone" half-way through was an invitation to press it
+/// again (review, 18 September 2026).
+PopupMenuItem<_SongMenuAction> _keepHereEntry(bool kept, {bool keeping = false}) {
   return PopupMenuItem<_SongMenuAction>(
     key: const Key('song_keep_here'),
     value: _SongMenuAction.keepHere,
+    enabled: !keeping,
     child: ListTile(
       contentPadding: EdgeInsets.zero,
+      enabled: !keeping,
       leading: Icon(kept ? Icons.phone_android_rounded : Icons.download_for_offline_outlined),
-      title: Text(kept ? 'On this phone' : 'Keep on this phone'),
-      subtitle: Text(kept ? 'Tap to take it off again' : 'Perform where there is no signal'),
+      title: Text(keeping
+          ? 'Keeping on this phone…'
+          : kept
+              ? 'On this phone'
+              : 'Keep on this phone'),
+      subtitle: Text(keeping
+          ? 'It says so here when it is done'
+          : kept
+              ? 'Tap to take it off again'
+              : 'Perform where there is no signal'),
     ),
   );
 }
@@ -204,6 +220,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   /// The menu shows nothing about it until there is something true to show.
   bool? _keptHere;
 
+  /// True from the tap on "Keep on this phone" until the last file is here
+  /// or the keep has failed.
+  bool _keepingHere = false;
+
   /// The shared stream for this song. Joined when the workspace opens and
   /// left when it closes — presence is scoped to the song rather than the
   /// app, which is both the only window in which "Jess is here" means
@@ -225,6 +245,9 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadAnalysisBundle());
     unawaited(_loadKeptHere());
+    // A set kept from its own screen, or taken off, changes this song too,
+    // and on a desk the two are side by side.
+    KeptSongs.changes.addListener(_keptSongsChanged);
     unawaited(_loadAudience());
     unawaited(_loadLessonStudent());
     // Listening before joining, so a leader heard in the first second is
@@ -765,6 +788,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     if (mounted) setState(() => _keptHere = kept);
   }
 
+  void _keptSongsChanged() => unawaited(_loadKeptHere());
+
   /// Keeps the song on this phone, or takes it off again.
   ///
   /// The sheet is fetched fresh rather than taken from [_analysisBundle],
@@ -773,35 +798,80 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   /// about a song whose recording is missing would be the lie this whole
   /// slice exists to avoid. No connection means nothing is kept, and the
   /// sentence says so.
+  ///
+  /// One keep at a time, and the line about it stays up until it is over:
+  /// "Fetching the recording…" used to leave after four seconds with
+  /// minutes still to go, and nothing on screen said the keep was running
+  /// (review, 18 September 2026).
+  ///
+  /// Taking it off is asked about first. The entry that says "On this
+  /// phone" is also the one that deletes, it works with no signal, and in
+  /// the van there is no getting the recording back before the gig.
   Future<void> _keepHere(SongProject project) async {
+    if (_keepingHere) return;
     final kept = _analysis.kept;
+    // The app's own messenger, held before the first wait. A keep goes on
+    // after this screen is closed, and wherever the person is by then the
+    // staying line still has to come down and the ending still be said.
+    final messenger = ScaffoldMessenger.of(context);
+    void say(String message, {bool staying = false}) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(message),
+          duration: staying ? const Duration(minutes: 30) : const Duration(seconds: 4),
+        ));
+    }
+
     if (_keptHere == true) {
+      final sure = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: AppColors.raised,
+          title: Text('Take ${project.title} off this phone?'),
+          content: const Text(
+            'Its words, sheet and recording come off this phone and nowhere '
+            'else. Keeping it again needs signal.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Leave it here'),
+            ),
+            FilledButton(
+              key: const Key('take_song_off_confirm'),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Take it off'),
+            ),
+          ],
+        ),
+      );
+      if (sure != true) return;
       await kept.remove(project.id);
-      if (!mounted) return;
-      setState(() => _keptHere = false);
-      _showMessage('${project.title} is no longer kept on this phone.');
+      if (mounted) setState(() => _keptHere = false);
+      say('${project.title} is no longer kept on this phone.');
       return;
     }
-    _showMessage('Keeping ${project.title} on this phone…');
+    setState(() => _keepingHere = true);
+    say('Keeping ${project.title} on this phone…', staying: true);
     try {
       final sheet = await _analysis.load(project.id);
-      await kept.keep(project, sheet, onProgress: (stage) {
-        if (mounted) _showMessage(stage);
-      });
-      if (!mounted) return;
-      setState(() => _keptHere = true);
-      _showMessage('${project.title} is on this phone.');
+      await kept.keep(project, sheet, onProgress: (stage) => say(stage, staying: true));
+      if (mounted) setState(() => _keptHere = true);
+      say('${project.title} is on this phone.');
     } catch (error) {
-      if (!mounted) return;
-      _showMessage(isConnectivityFailure(error)
+      say(isConnectivityFailure(error)
           ? 'No connection, so nothing was kept. Try again where there is signal.'
           : reportAndDescribe(error, service: 'app', stage: 'keep_song', route: 'Song'));
+    } finally {
+      if (mounted) setState(() => _keepingHere = false);
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    KeptSongs.changes.removeListener(_keptSongsChanged);
     unawaited(_presenceSub?.cancel());
     // Before the connection closes, so leaving still says goodbye.
     _together.removeListener(_togetherChanged);
@@ -1987,6 +2057,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 repository: controller.repository,
                 leavePracticeFor: _leaveFor?.name,
                 keptHere: _keptHere,
+                keepingHere: _keepingHere,
               )
             : Column(
                 children: <Widget>[
@@ -2001,6 +2072,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                     onExport: (action) => _exportSong(project, action),
                     leavePracticeFor: _leaveFor?.name,
                     keptHere: _keptHere,
+                    keepingHere: _keepingHere,
                   ),
                   _WorkspaceToolbar(
                     onOpenLayers: () => _openLayers(project),
@@ -2151,6 +2223,7 @@ class _PortraitProjectHeader extends StatelessWidget {
     required this.onExport,
     this.leavePracticeFor,
     this.keptHere,
+    this.keepingHere = false,
   });
 
   final SongProject project;
@@ -2168,6 +2241,10 @@ class _PortraitProjectHeader extends StatelessWidget {
   /// Whether the song is kept on this phone, or null while unknown and on
   /// the web, where the entry is not shown at all.
   final bool? keptHere;
+
+  /// True while a keep is running, when the menu says so instead of
+  /// offering another.
+  final bool keepingHere;
 
   @override
   Widget build(BuildContext context) {
@@ -2213,6 +2290,12 @@ class _PortraitProjectHeader extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         const Icon(Icons.edit_rounded, size: 14, color: AppColors.cyan),
+                        // The plain state, where the song is named rather
+                        // than inside its menu.
+                        if (keptHere == true) ...const <Widget>[
+                          SizedBox(width: 8),
+                          OnThisPhoneMark(),
+                        ],
                       ],
                     ),
                     if (!compact)
@@ -2314,7 +2397,7 @@ class _PortraitProjectHeader extends StatelessWidget {
                   title: Text('Share by text or email'),
                 ),
               ),
-              if (keptHere != null) _keepHereEntry(keptHere!),
+              if (keptHere != null) _keepHereEntry(keptHere!, keeping: keepingHere),
               // Last, and on its own, because it is the only entry here that
               // cannot be undone.
               const PopupMenuDivider(),
@@ -2366,6 +2449,7 @@ class _LandscapeWorkspace extends StatelessWidget {
     required this.repository,
     this.leavePracticeFor,
     this.keptHere,
+    this.keepingHere = false,
     super.key,
   });
 
@@ -2375,8 +2459,10 @@ class _LandscapeWorkspace extends StatelessWidget {
   final VoidCallback onRename;
   final VoidCallback onOpenLayers;
 
-  /// Whether the song is kept on this phone; see _PortraitProjectHeader.
+  /// Whether the song is kept on this phone, and whether a keep is running
+  /// now; see _PortraitProjectHeader.
   final bool? keptHere;
+  final bool keepingHere;
   final VoidCallback onOpenLive;
   final ValueChanged<_SongMenuAction> onExport;
   final bool hasRecording;
@@ -2431,11 +2517,21 @@ class _LandscapeWorkspace extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        Text(
-                          project.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                        Row(
+                          children: <Widget>[
+                            Flexible(
+                              child: Text(
+                                project.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                            if (keptHere == true) ...const <Widget>[
+                              SizedBox(width: 6),
+                              OnThisPhoneMark(size: 13),
+                            ],
+                          ],
                         ),
                         Text(
                           room.name,
@@ -2557,7 +2653,7 @@ class _LandscapeWorkspace extends StatelessWidget {
                       title: Text('Share by text or email'),
                     ),
                   ),
-                  if (keptHere != null) _keepHereEntry(keptHere!),
+                  if (keptHere != null) _keepHereEntry(keptHere!, keeping: keepingHere),
                   const PopupMenuDivider(),
                   const PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.markFinished,

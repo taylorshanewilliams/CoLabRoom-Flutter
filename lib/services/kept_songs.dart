@@ -89,6 +89,49 @@ class KeptSongs {
   /// kept" on the web rather than asking.
   static bool get supported => !kIsWeb;
 
+  /// Rings when a song is kept on this phone or taken off it, so every
+  /// place that draws the small phone beside a title -- the song, the set's
+  /// rows, the Songs list -- says the same thing at the same moment. It
+  /// carries nothing; whoever listens asks [keptIds] again.
+  static final ValueNotifier<int> changes = ValueNotifier<int>(0);
+
+  /// Public for a store that keeps its songs somewhere other than a disk,
+  /// which is to say a test's.
+  static void noteChange() => changes.value++;
+
+  /// Who is writing each kept song at this moment, by its folder, so that
+  /// two writers of one song take turns.
+  ///
+  /// There are several: the menu's keep, the refresh Perform's door fires
+  /// without waiting for it, the library following along, and taking the
+  /// song off. Every one of them downloads to the same `.part` name and
+  /// renames it, so two at once could rename a half-written file into place
+  /// -- and a file that exists is "correct by definition", so it would play
+  /// cut short in the basement for ever (review, 18 September 2026). Static,
+  /// because every screen builds a store of its own.
+  static final Map<String, Future<void>> _writing = <String, Future<void>>{};
+
+  Future<void> _inTurn(String folder, Future<void> Function() work) async {
+    final before = _writing[folder];
+    final mine = () async {
+      if (before != null) {
+        try {
+          await before;
+        } catch (_) {
+          // Its own caller heard about that. This turn still comes.
+        }
+      }
+      await work();
+    }();
+    _writing[folder] = mine;
+    try {
+      await mine;
+    } finally {
+      // What remove hands back is [mine], which has just been waited for.
+      if (identical(_writing[folder], mine)) unawaited(_writing.remove(folder));
+    }
+  }
+
   /// What Perform says when it was opened with no connection on a song that
   /// is not here.
   static const String notKeptOffline =
@@ -236,42 +279,85 @@ class KeptSongs {
     SongProject project,
     SongAnalysisBundle sheet, {
     void Function(String stage)? onProgress,
+  }) =>
+      _keep(project, sheet, onProgress: onProgress);
+
+  Future<void> _keep(
+    SongProject project,
+    SongAnalysisBundle sheet, {
+    void Function(String stage)? onProgress,
+    bool onlyIfKept = false,
   }) async {
     if (!supported) throw UnsupportedError('A browser has nowhere to keep a song.');
     final directory = await _songDirectory(project.id);
     if (directory == null) throw StateError('Sign in to keep a song on this phone.');
-    if (!await directory.exists()) await directory.create(recursive: true);
+    await _inTurn(directory.path, () async {
+      // Asked inside the turn, so a song taken off a moment ago is not put
+      // back by a refresh that set out before it went.
+      if (onlyIfKept && !await File('${directory.path}/$_sheetFile').exists()) return;
+      if (!await directory.exists()) await directory.create(recursive: true);
 
-    final reference = sheet.reference;
-    if (reference != null) {
-      await _fetchIfMissing(directory, reference.storagePath,
-          what: 'the recording', onProgress: onProgress);
-    }
-    for (final stem in sheet.stems) {
-      await _fetchIfMissing(directory, stem.storagePath,
-          what: 'the ${stem.kind.label.toLowerCase()}', onProgress: onProgress);
-    }
-    await _dropAudioNotNamedBy(directory, sheet);
+      final reference = sheet.reference;
+      if (reference != null) {
+        await _fetchIfMissing(directory, reference.storagePath,
+            what: 'the recording', onProgress: onProgress);
+      }
+      for (final stem in sheet.stems) {
+        await _fetchIfMissing(directory, stem.storagePath,
+            what: 'the ${stem.kind.label.toLowerCase()}', onProgress: onProgress);
+      }
+      await _dropAudioNotNamedBy(directory, sheet);
 
-    await File('${directory.path}/$_songFile')
-        .writeAsString(jsonEncode(_projectToJson(project)), flush: true);
-    await File('${directory.path}/$_sheetFile')
-        .writeAsString(jsonEncode(_bundleToJson(sheet)), flush: true);
+      await _writeWhole(
+          File('${directory.path}/$_songFile'), jsonEncode(_projectToJson(project)));
+      await _writeWhole(
+          File('${directory.path}/$_sheetFile'), jsonEncode(_bundleToJson(sheet)));
+      noteChange();
+    });
   }
 
   /// Brings a kept song up to date with what the server just said, and
   /// does nothing for a song that is not kept.
   ///
   /// A kept copy that quietly went stale would be a trap: chords corrected
-  /// on the sheet yesterday and the old ones on stage tonight. So whenever
-  /// Perform opens a kept song with the network answering, the copy follows.
+  /// on the sheet yesterday and the old ones on stage tonight. Two things
+  /// call this. Perform's door, whenever it opens a kept song with the
+  /// server answering; and the library, once a session for each kept song
+  /// (MusicBetaController), because a set kept on Monday is not opened song
+  /// by song before Friday. The words follow the library more cheaply still:
+  /// see [followWords]. A phone that has not been online since the song was
+  /// kept has the song as it was kept, and nothing can do better than that.
   /// Quiet on failure — the song on screen is the fresh one either way.
   Future<void> refresh(SongProject project, SongAnalysisBundle sheet) async {
     try {
-      if (await load(project.id) == null) return;
-      await keep(project, sheet);
+      await _keep(project, sheet, onlyIfKept: true);
     } catch (_) {
       // Next time.
+    }
+  }
+
+  /// Brings a kept song's words up to date with the library, and does
+  /// nothing for a song that is not kept.
+  ///
+  /// Every library load already carries each song's title, its key and
+  /// every line of it, so following costs no request at all: a lyric a
+  /// bandmate fixed on Wednesday is on this phone the next time the app is
+  /// opened with signal, whether or not anybody opens that song before the
+  /// gig (review, 18 September 2026). Writes nothing when nothing changed.
+  Future<void> followWords(SongProject project) async {
+    if (!supported) return;
+    try {
+      final directory = await _songDirectory(project.id);
+      if (directory == null) return;
+      await _inTurn(directory.path, () async {
+        final file = File('${directory.path}/$_songFile');
+        if (!await file.exists()) return;
+        final fresh = jsonEncode(_projectToJson(project));
+        if (await file.readAsString() == fresh) return;
+        await _writeWhole(file, fresh);
+      });
+    } catch (_) {
+      // Next load.
     }
   }
 
@@ -280,21 +366,30 @@ class KeptSongs {
   /// Tried a few times, because a file Perform is reading at that instant
   /// (or that Windows is still closing) refuses to be deleted for a moment,
   /// and a copy half taken off is worse than one still here: its words are
-  /// listed and its sheet is gone.
+  /// listed and its sheet is gone. It waits its turn behind a keep of the
+  /// same song rather than pulling the folder out from under it.
   Future<void> remove(String projectId) async {
     if (!supported) return;
-    for (var attempt = 1; attempt <= 3; attempt++) {
-      try {
-        final directory = await _songDirectory(projectId);
-        if (directory != null && await directory.exists()) {
-          await directory.delete(recursive: true);
-        }
-        return;
-      } catch (_) {
-        if (attempt == 3) return;
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-      }
+    final Directory? directory;
+    try {
+      directory = await _songDirectory(projectId);
+    } catch (_) {
+      return;
     }
+    if (directory == null) return;
+    final folder = directory;
+    await _inTurn(folder.path, () async {
+      for (var attempt = 1; attempt <= 3; attempt++) {
+        try {
+          if (await folder.exists()) await folder.delete(recursive: true);
+          break;
+        } catch (_) {
+          if (attempt == 3) break;
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+      }
+      noteChange();
+    });
   }
 
   /// Takes every song this account kept off this phone. For an account
@@ -308,6 +403,30 @@ class KeptSongs {
       // An account that is gone must not be held up by a folder that will
       // not delete. Nobody else on this phone is ever shown what is in it.
     }
+    noteChange();
+  }
+
+  /// Writes the words or the sheet whole or not at all: to a `.part` name,
+  /// then renamed into place, the way the audio is. The library now rewrites
+  /// the words whenever they change, and a phone kills an app in the
+  /// background without asking; a file cut off half-way would not parse, and
+  /// a song whose words do not parse is a song that is not listed in the
+  /// van.
+  Future<void> _writeWhole(File file, String text) async {
+    final part = File('${file.path}.part');
+    await part.writeAsString(text, flush: true);
+    try {
+      await part.rename(file.path);
+    } on FileSystemException {
+      // Windows will not rename over a file something is reading at that
+      // instant. A phone will; this is for a desk, and for the tests.
+      await file.writeAsString(text, flush: true);
+      try {
+        await part.delete();
+      } catch (_) {
+        // Swept up by the next keep, which drops what the sheet does not name.
+      }
+    }
   }
 
   Future<void> _fetchIfMissing(
@@ -319,7 +438,12 @@ class KeptSongs {
     final file = File('${directory.path}/${_fileNameFor(storagePath)}');
     if (await file.exists() && await file.length() > 0) return;
     onProgress?.call('Fetching $what…');
-    final bytes = await _download(storagePath);
+    // Given up on after ten minutes, which is longer than any recording
+    // takes on a connection worth calling one. A download has no clock of
+    // its own, and writers of one song take turns: one that hung for ever
+    // would hold every later keep of this song behind it until the app was
+    // closed.
+    final bytes = await _download(storagePath).timeout(const Duration(minutes: 10));
     final part = File('${file.path}.part');
     await part.writeAsBytes(bytes, flush: true);
     await part.rename(file.path);

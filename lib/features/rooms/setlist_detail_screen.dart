@@ -10,6 +10,7 @@ import '../../domain/song_analysis_models.dart';
 import '../../services/music_reference.dart' show samePitch;
 import '../../services/song_analysis_service.dart';
 import '../../widgets/app_surface.dart';
+import '../../widgets/on_this_phone_mark.dart';
 import '../workspace/song_workspace_screen.dart';
 import '../../services/user_facing_error.dart';
 import '../../services/kept_songs.dart';
@@ -63,11 +64,26 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
   /// about keeping.
   Set<String>? _keptIds;
 
+  /// True from the tap on "Keep this set on this phone" until the last song
+  /// is here or the keep has stopped.
+  bool _keepingSet = false;
+
   @override
   void initState() {
     super.initState();
     unawaited(_loadKept());
+    // A song kept or taken off from its own screen, opened from a row here,
+    // changes what this set says about itself.
+    KeptSongs.changes.addListener(_keptSongsChanged);
   }
+
+  @override
+  void dispose() {
+    KeptSongs.changes.removeListener(_keptSongsChanged);
+    super.dispose();
+  }
+
+  void _keptSongsChanged() => unawaited(_loadKept());
 
   Future<void> _loadKept() async {
     if (!KeptSongs.supported) return;
@@ -230,54 +246,114 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
         projects.isNotEmpty &&
         projects.every((project) => keptIds.contains(project.id));
 
-    /// Keeps every song in the set on this phone, or takes them all off.
+    /// The songs here that another set kept on this phone also names.
+    ///
+    /// Songs are kept one by one, not set by set, so taking Friday's set off
+    /// used to take the eight songs it shares with Saturday's as well, and
+    /// Saturday's set went back to "Keep this set on this phone" without a
+    /// word -- found out in Saturday's basement (review, 18 September 2026).
+    Set<String> namedByAnotherKeptSet() {
+      final ids = keptIds ?? const <String>{};
+      final shared = <String>{};
+      for (final other in controller.setlists) {
+        if (other.id == setlist.id) continue;
+        final theirs = other.projectIds
+            .where((id) => controller.projectById(id) != null)
+            .toList(growable: false);
+        if (theirs.isEmpty || !theirs.every(ids.contains)) continue;
+        shared.addAll(theirs);
+      }
+      return shared;
+    }
+
+    /// Keeps every song in the set on this phone, or takes them off.
     ///
     /// Stops at the first song whose sheet cannot be fetched and says which,
     /// rather than keeping the rest and calling the set kept. What was
-    /// fetched before it stays, so trying again is cheap.
+    /// fetched before it stays, so trying again is cheap. One keep at a
+    /// time, and the line about it stays up until it is over: a dozen
+    /// recordings is minutes, and a line that left after four seconds made
+    /// the keep look finished or failed when it was neither.
+    ///
+    /// Taking the set off is asked about first. The entry that says "On this
+    /// phone" is also the one that deletes, it works with no signal, and a
+    /// slip of the thumb in the van would otherwise cost the whole set's
+    /// recordings with no way to fetch them before the gig.
     Future<void> keepHere() async {
+      if (_keepingSet) return;
       final messenger = ScaffoldMessenger.of(context);
       final kept = _analysis.kept;
+      // In place of whatever is showing, never queued behind it: "is on
+      // this phone" still on screen would otherwise hold the next line back
+      // for four seconds and say the opposite of what just happened.
+      void say(String message, {bool staying = false}) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            content: Text(message),
+            duration: staying ? const Duration(minutes: 30) : const Duration(seconds: 4),
+          ));
+      }
+
       if (keptAll) {
-        for (final project in projects) {
+        final staying = namedByAnotherKeptSet();
+        final going = projects.where((project) => !staying.contains(project.id)).toList();
+        if (going.isEmpty) {
+          say('Every song here is also in another set kept on this phone, so they stay.');
+          return;
+        }
+        final sure = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text('Take ${setlist.name} off this phone?'),
+            content: Text(
+              'The words, sheets and recordings of its songs come off this '
+              'phone and nowhere else. '
+              '${going.length == projects.length ? '' : 'Songs another kept set also has stay. '}'
+              'Keeping them again needs signal.',
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Leave them here'),
+              ),
+              FilledButton(
+                key: const Key('take_set_off_confirm'),
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Take them off'),
+              ),
+            ],
+          ),
+        );
+        if (sure != true) return;
+        for (final project in going) {
           await kept.remove(project.id);
         }
         await _loadKept();
-        // In place of whatever is showing, never queued behind it: "is on
-        // this phone" still on screen would otherwise hold this back for
-        // four seconds and say the opposite of what just happened.
-        messenger
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text('${setlist.name} is no longer kept on this phone.')));
+        say('${setlist.name} is no longer kept on this phone.');
         return;
       }
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text('Keeping ${setlist.name} on this phone…')));
-      for (final project in projects) {
-        try {
-          final sheet = await _analysis.load(project.id);
-          await kept.keep(project, sheet, onProgress: (stage) {
-            messenger
-              ..hideCurrentSnackBar()
-              ..showSnackBar(SnackBar(content: Text('${project.title}: $stage')));
-          });
-        } catch (error) {
-          await _loadKept();
-          messenger
-            ..hideCurrentSnackBar()
-            ..showSnackBar(SnackBar(
-              content: Text(isConnectivityFailure(error)
-                  ? 'No connection, so ${project.title} was not kept. Try again where there is signal.'
-                  : 'Could not keep ${project.title}: ${reportAndDescribe(error, service: 'app', stage: 'keep_set', route: 'Setlist')}'),
-            ));
-          return;
+      setState(() => _keepingSet = true);
+      say('Keeping ${setlist.name} on this phone…', staying: true);
+      try {
+        for (final project in projects) {
+          try {
+            final sheet = await _analysis.load(project.id);
+            await kept.keep(project, sheet,
+                onProgress: (stage) => say('${project.title}: $stage', staying: true));
+          } catch (error) {
+            await _loadKept();
+            say(isConnectivityFailure(error)
+                ? 'No connection, so ${project.title} was not kept. Try again where there is signal.'
+                : 'Could not keep ${project.title}: ${reportAndDescribe(error, service: 'app', stage: 'keep_set', route: 'Setlist')}');
+            return;
+          }
         }
+        await _loadKept();
+        say('${setlist.name} is on this phone.');
+      } finally {
+        if (mounted) setState(() => _keepingSet = false);
       }
-      await _loadKept();
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text('${setlist.name} is on this phone.')));
     }
 
     Future<void> export(_SetlistMenuAction action) async {
@@ -380,11 +456,22 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                 PopupMenuItem<_SetlistMenuAction>(
                   key: const Key('keep_set_here'),
                   value: _SetlistMenuAction.keepHere,
+                  // Says so, and cannot be pressed, while a keep is running.
+                  enabled: !_keepingSet,
                   child: ListTile(
                     contentPadding: EdgeInsets.zero,
+                    enabled: !_keepingSet,
                     leading: Icon(keptAll ? Icons.phone_android_rounded : Icons.download_for_offline_outlined),
-                    title: Text(keptAll ? 'On this phone' : 'Keep this set on this phone'),
-                    subtitle: Text(keptAll ? 'Tap to take it off again' : 'Every song, for where there is no signal'),
+                    title: Text(_keepingSet
+                        ? 'Keeping this set on this phone…'
+                        : keptAll
+                            ? 'On this phone'
+                            : 'Keep this set on this phone'),
+                    subtitle: Text(_keepingSet
+                        ? 'It says so here when it is done'
+                        : keptAll
+                            ? 'Tap to take it off again'
+                            : 'Every song, for where there is no signal'),
                   ),
                 ),
               const PopupMenuDivider(),
@@ -486,11 +573,24 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: <Widget>[
-                                  Text(
-                                    project.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context).textTheme.titleMedium,
+                                  Row(
+                                    children: <Widget>[
+                                      Flexible(
+                                        child: Text(
+                                          project.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: Theme.of(context).textTheme.titleMedium,
+                                        ),
+                                      ),
+                                      // Which songs of the set are on this
+                                      // phone, so a set half here shows
+                                      // which half.
+                                      if (keptIds != null && keptIds.contains(project.id)) ...const <Widget>[
+                                        SizedBox(width: 6),
+                                        OnThisPhoneMark(),
+                                      ],
+                                    ],
                                   ),
                                   if (facts.line.isNotEmpty)
                                     Text(
