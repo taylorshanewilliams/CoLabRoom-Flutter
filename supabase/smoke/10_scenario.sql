@@ -2172,6 +2172,18 @@ set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}'
 -- Somebody who has recorded nothing but makes the same music as you must
 -- come before a session player who makes something else, and neither
 -- position may be earned by output.
+--
+-- As the member holding the phone, down to "Put it back" below, and not as
+-- the superuser this section used to run as. set_open_mic_presence is
+-- security invoker, so every function under it is called with the member's
+-- own privileges. 0135 revoked private.one_sound_word from authenticated and
+-- all four calls here still passed, because nothing checks a superuser's
+-- privileges; in production every one of them was "permission denied for
+-- function one_sound_word" for a day, until 0156 put the grant back. Run as
+-- the member, the next revoke of that kind fails here instead of there.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
 select public.set_open_mic_presence(
   true, null, null, null, array['Folk', 'folk', '  Americana  ']
 );
@@ -2225,10 +2237,30 @@ begin
   end if;
 end $$;
 
+-- Nothing picked is still a list. The welcome tour sends an empty one when
+-- somebody skips the question, and the Open Mic sheet sends one when the last
+-- tag is taken off; both have to save, and both have to clear what was there.
+select public.set_open_mic_presence(
+  true, null, null, null, array[]::text[]
+);
+
+do $$
+declare
+  mine text[];
+begin
+  select sounds_like into mine from public.profiles
+  where id = '11111111-1111-1111-1111-111111111111';
+  if mine is distinct from '{}'::text[] then
+    raise exception 'an empty sounds_like left % behind', mine;
+  end if;
+end $$;
+
 -- Put it back to something the rest of the file can read.
 select public.set_open_mic_presence(
   true, null, null, null, array['folk', 'americana']
 );
+
+reset role;
 
 -- A takedown that removes (0077).
 --
