@@ -842,6 +842,11 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     await load();
   }
 
+  Future<void> saveSetlistSong(Setlist setlist, SetlistSong song) async {
+    await repository.saveSetlistSong(setlist, song);
+    await load();
+  }
+
   Future<void> moveProjects(Iterable<SongProject> projects, MusicRoom targetRoom) async {
     await repository.moveProjects(projects, targetRoom);
     await load();

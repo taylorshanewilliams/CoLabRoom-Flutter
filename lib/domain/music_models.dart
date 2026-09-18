@@ -1307,6 +1307,123 @@ class Musician {
   }
 }
 
+/// One song's place in a set, and what the band does with it there.
+///
+/// Every Musician, Same Song, 17 September 2026: a set stored titles and an
+/// order, and a gigging band needs what to do with each song. Every field
+/// here is null until the band says otherwise, and null means "what the song
+/// says": the song's own key, the analysis's tempo, one bar of its metre, its
+/// sections. See `setSongFacts`, which is where the fallbacks are worked out,
+/// so a screen and a printed page cannot disagree about them.
+///
+/// The key is the set's answer for this occasion. It stands in front of the
+/// song's own key ([SongProject.songKey]) on the set and nowhere else: a band
+/// that does a song down a tone on Saturday has not changed what key the
+/// song is in.
+class SetlistSong {
+  const SetlistSong({
+    required this.projectId,
+    this.key,
+    this.bpm,
+    this.countIn,
+    this.form,
+    this.ending,
+    this.note,
+  });
+
+  final String projectId;
+
+  /// The key this set does the song in, in the shape the analyser writes one
+  /// ("Bb", "F# minor"), or null for the song's own.
+  final String? key;
+
+  /// The tempo this set does the song at, or null for the analysis's.
+  final double? bpm;
+
+  /// Who counts it and how, in the band's words, or null for one bar of the
+  /// song's own metre.
+  final String? countIn;
+
+  /// The shape of the song as this set plays it, or null for its sections.
+  final String? form;
+
+  /// How it ends: cold, ritard, tag the chorus. Null says nothing.
+  final String? ending;
+
+  /// One line for the stand-in: "straight into the next one".
+  final String? note;
+
+  /// Whether the band has said anything about this song here at all.
+  bool get isBlank =>
+      key == null &&
+      bpm == null &&
+      countIn == null &&
+      form == null &&
+      ending == null &&
+      note == null;
+
+  /// The same shape 0144 accepts for a song's key and 0157 for a set's: a
+  /// root, an optional accidental, optionally which of the two modes.
+  static final RegExp keyShape = RegExp(r'^[A-G][#b]?( (major|minor))?$');
+
+  /// What the fields may hold, applied once here so the two repositories
+  /// cannot drift: text is trimmed and blank text becomes null (an empty
+  /// field means "use what the song says", and 0157 refuses an empty
+  /// string); a key has to be one the app can read; a tempo has to be one
+  /// the app can count at; nothing is longer than its column.
+  ///
+  /// Throws [ArgumentError] with a sentence a person can be shown.
+  SetlistSong cleaned() {
+    String? text(String? value, int limit, String what) {
+      final trimmed = value?.trim().replaceAll(RegExp(r'\s+'), ' ');
+      if (trimmed == null || trimmed.isEmpty) return null;
+      if (trimmed.length > limit) {
+        throw ArgumentError('$what has to be $limit characters or fewer.');
+      }
+      return trimmed;
+    }
+
+    final saidKey = key?.trim();
+    if (saidKey != null && saidKey.isNotEmpty && !keyShape.hasMatch(saidKey)) {
+      throw ArgumentError('That is not a key this app can read.');
+    }
+    final tempo = bpm;
+    if (tempo != null && (tempo < 40 || tempo > 240)) {
+      throw ArgumentError('A tempo has to be between 40 and 240.');
+    }
+    return SetlistSong(
+      projectId: projectId,
+      key: saidKey == null || saidKey.isEmpty ? null : saidKey,
+      bpm: tempo,
+      countIn: text(countIn, 80, 'The count-in'),
+      form: text(form, 200, 'The form'),
+      ending: text(ending, 80, 'The ending'),
+      note: text(note, 200, 'The note'),
+    );
+  }
+
+  /// Every field clears, because "use what the song says" is a real answer
+  /// for each of them.
+  SetlistSong copyWith({
+    Object? key = _unset,
+    Object? bpm = _unset,
+    Object? countIn = _unset,
+    Object? form = _unset,
+    Object? ending = _unset,
+    Object? note = _unset,
+  }) {
+    return SetlistSong(
+      projectId: projectId,
+      key: identical(key, _unset) ? this.key : key as String?,
+      bpm: identical(bpm, _unset) ? this.bpm : bpm as double?,
+      countIn: identical(countIn, _unset) ? this.countIn : countIn as String?,
+      form: identical(form, _unset) ? this.form : form as String?,
+      ending: identical(ending, _unset) ? this.ending : ending as String?,
+      note: identical(note, _unset) ? this.note : note as String?,
+    );
+  }
+}
+
 class Setlist {
   const Setlist({
     required this.id,
@@ -1314,7 +1431,7 @@ class Setlist {
     required this.name,
     required this.createdAt,
     required this.updatedAt,
-    this.projectIds = const <String>[],
+    this.songs = const <SetlistSong>[],
   });
 
   final String id;
@@ -1322,12 +1439,41 @@ class Setlist {
   final String name;
   final DateTime createdAt;
   final DateTime updatedAt;
-  final List<String> projectIds;
+
+  /// The songs in the order they are played, each with what the band does
+  /// with it here.
+  final List<SetlistSong> songs;
+
+  /// The order alone, which is all a set used to be and all most callers
+  /// want.
+  List<String> get projectIds =>
+      songs.map((song) => song.projectId).toList(growable: false);
+
+  /// What this set says about one of its songs, or null when the song is not
+  /// in it.
+  SetlistSong? songFor(String projectId) {
+    for (final song in songs) {
+      if (song.projectId == projectId) return song;
+    }
+    return null;
+  }
+
+  /// The same set with [projectIds] as its order, keeping what the band has
+  /// said about each song that stays and starting fresh for one that is new.
+  Setlist withOrder(Iterable<String> projectIds, {DateTime? updatedAt}) {
+    return copyWith(
+      updatedAt: updatedAt,
+      songs: <SetlistSong>[
+        for (final projectId in projectIds)
+          songFor(projectId) ?? SetlistSong(projectId: projectId),
+      ],
+    );
+  }
 
   Setlist copyWith({
     String? name,
     DateTime? updatedAt,
-    List<String>? projectIds,
+    List<SetlistSong>? songs,
   }) {
     return Setlist(
       id: id,
@@ -1335,7 +1481,7 @@ class Setlist {
       name: name ?? this.name,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-      projectIds: projectIds ?? this.projectIds,
+      songs: songs ?? this.songs,
     );
   }
 }

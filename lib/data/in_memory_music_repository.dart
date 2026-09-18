@@ -345,8 +345,8 @@ class InMemoryMusicRepository implements MusicRepository {
     ));
     for (final setlist in List<Setlist>.from(_setlists)) {
       if (setlist.projectIds.contains(project.id)) {
-        _replaceSetlist(setlist.copyWith(
-          projectIds: setlist.projectIds.where((id) => id != project.id).toList(growable: false),
+        _replaceSetlist(setlist.withOrder(
+          setlist.projectIds.where((id) => id != project.id),
           updatedAt: DateTime.now(),
         ));
       }
@@ -600,10 +600,7 @@ class InMemoryMusicRepository implements MusicRepository {
     final knownIds = _allProjects.map((project) => project.id).toSet();
     final merged = <String>{...setlist.projectIds};
     merged.addAll(projectIds.where(knownIds.contains));
-    _replaceSetlist(setlist.copyWith(
-      projectIds: merged.toList(growable: false),
-      updatedAt: DateTime.now(),
-    ));
+    _replaceSetlist(setlist.withOrder(merged, updatedAt: DateTime.now()));
   }
 
   @override
@@ -623,8 +620,8 @@ class InMemoryMusicRepository implements MusicRepository {
 
   @override
   Future<void> removeProjectFromSetlist(Setlist setlist, String projectId) async {
-    _replaceSetlist(setlist.copyWith(
-      projectIds: setlist.projectIds.where((id) => id != projectId).toList(growable: false),
+    _replaceSetlist(setlist.withOrder(
+      setlist.projectIds.where((id) => id != projectId),
       updatedAt: DateTime.now(),
     ));
   }
@@ -635,9 +632,27 @@ class InMemoryMusicRepository implements MusicRepository {
     if (orderedProjectIds.toSet().difference(current).isNotEmpty) {
       throw StateError('That song list is out of date. Reopen the setlist and try again.');
     }
-    _replaceSetlist(setlist.copyWith(
-      projectIds: List<String>.from(orderedProjectIds),
-      updatedAt: DateTime.now(),
+    _replaceSetlist(setlist.withOrder(orderedProjectIds, updatedAt: DateTime.now()));
+  }
+
+  @override
+  Future<void> saveSetlistSong(Setlist setlist, SetlistSong song) async {
+    final cleaned = song.cleaned();
+    // The same refusal 0005's update policy makes in the database: a set is
+    // its owner's, and an update from anybody else lands on no row.
+    if (setlist.ownerId != 'preview-user') {
+      throw StateError(MusicRepository.notYourSet);
+    }
+    // And the other silence: the set is theirs, but the song is not in it
+    // any more. Said as that, not as "not yours".
+    final held = _setlists.where((value) => value.id == setlist.id).firstOrNull;
+    if (held == null || !held.projectIds.contains(song.projectId)) {
+      throw StateError(MusicRepository.songNotInSet);
+    }
+    _replaceSetlist(held.copyWith(
+      songs: held.songs
+          .map((entry) => entry.projectId == song.projectId ? cleaned : entry)
+          .toList(growable: false),
     ));
   }
 

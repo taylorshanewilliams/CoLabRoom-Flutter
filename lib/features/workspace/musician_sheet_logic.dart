@@ -441,6 +441,43 @@ String keyAsPlayed(String key, int transpose) {
   return spellInKey(moved, moved);
 }
 
+/// Semitones from [from] up to [to], 0 to 11, or 0 when either is missing
+/// or not a key this can read.
+///
+/// The transpose that takes a song from its own key to the one a set does
+/// it in, and the one the key sheet works out from the two keys it was
+/// opened with. Between two keys in the same mode it is the distance
+/// between their roots: a song in A minor done in C minor is up three.
+///
+/// Between a major key and a minor one no transposition exists, so the
+/// second key is read as the band naming the same chords another way and
+/// then moving them (review, 18 September 2026). The usual way a band and
+/// the analyser disagree about a key is the relative -- the detector hears
+/// A minor where the band knows C -- so a minor key counts from its
+/// relative major, the rule the numbers already follow: A minor to C major
+/// moves nothing, G major to E minor moves nothing, A minor to D major is
+/// up two. The one exception is the parallel. A band writing A major over a
+/// song the analyser called A minor is correcting the mode, not asking for
+/// the chords nine semitones away, so the same root in the other mode moves
+/// nothing either.
+int semitonesBetweenKeys(String? from, String? to) {
+  final pa = _keyRootPitch(from);
+  final pb = _keyRootPitch(to);
+  if (pa == null || pb == null) return 0;
+  final fromMinor = keyIsMinor(from);
+  final toMinor = keyIsMinor(to);
+  if (fromMinor == toMinor || pa == pb) return ((pb - pa) % 12 + 12) % 12;
+  final fromMajor = fromMinor ? pa + 3 : pa;
+  final toMajor = toMinor ? pb + 3 : pb;
+  return ((toMajor - fromMajor) % 12 + 12) % 12;
+}
+
+int? _keyRootPitch(String? key) {
+  if (key == null) return null;
+  final root = RegExp(r'^([A-G][#b]?)').firstMatch(key.trim())?.group(1);
+  return root == null ? null : pitchOf(root);
+}
+
 /// A chord as this person is reading it: letters in their key, or the number
 /// it is of the song's key.
 ///

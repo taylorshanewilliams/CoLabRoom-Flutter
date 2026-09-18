@@ -225,10 +225,16 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
         'beside Songs and Rooms.\n\n'
         'A set is a running order for one occasion — Friday practice, '
         "Saturday's show — built from songs you already have, in whatever "
-        'order you will play them.',
+        'order you will play them.\n\n'
+        'Each song in a set can carry the key you do it in, the tempo, the '
+        'count-in, the form, how it ends and a note. Leave a field empty and '
+        'the set uses what the song says. Send to printer, or share the set '
+        'as a PDF, and a stand-in gets the running order with a chord chart '
+        'for every song, in the keys you play them in.',
     keywords: <String>[
       'set', 'sets', 'setlist', 'list', 'gig', 'order', 'practice',
-      'performance', 'live',
+      'performance', 'live', 'dep', 'stand-in', 'sub', 'chart', 'key',
+      'tempo', 'count-in', 'form', 'ending',
     ],
   ),
   HelpAnswer(

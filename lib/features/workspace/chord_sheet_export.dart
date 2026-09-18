@@ -339,6 +339,59 @@ abstract final class ChordSheetExport {
     String? musicalKey,
     double? bpm,
   }) {
+    return pw.Document()
+      ..addPage(
+        chartPage(
+          project: project,
+          lines: lines,
+          transpose: transpose,
+          musicalKey: musicalKey,
+          bpm: bpm,
+        ),
+      );
+  }
+
+  /// The line under a chart's title: the key and the tempo, whichever are
+  /// known.
+  ///
+  /// The key is [musicalKey] moved by [transpose], unless [keyLabel] names
+  /// it outright. The stand-in's pack hands it the set's key as the band
+  /// wrote it, so a chart cannot disagree with the running order above it
+  /// about what key the song is done in: a song heard in A minor and done in
+  /// C major moves no chord, and the moved song key would still have read
+  /// "A minor" (review, 18 September 2026).
+  static List<String> chartFacts({
+    required int transpose,
+    String? musicalKey,
+    String? keyLabel,
+    double? bpm,
+  }) {
+    final named = keyLabel?.trim();
+    return <String>[
+      if (named != null && named.isNotEmpty)
+        'Key of $named'
+      else if (musicalKey != null && musicalKey.trim().isNotEmpty)
+        'Key of ${keyAsPlayed(musicalKey.trim(), transpose)}',
+      if (bpm != null && bpm > 0) '${bpm.round()} bpm',
+    ];
+  }
+
+  /// The chart as pages that can go into a document of somebody else's.
+  ///
+  /// Split from [chartDocument] for the stand-in's pack (Every Musician, Same
+  /// Song, 17 September 2026): a set prints as its running order followed by
+  /// one of these per song, in one file, and the pdf package has no way to
+  /// glue two documents together after the fact. The page is exactly what
+  /// the song's own print produces, so a chart in a pack cannot differ from
+  /// the same chart printed from the song.
+  static pw.MultiPage chartPage({
+    required SongProject project,
+    required List<MusicianSheetLine> lines,
+    required int transpose,
+    String? musicalKey,
+    String? keyLabel,
+    double? bpm,
+  }) {
     final wordsTravel = ProjectExportService.wordsTravel(project);
     final chart = <ChartTextLine>[
       for (final line in lines)
@@ -352,83 +405,80 @@ abstract final class ChordSheetExport {
         ),
     ].where((line) => !line.isEmpty).toList(growable: false);
 
-    final facts = <String>[
-      if (musicalKey != null && musicalKey.trim().isNotEmpty)
-        'Key of ${keyAsPlayed(musicalKey.trim(), transpose)}',
-      if (bpm != null && bpm > 0) '${bpm.round()} bpm',
-    ];
+    final facts = chartFacts(
+      transpose: transpose,
+      musicalKey: musicalKey,
+      keyLabel: keyLabel,
+      bpm: bpm,
+    );
 
     final mono = pw.Font.courier();
     final monoBold = pw.Font.courierBold();
-    final document = pw.Document();
-    document.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.letter,
-        margin: const pw.EdgeInsets.all(_margin),
-        build: (_) => <pw.Widget>[
+    return pw.MultiPage(
+      pageFormat: PdfPageFormat.letter,
+      margin: const pw.EdgeInsets.all(_margin),
+      build: (_) => <pw.Widget>[
+        pw.Text(
+          ProjectExportService.printable(project.title),
+          style: pw.TextStyle(fontSize: 25, fontWeight: pw.FontWeight.bold),
+        ),
+        if (facts.isNotEmpty) ...<pw.Widget>[
+          pw.SizedBox(height: 6),
+          pw.Text(ProjectExportService.printable(facts.join('   ·   ')),
+              style: const pw.TextStyle(fontSize: 11)),
+        ],
+        if (!wordsTravel) ...<pw.Widget>[
+          pw.SizedBox(height: 6),
           pw.Text(
-            ProjectExportService.printable(project.title),
-            style: pw.TextStyle(fontSize: 25, fontWeight: pw.FontWeight.bold),
-          ),
-          if (facts.isNotEmpty) ...<pw.Widget>[
-            pw.SizedBox(height: 6),
-            pw.Text(ProjectExportService.printable(facts.join('   ·   ')),
-                style: const pw.TextStyle(fontSize: 11)),
-          ],
-          if (!wordsTravel) ...<pw.Widget>[
-            pw.SizedBox(height: 6),
-            pw.Text(
-                ProjectExportService.printable(
-                    ProjectExportService.wordsStayHome),
-                style: const pw.TextStyle(fontSize: 10)),
-          ],
-          pw.SizedBox(height: 20),
-          ...chart.map(
-            (line) => line.section
-                ? pw.Padding(
-                    padding: const pw.EdgeInsets.only(top: 14, bottom: 4),
-                    child: pw.Text(
-                      line.words.toUpperCase(),
-                      style: pw.TextStyle(
-                        fontSize: 11,
-                        fontWeight: pw.FontWeight.bold,
-                        letterSpacing: 1.1,
-                      ),
-                    ),
-                  )
-                : pw.Padding(
-                    padding: const pw.EdgeInsets.only(bottom: 7),
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: <pw.Widget>[
-                        if (line.chords.isNotEmpty)
-                          pw.Text(
-                            line.chords,
-                            softWrap: false,
-                            maxLines: 1,
-                            style: pw.TextStyle(
-                              font: monoBold,
-                              fontSize: _chartFontSize,
-                            ),
-                          ),
-                        if (line.words.isNotEmpty)
-                          pw.Text(
-                            line.words,
-                            softWrap: false,
-                            maxLines: 1,
-                            style: pw.TextStyle(
-                              font: mono,
-                              fontSize: _chartFontSize,
-                            ),
-                          ),
-                      ],
+              ProjectExportService.printable(
+                  ProjectExportService.wordsStayHome),
+              style: const pw.TextStyle(fontSize: 10)),
+        ],
+        pw.SizedBox(height: 20),
+        ...chart.map(
+          (line) => line.section
+              ? pw.Padding(
+                  padding: const pw.EdgeInsets.only(top: 14, bottom: 4),
+                  child: pw.Text(
+                    line.words.toUpperCase(),
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                      letterSpacing: 1.1,
                     ),
                   ),
-          ),
-        ],
-      ),
+                )
+              : pw.Padding(
+                  padding: const pw.EdgeInsets.only(bottom: 7),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: <pw.Widget>[
+                      if (line.chords.isNotEmpty)
+                        pw.Text(
+                          line.chords,
+                          softWrap: false,
+                          maxLines: 1,
+                          style: pw.TextStyle(
+                            font: monoBold,
+                            fontSize: _chartFontSize,
+                          ),
+                        ),
+                      if (line.words.isNotEmpty)
+                        pw.Text(
+                          line.words,
+                          softWrap: false,
+                          maxLines: 1,
+                          style: pw.TextStyle(
+                            font: mono,
+                            fontSize: _chartFontSize,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+        ),
+      ],
     );
-    return document;
   }
 
   static Future<void> printChart({
