@@ -63,7 +63,7 @@ class MusicianSongSheet extends StatelessWidget {
   /// Where the 1 is, which is the one thing on this badge that belongs to the
   /// room rather than to this device. Null on a sheet whose caller cannot
   /// write it, which leaves the key sheet a reference.
-  final ValueChanged<String?>? onKey;
+  final SayTheKey? onKey;
 
   /// Whether [musicalKey] is the band's answer rather than the analysis's, so
   /// the sheet can offer to hand it back.

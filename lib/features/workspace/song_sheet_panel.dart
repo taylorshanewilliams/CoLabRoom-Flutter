@@ -45,10 +45,12 @@ class SongSheetPanel extends StatefulWidget {
   /// Says what key the band is really in, or hands the song back to the
   /// detected key with a null.
   ///
-  /// Null on a panel with nowhere to write it, which leaves the key sheet a
-  /// reference. The write lives with the caller because it goes through the
-  /// repository and has to refresh the song afterwards; the refusal is
-  /// reported here, where the person tapped.
+  /// Null on a panel with nowhere to write it, and for somebody the room only
+  /// lets look, which leaves the key sheet a reference. The write lives with
+  /// the caller because it goes through the repository and has to refresh
+  /// the song afterwards, and so does the question of who may make it; a
+  /// refusal is thrown back here and said on the key sheet, where the person
+  /// tapped.
   final Future<void> Function(String? key)? onSetKey;
 
   @override
@@ -215,27 +217,24 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   ///
   /// The only thing on this panel that is not personal, so it is the only one
   /// that can be refused: somebody who can only look cannot move everybody
-  /// else's numbers. A refusal is a sentence, not a silence.
-  Future<void> _sayTheKey(String? key) async {
+  /// else's numbers. A refusal is a sentence, not a silence — and it is
+  /// handed back to the key sheet to say, because that is where the person
+  /// tapped and a snackbar here would sit underneath it (review, 17
+  /// September 2026).
+  Future<String?> _sayTheKey(String? key) async {
     final write = widget.onSetKey;
-    if (write == null) return;
+    if (write == null) return null;
     try {
       await write(key);
+      return null;
     } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text(reportAndDescribe(
-              error,
-              service: 'app',
-              stage: 'set_song_key',
-              route: 'Song sheet',
-              projectId: widget.project.id,
-            )),
-          ),
-        );
+      return reportAndDescribe(
+        error,
+        service: 'app',
+        stage: 'set_song_key',
+        route: 'Song sheet',
+        projectId: widget.project.id,
+      );
     }
   }
 
@@ -273,9 +272,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       onCapo: _chooseCapo,
       songKey: key,
       overridden: _keyOverridden,
-      onKey: widget.onSetKey == null
-          ? null
-          : (chosen) => unawaited(_sayTheKey(chosen)),
+      onKey: widget.onSetKey == null ? null : _sayTheKey,
     ));
   }
 
@@ -939,7 +936,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             keyOverridden: _keyOverridden,
             onKey: _editingChords || widget.onSetKey == null
                 ? null
-                : (chosen) => unawaited(_sayTheKey(chosen)),
+                : _sayTheKey,
             fontScale: _fontScale,
             showChords: _showChords,
             editableChords: _editingChords && !_savingChord,

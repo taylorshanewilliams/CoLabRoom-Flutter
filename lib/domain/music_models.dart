@@ -1350,6 +1350,24 @@ class MusicRoom {
     }
     return null;
   }
+
+  /// Whether [userId] can say what a song in here is — its key (0144) —
+  /// rather than only look at it: the owner and the editors, the same two
+  /// roles set_song_key lets through.
+  ///
+  /// False for anybody not in [members], including an empty id, because the
+  /// server refuses them too and a control that is always refused is worse
+  /// than no control.
+  bool canEditSongs(String userId) {
+    if (userId.isEmpty) return false;
+    for (final member in members) {
+      if (member.userId == userId) {
+        return member.role == RoomRole.owner || member.role == RoomRole.editor;
+      }
+    }
+    return false;
+  }
+
   final List<SongProject> projects;
   final double sortOrder;
 

@@ -87,6 +87,18 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
   late SongProject _project = widget.project;
 
   @override
+  void didUpdateWidget(covariant SongAnalysisScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A newer copy of the song from the rooms -- another editor saying where
+    // the 1 is, or this screen's own write coming back from refreshProject --
+    // replaces the one held here. Compared by identity, so a rebuild that
+    // hands over the same copy cannot undo a key set a moment ago.
+    if (!identical(widget.project, oldWidget.project)) {
+      _project = widget.project;
+    }
+  }
+
+  @override
   void initState() {
     super.initState();
     unawaited(_refresh().then((_) {
@@ -838,21 +850,37 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                     // reading "Lyric match 87%" and "Chord changes 118" —
                     // the app grading its own homework in front of somebody
                     // who just wanted to see their song.
-                    SongSheetPanel(
-                      project: _project,
-                      bundle: bundle!,
-                      onReviewLyrics: (reference?.transcriptWords.isNotEmpty ?? false) ? _reviewLyrics : null,
-                      onOpenLive: _openLive,
-                      onAnalysisChanged: (updated) => setState(() => _bundle = updated),
-                      onSetKey: _setSongKey,
-                    ),
+                    //
+                    // In a Builder of its own so that only the sheet listens
+                    // to the rooms, which is where who may say the song's key
+                    // is written down.
+                    Builder(builder: (context) {
+                      // Owner or editor, the same two set_song_key lets
+                      // through. Anybody else gets the key sheet as a
+                      // reference: offering "Where the 1 is" to somebody the
+                      // room will refuse is a question with the wrong answer
+                      // built in (review, 17 September 2026).
+                      final scope = BetaScope.maybeOf(context);
+                      final canSayTheKey = scope
+                              ?.roomById(_project.roomId)
+                              ?.canEditSongs(scope.meOrNobody) ??
+                          false;
+                      return SongSheetPanel(
+                        project: _project,
+                        bundle: bundle!,
+                        onReviewLyrics: (reference?.transcriptWords.isNotEmpty ?? false) ? _reviewLyrics : null,
+                        onOpenLive: _openLive,
+                        onAnalysisChanged: (updated) => setState(() => _bundle = updated),
+                        onSetKey: canSayTheKey ? _setSongKey : null,
+                      );
+                    }),
                     const SizedBox(height: 18),
                     // And everything the machine noticed on the way, for
                     // anybody who wants it. Folded, because a beginner
                     // reading "Chords cover 92%" learns only that there is a
                     // number they are supposed to care about.
                     _TheDetails(
-                      bundle: bundle,
+                      bundle: bundle!,
                       service: _service,
                       onRename: _renameSection,
                     ),

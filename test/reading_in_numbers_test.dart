@@ -66,8 +66,6 @@ void main() {
       expect(chordAsDegree('F', 'A minor'), '4');
       expect(chordAsDegree('C', 'A minor'), '1');
       expect(chordAsDegree('G', 'A minor'), '5');
-      expect(chordAsDegree('Am', 'A minor', roman: true), 'vi');
-      expect(chordAsDegree('F', 'A minor', roman: true), 'IV');
     });
 
     test('or from the minor tonic, for anybody who reads it that way', () {
@@ -75,14 +73,41 @@ void main() {
       expect(chordAsDegree('F', 'A minor', fromMinorTonic: true), '♭6');
       expect(chordAsDegree('C', 'A minor', fromMinorTonic: true), '♭3');
       expect(chordAsDegree('G', 'A minor', fromMinorTonic: true), '♭7');
-      expect(
-        chordAsDegree('Am', 'A minor', roman: true, fromMinorTonic: true),
-        'i',
-      );
-      expect(
-        chordAsDegree('G', 'A minor', roman: true, fromMinorTonic: true),
-        '♭VII',
-      );
+    });
+
+    test('Roman numerals count a minor key from its own tonic, always', () {
+      // Am F C G in A minor is i VI III VII in a theory class, which is what
+      // the key sheet's own chips say (i ii° III iv v VI VII). The relative
+      // major is a Nashville convention, so the Nashville choice does not
+      // reach Roman numerals either way.
+      for (final fromMinorTonic in <bool>[false, true]) {
+        String? roman(String chord) => chordAsDegree(chord, 'A minor',
+            roman: true, fromMinorTonic: fromMinorTonic);
+        expect(roman('Am'), 'i');
+        expect(roman('F'), 'VI');
+        expect(roman('C'), 'III');
+        expect(roman('G'), 'VII');
+        expect(roman('Dm'), 'iv');
+        expect(roman('Bdim'), 'ii°');
+      }
+    });
+
+    test('a minor key in Roman numerals marks only what is borrowed', () {
+      // The harmonic minor's V and its leading-tone chord, written the way a
+      // textbook writes them: V, and vii° without a sharp.
+      expect(chordAsDegree('E', 'A minor', roman: true), 'V');
+      expect(chordAsDegree('E7', 'A minor', roman: true), 'V7');
+      expect(chordAsDegree('G#dim', 'A minor', roman: true), 'vii°');
+      expect(chordAsDegree('G#dim7', 'A minor', roman: true), 'vii°7');
+      // Anything else on the raised 7 keeps its sharp, so it cannot be read
+      // as the key's own VII a semitone below.
+      expect(chordAsDegree('G#', 'A minor', roman: true), '♯VII');
+      // The Neapolitan, and the melodic minor's raised 6.
+      expect(chordAsDegree('Bb', 'A minor', roman: true), '♭II');
+      expect(chordAsDegree('F#dim', 'A minor', roman: true), '♯vi°');
+      // The bass is counted against the same scale as the chord over it.
+      expect(chordAsDegree('Am/C', 'A minor', roman: true), 'i/3');
+      expect(chordAsDegree('E/G#', 'A minor', roman: true), 'V/♯7');
     });
 
     test('nothing it can place comes back as nothing, not as a guess', () {
@@ -258,6 +283,52 @@ void main() {
     expect(find.text('+3 semitones'), findsOneWidget);
     expect(find.text('1'), findsOneWidget);
     expect(find.text('4'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('only numbers ask which note a minor song counts from',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    tester.view.physicalSize = const Size(520, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData.dark(),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: SongSheetPanel(
+            project: _project('song-minor'),
+            bundle: _analysis('song-minor', musicalKey: 'A minor'),
+            onReviewLyrics: null,
+            onOpenLive: null,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('song_sheet_key_badge')));
+    await tester.pumpAndSettle();
+    const relative = Key('minor_numbers_relativeMajor');
+    // Letters: nothing to ask.
+    expect(find.byKey(relative), findsNothing);
+
+    // Roman numerals count a minor key from its own tonic in every theory
+    // class, so there is no choice to offer -- and the chips are spelled in
+    // Nashville's words, which would mean nothing here.
+    await tester.tap(find.byKey(const Key('read_numbers_roman')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(relative), findsNothing);
+
+    await tester.tap(find.byKey(const Key('read_numbers_nashville')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(relative), findsOneWidget);
+    expect(find.byKey(const Key('minor_numbers_minorTonic')), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();

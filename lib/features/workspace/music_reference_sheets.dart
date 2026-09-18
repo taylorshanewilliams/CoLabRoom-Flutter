@@ -54,6 +54,15 @@ Future<void> showChordReference(
   );
 }
 
+/// Says where the 1 is for the whole room, or hands the song back to the
+/// detected key with a null.
+///
+/// Completes with null once it has landed, or with the sentence to show when
+/// it did not. The sheet is where somebody tapped, so the sheet is where a
+/// refusal is said: a snackbar would land on the page underneath, hidden by
+/// the sheet it was about (review, 17 September 2026).
+typedef SayTheKey = Future<String?> Function(String? key);
+
 /// The key, and — when the caller can remember them — the readings this
 /// person has chosen for it.
 ///
@@ -78,7 +87,7 @@ Future<void> showKeyReference(
   ValueChanged<int>? onCapo,
   String? songKey,
   bool overridden = false,
-  ValueChanged<String?>? onKey,
+  SayTheKey? onKey,
 }) {
   if (keyReference(keyLabel) == null) return Future<void>.value();
   return showModalBottomSheet<void>(
@@ -121,7 +130,7 @@ Future<void> showReadingChoice(
   ValueChanged<int>? onCapo,
   String? songKey,
   bool overridden = false,
-  ValueChanged<String?>? onKey,
+  SayTheKey? onKey,
 }) {
   final key = keyLabel;
   if (key != null && keyReference(key) != null) {
@@ -376,7 +385,11 @@ class _KeyReferenceSheet extends StatefulWidget {
   /// of this sheet is this device's.
   final String? songKey;
   final bool overridden;
-  final ValueChanged<String?>? onKey;
+
+  /// Null for somebody who can only look, which leaves "Where the 1 is" off
+  /// the sheet altogether: offering a choice the room will refuse is a
+  /// question with a wrong answer built in (review, 17 September 2026).
+  final SayTheKey? onKey;
 
   @override
   State<_KeyReferenceSheet> createState() => _KeyReferenceSheetState();
@@ -388,6 +401,14 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
   late int _capo = widget.capo;
   late String? _songKey = widget.songKey;
   late bool _overridden = widget.overridden;
+
+  /// True while a key is on its way to the room. One write at a time, so two
+  /// quick taps cannot land in the wrong order and leave the room in the key
+  /// that was tapped first.
+  bool _saying = false;
+
+  /// Why the last key did not land, said under the chords that were tapped.
+  String? _refused;
 
   /// A capo is a guitar answer about the key the band is in. Worked out from
   /// a written key it names frets that put the guitar a tone away from
@@ -433,22 +454,55 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
     widget.onCapo?.call(capo);
   }
 
-  void _sayTheKey(String key) {
+  /// Says where the 1 is. The sheet redraws in the new key straight away, so
+  /// the tap feels like it did something, and goes back to the key the room
+  /// actually has if the room says no — a sheet showing a key that was never
+  /// saved would send somebody away believing the band is in it.
+  Future<void> _sayTheKey(String key) async {
+    final say = widget.onKey;
+    if (say == null || _saying) return;
     if (key == _songKey && _overridden) return;
+    final (keyBefore, overriddenBefore) = (_songKey, _overridden);
     setState(() {
+      _saying = true;
+      _refused = null;
       _songKey = key;
       _overridden = true;
     });
-    widget.onKey?.call(key);
+    final refused = await say(key);
+    if (!mounted) return;
+    setState(() {
+      _saying = false;
+      _refused = refused;
+      if (refused != null) {
+        _songKey = keyBefore;
+        _overridden = overriddenBefore;
+      }
+    });
   }
 
-  /// Hands the song back to the analysis. The sheet closes on it rather than
-  /// redrawing, because the key it would redraw in is the detected one and
-  /// this sheet was never told what that is — the page behind it was, and
-  /// redraws itself.
-  void _useTheDetectedKey() {
-    widget.onKey?.call(null);
-    Navigator.of(context).pop();
+  /// Hands the song back to the analysis. The sheet closes once that has
+  /// landed rather than redrawing, because the key it would redraw in is the
+  /// detected one and this sheet was never told what that is — the page
+  /// behind it was, and redraws itself. If it does not land, the sheet stays
+  /// open and says why.
+  Future<void> _useTheDetectedKey() async {
+    final say = widget.onKey;
+    if (say == null || _saying) return;
+    setState(() {
+      _saying = true;
+      _refused = null;
+    });
+    final refused = await say(null);
+    if (!mounted) return;
+    if (refused == null) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() {
+      _saying = false;
+      _refused = refused;
+    });
   }
 
   @override
@@ -493,10 +547,14 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
               ],
             ),
           ),
-          // Only on a minor song, and only once somebody is reading numbers:
-          // it is the one moment the two conventions say different things,
-          // and asking before then would be a settings screen.
-          if (_numbers.on && reference.minor) ...<Widget>[
+          // Only on a minor song, and only once somebody is reading Nashville
+          // numbers: it is the one moment the two conventions say different
+          // things, and asking before then would be a settings screen. Roman
+          // numerals have no such choice — a minor key is i VI III VII in
+          // every theory class — so the chips, in Nashville's own spelling,
+          // are not offered there.
+          if (_numbers.style == NumberStyle.nashville &&
+              reference.minor) ...<Widget>[
             const SizedBox(height: 10),
             Wrap(
               spacing: 8,
@@ -645,7 +703,8 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
                         label: _printedKey(root),
                         itemKey: Key('the_one_is_$root'),
                         selected: _sameRoot(root),
-                        onTap: () => _sayTheKey(_keyOf(root, _minorNow)),
+                        onTap: () =>
+                            unawaited(_sayTheKey(_keyOf(root, _minorNow))),
                       ),
                   ],
                 ),
@@ -660,16 +719,36 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
                         itemKey:
                             Key('the_one_is_${minor ? 'minor' : 'major'}'),
                         selected: minor == _minorNow,
-                        onTap: () =>
-                            _sayTheKey(_keyOf(_rootNow ?? 'C', minor)),
+                        onTap: () => unawaited(
+                            _sayTheKey(_keyOf(_rootNow ?? 'C', minor))),
                       ),
                   ],
                 ),
+                // Here and not in a snackbar: one raised on the page would
+                // sit underneath this sheet, which is how a refusal went
+                // unseen before (review, 17 September 2026).
+                if (_refused != null) ...<Widget>[
+                  const SizedBox(height: 10),
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      _refused!,
+                      key: const Key('the_one_refused'),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontSize: 12.5,
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                ],
                 if (_overridden) ...<Widget>[
                   const SizedBox(height: 6),
                   TextButton(
                     key: const Key('use_the_detected_key'),
-                    onPressed: _useTheDetectedKey,
+                    onPressed: _saying
+                        ? null
+                        : () => unawaited(_useTheDetectedKey()),
                     child: const Text('Use the detected key'),
                   ),
                 ],

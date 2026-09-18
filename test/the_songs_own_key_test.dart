@@ -178,7 +178,9 @@ void main() {
             onReviewLyrics: null,
             onOpenLive: null,
             // What 0144 raises for somebody who can only look, arriving the
-            // way PostgREST delivers it.
+            // way PostgREST delivers it. The song page does not offer the
+            // choice to a viewer at all, so on a phone this is somebody whose
+            // role was changed after their rooms were loaded.
             onSetKey: (key) async => throw const PostgrestException(
               message: 'Only somebody who can edit this song can say its key.',
               code: '42501',
@@ -196,11 +198,100 @@ void main() {
     await tester.pumpAndSettle();
 
     // A sentence somebody can read, not a Postgres error code and not
-    // silence, which is what a sheet that simply did not change would be.
-    expect(find.text("You don't have access to do that."), findsOneWidget);
+    // silence -- and said on the sheet they tapped, not in a snackbar on the
+    // page underneath it, where it would be hidden behind this very sheet.
+    final sheet = find.byKey(const Key('key_reference_sheet'));
+    expect(
+      find.descendant(
+        of: sheet,
+        matching: find.text("You don't have access to do that."),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byType(SnackBar), findsNothing);
+    // And the sheet is back on the key the room actually has. Left in G it
+    // would send somebody away believing the band is in a key nobody saved.
+    expect(
+      find.descendant(of: sheet, matching: find.text('C major')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: sheet, matching: find.text('G major')),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('use_the_detected_key')), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
+  });
+
+  testWidgets('a sheet that cannot say the key does not offer to',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    tester.view.physicalSize = const Size(520, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData.dark(),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: SongSheetPanel(
+            // What the song page hands somebody the room only lets look: no
+            // way to write, so the key sheet stays a reference.
+            project: _project('song-looking'),
+            bundle: _analysis('song-looking'),
+            onReviewLyrics: null,
+            onOpenLive: null,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('song_sheet_key_badge')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('key_reference_sheet')), findsOneWidget);
+    expect(find.text('Where the 1 is'), findsNothing);
+    expect(find.byKey(const Key('the_one_is_G')), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  test('only the owner and the editors can say what key a song is in', () {
+    final now = DateTime(2026, 9, 17);
+    RoomMember member(String id, RoomRole role) => RoomMember(
+          userId: id,
+          displayName: id,
+          role: role,
+          colorValue: 0xFFFF8A4C,
+        );
+    final room = MusicRoom(
+      id: 'room',
+      accountId: 'account',
+      name: 'The Modal Room',
+      icon: 'guitar',
+      createdAt: now,
+      updatedAt: now,
+      members: <RoomMember>[
+        member('writer', RoomRole.owner),
+        member('bassist', RoomRole.editor),
+        member('critic', RoomRole.commenter),
+        member('listener', RoomRole.viewer),
+      ],
+    );
+    // The same two set_song_key lets through (0144), so the app never offers
+    // a choice the room would refuse.
+    expect(room.canEditSongs('writer'), isTrue);
+    expect(room.canEditSongs('bassist'), isTrue);
+    expect(room.canEditSongs('critic'), isFalse);
+    expect(room.canEditSongs('listener'), isFalse);
+    // Nobody from here, and nobody signed in at all.
+    expect(room.canEditSongs('stranger'), isFalse);
+    expect(room.canEditSongs(''), isFalse);
   });
 }
 
