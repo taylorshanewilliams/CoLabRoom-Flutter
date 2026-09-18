@@ -70,6 +70,7 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   List<MusicRoom> _rooms = const <MusicRoom>[];
   List<BetaInvite> _invites = const <BetaInvite>[];
   List<AskForMe> _asksForMe = const <AskForMe>[];
+  List<PartQuestion> _partQuestions = const <PartQuestion>[];
   List<RoomInviteForMe> _roomInvitesForMe = const <RoomInviteForMe>[];
   List<OpenMicSong> _openMicSongs = const <OpenMicSong>[];
   List<Musician> _openMicPeople = const <Musician>[];
@@ -155,6 +156,12 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// waiting on an answer — even though it grants a song rather than a
   /// room.
   List<AskForMe> get asksForMe => List<AskForMe>.unmodifiable(_asksForMe);
+
+  /// Somebody wanting to put a song with a part of yours on it in front of
+  /// everybody, waiting on your yes (0155). The most personal thing the
+  /// inbox holds: it is about your own playing, and a song is waiting on it.
+  List<PartQuestion> get partQuestions =>
+      List<PartQuestion>.unmodifiable(_partQuestions);
 
   /// Somebody inviting you into a whole room of theirs, by name rather
   /// than by emailing you a code.
@@ -383,6 +390,12 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
         _asksForMe = await repository.asksForMe();
       } catch (_) {
         // Left as it was.
+      }
+      try {
+        _partQuestions = await repository.partQuestionsForMe();
+      } catch (_) {
+        // Left as it was. A question that could not be fetched is still
+        // waiting, and nothing goes out until it is answered.
       }
       try {
         _roomInvitesForMe = await repository.roomInvitesForMe();
@@ -951,6 +964,15 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// visible result of saying yes.
   Future<void> answerAsk(AskForMe ask, {required bool accept}) async {
     await repository.answerAsk(ask.id, accept: accept);
+    await load();
+  }
+
+  /// Yes or no to your part going in front of everybody on [projectId]
+  /// (0155). From the card in the inbox, or from the song's dial afterwards
+  /// when somebody changes their mind. Reloading is what takes the card
+  /// away, and what brings in the word the owner is sent.
+  Future<void> answerForMyPart(String projectId, {required bool yes}) async {
+    await repository.answerForMyPart(projectId, yes: yes);
     await load();
   }
 

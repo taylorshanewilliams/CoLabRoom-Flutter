@@ -843,8 +843,12 @@ class InMemoryMusicRepository implements MusicRepository {
   final Map<String, Set<String>> _nods = <String, Set<String>>{};
   final Map<String, String> _nodNotes = <String, String>{};
 
+  /// Who is signed in. A field rather than a constant so a test can be each
+  /// end of a question in turn: the owner who asks, then the bandmate who
+  /// answers, in one repository that remembers both (0155). Every other
+  /// path reads it the way it always did.
   @override
-  String get currentUserId => 'preview-user';
+  String currentUserId = 'preview-user';
 
   final List<ShowcaseLink> _showcase = <ShowcaseLink>[
     ShowcaseLink(
@@ -1056,6 +1060,117 @@ class InMemoryMusicRepository implements MusicRepository {
 
   final Set<String> _onOpenMic = <String>{};
 
+  /// The takes on the preview's songs: who played what, and whether the
+  /// room has heard it. Enough of `song_layers` for the one question this
+  /// repository has to answer about them -- whose parts a song would carry
+  /// in front of strangers (0155). Jess has a bass part on Midnight Signal,
+  /// which is the whole reason the seeded song cannot go up on Taylor's
+  /// say-so alone.
+  final List<_TakeOnSong> _takes = <_TakeOnSong>[
+    const _TakeOnSong(
+      id: 'take-taylor-vocal',
+      projectId: 'song-1',
+      recordedBy: 'preview-user',
+      part: 'vocal',
+    ),
+    const _TakeOnSong(
+      id: 'take-jess-bass',
+      projectId: 'song-1',
+      recordedBy: 'preview-jess',
+      part: 'bass',
+    ),
+  ];
+
+  /// One row per take, as 0155's `take_consents`: who was asked, and what
+  /// they said. Null is waiting.
+  final Map<String, _Consent> _consents = <String, _Consent>{};
+
+  /// Every notification this repository would have sent, to whoever. The
+  /// inbox only ever holds the signed-in person's, so a test that wants to
+  /// know what a bandmate was told reads it here.
+  final List<({String to, AppNotification notification})> told =
+      <({String to, AppNotification notification})>[];
+
+  /// Adds a take to a song. For a test that needs a shape the seed does not
+  /// have -- a song whose only part is somebody else's, say. Shared unless
+  /// said otherwise, because a draft is never anybody's business.
+  String recordTake(
+    String projectId, {
+    required String part,
+    String? by,
+    bool shared = true,
+  }) {
+    final id = _id('take');
+    final who = by ?? currentUserId;
+    _takes.add(_TakeOnSong(
+      id: id,
+      projectId: projectId,
+      recordedBy: who,
+      part: part,
+      shared: shared,
+    ));
+    // A take shared onto a song that is already out there asks its own
+    // player, whoever they are, the way the trigger in 0155 does.
+    if (shared && _onOpenMic.contains(projectId)) {
+      _consents[id] = _Consent(userId: who, agreed: null);
+      final title = _projectTitle(projectId);
+      _tell(
+        who,
+        type: NotificationType.partQuestion,
+        title: 'Your ${PartQuestion.partsInWords(<String>[part])} on $title',
+        body: '$title is out there already. Your part goes out with it when '
+            'you say yes, and stays with the room until then.',
+        projectId: projectId,
+      );
+    }
+    return id;
+  }
+
+  void _tell(
+    String to, {
+    required NotificationType type,
+    required String title,
+    required String body,
+    required String projectId,
+    String? actorId,
+  }) {
+    if (to == actorId) return;
+    final notification = AppNotification(
+      id: _id('notif'),
+      type: type,
+      title: title,
+      body: body,
+      createdAt: DateTime.now(),
+      roomId: _roomOf(projectId)?.id,
+      projectId: projectId,
+      actorId: actorId,
+    );
+    told.add((to: to, notification: notification));
+    if (to == currentUserId) _notifications.insert(0, notification);
+  }
+
+  MusicRoom? _roomOf(String projectId) {
+    for (final room in _rooms) {
+      if (room.projects.any((project) => project.id == projectId)) return room;
+    }
+    return null;
+  }
+
+  String _nameOf(String userId) {
+    if (userId == currentUserId && userId == 'preview-user') return 'Taylor';
+    for (final room in _rooms) {
+      for (final member in room.members) {
+        if (member.userId == userId) return member.displayName;
+      }
+    }
+    return 'Somebody';
+  }
+
+  /// Whether a take may be heard by strangers: shared, and its player said
+  /// yes. The one predicate 0155's policies, storage rule and lists share.
+  bool _takeIsPublic(_TakeOnSong take) =>
+      take.shared && _consents[take.id]?.agreed == true;
+
   /// Enough on the preview's Open Mic to show the two states that matter: a
   /// song asking for something, and one simply out there to be heard.
   List<OpenMicSong> get _previewOpenMic => <OpenMicSong>[
@@ -1189,6 +1304,31 @@ class InMemoryMusicRepository implements MusicRepository {
               SongListener(id: member.userId, name: member.displayName),
         ];
         final up = _onOpenMic.contains(projectId);
+        // One line per person with a shared take that has been asked
+        // about, in the words the sheet shows -- and never a count.
+        final byPerson = <String, List<_Consent>>{};
+        for (final take in _takes) {
+          final consent = _consents[take.id];
+          if (take.projectId != projectId || !take.shared || consent == null) {
+            continue;
+          }
+          byPerson.putIfAbsent(consent.userId, () => <_Consent>[]).add(consent);
+        }
+        PartAnswer answerOf(List<_Consent> rows) {
+          if (rows.any((row) => row.agreed == null)) return PartAnswer.waiting;
+          if (rows.any((row) => row.agreed == true)) return PartAnswer.yes;
+          return PartAnswer.no;
+        }
+        final answers = <PersonsAnswer>[
+          for (final entry in byPerson.entries)
+            if (entry.key != currentUserId)
+              PersonsAnswer(
+                id: entry.key,
+                name: _nameOf(entry.key),
+                answer: answerOf(entry.value),
+              ),
+        ]..sort((a, b) => a.name.compareTo(b.name));
+        final mine = byPerson[currentUserId];
         return SongAudience(
           reach: up
               ? SongReach.anyone
@@ -1199,6 +1339,8 @@ class InMemoryMusicRepository implements MusicRepository {
           roomIcon: room.icon,
           onOpenMic: up,
           listeners: others,
+          answers: answers,
+          myAnswer: mine == null ? null : answerOf(mine),
         );
       }
     }
@@ -1207,7 +1349,157 @@ class InMemoryMusicRepository implements MusicRepository {
 
   @override
   Future<void> putOnOpenMic(String projectId) async {
+    final room = _roomOf(projectId);
+    final me = room?.members
+        .where((member) => member.userId == currentUserId)
+        .firstOrNull;
+    // The same refusal, in the same words, as 0067's function. The seeded
+    // song has an editor on it, and a fake that let the editor publish would
+    // be testing a screen that never exists.
+    if (me == null || me.role != RoomRole.owner) {
+      throw PostgrestException(
+        message: 'Only the catalog owner can put a song on the Open Mic.',
+        code: '42501',
+      );
+    }
+    if (!_askEveryoneOn(projectId)) return;
     _onOpenMic.add(projectId);
+  }
+
+  /// 0155's `ask_everyone_on`: your own shared parts are answered yes by the
+  /// act of publishing, everybody else with a shared part is asked once,
+  /// and the answer is whether the song may go out now.
+  bool _askEveryoneOn(String projectId) {
+    final asked = <String, List<String>>{};
+    for (final take in _takes) {
+      if (take.projectId != projectId || !take.shared) continue;
+      if (take.recordedBy == currentUserId) {
+        final existing = _consents[take.id];
+        if (existing == null || existing.agreed == null) {
+          _consents[take.id] = _Consent(userId: currentUserId, agreed: true);
+        }
+        continue;
+      }
+      if (_consents.containsKey(take.id)) continue;
+      _consents[take.id] = _Consent(userId: take.recordedBy, agreed: null);
+      asked.putIfAbsent(take.recordedBy, () => <String>[]).add(take.part);
+    }
+    final title = _projectTitle(projectId);
+    for (final entry in asked.entries) {
+      final parts = entry.value.toSet().toList()..sort();
+      _tell(
+        entry.key,
+        type: NotificationType.partQuestion,
+        title: '${_nameOf(currentUserId)} wants to put $title in front of '
+            'everybody',
+        body: 'With your ${PartQuestion.partsInWords(parts)} on it. It waits '
+            'until you answer, and you can take your part back off it later.',
+        projectId: projectId,
+        actorId: currentUserId,
+      );
+    }
+    return !_takes.any((take) =>
+        take.projectId == projectId &&
+        take.shared &&
+        (_consents[take.id]?.agreed == null));
+  }
+
+  String _projectTitle(String projectId) {
+    for (final room in _rooms) {
+      for (final project in room.projects) {
+        if (project.id == projectId) return project.title;
+      }
+    }
+    return 'A song';
+  }
+
+  @override
+  Future<List<PartQuestion>> partQuestionsForMe() async {
+    final bySong = <String, List<String>>{};
+    for (final take in _takes) {
+      final consent = _consents[take.id];
+      if (consent == null || consent.userId != currentUserId) continue;
+      if (consent.agreed != null || !take.shared) continue;
+      bySong.putIfAbsent(take.projectId, () => <String>[]).add(take.part);
+    }
+    return <PartQuestion>[
+      for (final entry in bySong.entries)
+        PartQuestion(
+          projectId: entry.key,
+          songTitle: _projectTitle(entry.key),
+          askedById: _roomOf(entry.key)?.accountId,
+          askedByName: _nameOf(_roomOf(entry.key)?.accountId ?? ''),
+          parts: entry.value.toSet().toList()..sort(),
+          askedAt: DateTime.now(),
+        ),
+    ];
+  }
+
+  @override
+  Future<void> answerForMyPart(String projectId, {required bool yes}) async {
+    var touched = 0;
+    for (final take in _takes) {
+      final consent = _consents[take.id];
+      if (take.projectId != projectId || consent?.userId != currentUserId) {
+        continue;
+      }
+      _consents[take.id] = _Consent(userId: currentUserId, agreed: yes);
+      touched += 1;
+    }
+    if (touched == 0) {
+      throw PostgrestException(
+        message: 'Nobody has asked about your part on this song.',
+        code: '22023',
+      );
+    }
+    final title = _projectTitle(projectId);
+    final up = _onOpenMic.contains(projectId);
+    var cameDown = false;
+    if (!yes && up) {
+      final hasReference = _rooms
+          .expand((room) => room.projects)
+          .any((project) => project.id == projectId && project.hasAudioReference);
+      final anythingLeft = _takes.any(
+          (take) => take.projectId == projectId && _takeIsPublic(take));
+      if (!hasReference && !anythingLeft) {
+        _onOpenMic.remove(projectId);
+        cameDown = true;
+      }
+    }
+    final parts = PartQuestion.partsInWords(<String>{
+      for (final take in _takes)
+        if (take.projectId == projectId &&
+            take.shared &&
+            _consents[take.id]?.userId == currentUserId)
+          take.part,
+    }.toList()..sort());
+    final who = _nameOf(currentUserId);
+    final String said;
+    final String body;
+    if (yes) {
+      said = '$who said yes';
+      body = up
+          ? 'Their $parts is on $title for everybody now.'
+          : '$title can go out with their $parts on it.';
+    } else {
+      said = '$who is leaving their part out';
+      body = cameDown
+          ? 'Nothing was left to hear on $title, so it came down.'
+          : up
+              ? '$title is still up, without their $parts.'
+              : '$title can still go out without it.';
+    }
+    for (final member in _roomOf(projectId)?.members ?? const <RoomMember>[]) {
+      if (member.role != RoomRole.owner) continue;
+      _tell(
+        member.userId,
+        type: NotificationType.projectUpdate,
+        title: said,
+        body: body,
+        projectId: projectId,
+        actorId: currentUserId,
+      );
+    }
   }
 
   @override
@@ -2930,4 +3222,30 @@ class LeftPractice {
   final int? startMs;
   final int? endMs;
   final String? note;
+}
+
+/// A take as this repository knows it: enough of `song_layers` to say whose
+/// parts a song carries and whether the room has heard them (0155).
+class _TakeOnSong {
+  const _TakeOnSong({
+    required this.id,
+    required this.projectId,
+    required this.recordedBy,
+    required this.part,
+    this.shared = true,
+  });
+
+  final String id;
+  final String projectId;
+  final String recordedBy;
+  final String part;
+  final bool shared;
+}
+
+/// One row of 0155's `take_consents`. [agreed] null is waiting.
+class _Consent {
+  const _Consent({required this.userId, required this.agreed});
+
+  final String userId;
+  final bool? agreed;
 }

@@ -346,8 +346,36 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         await _showFinished(project);
       case SongAudienceChoice.takeOffShowcase:
         await _takeOffShowcase(project);
+      case SongAudienceChoice.putMyPartOn:
+        await _answerForMyPart(project, yes: true);
+      case SongAudienceChoice.takeMyPartOff:
+        await _answerForMyPart(project, yes: false);
     }
     if (mounted) await _loadAudience();
+  }
+
+  /// Your own part, in or out (0155). No confirmation either way: a yes
+  /// can be taken back from the same button, and pulling a part is the
+  /// move nobody should ever be questioned about.
+  Future<void> _answerForMyPart(SongProject project,
+      {required bool yes}) async {
+    final controller = BetaScope.of(context, listen: false);
+    try {
+      await controller.repository.answerForMyPart(project.id, yes: yes);
+      if (!mounted) return;
+      _showMessage(yes
+          ? 'Your part goes out with ${project.title}.'
+          : 'Your part stays with the room.');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage(reportAndDescribe(
+        error,
+        service: 'app',
+        stage: 'answer_for_my_part',
+        projectId: project.id,
+        route: 'Song',
+      ));
+    }
   }
 
   /// Whether a choice puts the song in front of people the room never chose.
@@ -365,6 +393,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         SongAudienceChoice.invite => false,
         SongAudienceChoice.takeOffOpenMic => false,
         SongAudienceChoice.takeOffShowcase => false,
+        // Your own part on a song somebody else is putting out. Whose song
+        // it is was answered before anybody could be asked about it.
+        SongAudienceChoice.putMyPartOn => false,
+        SongAudienceChoice.takeMyPartOff => false,
       };
 
   /// Whether a choice sends the song further out than it is now.
@@ -377,6 +409,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         SongAudienceChoice.showFinished => true,
         SongAudienceChoice.takeOffOpenMic => false,
         SongAudienceChoice.takeOffShowcase => false,
+        SongAudienceChoice.putMyPartOn => false,
+        SongAudienceChoice.takeMyPartOff => false,
       };
 
   /// The answer, from either the dial or the song menu. False if it did not
@@ -508,10 +542,20 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     try {
       await controller.repository.showSong(project.id);
       if (!mounted) return;
+      // Shown, or waiting on somebody's yes (0155). The call says neither;
+      // the audience says both, and names who is still to answer.
+      final audience =
+          await controller.repository.songAudience(project.id);
+      if (!mounted) return;
+      final waiting = audience != null &&
+          !audience.onShowcase &&
+          audience.waitingOn.isNotEmpty;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
-          content: Text('${project.title} is on the showcase.'),
+          content: Text(waiting
+              ? waitingOnSentence(audience)
+              : '${project.title} is on the showcase.'),
         ));
     } catch (error) {
       if (!mounted) return;
@@ -1265,8 +1309,9 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         title: Text('Put ${project.title} on the Open Mic?'),
         content: const Text(
           'Anybody signed in can find it, listen to it, and offer to play on '
-          'it. Only the takes your room has already heard become audible — '
-          'nothing anybody is still working on privately.'
+          'it. Everybody with a part on it is asked first, and only the '
+          'parts they say yes to become audible — nothing anybody is still '
+          'working on privately.'
           '\n\n'
           'You can take it down again whenever you like.',
         ),
@@ -1286,6 +1331,20 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     try {
       await controller.repository.putOnOpenMic(project.id);
       if (!mounted) return;
+      // Up, or waiting on somebody's yes (0155). The call says neither; the
+      // audience says both, and names who is still to answer. Nobody is
+      // offered notifications for a song that has not gone anywhere yet.
+      final audience =
+          await controller.repository.songAudience(project.id);
+      if (!mounted) return;
+      if (audience != null &&
+          !audience.onOpenMic &&
+          audience.waitingOn.isNotEmpty) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(waitingOnSentence(audience))));
+        return;
+      }
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(

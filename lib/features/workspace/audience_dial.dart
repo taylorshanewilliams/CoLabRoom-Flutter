@@ -145,6 +145,20 @@ class AudienceDial extends StatelessWidget {
 const String whyCoversStayHome =
     'Songs by somebody else stay with the people you choose.';
 
+/// "Jess", "Jess and Dev", "Jess, Dev and Mara". For the sentence that says
+/// who a song is still waiting on -- names, never a number (0155).
+String namesInASentence(List<String> names) {
+  if (names.isEmpty) return 'nobody';
+  if (names.length == 1) return names.single;
+  return '${names.sublist(0, names.length - 1).join(', ')} and ${names.last}';
+}
+
+/// What to say when a press put nothing up because the song is waiting on
+/// somebody's answer. Said instead of "is on the Open Mic", never as well.
+String waitingOnSentence(SongAudience audience) =>
+    'Asked ${namesInASentence(audience.waitingOn)}. It goes up once '
+    'everybody on it has answered.';
+
 /// The dial opened up: the whole gradient, with where this song sits on it.
 ///
 /// Shows all four positions rather than only the current one, because the
@@ -223,9 +237,51 @@ Future<SongAudienceChoice?> showAudienceSheet(
               title: 'Anyone',
               body: closedAtTheTop
                   ? whyCoversStayHome
-                  : 'On the Open Mic. Only the takes your room has already '
-                      'heard become audible — never a private one.',
+                  : 'On the Open Mic. Everybody with a part on it is asked '
+                      'first, and only the parts they say yes to become '
+                      'audible — never a private one.',
             ),
+
+            // Who has answered, in words. Every Musician, Same Song, 17
+            // September 2026: everyone on it says yes before it goes out.
+            // A name and a sentence each, never a count or a bar, because
+            // "who" is the question and a tally is a way of hurrying people.
+            if (audience.answers.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 18),
+              const Text(
+                'EVERYONE ON IT',
+                style: TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.1,
+                ),
+              ),
+              const SizedBox(height: 8),
+              for (final answer in audience.answers)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 7),
+                  child: Row(
+                    children: <Widget>[
+                      PlayerFace(name: answer.name, size: 26),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          answer.inWords,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: answer.answer == PartAnswer.waiting
+                                ? AppColors.muted
+                                : AppColors.text,
+                            fontSize: 13.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
 
             if (audience.listeners.isNotEmpty) ...<Widget>[
               const SizedBox(height: 18),
@@ -360,10 +416,43 @@ Future<SongAudienceChoice?> showAudienceSheet(
                 side: const BorderSide(color: AppColors.line),
               ),
             ),
+            // Your own part, whoever you are. Anybody can pull their part
+            // from a public song, and put it back, from here: the one place
+            // that already says who can hear it. Absent when nobody has
+            // asked you, which is every song that has never left the room.
+            if (audience.myAnswer != null) ...<Widget>[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                key: const Key('audience_my_part'),
+                onPressed: () => Navigator.pop(
+                  sheetContext,
+                  audience.myAnswer == PartAnswer.yes
+                      ? SongAudienceChoice.takeMyPartOff
+                      : SongAudienceChoice.putMyPartOn,
+                ),
+                icon: Icon(
+                  audience.myAnswer == PartAnswer.yes
+                      ? Icons.remove_circle_outline_rounded
+                      : Icons.check_circle_outline_rounded,
+                  size: 18,
+                ),
+                label: Text(
+                  audience.myAnswer == PartAnswer.yes
+                      ? 'Take my part off it'
+                      : 'Put my part on it',
+                ),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(46),
+                  foregroundColor: AppColors.text,
+                  side: const BorderSide(color: AppColors.line),
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
             const Text(
-              'You can move a song back down at any time. Nothing you have '
-              'not shared is ever audible.',
+              'You can move a song back down at any time, and anybody can '
+              'take their own part off it. Nothing you have not shared is '
+              'ever audible.',
               style: TextStyle(
                   color: AppColors.muted, fontSize: 11.5, height: 1.4),
             ),
@@ -386,6 +475,14 @@ enum SongAudienceChoice {
 
   /// Off the showcase, still finished. Unpublishing is not un-finishing.
   takeOffShowcase,
+
+  /// Yes to your own part going in front of everybody on this song (0155),
+  /// from the dial rather than the inbox -- for changing your mind.
+  putMyPartOn,
+
+  /// Pulling your part. The song stays up without it, or comes down if
+  /// nothing audible is left.
+  takeMyPartOff,
 }
 
 class _Step extends StatelessWidget {

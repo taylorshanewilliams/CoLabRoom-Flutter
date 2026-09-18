@@ -1670,6 +1670,10 @@ enum NotificationType {
   /// 0141. The song rides on the notification, so the card opens its takes
   /// at the note.
   momentNote,
+  /// Somebody wants to put a song with your part on it in front of
+  /// everybody, migration 0155. Answered from the card at the top of the
+  /// inbox, or from the song's dial, never from the notification itself.
+  partQuestion,
   /// A type this build has not met. Shown with the title and body the
   /// server wrote, opens nothing, and — the point — never refuses to load
   /// the app. Every type is unknown to some build in the field.
@@ -1694,6 +1698,7 @@ NotificationType notificationTypeFromSql(String value) => switch (value) {
       'connection_accepted' => NotificationType.connectionAccepted,
       'call_started' => NotificationType.callStarted,
       'moment_note' => NotificationType.momentNote,
+      'part_question' => NotificationType.partQuestion,
       _ => NotificationType.unfamiliar,
     };
 
@@ -1830,7 +1835,26 @@ class SongAudience {
     this.roomName = '',
     this.roomIcon = '',
     this.openMicAt,
+    this.answers = const <PersonsAnswer>[],
+    this.myAnswer,
   });
+
+  /// Everybody else with a shared part on the song who has been asked
+  /// whether it may go in front of strangers, and what they said (0155).
+  /// Names and words, never a count: the sheet reads "Jess has not answered
+  /// yet", not "1 of 2".
+  final List<PersonsAnswer> answers;
+
+  /// Your own answer about your parts on this song, or null when nobody has
+  /// asked you — because you have no shared part on it, or the song has
+  /// never been offered to strangers.
+  final PartAnswer? myAnswer;
+
+  /// The people the song is still waiting on, by name.
+  List<String> get waitingOn => <String>[
+        for (final answer in answers)
+          if (answer.answer == PartAnswer.waiting) answer.name,
+      ];
 
   /// The widest thing that is true, never a stored column: memberships change
   /// and a cached answer would go quietly wrong.
@@ -1870,6 +1894,92 @@ class SongAudience {
 }
 
 enum SongReach { justYou, room, invited, anyone }
+
+/// What somebody said about their part going in front of strangers.
+///
+/// Three answers and a fourth state, waiting, which is the one the song
+/// cannot go out in. No deadline sits behind it and nothing reminds anybody:
+/// a song waits for as long as its people take (Every Musician, Same Song,
+/// 17 September 2026).
+enum PartAnswer {
+  waiting,
+  yes,
+  no;
+
+  /// The server's word, as the app's own. Anything unfamiliar reads as
+  /// waiting, which is the answer that publishes nothing.
+  static PartAnswer fromWireName(String? value) => switch (value) {
+        'yes' => PartAnswer.yes,
+        'no' => PartAnswer.no,
+        _ => PartAnswer.waiting,
+      };
+}
+
+/// One person's answer, for the owner to read.
+class PersonsAnswer {
+  const PersonsAnswer({
+    required this.id,
+    required this.name,
+    required this.answer,
+  });
+
+  final String id;
+  final String name;
+  final PartAnswer answer;
+
+  /// The one line the sheet shows. Plain words, no number, no bar.
+  String get inWords => switch (answer) {
+        PartAnswer.waiting => '$name has not answered yet',
+        PartAnswer.yes => '$name said yes',
+        PartAnswer.no => '$name is leaving their part out',
+      };
+}
+
+/// A question waiting on you: somebody wants to put a song with your part
+/// on it in front of everybody (0155).
+///
+/// One per song, however many takes you have on it, and answered in one
+/// tap either way. [askedByName] is null when nobody asked -- a take you
+/// shared onto a song that was already out there asks you itself.
+class PartQuestion {
+  const PartQuestion({
+    required this.projectId,
+    required this.songTitle,
+    required this.parts,
+    required this.askedAt,
+    this.askedById,
+    this.askedByName,
+  });
+
+  final String projectId;
+  final String songTitle;
+  final String? askedById;
+  final String? askedByName;
+  final List<String> parts;
+  final DateTime askedAt;
+
+  String get headline => askedByName == null
+      ? '$songTitle is out there already'
+      : '$askedByName wants to put $songTitle in front of everybody';
+
+  /// What a yes would do, said before the tap. "bass" rather than a count
+  /// of takes, and "anybody" rather than the name of a surface, because a
+  /// yes covers the Open Mic and the showcase both.
+  String get detail =>
+      'With your ${partsInWords(parts)} on it. Anybody could hear it, and '
+      'you can take your part back off it later.';
+
+  /// "bass", "bass and vocal", "bass, keys and vocal". The one part with no
+  /// name of its own reads as "part". The same words the server uses.
+  static String partsInWords(List<String> parts) {
+    final named = <String>[
+      for (final part in parts) part == 'other' ? 'part' : part,
+    ];
+    if (named.isEmpty) return 'part';
+    if (named.length == 1) return named.single;
+    return '${named.sublist(0, named.length - 1).join(', ')} and ${named.last}';
+  }
+}
 
 /// Somebody who can hear a song.
 class SongListener {

@@ -346,6 +346,13 @@ void main() {
     test('a song remembers the answer, and a cover comes off the Open Mic',
         () async {
       final repository = InMemoryMusicRepository.seeded();
+      // Jess has a bass part on the seeded song, so since 0155 the first
+      // press asks her and puts nothing up. She says yes, and the owner
+      // presses again -- everyone_said_yes_test.dart is about that part.
+      await repository.putOnOpenMic('song-1');
+      repository.currentUserId = 'preview-jess';
+      await repository.answerForMyPart('song-1', yes: true);
+      repository.currentUserId = 'preview-user';
       await repository.putOnOpenMic('song-1');
       expect((await repository.songAudience('song-1'))!.onOpenMic, isTrue);
 
