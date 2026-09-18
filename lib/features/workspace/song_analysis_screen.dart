@@ -178,7 +178,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
       MaterialPageRoute<String>(
         builder: (_) => Scaffold(
           backgroundColor: AppColors.deepNavy,
-          body: ReferenceRecorderSheet(songTitle: widget.project.title),
+          body: ReferenceRecorderSheet(
+            songTitle: widget.project.title,
+            projectId: widget.project.id,
+          ),
         ),
         fullscreenDialog: true,
       ),

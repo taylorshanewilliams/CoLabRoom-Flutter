@@ -16,6 +16,7 @@ import '../../domain/practice_mark.dart';
 import '../../domain/song_analysis_models.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../services/horn_reading.dart';
 import '../../services/music_reference.dart' show noteInKey;
 import '../../services/pitch.dart';
 import '../../services/pitch_listener.dart';
@@ -30,6 +31,7 @@ import 'musician_sheet_line.dart';
 import 'musician_sheet_logic.dart';
 import 'practice_marks.dart';
 import 'practice_rules.dart';
+import 'song_reading_store.dart';
 import 'song_transpose_store.dart';
 
 enum LiveScrollMode { off, synced, slow, medium, fast, timed }
@@ -184,6 +186,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// 17 September 2026). Read from this device and never from Follow me: a
   /// leader moves where the song is, not what key a follower reads it in.
   int _transpose = 0;
+
+  /// The instrument this person reads the song for, as they left it on the
+  /// sheet's key badge. Stacks on [_transpose], and personal for the same
+  /// reason: a B♭ player and a guitarist follow the same leader through the
+  /// same song and read two different pages (Every Musician, Same Song, 17
+  /// September 2026).
+  HornReading _reading = HornReading.concert;
   double _fontScale = 1;
   Duration _songDuration = const Duration(minutes: 3, seconds: 30);
   Duration _elapsed = Duration.zero;
@@ -403,6 +412,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     if (reference != null) unawaited(_prepareAudio(reference));
     unawaited(_loadCountdownPrefs());
     unawaited(_loadTranspose());
+    unawaited(_loadReading());
 
     final together = widget.together;
     if (together != null) {
@@ -705,6 +715,16 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     setState(() => _transpose = kept);
     // A chord name changes width when it moves ("G" to "Bb"), which can move
     // where a line wraps and so where the synced scroll thinks it is.
+    _markOffsetsDirty();
+  }
+
+  /// The instrument this person reads the song for, chosen on the song
+  /// sheet's key badge and read back here so a horn player who set their part
+  /// up before rehearsal still has it on stage.
+  Future<void> _loadReading() async {
+    final kept = await SongReadingStore.load(widget.project.id);
+    if (!mounted || kept == _reading) return;
+    setState(() => _reading = kept);
     _markOffsetsDirty();
   }
 
@@ -1654,7 +1674,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
             _source != LiveLyricSource.songSheet ||
             !_showChords
         ? null
-        : keyAsPlayed(songKey, _transpose);
+        // A horn reading names both keys, because the written key is what
+        // this player reads and the concert key is what they have to say to
+        // everybody else before the count-in.
+        : _reading == HornReading.concert
+            ? 'Key of ${keyAsPlayed(songKey, _transpose)}'
+            : keyAsRead(songKey, transpose: _transpose, reading: _reading);
+    // The person's key with their instrument's transposition on top, which
+    // is what every chord and every note name under a word is written in.
+    final readTranspose = _transpose + _reading.semitones;
     // The key the chords and the note names are spelled by: the song's own
     // key before the move, which is what chordAsPlayed and noteAsPlayed both
     // take. Not playedKey above -- that one is the badge under the title, and
@@ -1721,7 +1749,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         if (playedKey != null) ...<Widget>[
                           const SizedBox(height: 4),
                           Text(
-                            'Key of $playedKey',
+                            playedKey,
                             key: const Key('live_key'),
                             textAlign: TextAlign.center,
                             style: TextStyle(
@@ -1746,7 +1774,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                             fontSize: lyricSize,
                             compact: landscape,
                             showChords: _showChords,
-                            transpose: _transpose,
+                            transpose: readTranspose,
                             musicalKey: spellingKey,
                             active: _mode == LiveScrollMode.synced &&
                                 _lineKey(i) == _activeLineKey,
@@ -1828,7 +1856,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         melody: _melody,
                         // Sing along compares against the tune in the key
                         // this person reads the song in, not the recording's.
+                        // The reading goes with it so the row is named the
+                        // same way as the notes under the words -- see
+                        // _YouAndTheSong: the comparison stays in concert
+                        // pitch, only the two names move, and they move
+                        // together.
                         transpose: _transpose,
+                        reading: _reading,
                         musicalKey: spellingKey,
                         singing: _singing,
                         onSing: _toggleSinging,
@@ -2366,6 +2400,7 @@ class _LiveControls extends StatelessWidget {
     required this.onSeek,
     this.melody,
     required this.transpose,
+    this.reading = HornReading.concert,
     this.musicalKey,
     this.singing = false,
     this.onSing,
@@ -2396,6 +2431,10 @@ class _LiveControls extends StatelessWidget {
   /// How far this person has moved the song, and the song's key before the
   /// move: the tune is asked for in the key they are reading in.
   final int transpose;
+
+  /// The instrument the part is written for, which names the two notes in the
+  /// row without changing what is compared. See _YouAndTheSong.
+  final HornReading reading;
   final String? musicalKey;
 
   final bool singing;
@@ -2574,6 +2613,7 @@ class _LiveControls extends StatelessWidget {
                   heard: heard,
                   target: melody?.noteAt(elapsed.inMilliseconds),
                   transpose: transpose,
+                  reading: reading,
                   musicalKey: musicalKey,
                   error: singError,
                 ),
@@ -2683,11 +2723,21 @@ class _LiveControls extends StatelessWidget {
 /// told to sing the recording's pitch, two semitones from every chord in
 /// front of them. Both notes are spelled by the key that lands in, so the
 /// same pitch cannot read B♭ on one side of the row and A♯ on the other.
+///
+/// A horn reading names both of them too, and by the same amount. Naming one
+/// side written and the other concert would put two names for one pitch on
+/// one screen, which is the thing the paragraph above exists to stop -- and
+/// the note names under the words are already written, because they ride the
+/// same transpose as the chords over them. Shifting both sides equally leaves
+/// the comparison underneath untouched: it is still the microphone against
+/// the recording, in concert pitch, so a singer who sings the right note is
+/// still told they are on it (review, 17 September 2026).
 class _YouAndTheSong extends StatelessWidget {
   const _YouAndTheSong({
     required this.heard,
     required this.target,
     required this.transpose,
+    this.reading = HornReading.concert,
     this.musicalKey,
     this.error,
   });
@@ -2698,14 +2748,22 @@ class _YouAndTheSong extends StatelessWidget {
   /// Semitones this person has moved the song, and the song's key before the
   /// move.
   final int transpose;
+
+  /// The instrument the part in front of them is written for. It names the
+  /// notes and nothing else.
+  final HornReading reading;
   final String? musicalKey;
   final String? error;
 
   @override
   Widget build(BuildContext context) {
     final targetMidi = target == null ? null : target!.midi + transpose;
-    final readingKey =
-        musicalKey == null ? null : keyAsPlayed(musicalKey!, transpose);
+    // How far the two names move, and the key they are spelled by once they
+    // have. The pitches themselves do not move.
+    final written = reading.semitones;
+    final readingKey = musicalKey == null
+        ? null
+        : keyAsPlayed(musicalKey!, transpose + written);
     final verdict = singingVerdict(heard?.midi, targetMidi);
     final accent = switch (verdict) {
       Singing.onIt => AppColors.green,
@@ -2726,7 +2784,9 @@ class _YouAndTheSong extends StatelessWidget {
               const Text('You', style: TextStyle(color: AppColors.muted, fontSize: 10.5, fontWeight: FontWeight.w700)),
               const SizedBox(width: 6),
               Text(
-                heard == null ? '—' : noteInKey(heard!.midi, readingKey),
+                heard == null
+                    ? '—'
+                    : noteInKey(heard!.midi + written, readingKey),
                 key: const Key('live_you_note'),
                 style: noteStyle.copyWith(color: heard == null ? AppColors.muted : accent),
               ),
@@ -2736,7 +2796,9 @@ class _YouAndTheSong extends StatelessWidget {
               const Text('Song', style: TextStyle(color: AppColors.muted, fontSize: 10.5, fontWeight: FontWeight.w700)),
               const SizedBox(width: 6),
               Text(
-                targetMidi == null ? '—' : noteInKey(targetMidi, readingKey),
+                targetMidi == null
+                    ? '—'
+                    : noteInKey(targetMidi + written, readingKey),
                 key: const Key('live_song_note'),
                 style: noteStyle.copyWith(color: target == null ? AppColors.muted : AppColors.gold),
               ),

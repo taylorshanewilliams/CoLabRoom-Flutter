@@ -5,6 +5,7 @@ import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/continuous_song_editor.dart';
 import 'package:colabroom/services/chord_beat_grid.dart';
 import 'package:colabroom/services/chord_names.dart';
+import 'package:colabroom/services/horn_reading.dart';
 import 'package:colabroom/services/music_reference.dart';
 
 class MusicianSheetLine {
@@ -437,6 +438,29 @@ String chordAsPlayed(String chord, {required int transpose, String? key}) =>
 String keyAsPlayed(String key, int transpose) {
   final moved = transposeChord(key, transpose);
   return spellInKey(moved, moved);
+}
+
+/// The key line a horn player reads: the written key, with the concert key
+/// always beside it -- "For B♭ · written in E · concert D".
+///
+/// [key] is the song's own key, [transpose] the semitones this person has
+/// moved it, and [reading] the instrument they read for. The concert key is
+/// never dropped: a horn player calling a tune to the rest of the band has to
+/// say the key everybody else is in, and a part that only knows its own key
+/// is how a rehearsal loses five minutes (Every Musician, Same Song, 17
+/// September 2026).
+///
+/// In concert pitch it is just the key, because there is no second key to
+/// name and a sheet should not label something that has not changed.
+String keyAsRead(
+  String key, {
+  required int transpose,
+  required HornReading reading,
+}) {
+  final concert = keyAsPlayed(key, transpose);
+  if (reading == HornReading.concert) return concert;
+  final written = keyAsPlayed(key, transpose + reading.semitones);
+  return 'For ${reading.label} · written in $written · concert $concert';
 }
 
 /// A sung note as the person reading the song sees it: [transpose] semitones

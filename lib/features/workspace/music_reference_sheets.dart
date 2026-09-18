@@ -7,8 +7,10 @@ import '../../services/set_aside.dart';
 import '../../services/what_works_here.dart';
 
 import '../../app/colabroom_theme.dart';
+import '../../services/horn_reading.dart';
 import '../../services/music_reference.dart';
 import 'guitar_chord_diagram.dart';
+import 'musician_sheet_logic.dart' show keyAsPlayed;
 
 /// The reference sheets, opened from the thing they describe.
 ///
@@ -51,16 +53,110 @@ Future<void> showChordReference(
   );
 }
 
-Future<void> showKeyReference(BuildContext context, String keyLabel) {
-  final reference = keyReference(keyLabel);
-  if (reference == null) return Future<void>.value();
+/// The key, and — when the caller can remember it — which instrument this
+/// person reads it for.
+///
+/// [keyLabel] is the concert key as this person plays it. [onReading] is what
+/// makes the sheet a picker rather than a chart: the key badge is where
+/// somebody already goes to ask about the key, so it is where the answer to
+/// "which key is this for me" belongs, one small row rather than a banner on
+/// the sheet (Every Musician, Same Song, 17 September 2026).
+Future<void> showKeyReference(
+  BuildContext context,
+  String keyLabel, {
+  HornReading reading = HornReading.concert,
+  ValueChanged<HornReading>? onReading,
+}) {
+  if (keyReference(keyLabel) == null) return Future<void>.value();
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
     backgroundColor: AppColors.deepNavy,
-    builder: (_) => _KeyReferenceSheet(reference: reference),
+    builder: (_) => _KeyReferenceSheet(
+      concertKey: keyLabel,
+      reading: reading,
+      onReading: onReading,
+    ),
   );
+}
+
+/// The same choice, from somewhere with no key badge to hang it on.
+///
+/// The chart has no badge, and a song whose analysis never found a key has
+/// none on the sheet either — so on those the reading could be neither chosen
+/// nor cleared, which is the one control a horn player actually came for
+/// (review, 17 September 2026). With a key it opens the key sheet the badge
+/// opens, so there is one answer and not two; without one it opens the row on
+/// its own, because the chords still move even when nothing can be said about
+/// the key they are in.
+Future<void> showReadingChoice(
+  BuildContext context, {
+  String? keyLabel,
+  required HornReading reading,
+  required ValueChanged<HornReading> onReading,
+}) {
+  final key = keyLabel;
+  if (key != null && keyReference(key) != null) {
+    return showKeyReference(context, key, reading: reading,
+        onReading: onReading);
+  }
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    backgroundColor: AppColors.deepNavy,
+    builder: (_) => _ReadingChoiceSheet(
+      reading: reading,
+      onReading: onReading,
+    ),
+  );
+}
+
+/// The Read as row alone, for a song with no key to describe.
+class _ReadingChoiceSheet extends StatefulWidget {
+  const _ReadingChoiceSheet({required this.reading, required this.onReading});
+
+  final HornReading reading;
+  final ValueChanged<HornReading> onReading;
+
+  @override
+  State<_ReadingChoiceSheet> createState() => _ReadingChoiceSheetState();
+}
+
+class _ReadingChoiceSheetState extends State<_ReadingChoiceSheet> {
+  late HornReading _reading = widget.reading;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetFrame(
+      key: const Key('reading_choice_sheet'),
+      title: 'Read as',
+      // No key was found for this song, so there is no second key to name —
+      // only what the chords in front of you are written for.
+      subtitle: _reading == HornReading.concert
+          ? 'Chords as the band plays them'
+          : 'Chords written for ${_reading.label}',
+      children: <Widget>[
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: <Widget>[
+            for (final reading in HornReading.values)
+              _ReadingChip(
+                reading: reading,
+                selected: reading == _reading,
+                onTap: () {
+                  if (reading == _reading) return;
+                  setState(() => _reading = reading);
+                  widget.onReading(reading);
+                },
+              ),
+          ],
+        ),
+      ],
+    );
+  }
 }
 
 class _ChordReferenceSheet extends StatelessWidget {
@@ -195,18 +291,70 @@ class _ChordReferenceSheet extends StatelessWidget {
   }
 }
 
-class _KeyReferenceSheet extends StatelessWidget {
-  const _KeyReferenceSheet({required this.reference});
+class _KeyReferenceSheet extends StatefulWidget {
+  const _KeyReferenceSheet({
+    required this.concertKey,
+    required this.reading,
+    this.onReading,
+  });
 
-  final KeyReference reference;
+  /// The key everybody else in the room is in.
+  final String concertKey;
+  final HornReading reading;
+  final ValueChanged<HornReading>? onReading;
+
+  @override
+  State<_KeyReferenceSheet> createState() => _KeyReferenceSheetState();
+}
+
+class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
+  late HornReading _reading = widget.reading;
+
+  /// The key as this person's instrument writes it, which is what the scale,
+  /// the chords and the capo rows below are all about: a sax player asking
+  /// what is in this key wants their own seven notes, not the band's.
+  String get _written => keyAsPlayed(widget.concertKey, _reading.semitones);
+
+  void _choose(HornReading reading) {
+    if (reading == _reading) return;
+    setState(() => _reading = reading);
+    widget.onReading?.call(reading);
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Transposing a real key always lands on a real key, so this cannot be
+    // null once showKeyReference has checked the one it was handed.
+    final reference = keyReference(_written)!;
+    // The band's key, never dropped from a transposed part: it is what this
+    // player has to say out loud to everybody else.
+    final concert =
+        keyReference(widget.concertKey)?.display ?? widget.concertKey;
     return _SheetFrame(
       key: const Key('key_reference_sheet'),
       title: reference.display,
-      subtitle: 'Relative ${reference.relative}',
+      subtitle: _reading == HornReading.concert
+          ? 'Relative ${reference.relative}'
+          : 'Relative ${reference.relative} · concert $concert',
       children: <Widget>[
+        if (widget.onReading != null) ...<Widget>[
+          _Section(
+            heading: 'Read as',
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final reading in HornReading.values)
+                  _ReadingChip(
+                    reading: reading,
+                    selected: reading == _reading,
+                    onTap: () => _choose(reading),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+        ],
         _Section(
           heading: 'The scale',
           child: Wrap(
@@ -248,25 +396,33 @@ class _KeyReferenceSheet extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 14),
-        if (reference.capo.isEmpty)
-          const _Note(
-            'This key already sits under open chords — no capo needed.',
-          )
-        else
-          _Section(
-            heading: 'With a capo',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                for (final (fret, shapeKey) in reference.capo)
-                  _Row(
-                    label: 'Capo $fret',
-                    value: 'play the $shapeKey shapes',
-                  ),
-              ],
+        // Only in concert pitch. A capo is a guitar answer about the key the
+        // band is in; worked out from a written key it names frets that put
+        // the guitar a tone away from everybody else, and it means nothing at
+        // all to the instrument the reading was chosen for. The scale, the
+        // pentatonic and the chords above are right in the written key and
+        // stay (review, 17 September 2026).
+        if (_reading == HornReading.concert) ...<Widget>[
+          const SizedBox(height: 14),
+          if (reference.capo.isEmpty)
+            const _Note(
+              'This key already sits under open chords — no capo needed.',
+            )
+          else
+            _Section(
+              heading: 'With a capo',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  for (final (fret, shapeKey) in reference.capo)
+                    _Row(
+                      label: 'Capo $fret',
+                      value: 'play the $shapeKey shapes',
+                    ),
+                ],
+              ),
             ),
-          ),
+        ],
       ],
     );
   }
@@ -414,6 +570,58 @@ class _NoteChip extends StatelessWidget {
             style: const TextStyle(color: AppColors.muted, fontSize: 9.5),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// One instrument to read the song for.
+///
+/// Listed flat and in a fixed order, the way the plan asks readings to be
+/// listed: four languages for the same song, never a ladder from easy to
+/// advanced. Nothing here says what anybody plays.
+class _ReadingChip extends StatelessWidget {
+  const _ReadingChip({
+    required this.reading,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final HornReading reading;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        key: Key('read_as_${reading.name}'),
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.gold.withValues(alpha: 0.16)
+                : AppColors.raised,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected
+                  ? AppColors.gold.withValues(alpha: 0.55)
+                  : AppColors.line,
+            ),
+          ),
+          child: Text(
+            reading.label,
+            style: TextStyle(
+              color: selected ? AppColors.gold : AppColors.text,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -6,15 +6,26 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
+import '../../services/horn_reading.dart';
 import '../../widgets/microphone_disclosure.dart';
 import '../../widgets/problem_report.dart';
 import 'metronome_sheet.dart';
+import 'song_reading_store.dart';
 import 'tuner_sheet.dart';
 
 class ReferenceRecorderSheet extends StatefulWidget {
-  const ReferenceRecorderSheet({required this.songTitle, super.key});
+  const ReferenceRecorderSheet({
+    required this.songTitle,
+    this.projectId,
+    super.key,
+  });
 
   final String songTitle;
+
+  /// The song this take belongs to, so the tuner beside the record button can
+  /// name notes the way this person reads that song. Null where no song is
+  /// known, which leaves the tuner in concert pitch.
+  final String? projectId;
 
   @override
   State<ReferenceRecorderSheet> createState() => _ReferenceRecorderSheetState();
@@ -29,6 +40,25 @@ class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
   bool _recording = false;
   bool _saving = false;
   Duration _elapsed = Duration.zero;
+
+  /// The instrument this person reads this song for, so the tuner can offer
+  /// written note names. Read once, here, because the tuner opens on a tap
+  /// and has nothing to wait on.
+  HornReading _reading = HornReading.concert;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadReading());
+  }
+
+  Future<void> _loadReading() async {
+    final projectId = widget.projectId;
+    if (projectId == null) return;
+    final kept = await SongReadingStore.load(projectId);
+    if (!mounted || kept == _reading) return;
+    setState(() => _reading = kept);
+  }
 
   @override
   void dispose() {
@@ -212,7 +242,8 @@ class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
                     children: <Widget>[
                       TextButton.icon(
                         key: const Key('open_tuner'),
-                        onPressed: () => TunerSheet.show(context),
+                        onPressed: () =>
+                            TunerSheet.show(context, reading: _reading),
                         icon: const Icon(Icons.tune_rounded, size: 18),
                         label: const Text('Tuner'),
                         style: TextButton.styleFrom(

@@ -4,9 +4,12 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
+import '../../services/horn_reading.dart';
+import '../../services/pitch.dart';
 import '../../services/pitch_listener.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
+import 'tuner_reference_store.dart';
 
 /// A tuner, on the sheet you record from.
 ///
@@ -19,21 +22,34 @@ import '../../widgets/microphone_disclosure.dart';
 /// thousand samples at a time, and each frame is asked one question by
 /// `detectPitch`. Nothing is written anywhere.
 class TunerSheet extends StatefulWidget {
-  const TunerSheet({this.openStream, super.key});
+  const TunerSheet({
+    this.openStream,
+    this.reading = HornReading.concert,
+    super.key,
+  });
 
   /// Where the samples come from. Production leaves this null and uses the
   /// microphone; a test hands in a sine wave.
   final Future<Stream<Uint8List>> Function()? openStream;
 
+  /// The instrument this person reads the song for, when the tuner was opened
+  /// from a song that knows. It only offers a second way of naming the note
+  /// that is sounding; the microphone hears concert pitch either way.
+  final HornReading reading;
+
   static const int sampleRate = 44100;
   static const int frame = 4096;
   static const int hop = 2048;
 
-  static Future<void> show(BuildContext context) => showModalBottomSheet<void>(
+  static Future<void> show(
+    BuildContext context, {
+    HornReading reading = HornReading.concert,
+  }) =>
+      showModalBottomSheet<void>(
         context: context,
         backgroundColor: AppColors.deepNavy,
         isScrollControlled: true,
-        builder: (_) => const TunerSheet(),
+        builder: (_) => TunerSheet(reading: reading),
       );
 
   @override
@@ -51,14 +67,47 @@ class _TunerSheetState extends State<TunerSheet> {
   );
   String? _error;
 
+  /// What this tuner calls A, kept on this device. See TunerReferenceStore.
+  int _a4 = TunerReferenceStore.standard;
+
+  /// Whether the reference was moved before the kept one arrived, so a slow
+  /// read cannot undo the press. The same guard the sheet's transpose has:
+  /// on a cold launch the first press can land before preferences have
+  /// opened, and the screen must not then disagree with what is stored.
+  bool _referenceTouched = false;
+
+  /// Whether the note is named the way this person's instrument writes it.
+  /// Off until asked for: the note that is sounding is the true answer, and
+  /// the written name is the convenience on top of it.
+  bool _written = false;
+
   @override
   void initState() {
     super.initState();
     _ear.reading.addListener(_changed);
     _ear.listening.addListener(_changed);
+    unawaited(_loadReference());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_listen());
     });
+  }
+
+  Future<void> _loadReference() async {
+    final kept = await TunerReferenceStore.load();
+    if (!mounted || _referenceTouched || kept == _a4) return;
+    setState(() => _a4 = kept);
+  }
+
+  void _shiftReference(int delta) {
+    final next = (_a4 + delta)
+        .clamp(TunerReferenceStore.lowest, TunerReferenceStore.highest)
+        .toInt();
+    if (next == _a4) return;
+    setState(() {
+      _referenceTouched = true;
+      _a4 = next;
+    });
+    unawaited(TunerReferenceStore.save(next));
   }
 
   void _changed() {
@@ -99,10 +148,23 @@ class _TunerSheetState extends State<TunerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final reading = _ear.reading.value;
+    // The ear always hears a frequency; what that frequency is *called*
+    // depends on what this person is calling A, so the naming happens here
+    // rather than inside the listener Perform shares. 440 is a convention,
+    // not a fact: a player sitting in with an orchestra at 442, or with a
+    // baroque group at 415, should not be told they are sharp all evening.
+    final reading = readPitch(_ear.reading.value?.hz, a4: _a4.toDouble());
     final listening = _ear.listening.value;
     final inTune = reading?.inTune ?? false;
     final accent = inTune ? AppColors.green : AppColors.gold;
+    // The note as this person's instrument writes it, when they have asked
+    // for that. The pitch underneath is unchanged -- a trumpet's written C
+    // is still a concert B♭ coming out of the bell.
+    final (String name, int octave) = reading == null
+        ? ('', 0)
+        : _written
+            ? writtenNote(widget.reading, reading.midi)
+            : (reading.name, reading.octave);
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
@@ -156,7 +218,7 @@ class _TunerSheetState extends State<TunerSheet> {
                         text: TextSpan(
                           children: <InlineSpan>[
                             TextSpan(
-                              text: reading.name,
+                              text: name,
                               style: TextStyle(
                                 color: accent,
                                 fontSize: 78,
@@ -165,7 +227,7 @@ class _TunerSheetState extends State<TunerSheet> {
                               ),
                             ),
                             TextSpan(
-                              text: '${reading.octave}',
+                              text: '$octave',
                               style: const TextStyle(
                                 color: AppColors.muted,
                                 fontSize: 26,
@@ -191,7 +253,57 @@ class _TunerSheetState extends State<TunerSheet> {
                 fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 10),
+            // What A is, one hertz at a time. The same shape as the sheet's
+            // transpose control, because it is the same kind of thing: a
+            // personal setting on the thing in front of you, not a mode.
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                IconButton(
+                  tooltip: 'Lower reference',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _a4 <= TunerReferenceStore.lowest
+                      ? null
+                      : () => _shiftReference(-1),
+                  icon: const Icon(Icons.remove_rounded, size: 18),
+                ),
+                Text(
+                  'A = $_a4 Hz',
+                  key: const Key('tuner_reference'),
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Raise reference',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _a4 >= TunerReferenceStore.highest
+                      ? null
+                      : () => _shiftReference(1),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                ),
+              ],
+            ),
+            // Only offered to somebody who has already said they read for a
+            // horn, on the song they said it on. Everybody else has one way
+            // of naming a note and does not need to be asked about it.
+            if (widget.reading != HornReading.concert)
+              TextButton(
+                key: const Key('tuner_written_names'),
+                onPressed: () => setState(() => _written = !_written),
+                style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+                child: Text(
+                  _written
+                      ? 'Written for ${widget.reading.label}'
+                      : 'Concert names',
+                  style: const TextStyle(fontSize: 11),
+                ),
+              ),
+            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: TextButton(

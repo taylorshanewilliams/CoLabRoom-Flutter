@@ -106,8 +106,9 @@ TonightCard? composeTonight({
 /// [seen] is what the person has closed -- release shas, song-and-chord
 /// ids, prompt ids -- so nothing comes back once it has been dismissed.
 ///
-/// [songTranspose] is how far this person has moved [song] on this device
-/// (SongTransposeStore), so the chord move is named in the key its sheet
+/// [songTranspose] is how far this person has moved [song] on this device --
+/// their own key (SongTransposeStore) with their instrument's part on top of
+/// it (SongReadingStore) -- so the chord move is named in the key its sheet
 /// opens in.
 List<TonightCard> composeTonightCards({
   required DateTime today,

@@ -1,6 +1,7 @@
 import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_line.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
+import 'package:colabroom/services/horn_reading.dart';
 import 'package:flutter/material.dart';
 
 /// A "physical paper" chord+lyric sheet — chords sit directly above the word
@@ -17,6 +18,8 @@ class MusicianSongSheet extends StatelessWidget {
     required this.transpose,
     required this.fontScale,
     required this.showChords,
+    this.reading = HornReading.concert,
+    this.onReading,
     this.editableChords = false,
     this.selectedChordStartMs,
     this.onEditChord,
@@ -28,6 +31,15 @@ class MusicianSongSheet extends StatelessWidget {
   final List<MusicianSheetLine> lines;
   final String? musicalKey;
   final int transpose;
+
+  /// The instrument this person reads the song for, stacked on top of
+  /// [transpose]: a B♭ player in a band that took the song down two still
+  /// needs it down two. Personal, and never shared with the room.
+  final HornReading reading;
+
+  /// Where a new choice goes. Null on a sheet that has nowhere to keep one,
+  /// which leaves the key badge the chart it always was.
+  final ValueChanged<HornReading>? onReading;
   final double fontScale;
   final bool showChords;
   final bool editableChords;
@@ -41,6 +53,9 @@ class MusicianSongSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final key = musicalKey;
+    // What the chords and the key on this sheet are written in: the person's
+    // own key, then their instrument's transposition on top of it.
+    final written = transpose + reading.semitones;
     final approximate = lines.any((line) => line.approximateTiming);
     return Container(
       key: const Key('musician_song_sheet'),
@@ -135,6 +150,8 @@ class MusicianSongSheet extends StatelessWidget {
                       onTap: () => showKeyReference(
                         context,
                         keyAsPlayed(key, transpose),
+                        reading: reading,
+                        onReading: onReading,
                       ),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -147,9 +164,11 @@ class MusicianSongSheet extends StatelessWidget {
                         ),
                         child: Column(
                           children: <Widget>[
-                            const Text(
-                              'KEY',
-                              style: TextStyle(
+                            Text(
+                              reading == HornReading.concert
+                                  ? 'KEY'
+                                  : 'KEY FOR ${reading.label}',
+                              style: const TextStyle(
                                 color: Color(0xFF667263),
                                 fontSize: 7.5,
                                 fontWeight: FontWeight.w800,
@@ -160,7 +179,7 @@ class MusicianSongSheet extends StatelessWidget {
                             // reason: a badge reads as a label, and nobody
                             // taps a label.
                             Text(
-                              keyAsPlayed(key, transpose),
+                              keyAsPlayed(key, written),
                               style: TextStyle(
                                 color: const Color(0xFF244A37),
                                 fontSize: 15,
@@ -171,6 +190,19 @@ class MusicianSongSheet extends StatelessWidget {
                                     .withValues(alpha: 0.55),
                               ),
                             ),
+                            // The band's key, never dropped: the written key
+                            // is what this player reads, and the concert key
+                            // is what they have to say out loud when they
+                            // call the tune.
+                            if (reading != HornReading.concert)
+                              Text(
+                                'concert ${keyAsPlayed(key, transpose)}',
+                                style: const TextStyle(
+                                  color: Color(0xFF667263),
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -202,7 +234,7 @@ class MusicianSongSheet extends StatelessWidget {
                           else
                             MusicianChordLyricLine(
                               line: line,
-                              transpose: transpose,
+                              transpose: written,
                               musicalKey: key,
                               fontScale: fontScale,
                               showChords: showChords,
