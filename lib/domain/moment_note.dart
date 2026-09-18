@@ -21,6 +21,7 @@ class MomentNote {
     this.endMs,
     this.authorName,
     this.onSharedTake = true,
+    this.voicePath,
   });
 
   final String id;
@@ -53,7 +54,23 @@ class MomentNote {
   /// only they will ever read.
   final bool onSharedTake;
 
+  /// Where what was said is kept, for a note that was spoken rather than
+  /// typed (0152). Null for a typed note, whose [body] is the whole of it.
+  ///
+  /// A spoken note is the same object as a typed one — a moment, and
+  /// something about it — because a teacher with a guitar in their hands
+  /// would rather say it (Every Musician, Same Song, 17 September 2026).
+  final String? voicePath;
+
   final DateTime createdAt;
+
+  bool get isSpoken => voicePath != null;
+
+  /// As long as a spoken note may run. A minute is room to say "there, and
+  /// again at the turnaround" and play the bar; longer than that is a
+  /// lesson, not a note. Nothing shows how long one is, only that it is
+  /// there — the plan keeps durations off every screen.
+  static const Duration spokenLimit = Duration(seconds: 60);
 
   /// How far before the moment playback starts.
   ///

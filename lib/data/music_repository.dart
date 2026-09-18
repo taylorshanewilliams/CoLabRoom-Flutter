@@ -788,8 +788,26 @@ abstract interface class MusicRepository {
     int? endMs,
   });
 
+  /// Pins what somebody said at [atMs] of a recording (0152).
+  ///
+  /// The audio goes up first, the way a line voice note does, and the row
+  /// is written once the bytes are there; if either half does not land,
+  /// this throws rather than leaving a note that plays nothing. [roomId] is
+  /// the first segment of the storage path, which every policy on the
+  /// bucket reads.
+  Future<MomentNote> addSpokenMomentNote({
+    required String roomId,
+    required String projectId,
+    required int atMs,
+    required Uint8List bytes,
+    String? layerId,
+  });
+
+  /// What was said, for a note with a voice. Throws for a typed note.
+  Future<Uint8List> loadSpokenNote(MomentNote note);
+
   /// Takes back a note you left. Yours only, and nothing is said about a
-  /// note that is not.
+  /// note that is not. A spoken note's audio goes with it.
   Future<void> deleteMomentNote(MomentNote note);
 
   /// Who is looking for what you play, as counts per part.

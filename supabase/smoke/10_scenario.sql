@@ -6988,6 +6988,179 @@ end $$;
 
 reset role;
 
+-- ---------------------------------------------------------------------
+-- A spoken note at a moment (0152).
+--
+-- Every Musician, Same Song, 17 September 2026, slice 23. The teacher says
+-- something at 1:48 of the take the student sent them, in 0141's lesson
+-- room further up this file. It is a moment_notes row with a voice and no
+-- words, and every rule a typed note has still holds: the student who
+-- played it can read it and is told once, somebody outside the room can
+-- neither read it nor leave one, and only the teacher can take it back.
+-- A note has to say something, the voice has to live in this song's own
+-- folder, and one object is one note.
+--
+-- Not here: the storage policies the audio goes through. The shim grants
+-- storage.objects to service_role only (see 0148's block), so a read or a
+-- write as authenticated would be refused on the grant whatever the policy
+-- said, and a check that cannot fail for the right reason proves nothing.
+-- ---------------------------------------------------------------------
+
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('5011e500-0000-0000-0000-000000000152', 'passer.by@smoke.test',
+   '{"display_name": "Passer By"}');
+
+-- The teacher says it.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  spoken uuid;
+begin
+  -- No words and no voice is not a note.
+  begin
+    insert into public.moment_notes (project_id, layer_id, at_ms)
+    values ('5011e500-0000-0000-0000-00000000014b',
+            '5011e500-0000-0000-0000-00000000014c', 108000);
+    raise exception 'a note with neither words nor a voice was accepted';
+  exception when check_violation then null;
+  end;
+
+  -- The voice has to live in this song's own folder, or the read policy
+  -- would hand out whatever object the row pointed at.
+  begin
+    insert into public.moment_notes (project_id, layer_id, at_ms, voice_path)
+    values ('5011e500-0000-0000-0000-00000000014b',
+            '5011e500-0000-0000-0000-00000000014c', 108000,
+            '5011e500-0000-0000-0000-00000000014a/44444444-4444-4444-4444-444444444444/moments/elsewhere.wav');
+    raise exception 'a spoken note pointing into another song''s folder was accepted';
+  exception when check_violation then null;
+  end;
+
+  insert into public.moment_notes (project_id, layer_id, at_ms, voice_path)
+  values ('5011e500-0000-0000-0000-00000000014b',
+          '5011e500-0000-0000-0000-00000000014c', 108000,
+          '5011e500-0000-0000-0000-00000000014a/5011e500-0000-0000-0000-00000000014b/moments/said-at-148.wav')
+  returning id into spoken;
+  perform set_config('smoke.spoken_note', spoken::text, true);
+
+  if not exists (
+    select 1 from public.moment_notes
+    where id = spoken and body is null and on_shared_take is true
+  ) then
+    raise exception 'a spoken note on a sent take did not come back as the room''s, with no words';
+  end if;
+
+  -- One object is one note.
+  begin
+    insert into public.moment_notes (project_id, layer_id, at_ms, voice_path)
+    values ('5011e500-0000-0000-0000-00000000014b',
+            '5011e500-0000-0000-0000-00000000014c', 109000,
+            '5011e500-0000-0000-0000-00000000014a/5011e500-0000-0000-0000-00000000014b/moments/said-at-148.wav');
+    raise exception 'two notes were allowed to share one recording';
+  exception when unique_violation then null;
+  end;
+end $$;
+
+-- The student, who played it, was told -- by a card that says the note was
+-- spoken, rather than by one with nothing on it. Read without a role, the
+-- way 0141's block reads who was told.
+reset role;
+do $$
+begin
+  if not exists (
+    select 1 from public.notifications
+    where user_id = '5011e500-0000-0000-0000-000000000141'
+      and type = 'moment_note'
+      and actor_id = '11111111-1111-1111-1111-111111111111'
+      and title = 'The Writer left a note at 1:48'
+      and body = 'Said out loud'
+  ) then
+    raise exception 'the person who played the take was not told a note was spoken on it';
+  end if;
+end $$;
+
+-- And can read it.
+set local request.jwt.claims = '{"sub": "5011e500-0000-0000-0000-000000000141", "email": "the.student@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  if not exists (
+    select 1 from public.moment_notes
+    where id = current_setting('smoke.spoken_note')::uuid
+      and voice_path is not null
+  ) then
+    raise exception 'the person who played the take could not read a spoken note on it';
+  end if;
+
+  -- Not theirs to take back.
+  perform public.delete_moment_note(current_setting('smoke.spoken_note')::uuid);
+  if not exists (
+    select 1 from public.moment_notes
+    where id = current_setting('smoke.spoken_note')::uuid
+  ) then
+    raise exception 'somebody other than its author took back a spoken note';
+  end if;
+end $$;
+
+-- Somebody outside the room gets nothing, and may leave nothing.
+reset role;
+set local request.jwt.claims = '{"sub": "5011e500-0000-0000-0000-000000000152", "email": "passer.by@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (
+    select 1 from public.moment_notes
+    where id = current_setting('smoke.spoken_note')::uuid
+  ) then
+    raise exception 'somebody outside the room could read a spoken note';
+  end if;
+
+  begin
+    insert into public.moment_notes (project_id, layer_id, at_ms, voice_path)
+    values ('5011e500-0000-0000-0000-00000000014b',
+            '5011e500-0000-0000-0000-00000000014c', 5000,
+            '5011e500-0000-0000-0000-00000000014a/5011e500-0000-0000-0000-00000000014b/moments/uninvited.wav');
+    raise exception 'somebody outside the room left a spoken note';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- The teacher takes it back, and it is gone for the student too.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.delete_moment_note(current_setting('smoke.spoken_note')::uuid);
+  if exists (
+    select 1 from public.moment_notes
+    where id = current_setting('smoke.spoken_note')::uuid
+  ) then
+    raise exception 'the author could not take back a spoken note';
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "5011e500-0000-0000-0000-000000000141", "email": "the.student@smoke.test"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (
+    select 1 from public.moment_notes
+    where id = current_setting('smoke.spoken_note')::uuid
+  ) then
+    raise exception 'a spoken note taken back was still readable by the person it was about';
+  end if;
+end $$;
+
+reset role;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;

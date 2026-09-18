@@ -2567,9 +2567,48 @@ class InMemoryMusicRepository implements MusicRepository {
     return note;
   }
 
+  /// What was said, by storage path, the way [_voiceNoteBytes] keeps a line's
+  /// voice note.
+  final Map<String, Uint8List> _spokenNoteBytes = <String, Uint8List>{};
+
+  @override
+  Future<MomentNote> addSpokenMomentNote({
+    required String roomId,
+    required String projectId,
+    required int atMs,
+    required Uint8List bytes,
+    String? layerId,
+  }) async {
+    final id = 'moment-${_momentNotes.length + 1}';
+    final path = '$roomId/$projectId/moments/$id.wav';
+    final note = MomentNote(
+      id: id,
+      projectId: projectId,
+      layerId: layerId,
+      atMs: atMs < 0 ? 0 : atMs,
+      body: '',
+      voicePath: path,
+      authorId: currentUserId,
+      authorName: 'Taylor',
+      onSharedTake: layerId == null || !draftLayerIds.contains(layerId),
+      createdAt: DateTime.now(),
+    );
+    _spokenNoteBytes[path] = Uint8List.fromList(bytes);
+    _momentNotes.add(note);
+    return note;
+  }
+
+  @override
+  Future<Uint8List> loadSpokenNote(MomentNote note) async {
+    final bytes = _spokenNoteBytes[note.voicePath];
+    if (bytes == null) throw StateError('That note is no longer here.');
+    return Uint8List.fromList(bytes);
+  }
+
   @override
   Future<void> deleteMomentNote(MomentNote note) async {
     // Yours only, the way the function behind this is (0141).
+    if (note.authorId == currentUserId) _spokenNoteBytes.remove(note.voicePath);
     _momentNotes.removeWhere(
       (kept) => kept.id == note.id && kept.authorId == currentUserId,
     );
