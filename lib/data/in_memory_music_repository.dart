@@ -11,6 +11,7 @@ import '../domain/lesson_link.dart';
 import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
+import '../domain/sealed_take.dart';
 import '../domain/sung_in.dart';
 import '../domain/song_analysis_models.dart';
 import '../domain/tonight_models.dart';
@@ -3103,6 +3104,91 @@ class InMemoryMusicRepository implements MusicRepository {
     _momentNotes.removeWhere(
       (kept) => kept.id == note.id && kept.authorId == currentUserId,
     );
+  }
+
+  /// What time it is, for the one thing in here that waits for a day to
+  /// come (0158). A test moves it; the app never does.
+  DateTime Function() clock = DateTime.now;
+
+  /// The takes that are put away, and until when. Nothing is kept about a
+  /// seal that has ended, the way 0158 keeps nothing.
+  final Map<String, ({DateTime sealedAt, DateTime until})> _seals =
+      <String, ({DateTime sealedAt, DateTime until})>{};
+
+  /// Whether a take is sealed, for a test's stand-in for the takes list:
+  /// that list is SongLayerService's and not this repository's, and what it
+  /// leaves out is what the database would not hand back.
+  bool isPutAway(String takeId) => _seals.containsKey(takeId);
+
+  @override
+  Future<DateTime> sealTake(String layerId, {required DateTime until}) async {
+    // The same refusals, in the same words and with the same code, as
+    // seal_take and the trigger under it (0158). One answer for a take that
+    // is not there and a take that is not yours.
+    final take = _takes
+        .where((one) => one.id == layerId && one.recordedBy == currentUserId)
+        .firstOrNull;
+    if (take == null) {
+      throw const PostgrestException(message: 'No such take.', code: '22023');
+    }
+    final already = _seals[layerId];
+    if (already != null) return already.until;
+    if (take.shared) {
+      throw const PostgrestException(
+        message: 'Only a take nobody else has heard can be sealed.',
+        code: '22023',
+      );
+    }
+    final now = clock();
+    if (!until.isAfter(now)) {
+      throw const PostgrestException(
+        message: 'Pick a day that has not come yet.',
+        code: '22023',
+      );
+    }
+    final furthest = DateTime(now.year + sealForAtMostYears, now.month,
+        now.day, now.hour, now.minute, now.second);
+    if (until.isAfter(furthest)) {
+      throw const PostgrestException(
+        message: 'Ten years is as far as a seal goes.',
+        code: '22023',
+      );
+    }
+    _seals[layerId] = (sealedAt: now, until: until);
+    return until;
+  }
+
+  @override
+  Future<List<SealedTake>> sealedTakesDue() async {
+    final now = clock();
+    final due = <SealedTake>[];
+    for (final take in _takes) {
+      final seal = _seals[take.id];
+      if (seal == null || take.recordedBy != currentUserId) continue;
+      if (seal.until.isAfter(now)) continue;
+      // A song that is gone has no take list to go back to.
+      final room = _roomOf(take.projectId);
+      if (room == null) continue;
+      due.add(SealedTake(
+        id: take.id,
+        projectId: take.projectId,
+        songTitle: _projectTitle(take.projectId),
+        storagePath: '${room.id}/${take.projectId}/layers/${take.id}.m4a',
+        part: take.part,
+        sealedAt: seal.sealedAt,
+        opensAt: seal.until,
+      ));
+    }
+    due.sort((a, b) => a.opensAt.compareTo(b.opensAt));
+    return due;
+  }
+
+  @override
+  Future<void> unsealTake(String layerId) async {
+    // Yours only, and quiet when there is nothing to end.
+    final mine = _takes.any(
+        (one) => one.id == layerId && one.recordedBy == currentUserId);
+    if (mine) _seals.remove(layerId);
   }
 
   @override

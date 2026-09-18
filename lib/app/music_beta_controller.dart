@@ -8,6 +8,7 @@ import '../data/music_repository.dart';
 import '../domain/lesson_link.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
+import '../domain/sealed_take.dart';
 import '../domain/song_analysis_models.dart';
 import '../domain/tonight_models.dart';
 import '../services/kept_songs.dart';
@@ -277,6 +278,49 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  List<SealedTake> _sealedTakesDue = const <SealedTake>[];
+
+  /// The takes this person sealed whose day has come (0158), earliest first.
+  /// Empty on nearly every day of anybody's year.
+  List<SealedTake> get sealedTakesDue => List<SealedTake>.unmodifiable(
+      _sealedTakesDue.where((take) => !_sealsEnded.contains(take.id)));
+
+  /// The seals answered since the app opened. A reload that lands between
+  /// the tap and the server hearing about it would otherwise fetch the take
+  /// as still due and put the card straight back.
+  final Set<String> _sealsEnded = <String>{};
+
+  /// Seals a take until [until], and answers with the day it opens.
+  ///
+  /// Through here rather than straight to the repository so that a take
+  /// sealed a second time, in a session that already answered its first
+  /// card, is offered again when its new day comes.
+  Future<DateTime> sealTake(String layerId, {required DateTime until}) async {
+    final opens = await repository.sealTake(layerId, until: until);
+    _sealsEnded.remove(layerId);
+    return opens;
+  }
+
+  /// Ends a seal, whichever way its card was answered.
+  ///
+  /// Every Musician, Same Song, 17 September 2026: "Not now" ends it for
+  /// good, and so does playing it. The card goes before the server hears, the
+  /// way a dismissed piece of news does, and it is not put back if the call
+  /// fails: a card that returns after "Not now" is the one thing this must
+  /// never do while somebody is looking. A seal the server never heard about
+  /// is still a seal, so the next time the app opens it is offered again,
+  /// which is the honest outcome.
+  Future<void> endSeal(SealedTake take) async {
+    _sealsEnded.add(take.id);
+    notifyListeners();
+    try {
+      await retrying(() => repository.unsealTake(take.id));
+    } catch (error) {
+      unawaited(ErrorReporter().reportWarning(
+        service: 'app', stage: 'sealed_take.end', message: error.toString()));
+    }
+  }
+
   List<ActivityItem> _activity = const <ActivityItem>[];
 
   /// What the band has been doing, newest first, nobody's own actions.
@@ -464,6 +508,14 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       // What a lesson left to practise. Same bargain as Tonight.
       try {
         _practiceMarks = await repository.myPracticeMarks();
+      } catch (_) {
+        // Left as it was.
+      }
+      // A take sealed a year ago whose day has come (0158). Same bargain,
+      // and the kindest failure there is: the seal is still on the server,
+      // so a card that could not be fetched today is offered tomorrow.
+      try {
+        _sealedTakesDue = await repository.sealedTakesDue();
       } catch (_) {
         // Left as it was.
       }

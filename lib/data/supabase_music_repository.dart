@@ -12,6 +12,7 @@ import '../domain/lesson_link.dart';
 import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
+import '../domain/sealed_take.dart';
 import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
 import '../domain/song_analysis_models.dart' show SongAnalysisState;
@@ -3008,6 +3009,49 @@ class SupabaseMusicRepository implements MusicRepository {
       params: <String, dynamic>{'target_note': note.id},
     );
   }
+
+  @override
+  Future<DateTime> sealTake(String layerId, {required DateTime until}) async {
+    // The function answers with the day the take opens, which is [until]
+    // unless it was sealed already -- then it is the day it already had.
+    final opens = await client.rpc<dynamic>('seal_take', params: <String, dynamic>{
+      'target_layer': layerId,
+      'open_on': until.toUtc().toIso8601String(),
+    });
+    return DateTime.tryParse('$opens')?.toLocal() ?? until;
+  }
+
+  @override
+  Future<List<SealedTake>> sealedTakesDue() async {
+    final rows = await client.rpc<dynamic>('sealed_takes_due');
+    final now = DateTime.now();
+    return <SealedTake>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        _sealedTake(Map<String, dynamic>.from(row as Map), now),
+    ];
+  }
+
+  @override
+  Future<void> unsealTake(String layerId) async {
+    await client.rpc<void>(
+      'unseal_take',
+      params: <String, dynamic>{'target_layer': layerId},
+    );
+  }
+
+  SealedTake _sealedTake(Map<String, dynamic> row, DateTime now) => SealedTake(
+        id: row['layer_id'] as String,
+        projectId: row['project_id'] as String,
+        songTitle: row['song_title'] as String? ?? 'a song',
+        storagePath: row['storage_path'] as String? ?? '',
+        label: row['label'] as String? ?? '',
+        part: row['part'] as String? ?? 'other',
+        durationMs: (row['duration_ms'] as num?)?.toInt() ?? 0,
+        // A day that will not parse still has a card: "Earlier today" is a
+        // poorer sentence than "A year ago", and no sentence is poorer still.
+        sealedAt: DateTime.tryParse('${row['sealed_at']}')?.toLocal() ?? now,
+        opensAt: DateTime.tryParse('${row['sealed_until']}')?.toLocal() ?? now,
+      );
 
   MomentNote _momentNote(Map<String, dynamic> row) {
     final author = row['author'];

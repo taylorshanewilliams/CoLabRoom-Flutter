@@ -74,6 +74,10 @@ enum WaitingKind {
   /// What a followed session left to practise: the part, the speed, and
   /// the leader's note. See features/workspace/practice_marks.dart.
   practice,
+
+  /// A take you sealed, on the day it comes back (0158). See
+  /// features/songs/sealed_take_card.dart.
+  sealed,
 }
 
 class WaitingItem {
@@ -86,6 +90,7 @@ class WaitingItem {
     this.eyebrow,
     this.detail,
     this.onDismiss,
+    this.dismissLabel,
     this.who,
     this.whoAvatarPath,
     this.about,
@@ -126,6 +131,12 @@ class WaitingItem {
   /// disappear permanently would be how you never reply. Those hide for the
   /// session instead; see `_WaitingOnYouState._hiddenForNow`.
   final VoidCallback? onDismiss;
+
+  /// What the × is called, when neither "Clear" nor the session's "Not now"
+  /// says it. A sealed take's card is answered "Not now" and that answer is
+  /// final (Every Musician, Same Song, 17 September 2026), so its × carries
+  /// those words and a permanent dismissal at once.
+  final String? dismissLabel;
 
   /// Who did it, when somebody did.
   ///
@@ -174,6 +185,10 @@ class WaitingItem {
         // today". On the first device test it sat third, behind a release
         // note, which is backwards.
         WaitingKind.practice => 0,
+        // Beside Tonight and behind anything a person did: it happens once a
+        // year at most and it is quiet on purpose, so it does not shoulder
+        // past a bandmate's new take to be seen.
+        WaitingKind.sealed => 1,
         WaitingKind.request => 2,
         // Ahead of the chores: everything below it may be missing from this
         // phone, and the person on the other end of a request may be waiting
@@ -198,6 +213,7 @@ class WaitingItem {
         WaitingKind.firstTake => Icons.mic_rounded,
         WaitingKind.tonight => Icons.nightlight_round,
         WaitingKind.practice => Icons.repeat_rounded,
+        WaitingKind.sealed => Icons.lock_open_rounded,
       };
 
   Color get tint => switch (kind) {
@@ -210,6 +226,7 @@ class WaitingItem {
         WaitingKind.firstTake => AppColors.cyan,
         WaitingKind.tonight => AppColors.gold,
         WaitingKind.practice => AppColors.gold,
+        WaitingKind.sealed => AppColors.gold,
       };
 
   String get defaultEyebrow => switch (kind) {
@@ -222,6 +239,7 @@ class WaitingItem {
         WaitingKind.firstTake => 'When you have a minute',
         WaitingKind.tonight => 'Tonight',
         WaitingKind.practice => 'To practise',
+        WaitingKind.sealed => 'You sealed this',
       };
 }
 
@@ -637,7 +655,8 @@ class _WaitingCard extends StatelessWidget {
                 child: IconButton(
                   key: Key('waiting_close_${item.id}'),
                   onPressed: onDismiss,
-                  tooltip: item.onDismiss == null ? 'Not now' : 'Clear',
+                  tooltip: item.dismissLabel ??
+                      (item.onDismiss == null ? 'Not now' : 'Clear'),
                   visualDensity: VisualDensity.compact,
                   constraints:
                       const BoxConstraints(minWidth: 28, minHeight: 28),

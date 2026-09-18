@@ -6,6 +6,7 @@ import '../domain/lesson_link.dart';
 import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
+import '../domain/sealed_take.dart';
 import '../domain/tonight_models.dart';
 
 abstract interface class MusicRepository {
@@ -887,6 +888,28 @@ abstract interface class MusicRepository {
   /// Takes back a note you left. Yours only, and nothing is said about a
   /// note that is not. A spoken note's audio goes with it.
   Future<void> deleteMomentNote(MomentNote note);
+
+  /// Puts a take of your own away until [until] (0158), and answers with the
+  /// day it opens.
+  ///
+  /// Every Musician, Same Song, 17 September 2026. Only a take nobody else
+  /// has heard, and only a day that has not come, no further off than ten
+  /// years; anything else is refused in a sentence. Until that day the take
+  /// is out of the song's takes, kept by the retention sweep, and read by
+  /// nobody else. Sealing a take that is already sealed changes nothing and
+  /// answers with the day it already had.
+  Future<DateTime> sealTake(String layerId, {required DateTime until});
+
+  /// Your sealed takes whose day has come, earliest first. The server's
+  /// clock decides what "has come" means.
+  Future<List<SealedTake>> sealedTakesDue();
+
+  /// Ends a seal: "Play it now", "Not now", or Undo a moment after sealing.
+  ///
+  /// All three are the same act and nothing records which it was. The take
+  /// is back among the song's takes, still yours alone, and is not offered
+  /// again. Quiet when there is no seal to end.
+  Future<void> unsealTake(String layerId);
 
   /// Who is looking for what you play, as counts per part.
   Future<List<WantAround>> wantsAround();

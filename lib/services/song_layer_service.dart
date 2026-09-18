@@ -55,10 +55,27 @@ class SongLayerService {
         )
         .eq('project_id', projectId)
         .order('created_at');
-    return (rows as List<dynamic>)
-        .map((row) => SharedLayer.fromRow(Map<String, dynamic>.from(row as Map)))
+    return takesNotPutAway(rows as List<dynamic>)
+        .map(SharedLayer.fromRow)
         .toList(growable: false);
   }
+
+  /// The rows of a song's takes, without the ones that are sealed (0158).
+  ///
+  /// Every Musician, Same Song, 17 September 2026: a take somebody sealed is
+  /// put away until its day, so it is not in the list -- not to mix, not to
+  /// download, not as the "then" of then and now. Only ever the person's own
+  /// rows: the database hands nobody else a sealed take at all.
+  ///
+  /// Left out here, from the rows, rather than by a filter on the query. A
+  /// filter names the column, and a build that reaches a database the
+  /// migration has not reached yet would get an error instead of the takes;
+  /// a row with no such key simply is not sealed.
+  @visibleForTesting
+  static Iterable<Map<String, dynamic>> takesNotPutAway(List<dynamic> rows) =>
+      rows
+          .map((row) => Map<String, dynamic>.from(row as Map))
+          .where((row) => row['sealed_until'] == null);
 
   Future<List<SharedVersion>> listVersions(String projectId) async {
     final rows = await _client
