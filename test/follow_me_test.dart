@@ -546,12 +546,12 @@ void main() {
       expect(sent.playing, isFalse);
 
       // A decision goes out at once.
-      await tester.tap(find.byKey(const Key('live_rate_0.75')));
+      await tester.tap(find.byKey(const Key('live_rate_slower')));
       await tester.pump(const Duration(milliseconds: 120));
       final slower = FollowState.fromJson(
         bus.sent.lastWhere((message) => message['kind'] == 'lead')['state'],
       )!;
-      expect(slower.rate, 0.75);
+      expect(slower.rate, 0.9);
 
       await tester.tap(find.byKey(const Key('together_stop_leading')));
       await tester.pump();
@@ -594,7 +594,7 @@ void main() {
             of: find.byKey(Key(key)),
             matching: find.byType(ChoiceChip),
           ));
-      expect(chip('live_rate_0.75').selected, isTrue);
+      expect(find.text('¾'), findsOneWidget, reason: "the leader's speed is on the student's screen");
       expect(chip('live_loop_1').selected, isTrue);
 
       // The student makes the words bigger: still following.

@@ -14,11 +14,13 @@ void main() {
   const verse = StructureSection(startMs: 5000, endMs: 12000, label: 'Verse');
   const chorus = StructureSection(startMs: 12000, endMs: 20000, label: 'Chorus');
 
+  const chorusLoop = PracticeLoop(startMs: 12000, endMs: 20000, label: 'Chorus');
+
   group('the rules', () {
     test('past the end of the part on repeat, back to its start', () {
-      expect(keepInside(const Duration(seconds: 14), chorus), const Duration(seconds: 14));
-      expect(keepInside(const Duration(seconds: 20), chorus), const Duration(seconds: 12));
-      expect(keepInside(const Duration(seconds: 25), chorus), const Duration(seconds: 12));
+      expect(keepInside(const Duration(seconds: 14), chorusLoop), const Duration(seconds: 14));
+      expect(keepInside(const Duration(seconds: 20), chorusLoop), const Duration(seconds: 12));
+      expect(keepInside(const Duration(seconds: 25), chorusLoop), const Duration(seconds: 12));
       // Nothing on repeat: nothing moves.
       expect(keepInside(const Duration(seconds: 25), null), const Duration(seconds: 25));
     });
@@ -46,8 +48,25 @@ void main() {
       expect(sectionChipLabels(const <StructureSection>[named, chorus]), <String>['The build', 'Chorus']);
     });
 
-    test('the speeds have names a musician says', () {
-      expect(practiceRates.map(rateLabel), <String>['½', '¾', '1×']);
+    test('the speeds have names a musician says, and numbers where they do not', () {
+      expect(
+        practiceRates.map(rateLabel),
+        <String>['½', '60%', '70%', '¾', '80%', '90%', '1×'],
+      );
+    });
+
+    test('the speed steps one at a time, and stops at both ends', () {
+      expect(rateStep(1, faster: false), 0.9);
+      expect(rateStep(0.8, faster: false), 0.75);
+      expect(rateStep(0.75, faster: true), 0.8);
+      expect(rateStep(0.5, faster: false), isNull, reason: 'half is as slow as it goes');
+      expect(rateStep(1, faster: true), isNull);
+      // A rate kept by an older build is not one of these; the arrow still
+      // moves the song the way it points, to the nearest speed that way.
+      expect(rateStep(0.85, faster: false), 0.8);
+      expect(rateStep(0.85, faster: true), 0.9);
+      expect(rateStep(0.3, faster: false), isNull);
+      expect(rateStep(1.4, faster: true), isNull);
     });
   });
 
@@ -114,8 +133,11 @@ void main() {
     // practice row is there before anything is pressed.
     expect(find.byKey(const Key('live_practice_row')), findsOneWidget);
     expect(find.byKey(const Key('live_seek')), findsOneWidget);
-    expect(find.text('½'), findsOneWidget);
+    expect(find.byKey(const Key('live_rate')), findsOneWidget);
     expect(find.text('Chorus'), findsOneWidget);
+    // This recording was analysed before there was a beat grid, so there is
+    // nothing to count bars against and no bar controls at all.
+    expect(find.byKey(const Key('live_loop_bars')), findsNothing);
 
     bool selected(String key) => tester
         .widget<ChoiceChip>(find.descendant(
@@ -124,12 +146,11 @@ void main() {
         ))
         .selected;
 
-    // Slowing down is a choice that shows.
-    expect(selected('live_rate_1.0'), isTrue);
-    await tester.tap(find.byKey(const Key('live_rate_0.5')));
+    // Slowing down is a choice that shows, one step at a time.
+    expect(find.text('1×'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('live_rate_slower')));
     await tester.pump();
-    expect(selected('live_rate_0.5'), isTrue);
-    expect(selected('live_rate_1.0'), isFalse);
+    expect(find.text('90%'), findsOneWidget);
 
     // Tapping a part jumps there: the bar moves to 12s of 20s.
     await tester.tap(find.byKey(const Key('live_loop_2')));
@@ -153,8 +174,9 @@ void main() {
 
     // Tapping it again is the way out -- and, at full speed with nothing on
     // repeat, the stage behaviour comes back: the bar hides.
-    await tester.tap(find.byKey(const Key('live_rate_1.0')));
+    await tester.tap(find.byKey(const Key('live_rate_faster')));
     await tester.pump();
+    expect(find.text('1×'), findsOneWidget);
     await tester.tap(find.byKey(const Key('live_loop_2')));
     await tester.pump();
     expect(selected('live_loop_2'), isFalse);
