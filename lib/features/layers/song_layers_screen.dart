@@ -2923,120 +2923,125 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      TakeNaming.describe(take),
-                      style: const TextStyle(
-                          color: AppColors.text,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(_subtitleFor(layer),
+              // Scrolls when it has to. A sheet is at most nine sixteenths of
+              // the screen, and on a 640-pixel phone volume, timing and the
+              // seal come to fifteen pixels more than that.
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        TakeNaming.describe(take),
                         style: const TextStyle(
-                            color: AppColors.muted, fontSize: 12)),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: <Widget>[
-                        const Text('Volume',
-                            style: TextStyle(
-                                color: AppColors.text,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700)),
-                        const Spacer(),
-                        Text('${(gain * 100).round()}%',
-                            style: const TextStyle(
-                                color: AppColors.cyan,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800)),
-                      ],
-                    ),
-                    Slider(
-                      value: gain.clamp(0.0, 1.5),
-                      max: 1.5,
-                      divisions: 30,
-                      activeColor: AppColors.cyan,
-                      inactiveColor: AppColors.line,
-                      onChanged: (value) => setSheetState(() => gain = value),
-                      onChangeEnd: (value) => unawaited(_setGain(layer, value)),
-                      semanticFormatterCallback: (value) =>
-                          'Volume ${(value * 100).round()} percent',
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: <Widget>[
-                        const Text('Timing',
-                            style: TextStyle(
-                                color: AppColors.text,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700)),
-                        const Spacer(),
-                        IconButton(
-                          onPressed: () {
-                            unawaited(_nudge(layer, -10));
-                            Navigator.pop(sheetContext);
-                          },
-                          tooltip: '10 ms earlier',
-                          icon: const Icon(Icons.remove_rounded,
-                              color: AppColors.muted),
-                        ),
-                        Text('${layer.offsetMs} ms',
-                            style: const TextStyle(
-                                color: AppColors.text,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800)),
-                        IconButton(
-                          onPressed: () {
-                            unawaited(_nudge(layer, 10));
-                            Navigator.pop(sheetContext);
-                          },
-                          tooltip: '10 ms later',
-                          icon: const Icon(Icons.add_rounded,
-                              color: AppColors.muted),
-                        ),
-                      ],
-                    ),
-                    const Text(
-                      'A song with a song sheet times each take automatically. This is '
-                      'for the last few milliseconds.',
-                      style: TextStyle(
-                          color: AppColors.muted, fontSize: 11.5, height: 1.4),
-                    ),
-                    // Sealing, on the take's own sheet rather than on the
-                    // lane: the lane's 104 pixels already hold mute, levels
-                    // and delete, and this is pressed once a year rather
-                    // than once a take. Offered on exactly the takes Share
-                    // is offered on -- your own, that nobody else has heard
-                    // (0158 refuses the rest) -- and only inside the app,
-                    // where there is a repository to seal it through.
-                    if (!layer.isShared && _repository != null) ...<Widget>[
-                      const SizedBox(height: 10),
-                      TextButton.icon(
-                        key: const Key('seal_take'),
-                        onPressed: () {
-                          Navigator.pop(sheetContext);
-                          unawaited(_seal(layer));
-                        },
-                        icon: const Icon(Icons.lock_clock_outlined, size: 17),
-                        label: const Text(
-                          sealItLabel,
-                          style: TextStyle(
-                              fontSize: 13, fontWeight: FontWeight.w700),
-                        ),
-                        style: TextButton.styleFrom(
-                          foregroundColor: AppColors.gold,
-                          padding: EdgeInsets.zero,
-                          minimumSize: const Size(48, 44),
-                          alignment: Alignment.centerLeft,
-                        ),
+                            color: AppColors.text,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800),
                       ),
+                      const SizedBox(height: 2),
+                      Text(_subtitleFor(layer),
+                          style: const TextStyle(
+                              color: AppColors.muted, fontSize: 12)),
+                      const SizedBox(height: 18),
+                      Row(
+                        children: <Widget>[
+                          const Text('Volume',
+                              style: TextStyle(
+                                  color: AppColors.text,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700)),
+                          const Spacer(),
+                          Text('${(gain * 100).round()}%',
+                              style: const TextStyle(
+                                  color: AppColors.cyan,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800)),
+                        ],
+                      ),
+                      Slider(
+                        value: gain.clamp(0.0, 1.5),
+                        max: 1.5,
+                        divisions: 30,
+                        activeColor: AppColors.cyan,
+                        inactiveColor: AppColors.line,
+                        onChanged: (value) => setSheetState(() => gain = value),
+                        onChangeEnd: (value) => unawaited(_setGain(layer, value)),
+                        semanticFormatterCallback: (value) =>
+                            'Volume ${(value * 100).round()} percent',
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: <Widget>[
+                          const Text('Timing',
+                              style: TextStyle(
+                                  color: AppColors.text,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700)),
+                          const Spacer(),
+                          IconButton(
+                            onPressed: () {
+                              unawaited(_nudge(layer, -10));
+                              Navigator.pop(sheetContext);
+                            },
+                            tooltip: '10 ms earlier',
+                            icon: const Icon(Icons.remove_rounded,
+                                color: AppColors.muted),
+                          ),
+                          Text('${layer.offsetMs} ms',
+                              style: const TextStyle(
+                                  color: AppColors.text,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800)),
+                          IconButton(
+                            onPressed: () {
+                              unawaited(_nudge(layer, 10));
+                              Navigator.pop(sheetContext);
+                            },
+                            tooltip: '10 ms later',
+                            icon: const Icon(Icons.add_rounded,
+                                color: AppColors.muted),
+                          ),
+                        ],
+                      ),
+                      const Text(
+                        'A song with a song sheet times each take automatically. This is '
+                        'for the last few milliseconds.',
+                        style: TextStyle(
+                            color: AppColors.muted, fontSize: 11.5, height: 1.4),
+                      ),
+                      // Sealing, on the take's own sheet rather than on the
+                      // lane: the lane's 104 pixels already hold mute, levels
+                      // and delete, and this is pressed once a year rather
+                      // than once a take. Offered on exactly the takes Share
+                      // is offered on -- your own, that nobody else has heard
+                      // (0158 refuses the rest) -- and only inside the app,
+                      // where there is a repository to seal it through.
+                      if (!layer.isShared && _repository != null) ...<Widget>[
+                        const SizedBox(height: 10),
+                        TextButton.icon(
+                          key: const Key('seal_take'),
+                          onPressed: () {
+                            Navigator.pop(sheetContext);
+                            unawaited(_seal(layer));
+                          },
+                          icon: const Icon(Icons.lock_clock_outlined, size: 17),
+                          label: const Text(
+                            sealItLabel,
+                            style: TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.w700),
+                          ),
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.gold,
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(48, 44),
+                            alignment: Alignment.centerLeft,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             );

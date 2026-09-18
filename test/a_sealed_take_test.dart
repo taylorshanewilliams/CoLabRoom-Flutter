@@ -380,6 +380,84 @@ void main() {
       expect(find.text('Volume'), findsOneWidget);
       expect(find.text(sealItLabel), findsNothing);
     });
+
+    testWidgets('a note of their own on it is put away with it',
+        (tester) async {
+      final (repository, id) = _withADraft();
+      repository.draftLayerIds.add(id);
+      await repository.addMomentNote(
+        projectId: 'song-1',
+        layerId: id,
+        atMs: 0,
+        body: 'this is the hook, slow it down',
+      );
+      await _openTakes(tester, repository, <SharedLayer>[_mine(id)]);
+      expect(find.text('this is the hook, slow it down'), findsOneWidget);
+
+      await repository.sealTake(id, until: aYearOn(_sealedOn));
+      // Closed and opened again, so the screen loads rather than rebuilds.
+      await tester.pumpWidget(const SizedBox());
+      await _openTakes(tester, repository, <SharedLayer>[_mine(id)]);
+
+      // Not left behind pointing at "a take" nobody can find.
+      expect(find.byType(TakeLane), findsNothing);
+      expect(find.text('this is the hook, slow it down'), findsNothing);
+      expect(find.textContaining('Note at'), findsNothing);
+    });
+
+    testWidgets('the take\'s sheet still fits a small phone with the seal on it',
+        (tester) async {
+      final (repository, id) = _withADraft();
+      await _openTakes(tester, repository, <SharedLayer>[_mine(id)]);
+      tester.view.physicalSize = const Size(360, 640);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.tune_rounded));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      await tester.ensureVisible(find.text(sealItLabel));
+      await tester.pumpAndSettle();
+      expect(find.text(sealItLabel).hitTestable(), findsOneWidget);
+    });
+
+    testWidgets('a year on, the same evening, unless they say otherwise',
+        (tester) async {
+      // A small phone at the largest text: three sentences and a date have
+      // to scroll rather than overflow.
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      DateTime? answered;
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async =>
+                  answered = await askWhenToOpen(context, now: _sealedOn),
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      ));
+
+      await tester.tap(find.text('go'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Opens 18 September 2026'), findsOneWidget);
+
+      await tester.ensureVisible(find.byKey(const Key('seal_it')));
+      await tester.tap(find.byKey(const Key('seal_it')));
+      await tester.pumpAndSettle();
+
+      expect(answered, _theDay);
+    });
   });
 
   group('the date brings it back once', () {

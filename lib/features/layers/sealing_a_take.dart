@@ -38,6 +38,9 @@ Future<DateTime?> askWhenToOpen(BuildContext context, {DateTime? now}) {
     builder: (dialogContext) => StatefulBuilder(
       builder: (context, setDialogState) => AlertDialog(
         backgroundColor: AppColors.raised,
+        // Scrolls rather than overflowing at the largest text sizes: there
+        // are three sentences and a date in here, not one line.
+        scrollable: true,
         title: const Text('Seal this take?'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
