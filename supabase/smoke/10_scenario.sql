@@ -1789,6 +1789,15 @@ values
 
 select public.put_on_open_mic('aaaaaaaa-0000-0000-0000-00000000000a');
 
+-- Since 0155 the bandmate's bass (shared a few blocks up) is theirs to say
+-- yes to, so that press asked them and put nothing up. They say yes and the
+-- owner presses again. The 0155 block at the end of this file proves the
+-- waiting; here the song only has to get up.
+set local request.jwt.claims = '{"sub": "22222222-2222-2222-2222-222222222222"}';
+select public.answer_for_my_part('aaaaaaaa-0000-0000-0000-00000000000a', true);
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+select public.put_on_open_mic('aaaaaaaa-0000-0000-0000-00000000000a');
+
 -- A stranger: joiner one is in another catalog entirely.
 set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
 set local role authenticated;
@@ -1941,8 +1950,16 @@ values ('bbbbbbbb-0000-0000-0000-00000000000b', :'writer',
         'cccccccc-cccc-cccc-cccc-cccccccccccc/bbbbbbbb-0000-0000-0000-00000000000b/layers/bass.m4a',
         'Bass', 'bass', 30000, now());
 
-update public.projects set open_mic_at = now()
-where id = 'bbbbbbbb-0000-0000-0000-00000000000b';
+-- Put up the way the app does it since 0155, rather than by the plain
+-- update the table now refuses while somebody's part is unanswered: the
+-- owner asks, the writer says yes to their bass, the owner presses again.
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+select public.put_on_open_mic('bbbbbbbb-0000-0000-0000-00000000000b');
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+select public.answer_for_my_part('bbbbbbbb-0000-0000-0000-00000000000b', true);
+set local request.jwt.claims = '{"sub": "88888888-8888-8888-8888-888888888888", "email": "joiner.one@smoke.test"}';
+select public.put_on_open_mic('bbbbbbbb-0000-0000-0000-00000000000b');
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 set local role authenticated;
 
@@ -6984,6 +7001,489 @@ begin
     raise exception 'a closed link was made a class';
   exception when insufficient_privilege then null;
   end;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Everyone on it says yes before it goes out (0155).
+--
+-- Every Musician, Same Song, 17 September 2026. Three things have to hold.
+-- The owner alone cannot publish somebody else's take: the song waits until
+-- its player answers, and a plain update is refused the same way. Each
+-- person's yes is theirs: the owner's answer never reaches the bandmate's
+-- row, and a stranger has nothing to answer. Pulling a part removes it from
+-- the public song, which stays up without it -- or comes down when nothing
+-- audible is left. Along the way: one question per person however many
+-- times the owner presses, a take shared onto a song already out asks its
+-- own player, and the showcase waits like the Open Mic does.
+--
+-- Fresh actors and a fresh room, as 0142's block: the obvious second
+-- account is gone from profiles by this point in the file.
+-- ---------------------------------------------------------------------
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('e0e0e155-0000-0000-0000-000000000156', 'onbass@smoke.test',
+   '{"display_name": "On Bass"}'),
+  -- Never in the room. Nobody has asked them anything.
+  ('e0e0e155-0000-0000-0000-000000000157', 'passingby@smoke.test',
+   '{"display_name": "Passing By"}');
+
+insert into public.rooms (id, account_id, name)
+values ('e0e0e155-0000-0000-0000-000000000155',
+        '11111111-1111-1111-1111-111111111111', 'The Consent Room');
+
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('e0e0e155-0000-0000-0000-000000000155', '11111111-1111-1111-1111-111111111111',
+   'The Writer', 'owner', 4294937165),
+  ('e0e0e155-0000-0000-0000-000000000155', 'e0e0e155-0000-0000-0000-000000000156',
+   'On Bass', 'editor', 4283215697);
+
+insert into public.projects (id, room_id, account_id, title, created_by, song_origin) values
+  ('e0e0e155-0000-0000-0000-00000000015a', 'e0e0e155-0000-0000-0000-000000000155',
+   '11111111-1111-1111-1111-111111111111', 'Everyone On It',
+   '11111111-1111-1111-1111-111111111111', 'ours'),
+  -- No reference recording and one part, not the owner's: the song that
+  -- has nothing left when that part is pulled.
+  ('e0e0e155-0000-0000-0000-00000000015b', 'e0e0e155-0000-0000-0000-000000000155',
+   '11111111-1111-1111-1111-111111111111', 'Only Their Voice',
+   '11111111-1111-1111-1111-111111111111', 'ours');
+
+insert into public.song_layers
+  (id, project_id, recorded_by, storage_path, label, part, duration_ms, shared_at)
+values
+  ('e0e0e155-0000-0000-0000-00000000015c', 'e0e0e155-0000-0000-0000-00000000015a',
+   '11111111-1111-1111-1111-111111111111',
+   'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015a/layers/guitar.m4a',
+   'Guitar', 'rhythm', 30000, now()),
+  ('e0e0e155-0000-0000-0000-00000000015d', 'e0e0e155-0000-0000-0000-00000000015a',
+   'e0e0e155-0000-0000-0000-000000000156',
+   'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015a/layers/bass.m4a',
+   'Bass', 'bass', 30000, now()),
+  -- A draft. Nobody is asked about a take the room cannot hear.
+  ('e0e0e155-0000-0000-0000-00000000015e', 'e0e0e155-0000-0000-0000-00000000015a',
+   'e0e0e155-0000-0000-0000-000000000156',
+   'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015a/layers/draft.m4a',
+   'Scratch', 'bass', 9000, null),
+  ('e0e0e155-0000-0000-0000-00000000015f', 'e0e0e155-0000-0000-0000-00000000015b',
+   'e0e0e155-0000-0000-0000-000000000156',
+   'e0e0e155-0000-0000-0000-000000000155/e0e0e155-0000-0000-0000-00000000015b/layers/voice.m4a',
+   'Voice', 'vocal', 20000, now());
+
+-- The owner presses. Nothing goes up; the bandmate is asked.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  heard record;
+begin
+  if public.put_on_open_mic('e0e0e155-0000-0000-0000-00000000015a') is not null then
+    raise exception 'a song with somebody else''s part went up on the owner''s say-so';
+  end if;
+  if (select open_mic_at from public.projects
+        where id = 'e0e0e155-0000-0000-0000-00000000015a') is not null then
+    raise exception 'the owner alone published somebody else''s take';
+  end if;
+
+  -- The owner sees who has answered, in words: a name and 'waiting'.
+  select * into heard
+  from public.song_audience('e0e0e155-0000-0000-0000-00000000015a');
+  if not (heard.answers @> '[{"id": "e0e0e155-0000-0000-0000-000000000156", "answer": "waiting"}]'::jsonb) then
+    raise exception 'the dial did not say the bandmate was still to answer: %', heard.answers;
+  end if;
+  if heard.my_answer is distinct from 'yes' then
+    raise exception 'putting a song up was not the owner''s own yes (%)', heard.my_answer;
+  end if;
+
+  -- Refused at the table too: 0005 lets an owner write the column directly.
+  begin
+    update public.projects set open_mic_at = now()
+    where id = 'e0e0e155-0000-0000-0000-00000000015a';
+    raise exception 'a plain update put a song up while somebody had not answered';
+  exception when insufficient_privilege then null;
+  end;
+  if (select open_mic_at from public.projects
+        where id = 'e0e0e155-0000-0000-0000-00000000015a') is not null then
+    raise exception 'the plain update reached the Open Mic anyway';
+  end if;
+
+  -- Pressing again nags nobody. Asserted on the notifications below.
+  if public.put_on_open_mic('e0e0e155-0000-0000-0000-00000000015a') is not null then
+    raise exception 'a second press put the song up without the answer';
+  end if;
+end $$;
+
+reset role;
+do $$
+begin
+  -- One row per shared take, none for the draft. The owner's is their yes.
+  if (select agreed from public.take_consents
+        where layer_id = 'e0e0e155-0000-0000-0000-00000000015c') is not true then
+    raise exception 'the owner''s own part was not answered by the act of publishing';
+  end if;
+  if not exists (
+    select 1 from public.take_consents
+    where layer_id = 'e0e0e155-0000-0000-0000-00000000015d' and answered_at is null
+  ) then
+    raise exception 'the bandmate''s part was not asked about';
+  end if;
+  if exists (select 1 from public.take_consents
+             where layer_id = 'e0e0e155-0000-0000-0000-00000000015e') then
+    raise exception 'a draft nobody can hear was asked about';
+  end if;
+
+  -- One plain question, once, and not to the person who pressed.
+  if (select count(*) from public.notifications
+      where type = 'part_question'
+        and user_id = 'e0e0e155-0000-0000-0000-000000000156'
+        and project_id = 'e0e0e155-0000-0000-0000-00000000015a') <> 1 then
+    raise exception 'the bandmate was asked % times', (
+      select count(*) from public.notifications
+      where type = 'part_question'
+        and user_id = 'e0e0e155-0000-0000-0000-000000000156'
+        and project_id = 'e0e0e155-0000-0000-0000-00000000015a');
+  end if;
+  if not exists (
+    select 1 from public.notifications
+    where type = 'part_question'
+      and user_id = 'e0e0e155-0000-0000-0000-000000000156'
+      and title like '% wants to put Everyone On It in front of everybody'
+      and body like 'With your bass on it.%'
+  ) then
+    raise exception 'the question did not say what it was about';
+  end if;
+  if exists (
+    select 1 from public.notifications
+    where type = 'part_question'
+      and user_id = '11111111-1111-1111-1111-111111111111'
+      and project_id = 'e0e0e155-0000-0000-0000-00000000015a'
+  ) then
+    raise exception 'the owner was asked about their own song';
+  end if;
+end $$;
+
+-- A stranger hears nothing while the song waits, and has nothing to answer.
+set local request.jwt.claims = '{"sub": "e0e0e155-0000-0000-0000-000000000157"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.open_mic_song('e0e0e155-0000-0000-0000-00000000015a')) then
+    raise exception 'a waiting song was on the Open Mic';
+  end if;
+  if exists (select 1 from public.song_layers
+             where project_id = 'e0e0e155-0000-0000-0000-00000000015a') then
+    raise exception 'a stranger could read takes on a song that was not up';
+  end if;
+  begin
+    perform public.answer_for_my_part('e0e0e155-0000-0000-0000-00000000015a', true);
+    raise exception 'somebody with no part on the song answered for it';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+-- The bandmate finds the question, and says yes.
+reset role;
+set local request.jwt.claims = '{"sub": "e0e0e155-0000-0000-0000-000000000156"}';
+set local role authenticated;
+
+do $$
+declare
+  asked record;
+begin
+  select * into asked from public.part_questions_for_me();
+  if asked.project_id is distinct from 'e0e0e155-0000-0000-0000-00000000015a' then
+    raise exception 'the question was not waiting in the bandmate''s inbox';
+  end if;
+  if asked.parts <> array['bass'] then
+    raise exception 'the question named the wrong parts: %', asked.parts;
+  end if;
+  if asked.asked_by is distinct from '11111111-1111-1111-1111-111111111111' then
+    raise exception 'the question did not say who asked';
+  end if;
+
+  perform public.answer_for_my_part('e0e0e155-0000-0000-0000-00000000015a', true);
+
+  if exists (select 1 from public.part_questions_for_me()
+             where project_id = 'e0e0e155-0000-0000-0000-00000000015a') then
+    raise exception 'an answered question was still waiting';
+  end if;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select agreed from public.take_consents
+        where layer_id = 'e0e0e155-0000-0000-0000-00000000015d') is not true then
+    raise exception 'the bandmate''s yes was not recorded';
+  end if;
+  -- The owner is told, in words, through the switch their song's news
+  -- rides on.
+  if not exists (
+    select 1 from public.notifications
+    where type = 'project_update'
+      and user_id = '11111111-1111-1111-1111-111111111111'
+      and project_id = 'e0e0e155-0000-0000-0000-00000000015a'
+      and title like '% said yes'
+      and body = 'Everyone On It can go out with their bass on it.'
+  ) then
+    raise exception 'the owner was not told the bandmate said yes';
+  end if;
+end $$;
+
+-- Now it goes up. And the owner's answer is the owner's alone.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  heard record;
+  touched integer;
+begin
+  if public.put_on_open_mic('e0e0e155-0000-0000-0000-00000000015a') is null then
+    raise exception 'a song everybody said yes to did not go up';
+  end if;
+
+  select * into heard
+  from public.song_audience('e0e0e155-0000-0000-0000-00000000015a');
+  if not heard.on_open_mic then
+    raise exception 'the dial did not know the song was up';
+  end if;
+  if not (heard.answers @> '[{"id": "e0e0e155-0000-0000-0000-000000000156", "answer": "yes"}]'::jsonb) then
+    raise exception 'the dial did not say the bandmate said yes: %', heard.answers;
+  end if;
+
+  -- The owner pulling their own part touches only their own row.
+  perform public.answer_for_my_part('e0e0e155-0000-0000-0000-00000000015a', false);
+  -- And a plain update cannot reach anybody else's: nothing grants the
+  -- write, and no policy would admit it if something did.
+  begin
+    update public.take_consents set agreed = false, answered_at = now()
+    where layer_id = 'e0e0e155-0000-0000-0000-00000000015d';
+    get diagnostics touched = row_count;
+    if touched <> 0 then
+      raise exception 'the owner wrote somebody else''s answer';
+    end if;
+  exception when insufficient_privilege then null;
+  end;
+  -- Put back, so the rest of the block reads as the song people would hear.
+  perform public.answer_for_my_part('e0e0e155-0000-0000-0000-00000000015a', true);
+end $$;
+
+reset role;
+do $$
+begin
+  if (select agreed from public.take_consents
+        where layer_id = 'e0e0e155-0000-0000-0000-00000000015d') is not true then
+    raise exception 'the owner''s no reached the bandmate''s part';
+  end if;
+end $$;
+
+-- What a stranger hears now: both parts, never the draft.
+set local request.jwt.claims = '{"sub": "e0e0e155-0000-0000-0000-000000000157"}';
+set local role authenticated;
+
+do $$
+declare
+  listed record;
+begin
+  if not exists (select 1 from public.open_mic_song('e0e0e155-0000-0000-0000-00000000015a')) then
+    raise exception 'the song was not on the Open Mic for a stranger';
+  end if;
+  if (select count(*) from public.song_layers
+      where project_id = 'e0e0e155-0000-0000-0000-00000000015a') <> 2 then
+    raise exception 'a stranger saw % takes rather than the two that were agreed', (
+      select count(*) from public.song_layers
+      where project_id = 'e0e0e155-0000-0000-0000-00000000015a');
+  end if;
+  if exists (select 1 from public.song_layers
+             where id = 'e0e0e155-0000-0000-0000-00000000015e') then
+    raise exception 'a stranger could see the draft';
+  end if;
+
+  select * into listed from public.open_mic_songs(null::text, 40, true)
+  where id = 'e0e0e155-0000-0000-0000-00000000015a';
+  if listed.take_count <> 2 then
+    raise exception 'the list counted % parts on a song with two', listed.take_count;
+  end if;
+  select * into listed from public.songs_by('e0e0e155-0000-0000-0000-000000000156')
+  where id = 'e0e0e155-0000-0000-0000-00000000015a';
+  if listed.their_parts <> array['bass'] then
+    raise exception 'the bandmate''s page did not say they played bass on it: %', listed.their_parts;
+  end if;
+end $$;
+
+-- The bandmate pulls their part. The song stays up without it.
+reset role;
+set local request.jwt.claims = '{"sub": "e0e0e155-0000-0000-0000-000000000156"}';
+set local role authenticated;
+
+select public.answer_for_my_part('e0e0e155-0000-0000-0000-00000000015a', false);
+
+reset role;
+do $$
+begin
+  if (select agreed from public.take_consents
+        where layer_id = 'e0e0e155-0000-0000-0000-00000000015d') is not false then
+    raise exception 'pulling a part did not record the no';
+  end if;
+  if (select open_mic_at from public.projects
+        where id = 'e0e0e155-0000-0000-0000-00000000015a') is null then
+    raise exception 'pulling one part took down a song that still had the owner''s';
+  end if;
+  if not exists (
+    select 1 from public.notifications
+    where type = 'project_update'
+      and user_id = '11111111-1111-1111-1111-111111111111'
+      and project_id = 'e0e0e155-0000-0000-0000-00000000015a'
+      and title like '% is leaving their part out'
+      and body = 'Everyone On It is still up, without their bass.'
+  ) then
+    raise exception 'the owner was not told a part came off';
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "e0e0e155-0000-0000-0000-000000000157"}';
+set local role authenticated;
+
+do $$
+declare
+  listed record;
+begin
+  if exists (select 1 from public.song_layers
+             where id = 'e0e0e155-0000-0000-0000-00000000015d') then
+    raise exception 'a pulled part was still on the public song';
+  end if;
+  if not exists (select 1 from public.song_layers
+                 where id = 'e0e0e155-0000-0000-0000-00000000015c') then
+    raise exception 'pulling one part hid another';
+  end if;
+  select * into listed from public.open_mic_songs(null::text, 40, true)
+  where id = 'e0e0e155-0000-0000-0000-00000000015a';
+  if listed.take_count <> 1 then
+    raise exception 'the list still counted the pulled part (%)', listed.take_count;
+  end if;
+  if exists (select 1 from public.songs_by('e0e0e155-0000-0000-0000-000000000156')
+             where id = 'e0e0e155-0000-0000-0000-00000000015a') then
+    raise exception 'the bandmate''s page still claimed a song they pulled their part from';
+  end if;
+end $$;
+
+-- A take shared onto a song that is already out asks its own player, once,
+-- and stays with the room until they answer.
+reset role;
+set local request.jwt.claims = '{"sub": "e0e0e155-0000-0000-0000-000000000156"}';
+set local role authenticated;
+
+select public.share_layer('e0e0e155-0000-0000-0000-00000000015e');
+
+reset role;
+do $$
+begin
+  if not exists (
+    select 1 from public.take_consents
+    where layer_id = 'e0e0e155-0000-0000-0000-00000000015e' and answered_at is null
+  ) then
+    raise exception 'sharing onto a public song did not ask its player';
+  end if;
+  if (select count(*) from public.notifications
+      where type = 'part_question'
+        and user_id = 'e0e0e155-0000-0000-0000-000000000156'
+        and title = 'Your bass on Everyone On It') <> 1 then
+    raise exception 'the player of a take shared onto a public song was asked % times', (
+      select count(*) from public.notifications
+      where type = 'part_question'
+        and user_id = 'e0e0e155-0000-0000-0000-000000000156'
+        and title = 'Your bass on Everyone On It');
+  end if;
+end $$;
+
+set local request.jwt.claims = '{"sub": "e0e0e155-0000-0000-0000-000000000157"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.song_layers
+             where id = 'e0e0e155-0000-0000-0000-00000000015e') then
+    raise exception 'a take shared onto a public song went out before its player answered';
+  end if;
+end $$;
+
+-- Nothing left to hear: the song comes down. The showcase waits the same
+-- way the Open Mic does, and a plain update to it is refused the same way.
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  if public.put_on_open_mic('e0e0e155-0000-0000-0000-00000000015b') is not null then
+    raise exception 'a song made only of somebody else''s voice went up unasked';
+  end if;
+  perform public.show_song('e0e0e155-0000-0000-0000-00000000015b');
+  if (select showcased_at from public.projects
+        where id = 'e0e0e155-0000-0000-0000-00000000015b') is not null then
+    raise exception 'the showcase did not wait for the answer';
+  end if;
+  -- Not finished by the attempt either: nothing was shown.
+  if (select finished_at from public.projects
+        where id = 'e0e0e155-0000-0000-0000-00000000015b') is not null then
+    raise exception 'a song nobody could show was marked finished';
+  end if;
+  begin
+    update public.projects set showcased_at = now()
+    where id = 'e0e0e155-0000-0000-0000-00000000015b';
+    raise exception 'a plain update showed a song while somebody had not answered';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "e0e0e155-0000-0000-0000-000000000156"}';
+set local role authenticated;
+select public.answer_for_my_part('e0e0e155-0000-0000-0000-00000000015b', true);
+
+reset role;
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.show_song('e0e0e155-0000-0000-0000-00000000015b');
+  if (select showcased_at from public.projects
+        where id = 'e0e0e155-0000-0000-0000-00000000015b') is null then
+    raise exception 'a song everybody said yes to was kept off the showcase';
+  end if;
+  if public.put_on_open_mic('e0e0e155-0000-0000-0000-00000000015b') is null then
+    raise exception 'a song everybody said yes to was kept off the Open Mic';
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "e0e0e155-0000-0000-0000-000000000156"}';
+set local role authenticated;
+select public.answer_for_my_part('e0e0e155-0000-0000-0000-00000000015b', false);
+
+reset role;
+do $$
+begin
+  if (select open_mic_at from public.projects
+        where id = 'e0e0e155-0000-0000-0000-00000000015b') is not null then
+    raise exception 'a song with nothing left to hear stayed on the Open Mic';
+  end if;
+  if (select showcased_at from public.projects
+        where id = 'e0e0e155-0000-0000-0000-00000000015b') is not null then
+    raise exception 'a song with nothing left to hear stayed on the showcase';
+  end if;
+  if not exists (
+    select 1 from public.notifications
+    where type = 'project_update'
+      and user_id = '11111111-1111-1111-1111-111111111111'
+      and project_id = 'e0e0e155-0000-0000-0000-00000000015b'
+      and body = 'Nothing was left to hear on Only Their Voice, so it came down.'
+  ) then
+    raise exception 'the owner was not told the song came down';
+  end if;
 end $$;
 
 reset role;
