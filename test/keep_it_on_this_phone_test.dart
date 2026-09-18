@@ -707,10 +707,15 @@ void main() {
       final sheet = await service.sheetForPerform(_project('song-1'));
       expect(sheet.fromThisPhone, isFalse);
       expect(sheet.bundle!.reference!.storagePath, _referenceFor('song-1', 'reference_2'));
+      // Waited for on the sheet, which is the thing asserted. Keeping a song
+      // fetches the recording first and rewrites the sheet last, so waiting
+      // on the audio lets the assertion run in the gap between the two and
+      // read the old sheet -- rarely on a quiet machine, every time on a
+      // busy one.
       await _until(() async =>
-          await kept.audioPath('song-1', _referenceFor('song-1', 'reference_2')) != null);
-      expect((await kept.load('song-1'))!.sheet.reference!.storagePath,
+          (await kept.load('song-1'))?.sheet.reference?.storagePath ==
           _referenceFor('song-1', 'reference_2'));
+      expect(await kept.audioPath('song-1', _referenceFor('song-1', 'reference_2')), isNotNull);
     });
 
     testWidgets('a kept song does not wait long on a server that is not answering',

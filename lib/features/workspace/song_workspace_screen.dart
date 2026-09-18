@@ -385,25 +385,12 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       ),
     );
     if (chosen == null || chosen.rooms.isEmpty || !mounted) return;
+    final List<String> sent;
     try {
-      final sent = await controller.repository.sendSongToStudents(
+      sent = await controller.repository.sendSongToStudents(
         projectId: project.id,
         roomIds: chosen.rooms,
       );
-      final brief = chosen.brief;
-      final briefed = brief == null
-          ? const <String>[]
-          : await controller.repository.briefStudents(
-              projectId: project.id,
-              roomIds: chosen.rooms,
-              brief: brief,
-            );
-      // The copies live in other rooms of this person's, so the library is
-      // read again rather than spliced: a song this device has not seen
-      // before has nothing to splice into (refreshProject says the same).
-      await controller.load();
-      if (!mounted) return;
-      _showMessage(sentSaid(sent.length, briefed: briefed.isNotEmpty));
     } catch (error) {
       if (!mounted) return;
       _showMessage(reportAndDescribe(
@@ -413,7 +400,44 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         route: 'Song',
         projectId: project.id,
       ));
+      return;
     }
+    // The brief is a second request, so signal can go between the two. Kept
+    // apart from the send's failure on purpose: by here every ticked student
+    // has the song, and saying the send failed would be untrue and would
+    // leave the teacher not knowing the copies exist. What is said instead
+    // is the part that did not happen, and the library is read either way.
+    final brief = chosen.brief;
+    var briefed = false;
+    var briefLost = false;
+    if (brief != null) {
+      try {
+        briefed = (await controller.repository.briefStudents(
+          projectId: project.id,
+          roomIds: chosen.rooms,
+          brief: brief,
+        ))
+            .isNotEmpty;
+      } catch (error) {
+        // Filed under its own stage so triage can tell a lost brief from a
+        // lost send. The sentence it describes is not the one shown: the
+        // teacher is told what is actually true of their students.
+        reportAndDescribe(
+          error,
+          service: 'app',
+          stage: 'brief_students',
+          route: 'Song',
+          projectId: project.id,
+        );
+        briefLost = true;
+      }
+    }
+    // The copies live in other rooms of this person's, so the library is
+    // read again rather than spliced: a song this device has not seen
+    // before has nothing to splice into (refreshProject says the same).
+    await controller.load();
+    if (!mounted) return;
+    _showMessage(briefLost ? briefNotSentSaid : sentSaid(sent.length, briefed: briefed));
   }
 
   /// A part, a speed and a few words, left on the student's Home (0143).

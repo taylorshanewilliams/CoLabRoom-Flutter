@@ -90,6 +90,16 @@ String sentSaid(int students, {bool briefed = false}) => switch (students) {
       _ => 'Sent to $students students',
     };
 
+/// What is said when the songs arrived and what to practise did not.
+///
+/// The send and the brief are two requests, and signal can go between them.
+/// By the time the second one runs every ticked student has the song, so the
+/// send's own failure sentence would be untrue; this says the part that did
+/// not happen, and the thing that fixes it is doing the same thing again,
+/// which is safe because a song already there is not sent twice (0149).
+const String briefNotSentSaid =
+    'They have the song. What to practise did not reach them, so send again to add it.';
+
 /// What the teacher decided on the sheet: which lessons, and what to
 /// practise if they said.
 @immutable
@@ -243,30 +253,36 @@ class _SendToStudentsSheetState extends State<_SendToStudentsSheet> {
             const SizedBox(height: 10),
             // The list scrolls only once it is taller than half the screen,
             // so a studio of three sits whole above the button and a studio
-            // of thirty still reaches it.
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(context).height * 0.5,
-              ),
-              child: ListView(
-                shrinkWrap: true,
-                children: <Widget>[
-                  for (final room in widget.rooms)
-                    CheckboxListTile(
-                      key: Key('send_to_room_${room.id}'),
-                      value: _ticked.contains(room.id),
-                      onChanged: (ticked) => setState(() {
-                        if (ticked ?? false) {
-                          _ticked.add(room.id);
-                        } else {
-                          _ticked.remove(room.id);
-                        }
-                      }),
-                      controlAffinity: ListTileControlAffinity.leading,
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(room.name),
-                    ),
-                ],
+            // of thirty still reaches it. Flexible as well as the half, so
+            // the list is what gives way on a short phone: with the brief
+            // row and the sentence about a cover's recording both showing,
+            // half the screen plus everything else is more than a 360x640
+            // phone has, and the thing that must survive is the button.
+            Flexible(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.5,
+                ),
+                child: ListView(
+                  shrinkWrap: true,
+                  children: <Widget>[
+                    for (final room in widget.rooms)
+                      CheckboxListTile(
+                        key: Key('send_to_room_${room.id}'),
+                        value: _ticked.contains(room.id),
+                        onChanged: (ticked) => setState(() {
+                          if (ticked ?? false) {
+                            _ticked.add(room.id);
+                          } else {
+                            _ticked.remove(room.id);
+                          }
+                        }),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(room.name),
+                      ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 12),

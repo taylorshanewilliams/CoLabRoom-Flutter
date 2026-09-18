@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:colabroom/app/beta_scope.dart';
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
@@ -202,6 +204,15 @@ void main() {
       // A song that went out is the news, brief or no brief.
       expect(sentSaid(2, briefed: true), 'Sent to 2 students');
       expect(sentSaid(0), 'Already sent.');
+    });
+
+    test('a send that arrived with a brief that did not says the true half', () {
+      // The send and the brief are two requests. If the second one is lost
+      // the songs are still there, so the teacher is not told the send
+      // failed -- they are told the part to do again.
+      expect(briefNotSentSaid,
+          'They have the song. What to practise did not reach them, so send again to add it.');
+      expect(briefNotSentSaid.contains(_digit), isFalse);
     });
 
     test('what Perform opens on is the passage and the speed, with nothing timed', () async {
@@ -536,6 +547,52 @@ void main() {
       await tester.pumpAndSettle();
       expect(_chosen, isNotNull);
       expect(_chosen!.brief, isNull);
+    });
+  });
+
+  group('the sheet it is offered on', () {
+    testWidgets('a studio of nine on a small phone still reaches Send', (tester) async {
+      // The brief row is one more thing above a list that was already
+      // allowed half the screen, and half a 360x640 phone plus a title, the
+      // sentence about a cover's recording, the row and the button is more
+      // than there is. The list is what gives way; the button is what must
+      // not, because a sheet you cannot send from is a sheet that does
+      // nothing.
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              key: const Key('open_send'),
+              onPressed: () => unawaited(showSendToStudents(
+                context,
+                songTitle: 'Caro mio ben',
+                rooms: <({String id, String name})>[
+                  for (var i = 1; i <= 9; i += 1)
+                    (id: 'lesson-$i', name: 'Voice lessons · Student $i'),
+                ],
+                // Somebody else's song, so the sentence about the recording
+                // is showing too -- which is exactly when a brief can only
+                // point at the whole of it.
+                origin: SongOrigin.cover,
+                pointAt: whereToPoint(sheet: false, origin: SongOrigin.cover, recording: null),
+              )),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.byKey(const Key('open_send')));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('send_what_to_practise')), findsOneWidget);
+      final send = find.byKey(const Key('send_to_students_do'));
+      expect(send, findsOneWidget);
+      expect(tester.getRect(send).bottom, lessThanOrEqualTo(640.0));
     });
   });
 
