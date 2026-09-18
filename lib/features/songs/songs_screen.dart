@@ -14,7 +14,9 @@ import '../../widgets/player_face.dart';
 import '../../domain/activity.dart';
 import '../../domain/music_models.dart';
 import '../../domain/practice_mark.dart';
+import '../../domain/sealed_take.dart';
 import '../../services/kept_songs.dart';
+import '../../services/now_playing.dart';
 import '../../services/song_analysis_service.dart';
 import '../../widgets/on_this_phone_mark.dart';
 import '../workspace/live_performance_screen.dart';
@@ -26,6 +28,7 @@ import '../../widgets/music_tiles.dart';
 import '../../widgets/app_top_bar.dart';
 import 'new_song_flow.dart';
 import 'pick_it_back_up.dart';
+import 'sealed_take_card.dart';
 import 'waiting_on_you.dart';
 import 'tonight.dart';
 import 'firsts.dart';
@@ -122,6 +125,7 @@ class SongsScreen extends StatefulWidget {
     this.onOpenMessages,
     this.showTopBar = true,
     this.analysisService,
+    this.hearSealedTake,
     super.key,
   });
 
@@ -129,6 +133,13 @@ class SongsScreen extends StatefulWidget {
   /// where the songs kept on this phone live. Null in production; a test
   /// hands in one that answers without a network.
   final SongAnalysisService? analysisService;
+
+  /// Plays a sealed take when its card is answered "Play it" (0158), and
+  /// answers whether it is sounding.
+  ///
+  /// Substituted in tests, real everywhere else: the real one is the app's
+  /// one player, which cannot make a sound under a widget test.
+  final Future<bool> Function(SealedTake take)? hearSealedTake;
 
   /// For the avatar in the corner, which is also the way into the account.
   final String displayName;
@@ -557,6 +568,17 @@ class _SongsScreenState extends State<SongsScreen> {
       ));
     }
 
+    // A take sealed for later, on the day it comes back (0158). One quiet
+    // card, and either answer is the last of it.
+    for (final sealed in controller.sealedTakesDue) {
+      items.add(sealedTakeCard(
+        sealed,
+        now: DateTime.now(),
+        onPlay: () => unawaited(_hearSealed(sealed)),
+        onNotNow: () => unawaited(controller.endSeal(sealed)),
+      ));
+    }
+
     // People first. Somebody is on the other end of this one.
     for (final person in _requests) {
       items.add(WaitingItem(
@@ -713,6 +735,60 @@ class _SongsScreenState extends State<SongsScreen> {
     }
 
     return items;
+  }
+
+  /// "Play it", on a sealed take's card.
+  ///
+  /// Every Musician, Same Song, 17 September 2026. It plays here, through the
+  /// one player the app shares, so the bar at the bottom carries it while the
+  /// card goes: playing it is an answer, the seal ends with it, and the take
+  /// is back among the song's takes -- which is what the bar's second line
+  /// says, because after a year that is not obvious. No song id goes with it:
+  /// the bar opens a song's public page and counts a listen, and neither is
+  /// true of a private idea.
+  Future<void> _hearSealed(SealedTake take) async {
+    final controller = BetaScope.of(context, listen: false);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final hear = widget.hearSealedTake ?? _playSealed;
+    // Started before the seal ends: the sound should not queue behind a
+    // round trip, and its path is signed for this person whether the take is
+    // sealed or not. The seal does not wait for the sound either.
+    final sounding = hear(take);
+    final ending = controller.endSeal(take);
+    var heard = false;
+    try {
+      heard = await sounding;
+    } catch (_) {
+      // The same as a take that would not start.
+    }
+    if (heard) return;
+    // The player fails quietly by design: no bar, no message. Here that left
+    // the card gone, no sound, and nothing anywhere saying what became of an
+    // idea kept for a year. The bar's second line is the only other place
+    // that says where the take went, and it is only there when it plays.
+    //
+    // Which words depends on whether the seal ended, so this one path waits
+    // to find out. With no signal at all neither call gets through, the take
+    // is still sealed, and saying it was back in the song would send them
+    // looking for something that is not there.
+    final ended = await ending;
+    messenger?.showSnackBar(SnackBar(
+      content: Text(
+        ended ? sealedTakeIsBackWords(take) : sealedTakeWillBeOfferedAgainWords,
+      ),
+    ));
+  }
+
+  /// The app's one player, and whether the take is the thing it now has.
+  static Future<bool> _playSealed(SealedTake take) async {
+    await NowPlaying.instance.play(
+      take.storagePath,
+      knownLength:
+          take.durationMs > 0 ? Duration(milliseconds: take.durationMs) : null,
+      title: take.songTitle,
+      byline: 'Back among your takes',
+    );
+    return NowPlaying.instance.isCurrent(take.storagePath);
   }
 
   /// Doing what the Tonight card asks. A first line opens the recorder; a

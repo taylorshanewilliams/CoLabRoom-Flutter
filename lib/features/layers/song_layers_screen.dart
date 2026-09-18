@@ -35,6 +35,7 @@ import 'moment_notes.dart';
 import 'my_part.dart';
 import 'song_level_store.dart';
 import 'layer_group.dart';
+import 'sealing_a_take.dart';
 import 'sending_a_take.dart';
 import 'take_lane.dart';
 import 'take_prompt.dart';
@@ -525,8 +526,19 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     final repository = _repository;
     if (repository == null) return;
     try {
-      final notes = await repository.loadMomentNotes(widget.projectId);
+      final all = await repository.loadMomentNotes(widget.projectId);
       if (!mounted) return;
+      // A note goes where its take goes. The only notes on a take that is
+      // not in this list are somebody's own, on a draft they have since
+      // sealed (0158): put away with it, and back with it on its day, rather
+      // than left here pointing at "a take" nobody can find.
+      final here = <String>{
+        for (final layer in _layers ?? const <SharedLayer>[]) layer.id,
+      };
+      final notes = <MomentNote>[
+        for (final note in all)
+          if (note.layerId == null || here.contains(note.layerId)) note,
+      ];
       setState(() => _notes = notes);
       // Once, on arrival, and never again.
       //
@@ -2714,6 +2726,99 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     }
   }
 
+  /// Puts a take of your own away until a day you choose.
+  ///
+  /// Every Musician, Same Song, 17 September 2026: "A year ago tonight you
+  /// sealed this. Play it now?" The asking lives in sealing_a_take.dart, so
+  /// the words can be read in a test. Afterwards the take is not in this
+  /// list, for anybody, until Home offers it back on its day -- so the one
+  /// way back before then is here, for the few seconds the message stays.
+  Future<void> _seal(SharedLayer layer) async {
+    final controller = BetaScope.maybeOf(context, listen: false);
+    if (controller == null) return;
+    final chosen = await askWhenToOpen(context);
+    if (chosen == null || !mounted) return;
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    setState(() => _busy = true);
+    try {
+      final opens = await controller.sealTake(layer.id, until: chosen);
+      await _load();
+      await _leaveOutOfTheMix();
+      messenger?.showSnackBar(SnackBar(
+        content: Text(sealedUntilWords(opens)),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () => unawaited(_unseal(layer)),
+        ),
+      ));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = reportAndDescribe(
+            error,
+            service: 'layers',
+            stage: 'seal',
+            route: 'Takes',
+            projectId: widget.projectId,
+          ));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Undo, a moment after sealing. The same call that ends a seal on its
+  /// day, because it is the same act.
+  Future<void> _unseal(SharedLayer layer) async {
+    final repository = _repository;
+    if (repository == null || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await repository.unsealTake(layer.id);
+      await _load();
+      await _leaveOutOfTheMix();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = reportAndDescribe(
+            error,
+            service: 'layers',
+            stage: 'unseal',
+            route: 'Takes',
+            projectId: widget.projectId,
+          ));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Brings the sound into line with the list after a take has left it or
+  /// come back.
+  ///
+  /// A take that is put away must not go on playing from a mix that was
+  /// built while it was here. Only when there is a mix: before anything has
+  /// been played there is nothing to rebuild, and the first Play builds it
+  /// from the list as it then is.
+  Future<void> _leaveOutOfTheMix() async {
+    final stale = _lastMixPath;
+    if (stale == null || !mounted) return;
+    try {
+      await _applyMixChange();
+    } catch (_) {
+      // Dropped below, which comes to the same thing one press later.
+    }
+    if (_lastMixPath != stale) return;
+    // Nothing new was written: the rebuild failed, or the take that left was
+    // the only thing there was to play. The old mix still has it in, so it
+    // stops and is forgotten.
+    try {
+      if (_playing) await _player.stop();
+    } catch (_) {
+      // A player that will not stop is still not pointed at anything new.
+    }
+    _lastMixPath = null;
+    _pausedAt = null;
+    if (mounted) setState(() => _playing = false);
+  }
+
   /// How loud the song sits while somebody plays over it.
   ///
   /// Its own sheet rather than the take one, because almost nothing in that
@@ -2818,91 +2923,125 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      TakeNaming.describe(take),
-                      style: const TextStyle(
-                          color: AppColors.text,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(_subtitleFor(layer),
+              // Scrolls when it has to. A sheet is at most nine sixteenths of
+              // the screen, and on a 640-pixel phone volume, timing and the
+              // seal come to fifteen pixels more than that.
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        TakeNaming.describe(take),
                         style: const TextStyle(
-                            color: AppColors.muted, fontSize: 12)),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: <Widget>[
-                        const Text('Volume',
-                            style: TextStyle(
-                                color: AppColors.text,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700)),
-                        const Spacer(),
-                        Text('${(gain * 100).round()}%',
-                            style: const TextStyle(
-                                color: AppColors.cyan,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800)),
-                      ],
-                    ),
-                    Slider(
-                      value: gain.clamp(0.0, 1.5),
-                      max: 1.5,
-                      divisions: 30,
-                      activeColor: AppColors.cyan,
-                      inactiveColor: AppColors.line,
-                      onChanged: (value) => setSheetState(() => gain = value),
-                      onChangeEnd: (value) => unawaited(_setGain(layer, value)),
-                      semanticFormatterCallback: (value) =>
-                          'Volume ${(value * 100).round()} percent',
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: <Widget>[
-                        const Text('Timing',
-                            style: TextStyle(
-                                color: AppColors.text,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700)),
-                        const Spacer(),
-                        IconButton(
+                            color: AppColors.text,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(_subtitleFor(layer),
+                          style: const TextStyle(
+                              color: AppColors.muted, fontSize: 12)),
+                      const SizedBox(height: 18),
+                      Row(
+                        children: <Widget>[
+                          const Text('Volume',
+                              style: TextStyle(
+                                  color: AppColors.text,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700)),
+                          const Spacer(),
+                          Text('${(gain * 100).round()}%',
+                              style: const TextStyle(
+                                  color: AppColors.cyan,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800)),
+                        ],
+                      ),
+                      Slider(
+                        value: gain.clamp(0.0, 1.5),
+                        max: 1.5,
+                        divisions: 30,
+                        activeColor: AppColors.cyan,
+                        inactiveColor: AppColors.line,
+                        onChanged: (value) => setSheetState(() => gain = value),
+                        onChangeEnd: (value) => unawaited(_setGain(layer, value)),
+                        semanticFormatterCallback: (value) =>
+                            'Volume ${(value * 100).round()} percent',
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: <Widget>[
+                          const Text('Timing',
+                              style: TextStyle(
+                                  color: AppColors.text,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700)),
+                          const Spacer(),
+                          IconButton(
+                            onPressed: () {
+                              unawaited(_nudge(layer, -10));
+                              Navigator.pop(sheetContext);
+                            },
+                            tooltip: '10 ms earlier',
+                            icon: const Icon(Icons.remove_rounded,
+                                color: AppColors.muted),
+                          ),
+                          Text('${layer.offsetMs} ms',
+                              style: const TextStyle(
+                                  color: AppColors.text,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800)),
+                          IconButton(
+                            onPressed: () {
+                              unawaited(_nudge(layer, 10));
+                              Navigator.pop(sheetContext);
+                            },
+                            tooltip: '10 ms later',
+                            icon: const Icon(Icons.add_rounded,
+                                color: AppColors.muted),
+                          ),
+                        ],
+                      ),
+                      const Text(
+                        'A song with a song sheet times each take automatically. This is '
+                        'for the last few milliseconds.',
+                        style: TextStyle(
+                            color: AppColors.muted, fontSize: 11.5, height: 1.4),
+                      ),
+                      // Sealing, on the take's own sheet rather than on the
+                      // lane: the lane's 104 pixels already hold mute, levels
+                      // and delete, and this is pressed once a year rather
+                      // than once a take. Offered on exactly the takes Share
+                      // is offered on -- your own, that nobody else has heard
+                      // (0158 refuses the rest) -- and only inside the app,
+                      // where there is a repository to seal it through.
+                      if (!layer.isShared && _repository != null) ...<Widget>[
+                        const SizedBox(height: 10),
+                        TextButton.icon(
+                          key: const Key('seal_take'),
                           onPressed: () {
-                            unawaited(_nudge(layer, -10));
                             Navigator.pop(sheetContext);
+                            unawaited(_seal(layer));
                           },
-                          tooltip: '10 ms earlier',
-                          icon: const Icon(Icons.remove_rounded,
-                              color: AppColors.muted),
-                        ),
-                        Text('${layer.offsetMs} ms',
-                            style: const TextStyle(
-                                color: AppColors.text,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800)),
-                        IconButton(
-                          onPressed: () {
-                            unawaited(_nudge(layer, 10));
-                            Navigator.pop(sheetContext);
-                          },
-                          tooltip: '10 ms later',
-                          icon: const Icon(Icons.add_rounded,
-                              color: AppColors.muted),
+                          icon: const Icon(Icons.lock_clock_outlined, size: 17),
+                          label: const Text(
+                            sealItLabel,
+                            style: TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.w700),
+                          ),
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.gold,
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(48, 44),
+                            alignment: Alignment.centerLeft,
+                          ),
                         ),
                       ],
-                    ),
-                    const Text(
-                      'A song with a song sheet times each take automatically. This is '
-                      'for the last few milliseconds.',
-                      style: TextStyle(
-                          color: AppColors.muted, fontSize: 11.5, height: 1.4),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             );
