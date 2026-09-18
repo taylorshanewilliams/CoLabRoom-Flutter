@@ -79,12 +79,14 @@ create unique index moment_notes_voice_path_key
 -- two are read side by side, and so that a note taken back is unhearable
 -- the moment delete_moment_note stamps it.
 --
--- Said plainly: room_files_read_members already admits every member of the
--- room in the first path segment to every object under it, as it does for
--- an unshared take. So for somebody in the room who cannot read the note,
--- the row is the gate and the random id in the path is the lock, which is
--- the same lock a draft take has. Somebody outside the room gets nothing
--- from either policy.
+-- This is the only door to a spoken note. room_files_read_members, further
+-- down, steps aside for the moments folder: without that it would admit
+-- every member of the room in the first path segment, and -- through its
+-- Open Mic branch -- anybody signed in at all once the song is on the Open
+-- Mic, and a list() on the folder runs under the same select policy, so the
+-- random id in the path would be no lock. 0141 made a typed note narrower
+-- than the song's own read policy on purpose (a listener on the Open Mic
+-- cannot read one), and a spoken note is the same note.
 drop policy if exists moment_note_audio_read on storage.objects;
 create policy moment_note_audio_read on storage.objects
 for select to authenticated using (
@@ -134,6 +136,49 @@ for delete to authenticated using (
     select 1 from public.moment_notes n
     where n.voice_path = objects.name
       and n.author_id = (select auth.uid())
+  )
+);
+
+-- ---------------------------------------------------------------------
+-- The bucket's own read policy steps aside for the moments folder
+-- ---------------------------------------------------------------------
+
+-- As 0094 left it, with one line added at the top: nothing under a moments
+-- folder is read through this policy. Every other object in the bucket is
+-- untouched. Storage policies on one table are or'ed together, so without
+-- this line the audience of a spoken note would be the widest of the two
+-- policies rather than the row's, and on a song that is on the Open Mic
+-- that is everybody. The like is the same test moment_note_audio_write
+-- uses, so whatever that policy admits as a moment path, this one leaves
+-- to the row.
+drop policy if exists room_files_read_members on storage.objects;
+create policy room_files_read_members on storage.objects
+for select to authenticated using (
+  bucket_id = 'room-files'
+  and name not like '%/moments/%'
+  and (
+    private.is_room_member(private.as_uuid((storage.foldername(name))[1]))
+    or (
+      array_length(storage.foldername(name), 1) >= 2
+      and private.is_project_member(private.as_uuid((storage.foldername(name))[2]))
+    )
+    or exists (
+      select 1
+      from public.files f
+      join public.projects p on p.id = f.project_id
+      where f.storage_path = objects.name
+        and (private.is_room_member(p.room_id) or private.is_project_member(p.id))
+    )
+    -- Paths are {room}/{project}/..., so the project is the second segment.
+    or (
+      array_length(storage.foldername(name), 1) >= 2
+      and exists (
+        select 1 from public.projects p
+        where p.id = private.as_uuid((storage.foldername(name))[2])
+          and (p.open_mic_at is not null or p.showcased_at is not null
+               or private.was_asked(p.id))
+      )
+    )
   )
 );
 

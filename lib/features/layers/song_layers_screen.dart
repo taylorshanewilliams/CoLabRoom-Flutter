@@ -1744,6 +1744,18 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                         },
                       ),
                     ),
+                    // What went wrong has to be visible in the orientation
+                    // the buttons are offered in. The pin and say buttons
+                    // are in the bottom bar, which does not rotate away,
+                    // and until now this branch drew nothing when a note
+                    // failed to save: sideways, a teacher who held the
+                    // button and let go believed the note was left. That
+                    // is the silent failure 0152 exists to end.
+                    if (_error != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: _problemStrip(),
+                      ),
                     if (_notes.isNotEmpty)
                       ConstrainedBox(
                         // A third of a landscape phone at most, so the desk
@@ -1843,21 +1855,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                         ),
                       ),
                     ],
-                    if (_error != null) ...<Widget>[
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 14),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFF718B).withValues(alpha: 0.09),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: ProblemNote(_error!,
-                            color: const Color(0xFFFFA0B0),
-                            fontSize: 12,
-                            height: 1.45,
-                            route: 'Takes'),
-                      ),
-                    ],
+                    if (_error != null) _problemStrip(),
                     if (hasSomethingToHear) ...<Widget>[
                       Text(
                         hasLayers
@@ -2043,6 +2041,18 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                       onUp: _letGo,
                     ),
                   ],
+                ),
+              // A minute of wav is about five megabytes, and on a slow
+              // connection that is several seconds of greyed buttons. Said
+              // here, under the button that was held, rather than nowhere.
+              if (_savingSaid && _status != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    _status!,
+                    key: const Key('saying_status'),
+                    style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                  ),
                 ),
               // The way back in, said in the words somebody would use for it.
               //
@@ -2488,6 +2498,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     final repository = _repository;
     if (repository == null) return;
     try {
+      // A voice that is still playing when its row goes would play on with
+      // nothing left on screen to stop it.
+      if (_hearing == note.id) {
+        await _voice?.stop();
+        if (mounted) setState(() => _hearing = null);
+      }
       await repository.deleteMomentNote(note);
       if (mounted && _noteLoop?.id == note.id) {
         setState(() => _noteLoop = null);
@@ -2804,6 +2820,27 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// never a count of the others. Nothing on the lanes moves when one is
   /// chosen: the levels the room set are what everybody else hears, and the
   /// line under the chips says so, once, while one is on.
+  /// The one strip that says what went wrong, drawn by both layouts.
+  ///
+  /// One widget rather than two copies, so that a refusal written for the
+  /// portrait list cannot again be missing from the console.
+  Widget _problemStrip() {
+    return Container(
+      key: const Key('takes_problem'),
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFF718B).withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: ProblemNote(_error!,
+          color: const Color(0xFFFFA0B0),
+          fontSize: 12,
+          height: 1.45,
+          route: 'Takes'),
+    );
+  }
+
   Widget _myPartRow() {
     final offered = MyPartMix.offered(_takes, referenceId: _referenceId);
     if (offered.isEmpty) return const SizedBox.shrink();

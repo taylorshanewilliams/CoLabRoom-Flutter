@@ -138,6 +138,9 @@ Future<void> _openTakes(
   InMemoryMusicRepository repository, {
   required List<SharedLayer> layers,
   required _Mic mic,
+  // Sideways is the faders, where a teacher listens to a student. The
+  // buttons are in the bottom bar either way.
+  bool sideways = false,
 }) async {
   // The disclosure has already been agreed to, as it would be for anybody
   // who has recorded a take on this screen.
@@ -148,7 +151,8 @@ Future<void> _openTakes(
   await controller.load();
   addTearDown(controller.dispose);
 
-  tester.view.physicalSize = const Size(420, 1000);
+  tester.view.physicalSize =
+      sideways ? const Size(1000, 460) : const Size(420, 1000);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
 
@@ -379,6 +383,36 @@ void main() {
           reason: 'no phantom row for a note that is not there');
       expect(find.byKey(const Key('say_moment_note')), findsOneWidget,
           reason: 'and the button is ready for the next try');
+    });
+
+    testWidgets('and says so sideways too, at the faders', (tester) async {
+      // The say button is in the bottom bar, which does not rotate away,
+      // so the note can be held sideways -- and the refusal was, until
+      // now, drawn only by the portrait list. A teacher at the faders who
+      // held the button and saw nothing would believe the note was left,
+      // which is the silent failure the whole slice was warned about.
+      final repository = _StorageDown();
+      final mic = _Mic();
+      await _openTakes(
+        tester,
+        repository,
+        mic: mic,
+        sideways: true,
+        layers: <SharedLayer>[
+          _layer(id: 'layer-sent', label: 'Sent', recordedBy: 'preview-jess'),
+        ],
+      );
+
+      final gesture = await _hold(tester);
+      await gesture.up();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('moment_note_pin')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('That one did not save. Hold and say it again.'),
+          findsOneWidget);
+      expect(find.byKey(const Key('takes_problem')), findsOneWidget);
+      expect(await repository.loadMomentNotes('song-1'), isEmpty);
     });
   });
 
