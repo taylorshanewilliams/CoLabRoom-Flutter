@@ -2257,11 +2257,16 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       purpose: 'to say a note at this moment',
       request: _mic.hasPermission,
     );
+    if (!allowed || !mounted || _saying) return;
     // The disclosure and the permission prompt both take a while, and a
     // finger that has lifted by the time they come back is not holding
     // anything. Opening the microphone anyway would leave it open with
-    // nothing to close it but the one-minute cap.
-    if (!allowed || !mounted || !_holding || _saying) return;
+    // nothing to close it but the one-minute cap. A tap lands here too,
+    // and is told what the button wanted.
+    if (!_holding) {
+      setState(() => _error = _holdToSpeak);
+      return;
+    }
     try {
       if (_playing) await _togglePlay();
       await _mic.start();
@@ -2391,13 +2396,14 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // A tap rather than a hold, or a microphone that opened and heard
       // nothing. Not a fault to report: the label says hold, and this says
       // it again in the place the person is looking.
-      if (mounted) {
-        setState(() => _error = 'Nothing was heard. Hold the button while you speak.');
-      }
+      if (mounted) setState(() => _error = _holdToSpeak);
       return null;
     }
     return said;
   }
+
+  static const String _holdToSpeak =
+      'Nothing was heard. Hold the button while you speak.';
 
   /// Plays what was said, on its own.
   ///

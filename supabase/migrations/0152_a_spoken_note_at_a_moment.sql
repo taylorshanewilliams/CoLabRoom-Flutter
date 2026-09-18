@@ -59,7 +59,7 @@ alter table public.moment_notes
   add constraint moment_notes_voice_path_check
   check (
     voice_path is null
-    or voice_path like '%/' || project_id::text || '/moments/%'
+    or voice_path like ('%/' || project_id::text || '/moments/%')
   );
 
 -- One object is one note. Two rows pointing at the same audio would be two

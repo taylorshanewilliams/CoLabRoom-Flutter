@@ -390,17 +390,19 @@ class _NoteRow extends StatelessWidget {
                               : Icons.play_arrow_rounded,
                           size: 16,
                         ),
-                        label: Text(listening ? 'Stop' : 'Listen'),
+                        label: Text(
+                          listening ? 'Stop' : 'Listen',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                         style: TextButton.styleFrom(
                           foregroundColor: AppColors.cyan,
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           minimumSize: const Size(0, 30),
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           visualDensity: VisualDensity.compact,
-                          textStyle: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                          ),
                         ),
                       ),
                     )
