@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
+import '../../domain/song_brief.dart';
+import 'what_to_practise.dart';
 
 /// A teacher sending a song to the students who need it (migration 0149).
 ///
@@ -18,6 +22,10 @@ import '../../domain/music_models.dart';
 /// (0142). The app's part is to ask whose song it is if nobody has been
 /// asked yet, to list the lessons, to have Storage copy the recording (the
 /// repository's job), and to say one sentence afterwards.
+///
+/// What to practise rides with it when the teacher says so (0150): one row
+/// on this sheet, optional, which opens the brief in what_to_practise. A
+/// song sent without it is slice 19 exactly as it was.
 ///
 /// Kept out of the screen so the rule about who is offered it and the words
 /// can be read in a test, the same reason leaving_practice is its own file.
@@ -69,21 +77,41 @@ String? sendKeepsTheRecording(SongOrigin? origin) =>
 /// The rooms that received a copy are what is counted, so a send that
 /// found every student already had it says so instead -- including a send
 /// that only finished a recording on copies the students already had.
-String sentSaid(int students) => switch (students) {
-      0 => 'Already sent.',
+///
+/// [briefed] is whether what to practise reached a copy (0150). It changes
+/// the sentence only when no song was sent: the second week of a piece is a
+/// new brief on copies the students have had all along, and "Already sent."
+/// would tell the teacher nothing had happened when something had.
+String sentSaid(int students, {bool briefed = false}) => switch (students) {
+      0 => briefed
+          ? 'They have the song already. What to practise is on their Home.'
+          : 'Already sent.',
       1 => 'Sent to 1 student',
       _ => 'Sent to $students students',
     };
 
+/// What the teacher decided on the sheet: which lessons, and what to
+/// practise if they said.
+@immutable
+class SongToSend {
+  const SongToSend({required this.rooms, this.brief});
+
+  final List<String> rooms;
+  final BriefToSend? brief;
+}
+
 /// Asks which students: the lessons by name, each with a tick, and one
-/// action. Returns the rooms ticked, or null when the sheet was closed.
-Future<List<String>?> showSendToStudents(
+/// action. Returns the rooms ticked and the brief if one was filled in, or
+/// null when the sheet was closed. [pointAt] is what a brief can point at
+/// inside this song; without it the sheet does not offer a brief at all.
+Future<SongToSend?> showSendToStudents(
   BuildContext context, {
   required String songTitle,
   required List<({String id, String name})> rooms,
   SongOrigin? origin,
+  SongToPointAt? pointAt,
 }) {
-  return showModalBottomSheet<List<String>>(
+  return showModalBottomSheet<SongToSend>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
@@ -92,6 +120,7 @@ Future<List<String>?> showSendToStudents(
       songTitle: songTitle,
       rooms: rooms,
       keeps: sendKeepsTheRecording(origin),
+      pointAt: pointAt,
     ),
   );
 }
@@ -101,11 +130,13 @@ class _SendToStudentsSheet extends StatefulWidget {
     required this.songTitle,
     required this.rooms,
     required this.keeps,
+    required this.pointAt,
   });
 
   final String songTitle;
   final List<({String id, String name})> rooms;
   final String? keeps;
+  final SongToPointAt? pointAt;
 
   @override
   State<_SendToStudentsSheet> createState() => _SendToStudentsSheetState();
@@ -117,9 +148,22 @@ class _SendToStudentsSheetState extends State<_SendToStudentsSheet> {
   /// seven, and the one that goes to the wrong student cannot be unsent.
   final Set<String> _ticked = <String>{};
 
+  /// What to practise, once the teacher has said. Null sends the song and
+  /// nothing else, which is what this sheet did before there was a brief.
+  BriefToSend? _brief;
+
+  Future<void> _sayWhatToPractise(SongToPointAt pointAt) async {
+    final choice = await showBriefSheet(context, song: pointAt, initial: _brief);
+    // Closed without deciding: what was there stays.
+    if (choice == null || !mounted) return;
+    setState(() => _brief = choice.brief);
+  }
+
   @override
   Widget build(BuildContext context) {
     final keeps = widget.keeps;
+    final pointAt = widget.pointAt;
+    final brief = _brief;
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 2, 20, 20),
@@ -144,6 +188,56 @@ class _SendToStudentsSheetState extends State<_SendToStudentsSheet> {
                 keeps,
                 key: const Key('send_to_students_keeps'),
                 style: const TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.4),
+              ),
+            ],
+            if (pointAt != null) ...<Widget>[
+              const SizedBox(height: 10),
+              // One row, and optional: a song can simply be sent. Filled in,
+              // it reads back in the words the student's card will use.
+              Material(
+                color: AppColors.gold.withValues(alpha: 0.08),
+                clipBehavior: Clip.antiAlias,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: AppColors.gold.withValues(alpha: 0.36)),
+                ),
+                child: InkWell(
+                  key: const Key('send_what_to_practise'),
+                  onTap: () => unawaited(_sayWhatToPractise(pointAt)),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+                    child: Row(
+                      children: <Widget>[
+                        const Icon(Icons.repeat_rounded, size: 18, color: AppColors.gold),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              const Text(
+                                whatToPractiseLabel,
+                                style: TextStyle(
+                                  color: AppColors.text,
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 1),
+                              Text(
+                                brief == null ? 'Optional' : briefToSendSaid(brief),
+                                key: const Key('send_what_to_practise_said'),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.muted),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ],
             const SizedBox(height: 10),
@@ -180,7 +274,10 @@ class _SendToStudentsSheetState extends State<_SendToStudentsSheet> {
               key: const Key('send_to_students_do'),
               onPressed: _ticked.isEmpty
                   ? null
-                  : () => Navigator.pop(context, _ticked.toList(growable: false)),
+                  : () => Navigator.pop(
+                        context,
+                        SongToSend(rooms: _ticked.toList(growable: false), brief: brief),
+                      ),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(50),
               ),

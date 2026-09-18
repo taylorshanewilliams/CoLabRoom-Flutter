@@ -64,7 +64,12 @@ abstract final class SetAside {
   static Future<void> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      for (final kind in <String>[pickItBackUp, songSheet, hint, tonight]) {
+      // Every kind, the two newest included. Practice and playLater were
+      // written and never read back, so a card closed on Monday was there
+      // again on Tuesday -- which for something a teacher asked for is a
+      // reminder, and this app sends none (Every Musician, Same Song, 17
+      // September 2026).
+      for (final kind in <String>[pickItBackUp, songSheet, playLater, hint, tonight, practice]) {
         _held[kind] = prefs.getStringList(_key(kind))?.toSet() ?? <String>{};
       }
     } catch (_) {
