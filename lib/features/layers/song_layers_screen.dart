@@ -3047,7 +3047,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     );
   }
 
-  /// Then and now: one chip per part somebody has recorded more than once.
+  /// Then and now: one chip per part this person has recorded more than
+  /// once. Their own takes only -- nobody is offered a bandmate's first go
+  /// beside their latest (see ThenAndNow.pairs), so in a room the chip is
+  /// on your screen and not on theirs.
   ///
   /// Beside the part chips because it is chosen in the same breath -- hear
   /// my part, hear my first one. Tapped, it plays the bars under the
@@ -3056,10 +3059,13 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// bars: never how far apart the two are, and never which is better.
   /// Every Musician, Same Song, 17 September 2026.
   Widget _thenAndNowRow() {
-    final pairs = ThenAndNow.pairs(<SharedLayer>[
-      for (final layer in _layers ?? const <SharedLayer>[])
-        if (_localPaths[layer.id] != null) layer,
-    ]);
+    final pairs = ThenAndNow.pairs(
+      <SharedLayer>[
+        for (final layer in _layers ?? const <SharedLayer>[])
+          if (_localPaths[layer.id] != null) layer,
+      ],
+      by: _me,
+    );
     if (pairs.isEmpty) return const SizedBox.shrink();
     final heardTwice = _thenAndNow;
     return Padding(
@@ -3074,7 +3080,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
               for (final pair in pairs)
                 _ThenAndNowChip(
                   pair: pair,
-                  // One pair needs no name. Several say whose.
+                  // One pair needs no name. Several say which part.
                   named: pairs.length > 1,
                   selected: heardTwice != null && heardTwice.pair == pair,
                   onTap: _busy || _recording
@@ -3405,7 +3411,8 @@ class _MyPartChip extends StatelessWidget {
 }
 
 /// The chip that plays a passage twice: "Then and now", or "Then and now ·
-/// Dylan's lead" when the song has more than one pair to choose from.
+/// lead" when this person has more than one pair on the song to choose
+/// from.
 ///
 /// The same chip as the part chips, so the screen keeps one kind, with a
 /// play mark on it because this one does something rather than stays

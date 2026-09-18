@@ -165,6 +165,43 @@ def lesson_room_songs(base: str, headers: dict, project_ids) -> set[str]:
 
 EPOCH = datetime.min.replace(tzinfo=timezone.utc)
 
+# How many rows one page asks for. PostgREST caps every response at the
+# project's max-rows setting (1000 on Supabase unless somebody changed it)
+# and says nothing when it does, so a page is never assumed to be the last
+# one because it was full or short: see every_row.
+PAGE = 1000
+
+
+def every_row(url: str, headers: dict, *, page: int = PAGE):
+    """Every row [url] selects, a page at a time, however many there are.
+
+    One request for every take on a hundred songs would come back cut at the
+    server's cap, silently, and a first take past the cut would be missing
+    from the set that keeps it — warned one Sunday and deleted a later one
+    while the log printed that first takes are kept. The candidate queries
+    above main() can get away with a cap because a truncated candidate list
+    only means fewer layers are looked at; this read cannot, because here
+    the missing rows are the ones the exemption exists for.
+
+    Paged by id rather than by offset, so a take recorded while the sweep
+    runs cannot shift the pages under it, and read until a page comes back
+    empty rather than short: a server whose cap is lower than [page] hands
+    back fewer rows than asked for, and the next page simply starts after
+    the last id it gave. A request that fails raises out of the run, which
+    is the right outcome for a sweep that cannot see every take.
+
+    [url] already has its select and its filters; the order, the limit and
+    the cursor are added to it.
+    """
+    after: str | None = None
+    while True:
+        cursor = "" if after is None else f"&id=gt.{urllib.parse.quote(after, safe='')}"
+        rows = request(f"{url}&order=id.asc&limit={page}{cursor}", headers=headers) or []
+        if not rows:
+            return
+        yield from rows
+        after = str(rows[-1]["id"])
+
 
 def first_take_ids(layers) -> set[str]:
     """The earliest take of each part by each person on each song.
@@ -198,18 +235,21 @@ def first_takes(base: str, headers: dict, project_ids) -> set[str]:
     unopened for a quarter, and a sweep that read every layer in the account
     to answer this would grow with the app. Every take on those songs is
     read, opened or not, because which one came first is a fact about the
-    whole song and not about the layers that happen to be old.
+    whole song and not about the layers that happen to be old — and read
+    through every_row, page by page, because a hundred songs' takes do not
+    fit in one response and a response cut short would lose exactly the
+    takes this is meant to find.
     """
     if not project_ids:
         return set()
     rows: list[dict] = []
     for chunk in chunked(set(project_ids), 100):
-        rows.extend(request(
+        rows.extend(every_row(
             f"{base}/rest/v1/song_layers"
             f"?select=id,project_id,part,recorded_by,created_at"
             f"&project_id=in.({in_list(chunk)})",
-            headers=headers,
-        ) or [])
+            headers,
+        ))
     return first_take_ids(rows)
 
 

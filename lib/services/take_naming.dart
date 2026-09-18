@@ -204,19 +204,10 @@ class TakeNaming {
       return label.isNotEmpty ? label : 'part';
     }
     if (performer == null || performer.isEmpty) return part.label;
-    return belongingTo(performer, part.label);
-  }
-
-  /// "Dylan's lead": [what], as [performer]'s.
-  ///
-  /// Possessive without assuming anything about the name's ending beyond
-  /// English's own rule for one already ending in s. Its own method so that
-  /// a name composed elsewhere (then and now names a pair of takes by the
-  /// part and the person, not by either take's own label) says it the same
-  /// way.
-  static String belongingTo(String performer, String what) {
+    // Possessive without assuming anything about the name's ending beyond
+    // English's own rule for one already ending in s.
     final possessive = performer.endsWith('s') ? "$performer'" : "$performer's";
-    return '$possessive $what';
+    return '$possessive ${part.label}';
   }
 
   /// The part and the person: "Alto 2 — Jess".

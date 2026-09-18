@@ -1,5 +1,8 @@
 import 'dart:typed_data';
 
+import 'package:colabroom/app/beta_scope.dart';
+import 'package:colabroom/app/music_beta_controller.dart';
+import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/layers/song_layers_screen.dart';
 import 'package:colabroom/features/layers/then_and_now.dart';
@@ -15,9 +18,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 /// Every Musician, Same Song, 17 September 2026, slice 30, for beginners at
 /// every age: hear today's take beside the first one on the same bars, one
-/// after the other, at the same speed. The pair is one person's first and
-/// latest take of a part; the passage is the same bars from each; the words
-/// are "then" and "now", and never how long ago or how much better.
+/// after the other, at the same speed. The pair is your own first and
+/// latest take of a part, and nobody else's; the passage is the same bars
+/// from each; the words are "then" and "now", and never how long ago or how
+/// much better.
 
 SharedLayer _layer(
   String id, {
@@ -66,6 +70,10 @@ const List<int> _downbeats = <int>[
 Float64List _tone(int samples, double level) =>
     Float64List.fromList(List<double>.filled(samples, level));
 
+/// Jess's own pairs, which is what the screen asks for.
+List<ThenAndNowPair> _jessPairs(List<SharedLayer> layers) =>
+    ThenAndNow.pairs(layers, by: 'jess');
+
 /// The takes of a song, already on the phone.
 class _Recorded extends SongLayerService {
   _Recorded(this.layers) : super(client: null);
@@ -97,7 +105,7 @@ class _NoAnalysis extends SongAnalysisService {
 void main() {
   group('the pair', () {
     test('is the first and the latest take of a part by one person', () {
-      final pairs = ThenAndNow.pairs(<SharedLayer>[
+      final pairs = _jessPairs(<SharedLayer>[
         _layer('lead-2', at: _april),
         _layer('lead-3', at: _may),
         _layer('lead-1', at: _march),
@@ -112,22 +120,48 @@ void main() {
     });
 
     test('a part recorded once is not a pair, and neither is an empty song', () {
-      expect(ThenAndNow.pairs(<SharedLayer>[_layer('lead-1')]), isEmpty);
-      expect(ThenAndNow.pairs(const <SharedLayer>[]), isEmpty);
+      expect(_jessPairs(<SharedLayer>[_layer('lead-1')]), isEmpty);
+      expect(_jessPairs(const <SharedLayer>[]), isEmpty);
+    });
+
+    test("is your own, and never a bandmate's", () {
+      // Marcus has a first bass and a latest on the song. On Jess's screen
+      // that is not a pair: everybody's takes stay audible one at a time,
+      // and what nobody else gets is somebody's two lined up.
+      final layers = <SharedLayer>[
+        _layer('bass-1', who: 'marcus', whoName: 'Marcus', part: TakePart.bass, at: _march),
+        _layer('bass-2', who: 'marcus', whoName: 'Marcus', part: TakePart.bass, at: _may),
+        _layer('lead-1', at: _march),
+        _layer('lead-2', at: _april),
+      ];
+      expect(_jessPairs(layers).map((pair) => pair.now.id), <String>['lead-2']);
+      expect(
+        ThenAndNow.pairs(layers, by: 'marcus').map((pair) => pair.now.id),
+        <String>['bass-2'],
+      );
+    });
+
+    test('nobody signed in has none', () {
+      expect(
+        ThenAndNow.pairs(<SharedLayer>[_layer('a', at: _march), _layer('b', at: _may)], by: null),
+        isEmpty,
+      );
     });
 
     test("a teacher's demonstration is not the student's then", () {
       // Same part, two people: the teacher played the lead once to show it,
-      // and the student played it once. Nobody has a first and a latest.
-      final pairs = ThenAndNow.pairs(<SharedLayer>[
+      // and the student played it once. Keyed on the account, so the
+      // student has no first and latest, and neither does the teacher.
+      final layers = <SharedLayer>[
         _layer('demo', who: 'teacher', whoName: 'Ms. Rivera', at: _march),
         _layer('mine', who: 'jess', at: _april),
-      ]);
-      expect(pairs, isEmpty);
+      ];
+      expect(_jessPairs(layers), isEmpty);
+      expect(ThenAndNow.pairs(layers, by: 'teacher'), isEmpty);
     });
 
     test('different parts by one person are different pairs, the latest first', () {
-      final pairs = ThenAndNow.pairs(<SharedLayer>[
+      final pairs = _jessPairs(<SharedLayer>[
         _layer('lead-1', at: _march),
         _layer('lead-2', at: _april),
         _layer('vocal-1', part: TakePart.vocal, at: _march),
@@ -138,7 +172,7 @@ void main() {
 
     test('two takes that never share a bar are not a pair', () {
       // A first verse and a last chorus: there are no same bars to hear.
-      final pairs = ThenAndNow.pairs(<SharedLayer>[
+      final pairs = _jessPairs(<SharedLayer>[
         _layer('verse', at: _march, startMs: 0, durationMs: 10000),
         _layer('chorus', at: _april, startMs: 20000, durationMs: 10000),
       ]);
@@ -146,52 +180,46 @@ void main() {
     });
 
     test('a part nobody marked still pairs', () {
-      final pairs = ThenAndNow.pairs(<SharedLayer>[
+      final pairs = _jessPairs(<SharedLayer>[
         _layer('a', part: TakePart.other, at: _march),
         _layer('b', part: TakePart.other, at: _april),
       ]);
       expect(pairs, hasLength(1));
-      // The app's own possessive for a name already ending in s.
-      expect(pairs.single.name, "Jess' part");
+      expect(pairs.single.name, 'part');
     });
 
-    test('is named by the part and the person, never by either take', () {
-      final pair = ThenAndNow.pairs(<SharedLayer>[
+    test('is named by the part alone, never by either take or by you', () {
+      // Every pair is your own, so a name on it would be yours; and the
+      // takes' own labels were given at different times and disagree.
+      final pair = _jessPairs(<SharedLayer>[
         _layer('lead-1', at: _march, label: 'Lead'),
         _layer('lead-3', at: _may, label: 'Lead 3', performer: 'Jess'),
       ]).single;
-      expect(pair.name, "Jess' lead");
-      // The typed performer wins over the account, as everywhere else.
-      final handed = ThenAndNow.pairs(<SharedLayer>[
-        _layer('a', at: _march),
-        _layer('b', at: _may, performer: 'Dylan'),
+      expect(pair.name, 'lead');
+      final vocal = _jessPairs(<SharedLayer>[
+        _layer('a', part: TakePart.vocal, at: _march),
+        _layer('b', part: TakePart.vocal, at: _may, performer: 'Dylan'),
       ]).single;
-      expect(handed.name, "Dylan's lead");
-      // Nobody credited is the part alone.
-      final nobody = ThenAndNow.pairs(<SharedLayer>[
-        _layer('a', whoName: null, at: _march),
-        _layer('b', whoName: null, at: _may),
-      ]).single;
-      expect(nobody.name, 'lead');
+      expect(vocal.name, 'vocal');
     });
 
     test('two takes recorded in the same instant have one first, on every phone', () {
-      final one = ThenAndNow.pairs(<SharedLayer>[_layer('z', at: _march), _layer('y', at: _march)]);
-      final other = ThenAndNow.pairs(<SharedLayer>[_layer('y', at: _march), _layer('z', at: _march)]);
+      final one = _jessPairs(<SharedLayer>[_layer('z', at: _march), _layer('y', at: _march)]);
+      final other = _jessPairs(<SharedLayer>[_layer('y', at: _march), _layer('z', at: _march)]);
       expect(one.single.then.id, 'y');
       expect(other.single.then.id, 'y');
     });
 
     test('is the same pair by the same two takes', () {
-      final a = ThenAndNow.pairs(<SharedLayer>[_layer('1', at: _march), _layer('2', at: _may)]).single;
-      final b = ThenAndNow.pairs(<SharedLayer>[_layer('1', at: _march), _layer('2', at: _may)]).single;
+      final a = _jessPairs(<SharedLayer>[_layer('1', at: _march), _layer('2', at: _may)]).single;
+      final b = _jessPairs(<SharedLayer>[_layer('1', at: _march), _layer('2', at: _may)]).single;
       expect(a, b);
       expect(a.hashCode, b.hashCode);
     });
   });
 
   group('the passage', () {
-    final pair = ThenAndNow.pairs(<SharedLayer>[
+    final pair = _jessPairs(<SharedLayer>[
       _layer('then', at: _march),
       _layer('now', at: _may),
     ]).single;
@@ -206,7 +234,7 @@ void main() {
     });
 
     test('is cut to where both takes exist', () {
-      final short = ThenAndNow.pairs(<SharedLayer>[
+      final short = _jessPairs(<SharedLayer>[
         _layer('then', at: _march),
         _layer('now', at: _may, startMs: 6000, durationMs: 5000),
       ]).single;
@@ -219,7 +247,7 @@ void main() {
     });
 
     test('starts where both takes begin when the playhead is elsewhere', () {
-      final late = ThenAndNow.pairs(<SharedLayer>[
+      final late = _jessPairs(<SharedLayer>[
         _layer('then', at: _march),
         _layer('now', at: _may, startMs: 6000, durationMs: 5000),
       ]).single;
@@ -275,7 +303,7 @@ void main() {
   });
 
   group('the halves', () {
-    final pair = ThenAndNow.pairs(<SharedLayer>[
+    final pair = _jessPairs(<SharedLayer>[
       _layer('then', at: _march),
       _layer('middle', at: _april),
       _layer('now', at: _may),
@@ -372,7 +400,7 @@ void main() {
 
   group('the words', () {
     test('are then and now, and never how long ago or how much better', () {
-      final pair = ThenAndNow.pairs(<SharedLayer>[
+      final pair = _jessPairs(<SharedLayer>[
         _layer('then', at: DateTime(2024, 1, 1)),
         _layer('now', at: DateTime(2026, 9, 17)),
       ]).single;
@@ -400,32 +428,38 @@ void main() {
   });
 
   group('on the takes screen', () {
-    Widget screen(SongLayerService layers) {
-      return MaterialApp(
-        home: SongLayersScreen(
-          roomId: 'room-1',
-          projectId: 'project-1',
-          songTitle: 'Blue for Deltona',
-          layerService: layers,
-          analysisService: _NoAnalysis(),
-        ),
-      );
-    }
+    // The in-memory repository signs the screen in as 'preview-user', which
+    // is whose takes pair. Everybody else on the song is a bandmate.
+    const me = 'preview-user';
 
     Future<void> open(WidgetTester tester, List<SharedLayer> layers) async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
+      final controller = MusicBetaController(InMemoryMusicRepository.seeded());
+      await controller.load();
+      addTearDown(controller.dispose);
       tester.view.physicalSize = const Size(600, 1600);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-      await tester.pumpWidget(screen(_Recorded(layers)));
+      await tester.pumpWidget(BetaScope(
+        controller: controller,
+        child: MaterialApp(
+          home: SongLayersScreen(
+            roomId: 'room-1',
+            projectId: 'project-1',
+            songTitle: 'Blue for Deltona',
+            layerService: _Recorded(layers),
+            analysisService: _NoAnalysis(),
+          ),
+        ),
+      ));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     }
 
-    testWidgets('two takes of a part by one person offer then and now', (tester) async {
+    testWidgets('two takes of a part of your own offer then and now', (tester) async {
       await open(tester, <SharedLayer>[
-        _layer('lead-1', at: _march),
-        _layer('lead-2', at: _may),
+        _layer('lead-1', who: me, whoName: 'Taylor', at: _march),
+        _layer('lead-2', who: me, whoName: 'Taylor', at: _may),
       ]);
       expect(find.text('2 takes'), findsOneWidget, reason: 'the takes loaded');
       expect(find.byKey(const Key('then_and_now_lead-2')), findsOneWidget);
@@ -435,7 +469,7 @@ void main() {
     });
 
     testWidgets('one take, or two people, offer nothing', (tester) async {
-      await open(tester, <SharedLayer>[_layer('lead-1', at: _march)]);
+      await open(tester, <SharedLayer>[_layer('lead-1', who: me, at: _march)]);
       expect(find.text('1 take'), findsOneWidget, reason: 'the takes loaded');
       expect(find.textContaining('Then and now'), findsNothing);
 
@@ -444,21 +478,37 @@ void main() {
       await tester.pumpAndSettle();
       await open(tester, <SharedLayer>[
         _layer('demo', who: 'teacher', whoName: 'Ms. Rivera', at: _march),
-        _layer('mine', who: 'jess', at: _may),
+        _layer('mine', who: me, at: _may),
       ]);
       expect(find.text('2 takes'), findsOneWidget);
       expect(find.textContaining('Then and now'), findsNothing);
     });
 
-    testWidgets('several pairs say whose', (tester) async {
+    testWidgets("a bandmate's two takes are theirs to hear, not a chip on your screen", (tester) async {
       await open(tester, <SharedLayer>[
-        _layer('lead-1', at: _march),
-        _layer('lead-2', at: _april),
         _layer('bass-1', who: 'marcus', whoName: 'Marcus', part: TakePart.bass, at: _march),
         _layer('bass-2', who: 'marcus', whoName: 'Marcus', part: TakePart.bass, at: _may),
+        _layer('lead-1', who: me, at: _march),
+        _layer('lead-2', who: me, at: _april),
       ]);
-      expect(find.text("Then and now · Marcus' bass"), findsOneWidget);
-      expect(find.text("Then and now · Jess' lead"), findsOneWidget);
+      expect(find.text('4 takes'), findsOneWidget, reason: 'the takes loaded');
+      // One pair, yours, and so unnamed.
+      expect(find.text('Then and now'), findsOneWidget);
+      expect(find.byKey(const Key('then_and_now_lead-2')), findsOneWidget);
+      expect(find.byKey(const Key('then_and_now_bass-2')), findsNothing);
+      // No chip carries anybody's name, his or yours.
+      expect(find.textContaining('Then and now ·'), findsNothing);
+    });
+
+    testWidgets('several pairs of your own say which part', (tester) async {
+      await open(tester, <SharedLayer>[
+        _layer('lead-1', who: me, at: _march),
+        _layer('lead-2', who: me, at: _april),
+        _layer('vocal-1', who: me, part: TakePart.vocal, at: _march),
+        _layer('vocal-2', who: me, part: TakePart.vocal, at: _may),
+      ]);
+      expect(find.text('Then and now · vocal'), findsOneWidget);
+      expect(find.text('Then and now · lead'), findsOneWidget);
     });
   });
 }

@@ -9,7 +9,9 @@ exemptions are plain functions over rows.
 from __future__ import annotations
 
 import unittest
+import urllib.parse
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 import expire_layers as sweep
 
@@ -46,6 +48,39 @@ def ids(layers) -> list[str]:
     return [one["id"] for one in layers]
 
 
+class CappedPostgrest:
+    """A stand-in for request() that answers song_layers reads the way
+    PostgREST does with max-rows set: never more than [cap] rows, however
+    many were asked for, and nothing to say that it stopped short.
+
+    Understands the parts of the query the sweep writes: project_id=in.(...),
+    id=gt.<cursor>, order=id.asc and limit=. Counts the requests, so a test
+    can tell that paging happened at all.
+    """
+
+    def __init__(self, table: list[dict], *, cap: int):
+        self.table = table
+        self.cap = cap
+        self.requests: list[str] = []
+
+    def __call__(self, url: str, *, method: str = "GET", headers: dict, data=None):
+        self.requests.append(url)
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+        rows = list(self.table)
+        songs = query.get("project_id", [""])[0]
+        if songs.startswith("in.("):
+            wanted = set(songs[len("in.("):-1].split(","))
+            rows = [row for row in rows if row["project_id"] in wanted]
+        cursor = query.get("id", [""])[0]
+        if cursor.startswith("gt."):
+            after = cursor[len("gt."):]
+            rows = [row for row in rows if row["id"] > after]
+        if query.get("order") == ["id.asc"]:
+            rows.sort(key=lambda row: row["id"])
+        asked = int(query.get("limit", [str(self.cap)])[0])
+        return rows[: min(asked, self.cap)]
+
+
 class TheFirstTakeOfAPart(unittest.TestCase):
     def test_the_earliest_take_of_each_part_by_each_person_on_each_song(self):
         rows = [
@@ -75,6 +110,71 @@ class TheFirstTakeOfAPart(unittest.TestCase):
     def test_a_take_whose_time_cannot_be_read_is_kept_rather_than_guessed_past(self):
         rows = [layer("unreadable", created="not a time"), layer("dated", created=MARCH)]
         self.assertEqual(sweep.first_take_ids(rows), {"unreadable"})
+
+
+class ReadingEveryTake(unittest.TestCase):
+    """first_takes reads through the server's cap, or the exemption is a lie.
+
+    A response cut at max-rows loses whichever takes sort past the cut, and
+    a first take that is not in first_ids is warned and then deleted while
+    the log says first takes are kept. So the read is paged, and these prove
+    it finds the first take of every part when no single response could.
+    """
+
+    def test_finds_every_first_take_when_the_server_caps_a_page_below_what_was_asked(self):
+        # Seven takes across three songs, and a server that will hand back
+        # three rows at a time however many are asked for. One request would
+        # have lost song-3 entirely and half of song-2.
+        table = [
+            layer("song-1-lead-1", song="song-1", created=MARCH),
+            layer("song-1-lead-2", song="song-1", created=APRIL),
+            layer("song-2-lead-1", song="song-2", created=MARCH),
+            layer("song-2-lead-2", song="song-2", created=MAY),
+            layer("song-2-vocal-1", song="song-2", part="vocal", created=APRIL),
+            layer("song-3-bass-1", song="song-3", who="marcus", part="bass", created=MARCH),
+            layer("song-3-bass-2", song="song-3", who="marcus", part="bass", created=APRIL),
+        ]
+        server = CappedPostgrest(table, cap=3)
+        with mock.patch.object(sweep, "request", server):
+            found = sweep.first_takes("https://x.supabase.co", {}, {"song-1", "song-2", "song-3"})
+        self.assertEqual(found, sweep.first_take_ids(table))
+        self.assertEqual(
+            found,
+            {"song-1-lead-1", "song-2-lead-1", "song-2-vocal-1", "song-3-bass-1"},
+        )
+        # Three full pages and the empty one that says there are no more.
+        self.assertEqual(len(server.requests), 4)
+        self.assertTrue(all("order=id.asc" in url for url in server.requests))
+
+    def test_reads_to_the_end_when_every_page_comes_back_exactly_full(self):
+        # A cap equal to the page size: the last real page is full, and only
+        # the empty page after it says the read is over. Stopping at a short
+        # page would have been wrong here, and stopping at a full one always is.
+        table = [layer(f"take-{n}", created=MARCH) for n in range(6)]
+        server = CappedPostgrest(table, cap=2)
+        with mock.patch.object(sweep, "request", server):
+            rows = list(sweep.every_row("https://x.supabase.co/rest/v1/song_layers?select=id", {}, page=2))
+        self.assertEqual(ids(rows), [f"take-{n}" for n in range(6)])
+        self.assertEqual(len(server.requests), 4)
+        # Each page starts after the last id of the one before it.
+        self.assertIn("id=gt.take-1", server.requests[1])
+        self.assertIn("id=gt.take-3", server.requests[2])
+        self.assertIn("id=gt.take-5", server.requests[3])
+
+    def test_a_song_with_no_takes_is_one_empty_request(self):
+        server = CappedPostgrest([], cap=1000)
+        with mock.patch.object(sweep, "request", server):
+            found = sweep.first_takes("https://x.supabase.co", {}, {"song-1"})
+        self.assertEqual(found, set())
+        self.assertEqual(len(server.requests), 1)
+
+    def test_a_read_that_fails_stops_the_run_rather_than_deleting_on_a_partial_view(self):
+        def broken(url, *, method="GET", headers, data=None):
+            raise RuntimeError("HTTP 503")
+
+        with mock.patch.object(sweep, "request", broken):
+            with self.assertRaises(RuntimeError):
+                sweep.first_takes("https://x.supabase.co", {}, {"song-1"})
 
 
 class TheSweep(unittest.TestCase):

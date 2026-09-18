@@ -7,7 +7,7 @@ import '../../services/chord_beat_grid.dart' show barNumberAt;
 import '../../services/latency_probe.dart';
 import '../../services/multitrack.dart';
 import '../../services/song_layer_service.dart';
-import '../../services/take_naming.dart';
+import '../../services/take_naming.dart' show TakePart;
 import '../workspace/practice_rules.dart';
 
 /// Then and now: today's take beside the first one, on the same bars.
@@ -53,15 +53,14 @@ class ThenAndNowPair {
   /// Every take in the group, for silencing the ones not being heard.
   Set<String> get ids => <String>{for (final layer in group) layer.id};
 
-  /// "Dylan's lead", or "lead": the part and the person.
+  /// "lead", "vocal", "part": which part this is a pair of.
   ///
-  /// Not either take's own name. The two were named at different times and
-  /// may say different things, and a pair called "Lead 3" is not a pair.
-  String get name {
-    final who = now.attributedTo;
-    final what = now.part.label;
-    return who == null ? what : TakeNaming.belongingTo(who, what);
-  }
+  /// The part alone, because every pair on the screen is this person's own
+  /// (see [ThenAndNow.pairs]), so whose it is goes without saying and a name
+  /// on it would be their own. Not either take's own label either: the two
+  /// were named at different times and may say different things, and a pair
+  /// called "Lead 3" is not a pair.
+  String get name => now.part.label;
 
   /// Where both takes exist on the song, in milliseconds: from the later
   /// start to the earlier end. The bars they can be heard on are in here.
@@ -136,25 +135,38 @@ abstract final class ThenAndNow {
   /// The one word on the chip.
   static const String chipLabel = 'Then and now';
 
-  /// Every pair on the song, the one most recently added to first.
+  /// Every pair of [by]'s own on the song, the one most recently added to
+  /// first. Nobody signed in has none.
   ///
-  /// A pair is one person's first and latest take of one part, where the
-  /// two cover some of the same song. Grouped by the account that recorded
-  /// them rather than by the typed performer, because the account is the
-  /// person who was practising: a teacher's demonstration of the lead in a
-  /// lesson room is not the student's "then", however the takes are
-  /// labelled. Takes that never overlap -- a first verse and a last chorus
-  /// -- have no same bars to hear, and are not a pair.
+  /// A pair is this person's first and latest take of one part, where the
+  /// two cover some of the same song. Their own only, on purpose: the
+  /// plan's line is "hear it next to *your* first one", and it sits in the
+  /// section about beginners who leave the first time they feel judged. A
+  /// bandmate offered your shaky first go beside today's, with your name on
+  /// the chip, is that moment delivered by the app. Everybody's shared
+  /// takes stay audible one at a time, as they were; what nobody else gets
+  /// is the two of yours lined up. Every Musician, Same Song, 17 September
+  /// 2026.
+  ///
+  /// Grouped by the account that recorded them rather than by the typed
+  /// performer, because the account is the person who was practising: a
+  /// teacher's demonstration of the lead in a lesson room is not the
+  /// student's "then", however the takes are labelled. Takes that never
+  /// overlap -- a first verse and a last chorus -- have no same bars to
+  /// hear, and are not a pair.
   ///
   /// The part is taken as it was picked, "part" included. A beginner who
   /// never chooses one still has a first take and a latest, and the point
   /// of this is that they hear them.
-  static List<ThenAndNowPair> pairs(Iterable<SharedLayer> layers) {
-    final groups = <(String, TakePart), List<SharedLayer>>{};
+  static List<ThenAndNowPair> pairs(
+    Iterable<SharedLayer> layers, {
+    required String? by,
+  }) {
+    if (by == null) return const <ThenAndNowPair>[];
+    final groups = <TakePart, List<SharedLayer>>{};
     for (final layer in layers) {
-      groups
-          .putIfAbsent((layer.recordedBy, layer.part), () => <SharedLayer>[])
-          .add(layer);
+      if (layer.recordedBy != by) continue;
+      groups.putIfAbsent(layer.part, () => <SharedLayer>[]).add(layer);
     }
     final out = <ThenAndNowPair>[];
     for (final group in groups.values) {
