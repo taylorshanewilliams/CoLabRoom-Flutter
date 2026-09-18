@@ -325,8 +325,8 @@ begin
 
     -- The words, each line with its writer and its colour, as the sheet
     -- shows them. A fresh song starts its history at revision 1; what the
-    -- original's lines went through is the original's. Cut lines stay cut:
-    -- deleted_at (0001) is part of what the song is. Word timings follow
+    -- original's lines went through is the original's. Cut lines stay cut
+    -- (0153): they are their writer's, not the song's. Word timings follow
     -- each line under its new id, so the sheet lights up on the copy
     -- exactly as it did on the original.
     for each_line in

@@ -8396,7 +8396,8 @@ insert into public.contributions (id, project_id, author_id, author_name, body, 
    'a5049149-0000-0000-0000-000000000001', 'Ms Rivera', 'Words by somebody else', 4294937170, 1024),
   ('a5049149-0000-0000-0000-000000000054', 'a5049149-0000-0000-0000-000000000034',
    'a5049149-0000-0000-0000-000000000004', 'The Piano Teacher', 'The band wrote this', 4294937173, 1024);
--- A line cut from the original stays cut: it is not part of the song.
+-- A line cut from the original stays cut (0153): it is its writer's now,
+-- not the song's.
 insert into public.contributions (id, project_id, author_id, author_name, body, color_value, position, deleted_at) values
   ('a5049149-0000-0000-0000-000000000053', 'a5049149-0000-0000-0000-000000000030',
    'a5049149-0000-0000-0000-000000000001', 'Ms Rivera', 'a line that was cut', 4294937170, 3072, now());
