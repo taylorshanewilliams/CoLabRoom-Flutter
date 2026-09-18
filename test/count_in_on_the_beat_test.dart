@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
@@ -5,6 +7,7 @@ import 'package:colabroom/features/workspace/count_in.dart';
 import 'package:colabroom/features/workspace/live_performance_screen.dart';
 import 'package:colabroom/services/click_player.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -28,6 +31,30 @@ class _SilentClick implements ClickPlayer {
     bool loop = true,
   }) async =>
       log.add('play ${bpm.round()}/$beatsPerBar x$bars${loop ? ' looped' : ''}');
+
+  @override
+  Future<void> stop() async => log.add('stop');
+
+  @override
+  Future<void> dispose() async => log.add('dispose');
+}
+
+/// A click still being written, which on a cold first play is a few hundred
+/// milliseconds of a phone doing nothing visible.
+class _SlowClick implements ClickPlayer {
+  final Completer<void> written = Completer<void>();
+  final List<String> log = <String>[];
+
+  @override
+  Future<void> play({
+    required double bpm,
+    required int beatsPerBar,
+    int bars = 8,
+    bool loop = true,
+  }) {
+    log.add('play ${bpm.round()}/$beatsPerBar x$bars');
+    return written.future;
+  }
 
   @override
   Future<void> stop() async => log.add('stop');
@@ -61,6 +88,27 @@ void main() {
       // the tracker having lost the plot.
       expect(beatsInBar(1), 4);
       expect(beatsInBar(13), 4);
+    });
+
+    test('a waltz the analysis did not count is still counted three', () {
+      // Downbeats two seconds apart at 90 is three beats to a bar, and the
+      // downbeats are already there — counting that song four would be
+      // counting a metre it does not have, which is the one thing counting on
+      // the song's own beat is for.
+      const waltz = <int>[0, 2000, 4000, 6000];
+      expect(beatsInBar(null, bpm: 90, downbeatsMs: waltz), 3);
+      expect(beatsInBar(null, bpm: 120, downbeatsMs: downbeats), 4);
+      // One downbeat the tracker dropped is a single gap of twice the length,
+      // and the median steps over it rather than calling the song six.
+      expect(
+        beatsInBar(null, bpm: 90, downbeatsMs: <int>[0, 2000, 4000, 8000, 10000]),
+        3,
+      );
+      // Nothing to derive it from, and nothing said: four, as before.
+      expect(beatsInBar(null, bpm: 90), 4);
+      expect(beatsInBar(null, downbeatsMs: waltz), 4);
+      // What the analysis did say is never second-guessed.
+      expect(beatsInBar(3, bpm: 120, downbeatsMs: downbeats), 3);
     });
 
     test('a slower speed is counted in slower', () {
@@ -112,6 +160,23 @@ void main() {
       expect(countInFor(bpm: 0, downbeatsMs: downbeats), isNull);
     });
 
+    test('a tempo outside what a beat can be is refused, not pulled in', () {
+      // A tracker reading a fast punk song at 260 and having it pulled to 240
+      // would count the bar at a tempo the song is not at, and the song would
+      // arrive after the count said it would. Every time, invisibly. The
+      // seconds promise nothing, so the seconds are the honest answer.
+      expect(countInFor(bpm: 260, beatsPerBar: 4, downbeatsMs: downbeats), isNull);
+      expect(countInFor(bpm: 30, beatsPerBar: 4, downbeatsMs: downbeats), isNull);
+      expect(countInFor(bpm: 240, beatsPerBar: 4, downbeatsMs: downbeats), isNotNull);
+      expect(countInFor(bpm: 40, beatsPerBar: 4, downbeatsMs: downbeats), isNotNull);
+      // A speed the player chose is not a tempo the tracker guessed, so it is
+      // applied after the range check: half speed really is half the tempo.
+      expect(
+        countInFor(bpm: 60, beatsPerBar: 4, downbeatsMs: downbeats, rate: 0.5)!.bpm,
+        30,
+      );
+    });
+
     test('a song with no analysis at all has nothing to count', () {
       expect(countInForSong(null), isNull);
       expect(
@@ -126,6 +191,19 @@ void main() {
         isNull,
         reason: 'downbeats without a tempo cannot say how long a bar lasts',
       );
+    });
+  });
+
+  group('the count hands over on a downbeat', () {
+    test('the bar a moment is sitting inside', () {
+      expect(downbeatAtOrBefore(0, downbeats), 0);
+      expect(downbeatAtOrBefore(4300, downbeats), 4000);
+      expect(downbeatAtOrBefore(3999, downbeats), 2000);
+      expect(downbeatAtOrBefore(99000, downbeats), 14000);
+      // A pickup, or a song that starts a moment before its own one, has no
+      // earlier bar to be taken from.
+      expect(downbeatAtOrBefore(200, <int>[500, 2500]), isNull);
+      expect(downbeatAtOrBefore(200, const <int>[]), isNull);
     });
   });
 
@@ -206,8 +284,30 @@ void main() {
           matching: matching,
         );
 
+    /// Where the song is sitting, as the seek bar has it: the only place on
+    /// this screen that says so, and the song is sixteen seconds long.
+    double where(WidgetTester tester) =>
+        tester.widget<Slider>(find.byKey(const Key('live_seek'))).value;
+
+    /// Every tick the phone was asked to make, so the count can be felt with
+    /// the phone on a stand and both eyes on the instrument.
+    List<Object?> ticksFelt(WidgetTester tester) {
+      final felt = <Object?>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'HapticFeedback.vibrate') felt.add(call.arguments);
+          return null;
+        },
+      );
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+      return felt;
+    }
+
     testWidgets('four beats of the song, then the song', (tester) async {
       await sized(tester);
+      final felt = ticksFelt(tester);
       final click = _SilentClick();
       await tester.pumpWidget(MaterialApp(
         theme: CoLabRoomTheme.dark(),
@@ -243,6 +343,15 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.byKey(const Key('live_count_in')), findsNothing);
       expect(find.text('Pause'), findsOneWidget);
+
+      // Felt as well as seen and heard: one light tick per beat counted, and
+      // none once the song is playing.
+      expect(felt, <Object?>[
+        'HapticFeedbackType.selectionClick',
+        'HapticFeedbackType.selectionClick',
+        'HapticFeedbackType.selectionClick',
+        'HapticFeedbackType.selectionClick',
+      ]);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
@@ -314,6 +423,88 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
       expect(find.byKey(const Key('live_count_in')), findsNothing);
       expect(find.text('Start'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the bar is on screen from the press, not from the first beat',
+        (tester) async {
+      await sized(tester);
+      final click = _SlowClick();
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: onTheBeat,
+          click: click,
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('live_play_pause')));
+      await tester.pump();
+
+      // The click file is still being written. The bar is already there with
+      // none of it counted yet — a screen that looks untouched while it is
+      // busy is a screen you press a second time, and the second press would
+      // throw away the count nobody could see had started.
+      expect(find.byKey(const Key('live_count_in')), findsOneWidget);
+      expect(find.byKey(const Key('live_count_in_dot_4')), findsOneWidget);
+      expect(find.byKey(const Key('live_count_in_dot_5')), findsNothing);
+      expect(find.text('Counting you in — tap to skip'), findsOneWidget);
+      // And no beat number yet, least of all a nought.
+      expect(inCount(find.text('0')), findsNothing);
+      expect(inCount(find.text('1')), findsNothing);
+
+      click.written.complete();
+      await tester.pump();
+      expect(inCount(find.text('1')), findsOneWidget);
+
+      await tester.pump(const Duration(milliseconds: 2000));
+      expect(find.byKey(const Key('live_count_in')), findsNothing);
+      expect(find.text('Pause'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('coming back mid-song, the song comes in on its own bar',
+        (tester) async {
+      await sized(tester);
+      final click = _SilentClick();
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: onTheBeat,
+          click: click,
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Stopped five seconds in, which is a second into the third bar.
+      tester.widget<Slider>(find.byKey(const Key('live_seek'))).onChanged!(
+            5000 / 16000,
+          );
+      await tester.pump();
+      expect(where(tester), closeTo(5000 / 16000, 0.001));
+
+      await tester.tap(find.byKey(const Key('live_play_pause')));
+      await tester.pump();
+
+      // The song is taken from the top of that bar before a beat is counted.
+      // Four beats at the song's tempo handing over a second into a bar are
+      // in the right time and the wrong place: the player is counted to four
+      // and the song arrives between two of its own beats.
+      expect(where(tester), closeTo(4000 / 16000, 0.001));
+      expect(inCount(find.text('1')), findsOneWidget);
+
+      await tester.pump(const Duration(milliseconds: 2000));
+      expect(find.byKey(const Key('live_count_in')), findsNothing);
+      expect(find.text('Pause'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();

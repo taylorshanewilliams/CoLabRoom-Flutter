@@ -1148,14 +1148,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// beat away from the one you can hear is worse than either on its own.
   ///
   /// The song comes in one whole bar after the first beat of the count, which
-  /// is the beat after the last one counted: [_togglePlay] resumes from
-  /// wherever the song is sitting, which is the loop's first bar when a loop
-  /// is on (see _setLoop) and the top of the song when one is not.
+  /// is the beat after the last one counted — but only if the song is sitting
+  /// on a downbeat when it comes in, which [_startOnADownbeat] is what makes
+  /// true.
   Future<void> _startCountIn(CountIn countIn) async {
     _countdownTimer?.cancel();
     _countdownTimer = null;
     final generation = ++_countInGeneration;
     setState(() {
+      _startOnADownbeat();
       _countInBar = countIn;
       _countInBeat = null;
     });
@@ -1193,6 +1194,36 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       setState(() => _countInBeat = next);
       _feelBeat();
     });
+  }
+
+  /// Moves the song back to the start of the bar it is sitting in, so the
+  /// count hands over onto a real one.
+  ///
+  /// Four beats at the song's tempo are only a count-in if the song's own
+  /// beats fall where they say they will. Paused halfway through a bar at
+  /// 0:41.300 and started again, the count would be at the right speed and in
+  /// the wrong place: the song would arrive three tenths after the beat the
+  /// player was just counted to. Coming back in from the top of the bar is
+  /// what anybody in a room says out loud anyway.
+  ///
+  /// Only where the song's own clock is what the play button starts. In the
+  /// scrolling modes the scroll is the clock and there is no recording to be
+  /// in phase with, so there is nothing to move. And before the first
+  /// downbeat — a pickup, or the top of a song that starts a moment before
+  /// its own one — nothing moves either: the song begins there, and there is
+  /// no earlier bar it could be taken from.
+  void _startOnADownbeat() {
+    final synced = _mode == LiveScrollMode.synced ||
+        (_mode == LiveScrollMode.off && _hasSync);
+    if (!synced) return;
+    final at = _elapsed.inMilliseconds;
+    final downbeat = downbeatAtOrBefore(at, _downbeats);
+    if (downbeat == null || downbeat == at) return;
+    // Never out of the front of what is on repeat: the loop's start is where
+    // the player said this passage begins.
+    final loop = _loop;
+    if (loop != null && downbeat < loop.startMs) return;
+    _seekTo(Duration(milliseconds: downbeat));
   }
 
   /// A light tick on each beat of the count.
@@ -1811,12 +1842,20 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                     ),
                   ),
                 ),
-                if (_countdownRemaining != null || _countInBeat != null)
+                // On [_countInBar], not on the beat: the bar is set the moment
+                // the button is pressed and the first beat waits on the click
+                // file being written, which on a cold start is a few hundred
+                // milliseconds. Without this the screen looked untouched for
+                // that whole window while a second press would already have
+                // cancelled the count nobody could see had started.
+                if (_countdownRemaining != null || _countInBar != null)
                   Positioned.fill(
                     child: _CountdownOverlay(
                       key: const Key('live_count_in'),
-                      count: _countInBeat ?? _countdownRemaining!,
-                      beatsInBar: _countInBeat == null ? null : _countInBar?.beats,
+                      count: _countInBar != null
+                          ? _countInBeat ?? 0
+                          : _countdownRemaining!,
+                      beatsInBar: _countInBar?.beats,
                       onCancel: _cancelCountdown,
                     ),
                   ),
@@ -2130,6 +2169,10 @@ class _CountdownOverlay extends StatelessWidget {
   });
 
   /// The seconds left, or — with [beatsInBar] — the beat being counted.
+  ///
+  /// Zero is the moment between the button being pressed and the first beat
+  /// sounding: the bar is there to be seen, and no beat of it has happened
+  /// yet.
   final int count;
 
   /// Beats in the bar, when the count is on the song's own beat.
@@ -2140,16 +2183,20 @@ class _CountdownOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final beats = beatsInBar;
-    final number = Text(
-      '$count',
-      key: ValueKey<int>(count),
-      style: const TextStyle(
-        color: AppColors.gold,
-        fontSize: 118,
-        fontWeight: FontWeight.w900,
-        height: 1,
-      ),
-    );
+    // The empty box keeps the bar's height before the first beat, so the dots
+    // do not jump down the screen when the number arrives.
+    final number = count < 1
+        ? const SizedBox(key: ValueKey<int>(0), height: 118)
+        : Text(
+            '$count',
+            key: ValueKey<int>(count),
+            style: const TextStyle(
+              color: AppColors.gold,
+              fontSize: 118,
+              fontWeight: FontWeight.w900,
+              height: 1,
+            ),
+          );
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onCancel,

@@ -1,5 +1,7 @@
 import '../../domain/song_analysis_models.dart';
-import 'practice_rules.dart' show clampBpm;
+import '../../services/chord_beat_grid.dart'
+    show barNumberAt, medianBeatIntervalMs;
+import 'practice_rules.dart' show maxBpm, minBpm;
 
 /// Counting a band in on the song's own beat, rather than in seconds.
 ///
@@ -24,13 +26,57 @@ Duration barLength({required double bpm, required int beatsPerBar}) =>
 /// How many beats are in a bar of this song.
 ///
 /// The analysis counts it from the gaps between downbeats and leaves it null
-/// where it had no confident answer. Four then — less a guess about this
-/// song than the count anybody gives when nobody has said otherwise, and the
-/// same default the metronome and the mixdown click already use. A number
-/// outside what a bar can hold is treated the same way.
-int beatsInBar(int? beatsPerBar) {
-  final beats = beatsPerBar ?? 4;
-  return beats < 2 || beats > 12 ? 4 : beats;
+/// where it had no confident answer. When it does, the downbeats can often
+/// still say: the gap from one of them to the next *is* a bar, and the tempo
+/// says how many beats fit inside it. So a waltz the analysis recorded
+/// downbeats for but no metre is counted three, which is the whole point of
+/// counting a band in on the song's own time rather than on four.
+///
+/// Four only when neither the analysis nor the downbeats give an answer a bar
+/// could hold — less a guess about this song than the count anybody gives
+/// when nobody has said otherwise, and the same default the metronome and the
+/// mixdown click already use.
+int beatsInBar(
+  int? beatsPerBar, {
+  double? bpm,
+  List<int> downbeatsMs = const <int>[],
+}) {
+  if (_holdsABar(beatsPerBar)) return beatsPerBar!;
+  final heard = _beatsBetweenDownbeats(bpm: bpm, downbeatsMs: downbeatsMs);
+  return _holdsABar(heard) ? heard! : 4;
+}
+
+/// Whether that many beats is a bar anybody plays.
+///
+/// One beat is not a count-in and thirteen is the tracker having lost the
+/// plot.
+bool _holdsABar(int? beats) => beats != null && beats >= 2 && beats <= 12;
+
+/// The metre the downbeats themselves imply: how many beats fit in the gap
+/// from one bar to the next.
+///
+/// Median gap rather than the first one, so a single downbeat the tracker
+/// dropped — which shows up as one gap of twice the length — cannot decide
+/// the metre for the whole song.
+int? _beatsBetweenDownbeats({
+  required double? bpm,
+  required List<int> downbeatsMs,
+}) {
+  if (bpm == null || bpm <= 0) return null;
+  final barMs = medianBeatIntervalMs(downbeatsMs);
+  if (barMs <= 0) return null;
+  return (barMs * 1000 / beatLength(bpm).inMicroseconds).round();
+}
+
+/// The start of the bar [ms] is inside, or null when it sits ahead of the
+/// first downbeat.
+///
+/// Null is a real answer, not a failure: a pickup phrase, or the top of a
+/// song that does not begin exactly on its own downbeat, has no earlier bar
+/// to be moved back to.
+int? downbeatAtOrBefore(int ms, List<int> downbeatsMs) {
+  final bar = barNumberAt(ms, downbeatsMs);
+  return bar == null ? null : downbeatsMs[bar - 1];
 }
 
 /// One bar of the song's own time: how many beats are in it, and how fast.
@@ -70,19 +116,30 @@ Duration countInBeatAt(CountIn countIn, int beat) => countIn.beat * (beat - 1);
 /// without them. A song that fails this keeps the seconds countdown, which
 /// claims nothing about the song at all.
 ///
+/// A tempo outside what a beat can be is refused rather than pulled into
+/// range. Clamping a tracker's 260 to 240 would count the bar at a tempo the
+/// song is not at, and hand over 77 milliseconds after it said it would —
+/// which is the same confident wrongness this function exists to avoid, just
+/// quieter. The seconds claim nothing, so the seconds are the safe answer.
+///
 /// [rate] is the speed the song is about to play at, so a passage being
 /// drilled at three-quarter speed is counted in at three-quarter speed too.
 /// Counting at a hundred and coming in at seventy-five is worse than not
-/// counting.
+/// counting. The rate is applied after the range check, because a song
+/// slowed to half speed really is going to arrive at half the tempo.
 CountIn? countInFor({
   double? bpm,
   int? beatsPerBar,
   List<int> downbeatsMs = const <int>[],
   double rate = 1,
 }) {
-  if (bpm == null || bpm <= 0 || rate <= 0) return null;
+  if (bpm == null || rate <= 0) return null;
+  if (bpm < minBpm || bpm > maxBpm) return null;
   if (downbeatsMs.isEmpty) return null;
-  return CountIn(beats: beatsInBar(beatsPerBar), bpm: clampBpm(bpm) * rate);
+  return CountIn(
+    beats: beatsInBar(beatsPerBar, bpm: bpm, downbeatsMs: downbeatsMs),
+    bpm: bpm * rate,
+  );
 }
 
 /// The count-in for an analysed song, or null when the analysis never found
