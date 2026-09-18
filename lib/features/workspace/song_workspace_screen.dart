@@ -27,6 +27,7 @@ import '../../services/user_facing_error.dart';
 import '../../widgets/offer_notifications.dart';
 import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/microphone_disclosure.dart';
+import '../lessons/leaving_practice.dart';
 import 'continuous_song_editor.dart';
 import 'line_reconciliation.dart';
 import 'ask_bar.dart';
@@ -66,6 +67,10 @@ enum _SongMenuAction {
   /// Ours, public domain, or somebody else's. Asked once by the audience
   /// dial; this is where the answer can be changed afterwards.
   whoseSong,
+
+  /// Offered only to a teacher, and only in a lesson room of their own
+  /// (0143). Everywhere else the entry is not in the menu at all.
+  leavePractice,
 }
 
 /// What the middle of the song is showing.
@@ -131,6 +136,11 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   bool _panelAutoRecord = false;
 
   SongAudience? _audience;
+
+  /// The student, when this is a lesson room this person teaches (0143).
+  /// Null everywhere else, which is almost everywhere.
+  ({String id, String name})? _leaveFor;
+
   final ScrollController _contributionScroll = ScrollController();
   final ContinuousSongEditorController _continuousController = ContinuousSongEditorController();
   final SpeechToText _speech = SpeechToText();
@@ -174,6 +184,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadAnalysisBundle());
     unawaited(_loadAudience());
+    unawaited(_loadLessonStudent());
     // Listening before joining, so a leader heard in the first second is
     // not missed.
     _together.addListener(_togetherChanged);
@@ -203,6 +214,80 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           service: 'app',
           stage: 'song_audience',
           message: error.toString()));
+    }
+  }
+
+  /// Whether this is a lesson this person teaches, and who the student is.
+  ///
+  /// Its own load and never awaited, the same way the takes screen works out
+  /// who a take is going to: the song must not wait on it, and a room that
+  /// cannot be asked simply offers no entry — which is the right answer for
+  /// every band room in the app anyway.
+  Future<void> _loadLessonStudent() async {
+    final controller = BetaScope.maybeOf(context, listen: false);
+    final repository = controller?.repository;
+    final room = controller?.roomForProject(widget.projectId);
+    if (controller == null || repository == null || room == null) return;
+    try {
+      final lessonRoom = await repository.isLessonRoom(room.id);
+      if (!mounted) return;
+      final student = studentToLeavePracticeFor(
+        lessonRoom: lessonRoom,
+        room: room,
+        me: controller.meOrNobody,
+      );
+      if (student?.id != _leaveFor?.id) setState(() => _leaveFor = student);
+    } catch (_) {
+      // Silent on purpose. Nothing here is worth a sentence on the song: the
+      // menu keeps the entries it already had.
+    }
+  }
+
+  /// A part, a speed and a few words, left on the student's Home (0143).
+  ///
+  /// The sheet is opened with whatever the song sheet already found, and
+  /// nothing is analysed to get it: a teacher who wants to say "all of it"
+  /// should not be made to wait for a sheet first. Whether there is a sheet
+  /// decides what they are offered, because it decides what Practise can
+  /// actually do with it (songHasASheet).
+  Future<void> _leavePractice(SongProject project) async {
+    final student = _leaveFor;
+    if (student == null) return;
+    final controller = BetaScope.of(context, listen: false);
+    final left = await showLeavePractice(
+      context,
+      student: student.name,
+      sections:
+          _analysisBundle?.reference?.structureSections ?? const <StructureSection>[],
+      sheet: songHasASheet(project, _analysisBundle),
+    );
+    if (left == null || !mounted) return;
+    try {
+      await controller.repository.leavePracticeForStudent(
+        projectId: project.id,
+        studentId: student.id,
+        label: left.part.label,
+        rate: left.part.rate,
+        startMs: left.part.startMs,
+        endMs: left.part.endMs,
+        note: left.note,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(practiceLeftSaid(student.name, left))),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(reportAndDescribe(
+            error,
+            service: 'app',
+            stage: 'leave_practice_mark',
+            route: 'Song',
+          )),
+        ),
+      );
     }
   }
 
@@ -1092,6 +1177,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       await _changeSongOrigin(project);
       return;
     }
+    if (action == _SongMenuAction.leavePractice) {
+      await _leavePractice(project);
+      return;
+    }
     if (action == _SongMenuAction.markFinished) {
       await _markFinished(project);
       return;
@@ -1115,6 +1204,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         case _SongMenuAction.color:
         case _SongMenuAction.tell:
         case _SongMenuAction.whoseSong:
+        case _SongMenuAction.leavePractice:
           // Handled above, before this switch, because it opens a sheet
           // rather than producing an export.
           return;
@@ -1731,6 +1821,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 onOpenAudience: () => unawaited(_openAudience(project)),
                 projectId: widget.projectId,
                 repository: controller.repository,
+                leavePracticeFor: _leaveFor?.name,
               )
             : Column(
                 children: <Widget>[
@@ -1743,6 +1834,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                         : () => Navigator.maybePop(context),
                     onRename: () => _rename(project),
                     onExport: (action) => _exportSong(project, action),
+                    leavePracticeFor: _leaveFor?.name,
                   ),
                   _WorkspaceToolbar(
                     onOpenLayers: () => _openLayers(project),
@@ -1891,6 +1983,7 @@ class _PortraitProjectHeader extends StatelessWidget {
     this.onBack,
     required this.onRename,
     required this.onExport,
+    this.leavePracticeFor,
   });
 
   final SongProject project;
@@ -1899,6 +1992,11 @@ class _PortraitProjectHeader extends StatelessWidget {
   final VoidCallback? onBack;
   final VoidCallback onRename;
   final ValueChanged<_SongMenuAction> onExport;
+
+  /// The student's name when this is a lesson this person teaches (0143),
+  /// and null everywhere else — which is what keeps the entry out of every
+  /// band room's menu rather than greying it out there.
+  final String? leavePracticeFor;
 
   @override
   Widget build(BuildContext context) {
@@ -1962,8 +2060,22 @@ class _PortraitProjectHeader extends StatelessWidget {
             key: const Key('song_options_menu'),
             tooltip: 'Song options',
             onSelected: onExport,
-            itemBuilder: (_) => const <PopupMenuEntry<_SongMenuAction>>[
-              PopupMenuItem<_SongMenuAction>(
+            itemBuilder: (_) => <PopupMenuEntry<_SongMenuAction>>[
+              // First, and only in a lesson: it is the one thing in this menu
+              // that reaches another person's week.
+              if (leavePracticeFor != null) ...<PopupMenuEntry<_SongMenuAction>>[
+                PopupMenuItem<_SongMenuAction>(
+                  key: const Key('song_leave_practice'),
+                  value: _SongMenuAction.leavePractice,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.repeat_rounded),
+                    title: Text(leavePracticeLabel(leavePracticeFor!)),
+                  ),
+                ),
+                const PopupMenuDivider(),
+              ],
+              const PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.tell,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -1971,7 +2083,7 @@ class _PortraitProjectHeader extends StatelessWidget {
                   title: Text('Tell somebody'),
                 ),
               ),
-              PopupMenuItem<_SongMenuAction>(
+              const PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.importLyrics,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -1979,7 +2091,7 @@ class _PortraitProjectHeader extends StatelessWidget {
                   title: Text('Import lyrics'),
                 ),
               ),
-              PopupMenuItem<_SongMenuAction>(
+              const PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.history,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -1988,8 +2100,8 @@ class _PortraitProjectHeader extends StatelessWidget {
                   subtitle: Text('Who did what, and when'),
                 ),
               ),
-              PopupMenuDivider(),
-              PopupMenuItem<_SongMenuAction>(
+              const PopupMenuDivider(),
+              const PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.whoseSong,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -1997,7 +2109,7 @@ class _PortraitProjectHeader extends StatelessWidget {
                   title: Text('Who wrote this song'),
                 ),
               ),
-              PopupMenuItem<_SongMenuAction>(
+              const PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.color,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -2005,7 +2117,7 @@ class _PortraitProjectHeader extends StatelessWidget {
                   title: Text('Line color'),
                 ),
               ),
-              PopupMenuItem<_SongMenuAction>(
+              const PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.print,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -2013,7 +2125,7 @@ class _PortraitProjectHeader extends StatelessWidget {
                   title: Text('Send to printer'),
                 ),
               ),
-              PopupMenuItem<_SongMenuAction>(
+              const PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.share,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -2023,8 +2135,8 @@ class _PortraitProjectHeader extends StatelessWidget {
               ),
               // Last, and on its own, because it is the only entry here that
               // cannot be undone.
-              PopupMenuDivider(),
-              PopupMenuItem<_SongMenuAction>(
+              const PopupMenuDivider(),
+              const PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.markFinished,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -2033,7 +2145,7 @@ class _PortraitProjectHeader extends StatelessWidget {
                   subtitle: Text('Just for you, until you show it'),
                 ),
               ),
-              PopupMenuItem<_SongMenuAction>(
+              const PopupMenuItem<_SongMenuAction>(
                 value: _SongMenuAction.deleteSong,
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -2070,6 +2182,7 @@ class _LandscapeWorkspace extends StatelessWidget {
     required this.onOpenAudience,
     required this.projectId,
     required this.repository,
+    this.leavePracticeFor,
     super.key,
   });
 
@@ -2099,6 +2212,11 @@ class _LandscapeWorkspace extends StatelessWidget {
   final VoidCallback onOpenAudience;
   final String projectId;
   final MusicRepository repository;
+
+  /// The student, in a lesson this person teaches (0143). Landscape offers
+  /// the same entry as portrait, so a teacher at a desk is not quietly given
+  /// a smaller app than the same teacher on a phone.
+  final String? leavePracticeFor;
 
   @override
   Widget build(BuildContext context) {
@@ -2179,8 +2297,22 @@ class _LandscapeWorkspace extends StatelessWidget {
                 key: const Key('song_options_menu'),
                 tooltip: 'Song options',
                 onSelected: onExport,
-                itemBuilder: (_) => const <PopupMenuEntry<_SongMenuAction>>[
-                  PopupMenuItem<_SongMenuAction>(
+                itemBuilder: (_) => <PopupMenuEntry<_SongMenuAction>>[
+                  // First, and only in a lesson: it is the one thing in this
+                  // menu that reaches another person's week.
+                  if (leavePracticeFor != null) ...<PopupMenuEntry<_SongMenuAction>>[
+                    PopupMenuItem<_SongMenuAction>(
+                      key: const Key('song_leave_practice'),
+                      value: _SongMenuAction.leavePractice,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.repeat_rounded),
+                        title: Text(leavePracticeLabel(leavePracticeFor!)),
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                  ],
+                  const PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.importLyrics,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -2188,7 +2320,7 @@ class _LandscapeWorkspace extends StatelessWidget {
                       title: Text('Import lyrics'),
                     ),
                   ),
-                  PopupMenuItem<_SongMenuAction>(
+                  const PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.invite,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -2196,8 +2328,8 @@ class _LandscapeWorkspace extends StatelessWidget {
                       title: Text('Invite to This Song'),
                     ),
                   ),
-                  PopupMenuDivider(),
-                  PopupMenuItem<_SongMenuAction>(
+                  const PopupMenuDivider(),
+                  const PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.whoseSong,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -2205,7 +2337,7 @@ class _LandscapeWorkspace extends StatelessWidget {
                       title: Text('Who wrote this song'),
                     ),
                   ),
-                  PopupMenuItem<_SongMenuAction>(
+                  const PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.color,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -2213,7 +2345,7 @@ class _LandscapeWorkspace extends StatelessWidget {
                       title: Text('Line color'),
                     ),
                   ),
-                  PopupMenuItem<_SongMenuAction>(
+                  const PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.print,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -2221,7 +2353,7 @@ class _LandscapeWorkspace extends StatelessWidget {
                       title: Text('Send to printer'),
                     ),
                   ),
-                  PopupMenuItem<_SongMenuAction>(
+                  const PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.share,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -2229,8 +2361,8 @@ class _LandscapeWorkspace extends StatelessWidget {
                       title: Text('Share by text or email'),
                     ),
                   ),
-                  PopupMenuDivider(),
-                  PopupMenuItem<_SongMenuAction>(
+                  const PopupMenuDivider(),
+                  const PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.markFinished,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -2239,7 +2371,7 @@ class _LandscapeWorkspace extends StatelessWidget {
                       subtitle: Text('Just for you, until you show it'),
                     ),
                   ),
-                  PopupMenuItem<_SongMenuAction>(
+                  const PopupMenuItem<_SongMenuAction>(
                     value: _SongMenuAction.deleteSong,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,

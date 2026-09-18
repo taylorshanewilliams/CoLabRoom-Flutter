@@ -2568,6 +2568,30 @@ class SupabaseMusicRepository implements MusicRepository {
     });
   }
 
+  @override
+  Future<void> leavePracticeForStudent({
+    required String projectId,
+    required String studentId,
+    required String label,
+    required double rate,
+    int? startMs,
+    int? endMs,
+    String? note,
+  }) async {
+    // Nothing is read back afterwards, and there is nothing to read: the
+    // mark belongs to the student from the moment it is written (0128), and
+    // the id the function returns is of no use to the teacher who sent it.
+    await client.rpc<dynamic>('leave_practice_mark', params: <String, dynamic>{
+      'in_project': projectId,
+      'in_student': studentId,
+      'in_label': label,
+      'in_rate': rate,
+      'in_start_ms': startMs,
+      'in_end_ms': endMs,
+      'in_note': note,
+    });
+  }
+
   PracticeMark _practiceMark(Map<String, dynamic> row) => PracticeMark(
         id: row['id'] as String,
         projectId: row['project_id'] as String,

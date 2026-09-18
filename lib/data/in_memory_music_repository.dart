@@ -2164,6 +2164,49 @@ class InMemoryMusicRepository implements MusicRepository {
   Future<bool> isLessonRoom(String roomId) async =>
       _lessonRooms.containsValue(roomId);
 
+  /// A lesson this person teaches: the two of them, this person owning it,
+  /// as join_lesson_link builds one on the student's side (0129).
+  ///
+  /// [offerLesson] puts a teacher on the other end of a link; this puts a
+  /// student on the other end of a room. There is one person in an in-memory
+  /// world, so which end of a lesson they are standing on has to be said by
+  /// hand either way.
+  MusicRoom teachALesson({
+    required String studentId,
+    required String studentName,
+    String title = 'Guitar lessons',
+  }) {
+    final now = DateTime.now();
+    final room = MusicRoom(
+      id: _id('room'),
+      accountId: currentUserId,
+      name: '$title · $studentName',
+      icon: '♪',
+      createdAt: now,
+      updatedAt: now,
+      sortOrder: _nextRoomSortOrder(),
+      members: <RoomMember>[
+        const RoomMember(
+          userId: 'preview-user',
+          displayName: 'Taylor',
+          role: RoomRole.owner,
+          colorValue: 0xFFFF8A4C,
+        ),
+        RoomMember(
+          userId: studentId,
+          displayName: studentName,
+          role: RoomRole.editor,
+          colorValue: 0xFF4C8AFF,
+        ),
+      ],
+    );
+    _rooms.add(room);
+    // Keyed by the room, because there is no link on this side: a teacher's
+    // own code never opened it. isLessonRoom asks by room either way.
+    _lessonRooms['taught-${room.id}'] = room.id;
+    return room;
+  }
+
   @override
   Future<List<PracticeMark>> myPracticeMarks() async {
     final since = DateTime.now().subtract(const Duration(days: 14));
@@ -2189,6 +2232,46 @@ class InMemoryMusicRepository implements MusicRepository {
     );
     if (index >= 0) _practiceMarks.removeAt(index);
     _practiceMarks.insert(0, kept);
+  }
+
+  /// What this person has left students to practise (0143), newest first.
+  ///
+  /// Kept here and nowhere else, because there is nowhere else it could go:
+  /// a mark belongs to the student it is left for, and nothing in the app
+  /// ever reads a teacher's back. The server's copy lands on somebody else's
+  /// account; this one exists so a test can see that the teacher's action
+  /// arrived, and so a preview does not silently do nothing.
+  final List<LeftPractice> practiceLeft = <LeftPractice>[];
+
+  @override
+  Future<void> leavePracticeForStudent({
+    required String projectId,
+    required String studentId,
+    required String label,
+    required double rate,
+    int? startMs,
+    int? endMs,
+    String? note,
+  }) async {
+    final cleaned = (note ?? '').trim();
+    // One per teacher per song, brought up to date, as 0143 does it: the
+    // student's Home shows one card a song, and two rows would leave last
+    // week's words on it.
+    practiceLeft.removeWhere(
+      (left) => left.projectId == projectId && left.studentId == studentId,
+    );
+    practiceLeft.insert(
+      0,
+      LeftPractice(
+        projectId: projectId,
+        studentId: studentId,
+        label: label,
+        rate: rate,
+        startMs: startMs,
+        endMs: endMs,
+        note: cleaned.isEmpty ? null : cleaned,
+      ),
+    );
   }
 
   /// Notes pinned to a moment, newest write last and read back in moment
@@ -2527,4 +2610,30 @@ class InMemoryMusicRepository implements MusicRepository {
     final timestamp = DateTime.now().microsecondsSinceEpoch;
     return '$prefix-$timestamp-${_idSequence++}';
   }
+}
+
+/// Practice a teacher left a student (0143), as this repository remembers it.
+///
+/// Not a domain type, and deliberately not one: on a real account this is a
+/// row on somebody else's practice_marks that the teacher can never read
+/// back. Nothing in the app models it, so nothing outside this fake needs to
+/// know the shape.
+class LeftPractice {
+  const LeftPractice({
+    required this.projectId,
+    required this.studentId,
+    required this.label,
+    required this.rate,
+    this.startMs,
+    this.endMs,
+    this.note,
+  });
+
+  final String projectId;
+  final String studentId;
+  final String label;
+  final double rate;
+  final int? startMs;
+  final int? endMs;
+  final String? note;
 }
