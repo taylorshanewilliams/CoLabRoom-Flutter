@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../services/audio_source_for.dart';
@@ -17,14 +19,19 @@ import '../../domain/song_analysis_models.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../services/horn_reading.dart';
+import '../../services/multitrack.dart';
 import '../../services/music_reference.dart' show noteInKey;
 import '../../services/number_reading.dart';
 import '../../services/pitch.dart';
 import '../../services/pitch_listener.dart';
 import '../../services/play_along.dart';
 import '../../services/song_analysis_service.dart';
+import '../../services/song_layer_service.dart';
+import '../../services/take_naming.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
+import '../layers/my_part.dart';
+import '../layers/song_level_store.dart';
 import 'count_in.dart';
 import 'follow_me_bar.dart';
 import 'live_countdown_store.dart';
@@ -83,6 +90,9 @@ class LivePerformanceScreen extends StatefulWidget {
     this.analysis,
     this.openMicrophone,
     this.playAlongMixer,
+    this.partMixer,
+    this.layerService,
+    this.analysisService,
     this.together,
     this.me = '',
     this.keepPractice,
@@ -140,6 +150,21 @@ class LivePerformanceScreen extends StatefulWidget {
     StemKind without,
     void Function(String stage) onProgress,
   )? playAlongMixer;
+
+  /// Writes the song's takes, already at the levels this person is
+  /// listening at, into one file and returns its path. Production leaves
+  /// this null and uses Multitrack over the cached takes; a test hands in
+  /// something that answers at once and keeps what it was given.
+  final Future<String> Function(
+    List<Take> takes,
+    void Function(String stage) onProgress,
+  )? partMixer;
+
+  /// Where the song's takes and its recording come from. Null in production,
+  /// which reaches for the real services; a test hands in ones that answer
+  /// without a network, the same seam the takes screen has.
+  final SongLayerService? layerService;
+  final SongAnalysisService? analysisService;
 
   @override
   State<LivePerformanceScreen> createState() => _LivePerformanceScreenState();
@@ -321,6 +346,29 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   bool _mixing = false;
   String? _mixNote;
 
+  /// Your part forward, or everyone but you: the song's takes, the local
+  /// copies fetched so far (only when a part is first chosen -- opening the
+  /// words must not download a choir), and which take this person is
+  /// listening for. See MyPartMix. Kept on this phone per song, like the
+  /// key, and never carried by Follow me.
+  List<SharedLayer> _layers = const <SharedLayer>[];
+  final Map<String, String> _localTakes = <String, String>{};
+  MyPart? _myPart;
+
+  /// Done once the recording is local, or has failed to be. A part kept
+  /// from last time is restored after this, so the mix is built with the
+  /// song in it and swapped under a player that already exists rather than
+  /// racing the recording for who makes the player.
+  final Completer<void> _referenceReady = Completer<void>();
+
+  /// The last part mix written, deleted when the next one replaces it. Each
+  /// build is a new file because audioplayers keys its cache on the path:
+  /// one name rewritten would play the first mix ever built under it.
+  String? _lastPartMixPath;
+
+  SongAnalysisService get _analysis => widget.analysisService ?? SongAnalysisService();
+  SongLayerService get _layerService => widget.layerService ?? SongLayerService();
+
   List<StructureSection> get _sections =>
       widget.analysis?.reference?.structureSections ??
       const <StructureSection>[];
@@ -350,7 +398,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// right: the words are the point. Practising, the controls *are* the
   /// point -- the first device test of this screen spent half its taps
   /// revealing the bar before the chip underneath could be pressed.
-  bool get _practising => _loop != null || _rate != 1 || _singing || _without != null;
+  bool get _practising =>
+      _loop != null || _rate != 1 || _singing || _without != null || _myPart != null;
 
   /// Whether the practice row is on screen, so the words can leave room
   /// for it rather than run underneath.
@@ -417,7 +466,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _ticker = Timer.periodic(kPerformTick, (_) => _tick());
     _armControlHide();
     final reference = widget.analysis?.reference;
-    if (reference != null) unawaited(_prepareAudio(reference));
+    if (reference != null) {
+      unawaited(_prepareAudio(reference));
+    } else {
+      // Nothing to wait for: a part mix on a song with no recording is the
+      // takes alone.
+      _referenceReady.complete();
+    }
+    unawaited(_loadTakes());
     unawaited(_loadCountdownPrefs());
     unawaited(_loadTranspose());
     unawaited(_loadReading());
@@ -764,7 +820,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// hear whether it lines up.
   Future<void> _prepareAudio(ReferenceTrack reference) async {
     try {
-      final path = await SongAnalysisService().ensureLocalReference(reference);
+      final path = await _analysis.ensureLocalReference(reference);
       if (!mounted) return;
       _referencePath = path;
       final player = AudioPlayer();
@@ -798,6 +854,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     } catch (_) {
       // Non-fatal: Live mode falls back to manual scroll speeds with no
       // audio, same as before this was added.
+    } finally {
+      // Either way, a part kept from last time may now be put back.
+      if (!_referenceReady.isCompleted) _referenceReady.complete();
     }
   }
 
@@ -1493,6 +1552,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       setState(() {
         _without = leaving ? null : kind;
         _mixNote = null;
+        // A part left out of the stems replaces a take that was forward:
+        // both decide what is under the words, and it is one file.
+        if (_myPart != null) {
+          _myPart = null;
+          unawaited(MyPartStore.save(widget.project.id, null));
+        }
       });
     } catch (error) {
       if (mounted) {
@@ -1518,6 +1583,179 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       directory: directory.path,
       onProgress: onProgress,
     );
+  }
+
+  /// Not a uuid, so it can never collide with a real take's id. The same
+  /// name the takes screen gives the song's own recording.
+  static const String _referenceTakeId = 'reference';
+
+  /// The song's own recording as a take, the way the takes screen mixes it.
+  Take _referenceTake(ReferenceTrack reference,
+      {required String path, required double level}) {
+    return Take(
+      id: _referenceTakeId,
+      path: path,
+      label: reference.displayName,
+      recordedAt: DateTime.now(),
+      durationMs: reference.durationMs ?? 0,
+      gain: level,
+      part: TakePart.other,
+      namedByHand: true,
+    );
+  }
+
+  /// The takes that can be somebody's part, which is what the chips are
+  /// built from. See MyPartMix.offered.
+  ///
+  /// The paths are the local copies where there are any and empty where
+  /// there are none yet: a chip needs only the name, and the mix fetches
+  /// what it needs when a part is chosen. None in a browser, which has no
+  /// file to write a mix to -- the same floor the takes screen stands on.
+  List<Take> get _partTakes {
+    if (kIsWeb) return const <Take>[];
+    final reference = widget.analysis?.reference;
+    final takes = <Take>[
+      if (reference != null)
+        _referenceTake(reference, path: _referencePath ?? '', level: 1),
+      for (final layer in _layers)
+        layer.toTake(_localTakes[layer.id] ?? '', enabled: true),
+    ];
+    return MyPartMix.offered(takes, referenceId: _referenceTakeId);
+  }
+
+  String _partName(String takeId) {
+    for (final take in _partTakes) {
+      if (take.id == takeId) return TakeNaming.partAndPerson(take);
+    }
+    return 'that part';
+  }
+
+  /// The song's takes, listed once the screen is up, and the part this
+  /// person was listening for last time, put back once the recording is in.
+  ///
+  /// Best-effort: a song whose takes will not load still performs, with no
+  /// chips and no sentence about it. The words are what this screen is for.
+  Future<void> _loadTakes() async {
+    final List<SharedLayer> layers;
+    try {
+      layers = await _layerService.listLayers(widget.project.id);
+    } catch (_) {
+      return;
+    }
+    final kept = await MyPartStore.load(widget.project.id);
+    if (!mounted) return;
+    setState(() => _layers = layers);
+    if (kept == null || !_partTakes.any((take) => take.id == kept.takeId)) return;
+    await _referenceReady.future;
+    // Somebody was quicker than the recording, or the recording never came:
+    // a song that plays as it did before any of this is not a fault to
+    // report on a screen nobody has asked anything of.
+    if (!mounted || _myPart != null || _without != null) return;
+    if (widget.analysis?.reference != null && _referencePath == null) return;
+    await _setMyPart(kept);
+  }
+
+  /// Every take as this listener hears it, each one local, with the song's
+  /// own recording first at the level this person keeps for it -- which is
+  /// theirs as well (SongLevelStore). The room's levels are read here and
+  /// never written.
+  Future<List<Take>> _takesForMix(MyPart? choice) async {
+    final reference = widget.analysis?.reference;
+    final takes = <Take>[];
+    if (reference != null) {
+      final path = _referencePath;
+      if (path == null) throw StateError('The recording has not loaded yet.');
+      takes.add(_referenceTake(reference,
+          path: path, level: await SongLevelStore.load(widget.project.id)));
+    }
+    for (final layer in _layers) {
+      var local = _localTakes[layer.id];
+      if (local == null) {
+        final name = TakeNaming.partAndPerson(layer.toTake('', enabled: true));
+        if (mounted) setState(() => _mixNote = 'Fetching $name…');
+        local = await _layerService.ensureLocal(layer);
+        _localTakes[layer.id] = local;
+      }
+      takes.add(layer.toTake(local, enabled: true));
+    }
+    return MyPartMix.apply(takes, choice);
+  }
+
+  /// Your part forward, or everyone but you -- or, tapped again, the whole
+  /// recording.
+  ///
+  /// The mix is one file (see Multitrack: players drift, a file cannot),
+  /// written from the takes at the levels the room set with this person's
+  /// choice on top, and swapped in under the player at the moment the song
+  /// is at, exactly as a part left out is. On a song with no recording of
+  /// its own, going back means the takes as the room mixed them.
+  Future<void> _setMyPart(MyPart choice) async {
+    if (_mixing) return;
+    final leaving = _myPart == choice;
+    setState(() {
+      _mixing = true;
+      _mixNote = leaving
+          ? 'Everyone back in…'
+          : '${choice.label(_partName(choice.takeId))}…';
+      _controlsVisible = true;
+    });
+    try {
+      final String path;
+      if (leaving && widget.analysis?.reference != null) {
+        final reference = _referencePath;
+        if (reference == null) throw StateError('The recording has not loaded yet.');
+        path = reference;
+      } else {
+        final mixer = widget.partMixer ?? _defaultPartMixer;
+        path = await mixer(await _takesForMix(leaving ? null : choice), (stage) {
+          if (mounted) setState(() => _mixNote = stage);
+        });
+      }
+      if (!mounted) return;
+      await _swapAudio(path);
+      if (!mounted) return;
+      setState(() {
+        _myPart = leaving ? null : choice;
+        _without = null;
+        _mixNote = null;
+      });
+      unawaited(MyPartStore.save(widget.project.id, _myPart));
+    } catch (error) {
+      if (mounted) {
+        setState(() => _mixNote = reportAndDescribe(error,
+            service: 'app', stage: 'my_part.mix', route: 'Perform'));
+      }
+    } finally {
+      if (mounted) setState(() => _mixing = false);
+      _armControlHide();
+    }
+  }
+
+  /// A new file every time, for the reason the takes screen learned the
+  /// hard way: audioplayers keys its cache on the path, so one name
+  /// rewritten plays the first mix ever built under it. The one before is
+  /// deleted once the new one exists.
+  Future<String> _defaultPartMixer(
+    List<Take> takes,
+    void Function(String stage) onProgress,
+  ) async {
+    final directory = await getTemporaryDirectory();
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final path = '${directory.path}/colabroom_mypart_${widget.project.id}_$stamp.wav';
+    onProgress('Mixing…');
+    final result = await Multitrack.writeMixdown(takes: takes, outputPath: path);
+    if (result == null) throw StateError('None of the parts could be read.');
+    final previous = _lastPartMixPath;
+    _lastPartMixPath = path;
+    if (previous != null) {
+      try {
+        final stale = File(previous);
+        if (await stale.exists()) await stale.delete();
+      } catch (_) {
+        // Clutter in a temporary directory, not a failure worth a sentence.
+      }
+    }
+    return path;
   }
 
   /// Puts [path] under the player at the current moment, keeping the speed
@@ -1920,6 +2158,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         without: _without,
                         onWithout: _setWithout,
                         mixNote: _mixNote,
+                        parts: _partTakes,
+                        myPart: _myPart,
+                        onMyPart: _setMyPart,
                       ),
                     ),
                   ),
@@ -2469,6 +2710,9 @@ class _LiveControls extends StatelessWidget {
     this.without,
     this.onWithout,
     this.mixNote,
+    this.parts = const <Take>[],
+    this.myPart,
+    this.onMyPart,
   });
 
   /// Follow me's line, when the song is open on more than one phone.
@@ -2508,6 +2752,13 @@ class _LiveControls extends StatelessWidget {
   final StemKind? without;
   final ValueChanged<StemKind>? onWithout;
   final String? mixNote;
+
+  /// Your part forward, or everyone but you: the takes that can be
+  /// somebody's part (already only those, see MyPartMix.offered), and which
+  /// one this person is listening for, which way.
+  final List<Take> parts;
+  final MyPart? myPart;
+  final ValueChanged<MyPart>? onMyPart;
 
   /// The song's own parts, one chip each, and what is on repeat -- one of
   /// them, or a run of bars.
@@ -2729,6 +2980,29 @@ class _LiveControls extends StatelessWidget {
                           selected: without == stem.kind,
                           onTap: () => onWithout!(stem.kind),
                         ),
+                    ],
+                    // Your part forward, or everyone but you: two chips for
+                    // each take somebody recorded, naming the part and the
+                    // person. Beside the parts left out because it answers
+                    // the same question from the takes instead of the
+                    // stems -- a choir's alto is a take, never a stem. A
+                    // song with one take, or none, has no chips here.
+                    if (parts.isNotEmpty && onMyPart != null) ...<Widget>[
+                      const SizedBox(width: 6),
+                      const Padding(
+                        padding: EdgeInsets.only(right: 6),
+                        child: Icon(Icons.record_voice_over_outlined,
+                            size: 15, color: AppColors.muted),
+                      ),
+                      for (final take in parts)
+                        for (final way in MyPartWay.values)
+                          _ModeChip(
+                            key: Key('live_part_${way.name}_${take.id}'),
+                            label: MyPart(takeId: take.id, way: way)
+                                .label(TakeNaming.partAndPerson(take)),
+                            selected: myPart?.takeId == take.id && myPart?.way == way,
+                            onTap: () => onMyPart!(MyPart(takeId: take.id, way: way)),
+                          ),
                     ],
                     if (loops.isNotEmpty || _canLoopBars) ...<Widget>[
                       const SizedBox(width: 6),

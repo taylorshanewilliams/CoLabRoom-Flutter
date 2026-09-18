@@ -31,6 +31,7 @@ import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
 import 'layer_console.dart';
 import 'moment_notes.dart';
+import 'my_part.dart';
 import 'song_level_store.dart';
 import 'layer_group.dart';
 import 'sending_a_take.dart';
@@ -239,6 +240,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       if (mounted) setState(() => _span = duration);
     });
     unawaited(_loadSongLevel());
+    unawaited(_loadMyPart());
     unawaited(_loadWhoHearsIt());
     unawaited(_load());
   }
@@ -274,6 +276,42 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     if (!mounted || level == _songLevel) return;
     setState(() => _songLevel = level);
     unawaited(_applyMixChange());
+  }
+
+  /// Which part this person is listening for, kept on this phone. Read
+  /// before the takes arrive and applied when the mix is first built, the
+  /// same way the song's level is.
+  Future<void> _loadMyPart() async {
+    final kept = await MyPartStore.load(widget.projectId);
+    if (!mounted || kept == _myPart) return;
+    setState(() => _myPart = kept);
+    unawaited(_applyMixChange());
+  }
+
+  /// Your part forward, or everyone but you -- or, tapped again, the room's
+  /// own mix. See MyPartMix. Nothing here touches a fader: the choice is
+  /// applied when the mix is written and kept on this phone only.
+  Future<void> _setMyPart(MyPart choice) async {
+    final next = _myPart == choice ? null : choice;
+    setState(() {
+      _myPart = next;
+      // A part brought forward is heard (MyPartMix.apply), so its lane
+      // comes off mute to agree with the sound.
+      if (next?.way == MyPartWay.forward) _enabled.add(next!.takeId);
+    });
+    unawaited(MyPartStore.save(widget.projectId, next));
+    try {
+      await _applyMixChange();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = reportAndDescribe(
+            error,
+            service: 'layers',
+            stage: 'takes.my_part',
+            route: 'Takes',
+            projectId: widget.projectId,
+          ));
+    }
   }
 
   @override
@@ -682,7 +720,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     // Nothing to build, and nothing broken: the caller falls back to
     // [_webSinglePath].
     if (kIsWeb) return false;
-    final takes = _takes;
+    // The room's takes at the room's levels, heard the way this person
+    // chose to: their part forward, or everyone but them. Applied here and
+    // only here, so recording against the mix gets it too (the choir's
+    // "everyone but me" is the backing track for an alto's take) and the
+    // lanes, the desk and Save keep showing the shared mix as it is.
+    final takes = MyPartMix.apply(_takes, _myPart);
     final anythingToPlay = takes.any((take) => take.enabled);
     // A click with nothing under it is still something to play against — it
     // is how the first take of a song with no recording gets a tempo.
@@ -799,6 +842,11 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// no fader on the song at all, so a phone take under a mastered mix was
   /// buried with nothing on screen able to help.
   double _songLevel = 1.0;
+
+  /// Your part forward, or everyone but you, on this phone only. Applied
+  /// when the mix is written, never to the lanes: the faders stay the room's
+  /// (Every Musician, Same Song, 17 September 2026).
+  MyPart? _myPart;
 
   Future<void> _record() async {
     if (_busy || _recording) return;
@@ -1768,6 +1816,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                         style: TextStyle(
                             color: AppColors.muted, fontSize: 12, height: 1.45),
                       ),
+                      // Your part forward, or everyone but you. Only on a
+                      // song with two takes or more, and not in a browser,
+                      // where there is no mix to apply it to.
+                      if (!kIsWeb) _myPartRow(),
                       const SizedBox(height: 14),
                       _timeline(),
                       if (_notes.isNotEmpty) ...<Widget>[
@@ -2437,6 +2489,54 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     }
   }
 
+  /// Your part forward, or everyone but you: two chips for every take
+  /// somebody recorded, once there are two takes to tell apart.
+  ///
+  /// Chips rather than a sheet because this is chosen in the same breath as
+  /// pressing play, and the one chosen is the whole state -- there is no
+  /// hidden setting to go looking for. Each names the part and the person,
+  /// never a count of the others. Nothing on the lanes moves when one is
+  /// chosen: the levels the room set are what everybody else hears, and the
+  /// line under the chips says so, once, while one is on.
+  Widget _myPartRow() {
+    final offered = MyPartMix.offered(_takes, referenceId: _referenceId);
+    if (offered.isEmpty) return const SizedBox.shrink();
+    final chosen = _myPart;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Wrap(
+            spacing: 6,
+            runSpacing: 2,
+            children: <Widget>[
+              for (final take in offered)
+                for (final way in MyPartWay.values)
+                  _MyPartChip(
+                    choice: MyPart(takeId: take.id, way: way),
+                    name: TakeNaming.partAndPerson(take),
+                    selected:
+                        chosen != null && chosen.takeId == take.id && chosen.way == way,
+                    onTap: () =>
+                        unawaited(_setMyPart(MyPart(takeId: take.id, way: way))),
+                  ),
+            ],
+          ),
+          if (chosen != null)
+            const Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text(
+                'Yours only — it does not change what anybody else hears.',
+                key: Key('my_part_note'),
+                style: TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.4),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   /// The lanes, under one clock.
   ///
   /// The ruler, the playhead and the drag target are one widget rather than
@@ -2707,6 +2807,38 @@ class _LatencyNote extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// One way of listening to one take: "Alto 2 — Jess forward", or "Everyone
+/// but Alto 2 — Jess". Drawn the way the note sheet draws its take chips,
+/// so the screen has one kind of chip.
+class _MyPartChip extends StatelessWidget {
+  const _MyPartChip({
+    required this.choice,
+    required this.name,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final MyPart choice;
+  final String name;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ChoiceChip(
+      key: Key('my_part_${choice.keySuffix}'),
+      label: Text(choice.label(name)),
+      selected: selected,
+      backgroundColor: AppColors.raised,
+      selectedColor: AppColors.cyan.withValues(alpha: 0.22),
+      labelStyle: const TextStyle(color: AppColors.text, fontSize: 12.5),
+      side: BorderSide(color: AppColors.cyan.withValues(alpha: 0.25)),
+      visualDensity: VisualDensity.compact,
+      onSelected: (_) => onTap(),
     );
   }
 }
