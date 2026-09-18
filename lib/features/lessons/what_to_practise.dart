@@ -601,7 +601,12 @@ class _Label extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    // Wrapped rather than a row: at the text sizes somebody reading from a
+    // music stand uses, the label and its note are wider than the sheet, and
+    // the note should drop under the label rather than run off the edge.
+    return Wrap(
+      spacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: <Widget>[
         Text(
           text,
@@ -611,13 +616,11 @@ class _Label extends StatelessWidget {
             fontWeight: FontWeight.w700,
           ),
         ),
-        if (note != null) ...<Widget>[
-          const SizedBox(width: 6),
+        if (note != null)
           Text(
             note!,
             style: const TextStyle(color: AppColors.muted, fontSize: 11.5),
           ),
-        ],
       ],
     );
   }
