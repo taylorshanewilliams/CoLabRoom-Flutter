@@ -61,9 +61,12 @@ void main() {
       expect(rateStep(0.75, faster: true), 0.8);
       expect(rateStep(0.5, faster: false), isNull, reason: 'half is as slow as it goes');
       expect(rateStep(1, faster: true), isNull);
-      // A rate kept by an older build is not one of these; stepping from it
-      // starts again from full speed rather than throwing.
-      expect(rateStep(0.85, faster: false), 0.9);
+      // A rate kept by an older build is not one of these; the arrow still
+      // moves the song the way it points, to the nearest speed that way.
+      expect(rateStep(0.85, faster: false), 0.8);
+      expect(rateStep(0.85, faster: true), 0.9);
+      expect(rateStep(0.3, faster: false), isNull);
+      expect(rateStep(1.4, faster: true), isNull);
     });
   });
 

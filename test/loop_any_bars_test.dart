@@ -234,6 +234,73 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('the arrows put an end on the bar itself', (tester) async {
+      await sized(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(project: project, analysis: bundle),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('live_loop_bars')));
+      await tester.pumpAndSettle();
+      expect(find.text('Bars 1–4'), findsOneWidget);
+
+      // A bar is a couple of pixels of slider on a real song, so each end
+      // also steps a bar at a time.
+      await tester.tap(find.byKey(const Key('live_bar_first_on')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('live_bar_last_on')));
+      await tester.pump();
+      expect(find.text('Bars 2–5'), findsOneWidget);
+
+      // The first end never passes the last.
+      await tester.tap(find.byKey(const Key('live_bar_last_back')));
+      await tester.tap(find.byKey(const Key('live_bar_last_back')));
+      await tester.tap(find.byKey(const Key('live_bar_last_back')));
+      await tester.tap(find.byKey(const Key('live_bar_last_back')));
+      await tester.pump();
+      expect(find.text('Bar 2'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('live_bar_loop_apply')));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<ChoiceChip>(find.descendant(
+          of: find.byKey(const Key('live_loop_bars')),
+          matching: find.byType(ChoiceChip),
+        )).label,
+        isA<Text>().having((text) => text.data, 'label', 'Bar 2'),
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the picker fits a phone on a music stand', (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      // Landscape, which is how this screen is held: a sheet capped at part
+      // of the screen cuts off the button that starts the loop.
+      tester.view.physicalSize = const Size(780, 360);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(project: project, analysis: bundle),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('live_loop_bars')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final apply = tester.getRect(find.byKey(const Key('live_bar_loop_apply')));
+      expect(apply.bottom, lessThanOrEqualTo(360.0));
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a lesson on four bars is what the mark remembers', (tester) async {
       await sized(tester);
       final kept = <PracticeMark>[];

@@ -713,9 +713,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
           _elapsedStamp = DateTime.now();
         }
       });
-      _audioCompleteSub = player.onPlayerComplete.listen((_) {
-        if (mounted) setState(() => _playing = false);
-      });
+      _audioCompleteSub = player.onPlayerComplete.listen((_) => _audioEnded());
       setState(() {
         _audioPlayer = player;
         _audioReady = true;
@@ -1221,6 +1219,26 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     if (audio != null) unawaited(audio.seek(where));
   }
 
+  /// The recording reached its own end.
+  ///
+  /// Normally that is the song finishing. But a loop over the last bar ends
+  /// where the recording does (see barEndMs), and in synced mode the player's
+  /// position stream is the clock -- its final event lands a little short of
+  /// the duration, so the tick never sees the loop's end go by and the turn
+  /// round has to happen here instead. Without this, the one run of bars a
+  /// player drills most, the ending, is the one that stops dead every time.
+  void _audioEnded() {
+    if (!mounted) return;
+    final loop = _loop;
+    if (_playing && loop != null && _mode == LiveScrollMode.synced) {
+      setState(() => _seekTo(Duration(milliseconds: loop.startMs)));
+      _lastTick = null;
+      unawaited(_audioPlayer?.resume());
+      return;
+    }
+    setState(() => _playing = false);
+  }
+
   void _onSeek(Duration where) {
     _takeOver();
     setState(() {
@@ -1319,9 +1337,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
           _elapsedStamp = DateTime.now();
         }
       });
-      _audioCompleteSub = player.onPlayerComplete.listen((_) {
-        if (mounted) setState(() => _playing = false);
-      });
+      _audioCompleteSub = player.onPlayerComplete.listen((_) => _audioEnded());
       _audioPlayer = player;
     } else {
       await player.pause();
@@ -1432,6 +1448,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       context: context,
       backgroundColor: AppColors.deepNavy,
       showDragHandle: true,
+      // The sheet takes the height its own content needs. Left to the default
+      // it is capped at nine sixteenths of the screen, which on the phone in
+      // landscape this screen is built for cuts the bottom off the button
+      // that starts the loop.
+      isScrollControlled: true,
+      useSafeArea: true,
       builder: (sheetContext) => _BarLoopSheet(
         barCount: downbeats.length,
         firstBar: current?.firstBar ?? here,
@@ -2672,72 +2694,204 @@ class _BarLoopSheet extends StatefulWidget {
 }
 
 class _BarLoopSheetState extends State<_BarLoopSheet> {
-  late double _first =
-      widget.firstBar.clamp(1, widget.barCount).toDouble();
-  late double _last = widget.lastBar
-      .clamp(widget.firstBar.clamp(1, widget.barCount), widget.barCount)
-      .toDouble();
+  late int _first;
+  late int _last;
+
+  @override
+  void initState() {
+    super.initState();
+    _first = widget.firstBar.clamp(1, widget.barCount).toInt();
+    _last = widget.lastBar.clamp(_first, widget.barCount).toInt();
+  }
+
+  /// The two ends, kept inside the song and in order.
+  ///
+  /// One end moving stops where the other one is rather than dragging it
+  /// along: an arrow should only ever move the end it belongs to. Both moving
+  /// at once is the slider, which hands them over already in order.
+  void _move({int? first, int? last}) {
+    var start = (first ?? _first).clamp(1, widget.barCount).toInt();
+    var end = (last ?? _last).clamp(1, widget.barCount).toInt();
+    if (first != null && last == null) {
+      start = math.min(start, _last);
+    } else if (last != null && first == null) {
+      end = math.max(end, _first);
+    } else if (end < start) {
+      final held = start;
+      start = end;
+      end = held;
+    }
+    setState(() {
+      _first = start;
+      _last = end;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final first = _first.round();
-    final last = _last.round();
     return SafeArea(
       top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(22, 4, 22, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            const Text(
-              'Loop bars',
-              style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              barsLabel(first, last),
-              key: const Key('live_bar_range_label'),
-              style: const TextStyle(
-                color: AppColors.gold,
-                fontSize: 22,
-                fontWeight: FontWeight.w900,
+      // Scrollable so the sheet is never taller than the screen it is on: in
+      // landscape, with the text scaled up, this content is taller than a
+      // phone's remaining height.
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 4, 22, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'Loop bars',
+                style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w800),
               ),
-            ),
-            RangeSlider(
-              key: const Key('live_bar_range'),
-              values: RangeValues(_first, _last),
-              min: 1,
-              max: widget.barCount.toDouble(),
-              divisions: widget.barCount - 1,
-              activeColor: AppColors.gold,
-              inactiveColor: AppColors.line,
-              labels: RangeLabels('$first', '$last'),
-              onChanged: (values) => setState(() {
-                _first = values.start;
-                _last = values.end;
-              }),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: <Widget>[
-                if (widget.looping)
-                  TextButton(
-                    key: const Key('live_bar_loop_stop'),
-                    onPressed: widget.onStop,
-                    child: const Text('Stop looping'),
-                  ),
-                const Spacer(),
-                FilledButton(
-                  key: const Key('live_bar_loop_apply'),
-                  onPressed: () => widget.onChoose(first, last),
-                  child: const Text('Loop these bars'),
+              const SizedBox(height: 10),
+              Text(
+                barsLabel(_first, _last),
+                key: const Key('live_bar_range_label'),
+                style: const TextStyle(
+                  color: AppColors.gold,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
                 ),
-              ],
-            ),
-          ],
+              ),
+              RangeSlider(
+                key: const Key('live_bar_range'),
+                values: RangeValues(_first.toDouble(), _last.toDouble()),
+                min: 1,
+                max: widget.barCount.toDouble(),
+                divisions: widget.barCount - 1,
+                activeColor: AppColors.gold,
+                inactiveColor: AppColors.line,
+                labels: RangeLabels('$_first', '$_last'),
+                onChanged: (values) => _move(
+                  first: values.start.round(),
+                  last: values.end.round(),
+                ),
+              ),
+              // The slider crosses the whole song, so on a long one a bar is
+              // a couple of pixels wide and a thumb lands near the bars you
+              // meant rather than on them. These land on them: drag to the
+              // passage, then step each end a bar at a time. The reading
+              // above is what is chosen either way.
+              Wrap(
+                spacing: 14,
+                runSpacing: 6,
+                children: <Widget>[
+                  _BarNudge(
+                    name: 'First',
+                    bar: _first,
+                    earlier: _first > 1 ? () => _move(first: _first - 1) : null,
+                    later: _first < _last ? () => _move(first: _first + 1) : null,
+                    keyPrefix: 'live_bar_first',
+                  ),
+                  _BarNudge(
+                    name: 'Last',
+                    bar: _last,
+                    earlier: _last > _first ? () => _move(last: _last - 1) : null,
+                    later: _last < widget.barCount ? () => _move(last: _last + 1) : null,
+                    keyPrefix: 'live_bar_last',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              // Wrapped rather than a row with a spacer: at the text sizes
+              // somebody reading from a music stand actually uses, the two
+              // buttons are wider than the sheet and one of them would be cut
+              // off at the edge.
+              SizedBox(
+                width: double.infinity,
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: <Widget>[
+                    if (widget.looping)
+                      TextButton(
+                        key: const Key('live_bar_loop_stop'),
+                        onPressed: widget.onStop,
+                        child: const Text('Stop looping'),
+                      ),
+                    FilledButton(
+                      key: const Key('live_bar_loop_apply'),
+                      onPressed: () => widget.onChoose(_first, _last),
+                      child: const Text('Loop these bars'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+/// One end of the loop, a bar at a time.
+///
+/// The same shape as the speed stepper, for the same reason: a number and the
+/// two ways to move it, where the thumb cannot miss.
+class _BarNudge extends StatelessWidget {
+  const _BarNudge({
+    required this.name,
+    required this.bar,
+    required this.earlier,
+    required this.later,
+    required this.keyPrefix,
+  });
+
+  final String name;
+  final int bar;
+  final VoidCallback? earlier;
+  final VoidCallback? later;
+  final String keyPrefix;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Text(name, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+        const SizedBox(width: 6),
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.line),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _RateArrow(
+                key: Key('${keyPrefix}_back'),
+                icon: Icons.remove_rounded,
+                tooltip: 'A bar earlier',
+                onTap: earlier,
+              ),
+              SizedBox(
+                width: 30,
+                child: Text(
+                  '$bar',
+                  key: Key(keyPrefix),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              _RateArrow(
+                key: Key('${keyPrefix}_on'),
+                icon: Icons.add_rounded,
+                tooltip: 'A bar later',
+                onTap: later,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

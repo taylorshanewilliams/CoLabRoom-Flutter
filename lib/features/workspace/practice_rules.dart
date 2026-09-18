@@ -74,10 +74,26 @@ String rateLabel(double rate) {
 /// Null is how the stepper knows to go grey: seven speeds on seven chips is
 /// a row the thumb has to scroll past before it can reach the parts, so
 /// Perform shows one speed and two arrows instead.
+///
+/// A rate that is not one of these — a mark kept by a build with a different
+/// list, or a number that came back from Postgres a hair off an exact double
+/// — steps to the nearest listed speed in the direction asked for, so the
+/// arrow always moves the song the way it points.
 double? rateStep(double rate, {required bool faster}) {
   final at = practiceRates.indexOf(rate);
-  final from = at < 0 ? practiceRates.length - 1 : at;
-  final next = faster ? from + 1 : from - 1;
+  if (at < 0) {
+    if (faster) {
+      for (final other in practiceRates) {
+        if (other > rate) return other;
+      }
+      return null;
+    }
+    for (final other in practiceRates.reversed) {
+      if (other < rate) return other;
+    }
+    return null;
+  }
+  final next = faster ? at + 1 : at - 1;
   if (next < 0 || next >= practiceRates.length) return null;
   return practiceRates[next];
 }
