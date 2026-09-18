@@ -434,6 +434,10 @@ class FeedTrack {
 
   final List<String> askingFor;
   final String askNote;
+
+  /// The key the band says the song is in, when they have said one, and the
+  /// analysed key otherwise. The server chooses (0160), so it is shown as it
+  /// arrives and never worked out again here.
   final String? musicalKey;
   final double? bpm;
   final int? durationMs;
@@ -505,6 +509,9 @@ class OpenMicSong {
   /// whether somebody taps.
   final List<String> askingFor;
 
+  /// The key the band says the song is in, when they have said one, and the
+  /// analysed key otherwise. The server chooses (0160), so it is shown as it
+  /// arrives and never worked out again here.
   final String? musicalKey;
   final double? bpm;
 
@@ -651,6 +658,10 @@ class AskForMe {
   /// it; the ask was simply never told to carry any of it.
   final String? storagePath;
   final int? durationMs;
+
+  /// The key the band says the song is in, when they have said one, and the
+  /// analysed key otherwise. The server chooses (0160), so it is shown as it
+  /// arrives and never worked out again here.
   final String? musicalKey;
   final double? bpm;
   final List<String> partsOnIt;
@@ -2170,6 +2181,10 @@ class ShowcaseSong {
   final DateTime shownAt;
   final String storagePath;
   final int? durationMs;
+
+  /// The key the band says the song is in, when they have said one, and the
+  /// analysed key otherwise. The server chooses (0160), so it is shown as it
+  /// arrives and never worked out again here.
   final String? musicalKey;
 
   /// Everybody with a shared take on it who is not the owner.
