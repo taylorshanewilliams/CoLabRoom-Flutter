@@ -100,6 +100,18 @@ for insert to authenticated with check (
 );
 
 -- ---------------------------------------------------------------------
+-- A viewer can talk, said in words.
+-- ---------------------------------------------------------------------
+
+-- 0118 made room_messages and wrote its policies without a grant, which a
+-- hosted project's default privileges cover. Said here the way 0001 says it
+-- for every other table a room runs on, so that a viewer talking in the
+-- class room is something the smoke can prove, rather than a write the CI
+-- shim refuses on the grant before any policy is asked. Additive: a
+-- production database already has this and gains nothing.
+grant select, insert, delete on table public.room_messages to authenticated;
+
+-- ---------------------------------------------------------------------
 -- The teacher's side.
 -- ---------------------------------------------------------------------
 
