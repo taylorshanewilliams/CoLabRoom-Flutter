@@ -1584,6 +1584,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     // on screen before there is anything to add.
     final playable = _takes;
     final hasSomethingToHear = playable.isNotEmpty;
+    // Whether this person may put a take here at all. Every Musician, Same
+    // Song, 17 September 2026: a viewer listens and talks and does nothing
+    // else -- in SQL since 0148, where song_layers refuses the role -- so
+    // the button that would be refused is not offered, and a sentence says
+    // why. Unknown means offered: a shelf that has not loaded this room yet
+    // is no reason to hide anything, and the server decides either way.
+    final me = _me;
+    final room = BetaScope.maybeOf(context)?.roomById(widget.roomId);
+    final canRecord = room == null || me == null || me.isEmpty || room.canEditSongs(me);
     // Sideways is a desk. A list is the right shape for reading and the wrong
     // shape for balancing: deciding whether the harmony sits well against the
     // lead means comparing them, and on a phone that means remembering one
@@ -1899,6 +1908,20 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                     ),
                     const SizedBox(width: 10),
                   ],
+                  if (!canRecord)
+                    const Expanded(
+                      flex: 2,
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 14),
+                        child: Text(
+                          'You can listen in this room, not record.',
+                          key: Key('layers_listen_only'),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: AppColors.muted, fontSize: 13, height: 1.35),
+                        ),
+                      ),
+                    )
+                  else
                   Expanded(
                     flex: 2,
                     child: FilledButton.icon(
@@ -1966,6 +1989,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
               // decide they are actually making something, one of them opens
               // a DAW — and until now that was where the song left CoLabRoom
               // for good, because a bounce had nowhere to return to.
+              if (canRecord)
               TextButton.icon(
                 onPressed: _busy || _recording
                     ? null

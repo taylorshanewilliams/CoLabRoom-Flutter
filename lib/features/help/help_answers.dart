@@ -369,9 +369,13 @@ const List<HelpAnswer> helpAnswers = <HelpAnswer>[
   HelpAnswer(
     id: 'lessons',
     question: 'How do I teach lessons in CoLabRoom?',
-    answer: 'Messages → the pencil → Teach: a lesson link. You get one link and '
-        'one QR code, which prints as a poster. Every student who opens it '
-        'gets their own room with you, private to the two of you. '
+    answer: 'Messages → the pencil → Teach: a lesson link. Each link is a QR '
+        'code, which prints as a poster, and you can keep several, named for '
+        'what they open: Tuesday beginners, Jazz studio. Every student who '
+        'opens one gets their own room with you, private to the two of you. '
+        'A link marked as a class also puts everybody who opens it in one '
+        'room with the whole class, to listen; they still record in their '
+        'own room with you. '
         // Said here as well as on the screen and the poster: a teacher who
         // reads this is about to print one (0139).
         'Lesson links are for students 18 and over for now.\n\n'

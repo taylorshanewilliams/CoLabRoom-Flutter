@@ -3,6 +3,10 @@ import 'package:flutter/foundation.dart';
 /// A teacher's standing link (migration 0129): one QR code on a studio
 /// wall, and a room of their own with the teacher for everybody who opens
 /// it.
+///
+/// Since 0148 a teacher keeps several, each named for what it opens
+/// ("Tuesday beginners", "Jazz studio"), and one can be a class: everybody
+/// who opens it also lands in one room with the whole class, to listen.
 @immutable
 class LessonLink {
   const LessonLink({
@@ -11,6 +15,8 @@ class LessonLink {
     required this.title,
     required this.createdAt,
     this.students = 0,
+    this.classRoomId,
+    this.classRoomName,
   });
 
   final String id;
@@ -24,7 +30,25 @@ class LessonLink {
 
   /// How many people have joined through it.
   final int students;
+
+  /// The room the whole class listens in, when this link is a class (0148);
+  /// null for a link that opens only a room of their own with the teacher.
+  final String? classRoomId;
+
+  /// That room's name, which is the link's title unless the teacher already
+  /// had a room called that ("Jazz studio 2").
+  final String? classRoomName;
+
+  bool get isClass => classRoomId != null;
 }
+
+/// How many lesson links a teacher can keep open at once (0148): enough for
+/// a timetable, few enough to still say which poster is which.
+const int lessonLinksOpenAtOnce = 8;
+
+/// What a teacher is told at the ninth, in the server's own words. Says what
+/// to do rather than how many there are.
+const String lessonLinksAreCapped = 'Eight lesson links are open. Turn one off to make another.';
 
 /// The server asking for a birth month before it will open a lesson link, or
 /// make one (migration 0139).

@@ -169,7 +169,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('lesson_close_confirm')));
       await tester.pumpAndSettle();
-      expect(await repository.myLessonLink(), isNull);
+      expect(await repository.myLessonLinks(), isEmpty);
       expect(find.text('One code for all your students'), findsOneWidget);
     });
 
@@ -193,6 +193,10 @@ void main() {
           ),
         ),
       ));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      // The list first (0148), then the link's own code.
+      await tester.tap(find.byKey(const Key('lesson_link_row_a1b2c3d4e5f6')));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.byKey(const Key('lesson_qr')), findsOneWidget);

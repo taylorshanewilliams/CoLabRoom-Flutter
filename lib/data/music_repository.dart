@@ -673,18 +673,27 @@ abstract interface class MusicRepository {
   /// newest first. Nobody else can read these.
   Future<List<PracticeMark>> myPracticeMarks();
 
-  /// Your open lesson link, or null when you have none.
-  Future<LessonLink?> myLessonLink();
+  /// Your open lesson links, oldest first; empty when you have none.
+  Future<List<LessonLink>> myLessonLinks();
 
-  /// Makes your lesson link, or renames the open one -- the code stays, so
-  /// a poster already on a wall goes on working.
-  Future<LessonLink> openLessonLink(String title);
+  /// Makes a lesson link named [title]. With [asClass], also the room the
+  /// whole class listens in, named for the link (0148). Refused at the
+  /// ninth open link, in the sentence [lessonLinksAreCapped].
+  Future<LessonLink> openLessonLink(String title, {bool asClass = false});
 
-  /// Turns your lesson link off. Rooms already made through it stay.
-  Future<void> closeLessonLink();
+  /// Makes an open link of yours a class, or stops it being one. Turning it
+  /// on makes the class room if the link has none; turning it off leaves the
+  /// room and everybody in it, because a room with people in it is theirs.
+  Future<void> setLessonLinkClass(String linkId, {required bool asClass});
+
+  /// Turns one lesson link off. Rooms already made through it stay.
+  Future<void> closeLessonLink(String linkId);
 
   /// Opens somebody's lesson link: your own room with them, made the first
   /// time and the same room every time after. Returns the room's id.
+  ///
+  /// A class link (0148) also puts you in the class room, to listen, in the
+  /// same step; the room returned is still your own.
   Future<String> joinLessonLink(String code);
 
   /// Whether this room was made by opening a teacher's lesson link (0129) --

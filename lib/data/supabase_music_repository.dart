@@ -2440,38 +2440,59 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<LessonLink?> myLessonLink() async {
-    final rows = await client.rpc<dynamic>('my_lesson_link');
+  Future<List<LessonLink>> myLessonLinks() async {
+    final rows = await client.rpc<dynamic>('my_lesson_links');
     final list = rows as List<dynamic>? ?? const <dynamic>[];
-    if (list.isEmpty) return null;
-    final row = list.first as Map<String, dynamic>;
-    return LessonLink(
-      id: row['id'] as String,
-      code: row['code'] as String,
-      title: row['title'] as String? ?? 'Lessons',
-      createdAt: DateTime.tryParse('${row['created_at']}')?.toLocal() ?? DateTime.now(),
-      students: (row['students'] as num?)?.toInt() ?? 0,
-    );
+    return list.map((each) {
+      final row = each as Map<String, dynamic>;
+      return LessonLink(
+        id: row['id'] as String,
+        code: row['code'] as String,
+        title: row['title'] as String? ?? 'Lessons',
+        createdAt: DateTime.tryParse('${row['created_at']}')?.toLocal() ?? DateTime.now(),
+        students: (row['students'] as num?)?.toInt() ?? 0,
+        classRoomId: row['class_room_id'] as String?,
+        classRoomName: row['class_room_name'] as String?,
+      );
+    }).toList(growable: false);
   }
 
   @override
-  Future<LessonLink> openLessonLink(String title) async {
+  Future<LessonLink> openLessonLink(String title, {bool asClass = false}) async {
+    final String code;
     try {
-      await client.rpc<dynamic>('open_lesson_link', params: <String, dynamic>{'in_title': title.trim()});
+      code = '${await client.rpc<dynamic>('open_lesson_link', params: <String, dynamic>{
+        'in_title': title.trim(),
+        'in_class': asClass,
+      })}';
     } on PostgrestException catch (error) {
       if (error.hint == lessonBirthMonthHint) throw const LessonNeedsABirthMonth();
       rethrow;
     }
-    final link = await myLessonLink();
-    if (link == null) {
-      throw StateError('The lesson link was made but could not be read back.');
+    // Read back by its code rather than as "the" link: there are several
+    // now (0148), and the newest is not always the last in the list.
+    for (final link in await myLessonLinks()) {
+      if (link.code == code) return link;
     }
-    return link;
+    throw StateError('The lesson link was made but could not be read back.');
   }
 
   @override
-  Future<void> closeLessonLink() async {
-    await client.rpc<dynamic>('close_lesson_link');
+  Future<void> setLessonLinkClass(String linkId, {required bool asClass}) async {
+    try {
+      await client.rpc<dynamic>('set_lesson_link_class', params: <String, dynamic>{
+        'in_link': linkId,
+        'in_class': asClass,
+      });
+    } on PostgrestException catch (error) {
+      if (error.hint == lessonBirthMonthHint) throw const LessonNeedsABirthMonth();
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> closeLessonLink(String linkId) async {
+    await client.rpc<dynamic>('close_lesson_link', params: <String, dynamic>{'in_link': linkId});
   }
 
   @override

@@ -218,11 +218,11 @@ void main() {
       await tester.tap(find.byKey(const Key('lesson_make')));
       await tester.pumpAndSettle();
       expect(find.text('One question first'), findsOneWidget);
-      expect(await repository.myLessonLink(), isNull);
+      expect(await repository.myLessonLinks(), isEmpty);
 
       await sayBornIn(tester, year: 1990, month: 5);
 
-      expect(await repository.myLessonLink(), isNotNull);
+      expect(await repository.myLessonLinks(), isNotEmpty);
       expect(find.byKey(const Key('lesson_qr')), findsOneWidget);
     });
 
@@ -236,7 +236,7 @@ void main() {
 
       expect(find.text(lessonLinksAreForAdults), findsOneWidget);
       expect(find.byKey(const Key('lesson_qr')), findsNothing);
-      expect(await repository.myLessonLink(), isNull);
+      expect(await repository.myLessonLinks(), isEmpty);
     });
 
     testWidgets('closing the question makes no link, and says nothing', (tester) async {
@@ -248,7 +248,7 @@ void main() {
       Navigator.of(tester.element(find.text('One question first'))).pop();
       await tester.pumpAndSettle();
 
-      expect(await repository.myLessonLink(), isNull);
+      expect(await repository.myLessonLinks(), isEmpty);
       expect(find.byType(SnackBar), findsNothing);
       // And the button works again, rather than being left busy.
       expect(tester.widget<FilledButton>(find.byKey(const Key('lesson_make'))).onPressed, isNotNull);

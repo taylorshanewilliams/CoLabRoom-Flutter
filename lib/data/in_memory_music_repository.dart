@@ -756,16 +756,28 @@ class InMemoryMusicRepository implements MusicRepository {
   final Map<String, DateTime> _threadReads = <String, DateTime>{};
   final List<StandingWant> _wants = <StandingWant>[];
   final List<PracticeMark> _practiceMarks = <PracticeMark>[];
-  LessonLink? _lessonLink;
-  final Map<String, ({String title, String teacherName})> _lessonsOffered =
-      <String, ({String title, String teacherName})>{};
+  final List<LessonLink> _lessonLinks = <LessonLink>[];
+  int _lessonCodesMade = 0;
+  final Map<String, ({String title, String teacherName, String? classTitle})> _lessonsOffered =
+      <String, ({String title, String teacherName, String? classTitle})>{};
   final Map<String, String> _lessonRooms = <String, String>{};
+
+  /// The class room each class link opened into, by code, so that opening
+  /// the link again finds the same room rather than making a second.
+  final Map<String, String> _classRoomsJoined = <String, String>{};
 
   /// Somebody else's lesson link this repository will open. There is only
   /// one person in an in-memory world, so the teacher on the other end of a
-  /// lesson has to be put there by hand, for tests and previews.
-  void offerLesson({required String code, required String title, required String teacherName}) {
-    _lessonsOffered[code] = (title: title, teacherName: teacherName);
+  /// lesson has to be put there by hand, for tests and previews. With
+  /// [classTitle], the link is a class (0148): opening it also lands in a
+  /// room of that name with the whole class.
+  void offerLesson({
+    required String code,
+    required String title,
+    required String teacherName,
+    String? classTitle,
+  }) {
+    _lessonsOffered[code] = (title: title, teacherName: teacherName, classTitle: classTitle);
   }
 
   String _myMeetingCode = 'k7m29xqp';
@@ -2081,7 +2093,7 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<LessonLink?> myLessonLink() async => _lessonLink;
+  Future<List<LessonLink>> myLessonLinks() async => List<LessonLink>.unmodifiable(_lessonLinks);
 
   /// The age rule both ends of a lesson link meet, as 0139 applies it: an
   /// account that answered under 13 is closed to them, one that has never
@@ -2101,24 +2113,105 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<LessonLink> openLessonLink(String title) async {
+  Future<LessonLink> openLessonLink(String title, {bool asClass = false}) async {
     _lessonsNeedAnAdult();
     final cleaned = title.trim().isEmpty ? 'Lessons' : title.trim();
-    final existing = _lessonLink;
+    // The cap, in the server's sentence (0148).
+    if (_lessonLinks.length >= lessonLinksOpenAtOnce) {
+      throw const NameConflict(lessonLinksAreCapped);
+    }
+    final named = cleaned.length > 60 ? cleaned.substring(0, 60) : cleaned;
+    final classRoom = asClass ? _makeClassRoom(named) : null;
+    // The first link's code is the one every test and preview knows; the
+    // ones after it differ in their last two characters, and a code is never
+    // handed out twice even after the link it belonged to was turned off.
+    final code = 'a1b2c3d4e5${((0xf6 + _lessonCodesMade++) & 0xff).toRadixString(16).padLeft(2, '0')}';
     final link = LessonLink(
-      id: existing?.id ?? _id('lesson'),
-      code: existing?.code ?? 'a1b2c3d4e5f6',
-      title: cleaned.length > 60 ? cleaned.substring(0, 60) : cleaned,
-      createdAt: existing?.createdAt ?? DateTime.now(),
-      students: existing?.students ?? 0,
+      id: _id('lesson'),
+      code: code,
+      title: named,
+      createdAt: DateTime.now(),
+      classRoomId: classRoom?.id,
+      classRoomName: classRoom?.name,
     );
-    _lessonLink = link;
+    _lessonLinks.add(link);
     return link;
   }
 
   @override
-  Future<void> closeLessonLink() async {
-    _lessonLink = null;
+  Future<void> setLessonLinkClass(String linkId, {required bool asClass}) async {
+    final index = _lessonLinks.indexWhere((link) => link.id == linkId);
+    if (index < 0) throw const NameConflict('That is not a lesson link of yours.');
+    _lessonsNeedAnAdult();
+    final link = _lessonLinks[index];
+    if (!asClass) {
+      // The room and everybody in it stay: a room with people in it is theirs
+      // and not the link's.
+      _lessonLinks[index] = LessonLink(
+        id: link.id,
+        code: link.code,
+        title: link.title,
+        createdAt: link.createdAt,
+        students: link.students,
+      );
+      return;
+    }
+    if (link.classRoomId != null && _rooms.any((room) => room.id == link.classRoomId)) return;
+    final classRoom = _makeClassRoom(link.title);
+    _lessonLinks[index] = LessonLink(
+      id: link.id,
+      code: link.code,
+      title: link.title,
+      createdAt: link.createdAt,
+      students: link.students,
+      classRoomId: classRoom.id,
+      classRoomName: classRoom.name,
+    );
+  }
+
+  @override
+  Future<void> closeLessonLink(String linkId) async {
+    _lessonLinks.removeWhere((link) => link.id == linkId);
+  }
+
+  /// A room for a class, owned by this person and named for the link, as
+  /// make_class_room builds one (0148). Never an existing room, even one
+  /// called exactly this: a teacher with a band room named "Jazz studio" did
+  /// not mean for every student who scans a poster to be added to the band.
+  MusicRoom _makeClassRoom(String title) {
+    final now = DateTime.now();
+    final room = MusicRoom(
+      id: _id('room'),
+      accountId: currentUserId,
+      name: _unusedRoomName(title, accountId: currentUserId),
+      icon: '♪',
+      createdAt: now,
+      updatedAt: now,
+      sortOrder: _nextRoomSortOrder(),
+      members: const <RoomMember>[
+        RoomMember(
+          userId: 'preview-user',
+          displayName: 'Taylor',
+          role: RoomRole.owner,
+          colorValue: 0xFFFF8A4C,
+        ),
+      ],
+    );
+    _rooms.add(room);
+    return room;
+  }
+
+  /// "Jazz studio", or "Jazz studio 2" beside a room of that account already
+  /// called that: room names are unique within an account.
+  String _unusedRoomName(String base, {required String accountId}) {
+    String squashed(String name) => name.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+    var candidate = base;
+    var attempt = 1;
+    while (_rooms.any((room) => room.accountId == accountId && squashed(room.name) == squashed(candidate))) {
+      attempt += 1;
+      candidate = '$base $attempt';
+    }
+    return candidate;
   }
 
   @override
@@ -2217,7 +2310,7 @@ class InMemoryMusicRepository implements MusicRepository {
   @override
   Future<String> joinLessonLink(String code) async {
     final cleaned = code.toLowerCase().replaceAll(RegExp(r'[^0-9a-f]'), '');
-    if (_lessonLink?.code == cleaned) {
+    if (_lessonLinks.any((link) => link.code == cleaned)) {
       throw const NameConflict('That is your own lesson link. Share it with a student.');
     }
     final offered = _lessonsOffered[cleaned];
@@ -2228,12 +2321,44 @@ class InMemoryMusicRepository implements MusicRepository {
     // so to everybody, and nobody is asked for a birth month to open
     // something that was never going to open.
     _lessonsNeedAnAdult();
+    final teacherId = 'teacher-${offered.teacherName.toLowerCase()}';
+    final now = DateTime.now();
+    // The class, as a viewer: listening and talking, never a take in front
+    // of everybody (0148). Before the room somebody already has, and every
+    // time, as join_lesson_link does it.
+    final classTitle = offered.classTitle;
+    if (classTitle != null && !_rooms.any((room) => room.id == _classRoomsJoined[cleaned])) {
+      final classRoom = MusicRoom(
+        id: _id('room'),
+        accountId: teacherId,
+        name: classTitle,
+        icon: '♪',
+        createdAt: now,
+        updatedAt: now,
+        sortOrder: _nextRoomSortOrder(),
+        members: <RoomMember>[
+          RoomMember(
+            userId: teacherId,
+            displayName: offered.teacherName,
+            role: RoomRole.owner,
+            colorValue: 0xFFFF8A4C,
+          ),
+          const RoomMember(
+            userId: 'preview-user',
+            displayName: 'Taylor',
+            role: RoomRole.viewer,
+            colorValue: 0xFF4C8AFF,
+          ),
+        ],
+      );
+      _rooms.add(classRoom);
+      _classRoomsJoined[cleaned] = classRoom.id;
+    }
     final already = _lessonRooms[cleaned];
     if (already != null && _rooms.any((room) => room.id == already)) return already;
-    final now = DateTime.now();
     final room = MusicRoom(
       id: _id('room'),
-      accountId: 'teacher-${offered.teacherName.toLowerCase()}',
+      accountId: teacherId,
       name: '${offered.title} · Taylor',
       icon: '♪',
       createdAt: now,
