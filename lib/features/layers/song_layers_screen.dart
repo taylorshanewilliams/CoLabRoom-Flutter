@@ -38,6 +38,7 @@ import 'layer_group.dart';
 import 'sending_a_take.dart';
 import 'take_lane.dart';
 import 'take_prompt.dart';
+import 'then_and_now.dart';
 import 'timeline_ruler.dart';
 import '../../widgets/problem_report.dart';
 
@@ -205,6 +206,17 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// of this bit".
   MomentNote? _noteLoop;
 
+  /// Then and now, while it plays: the pair, the bars, and the file the two
+  /// halves were written to. Null the rest of the time.
+  ///
+  /// Every Musician, Same Song, 17 September 2026. While it is set the
+  /// player is on that file rather than on the mix, and the position it
+  /// reports is read back through the track as a place on the song.
+  ThenAndNowTrack? _thenAndNow;
+
+  /// Which half is sounding, for the line under the chip.
+  ThenOrNow _half = ThenOrNow.then;
+
   /// Whether the note a notification sent us to has already been opened.
   ///
   /// Arriving is a one-off. Every later reload -- and there is one after each
@@ -251,13 +263,35 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     _completeSub = _player.onPlayerComplete.listen((_) {
       if (mounted) {
         setState(() {
+          final heardTwice = _thenAndNow;
           _playing = false;
-          _position = Duration.zero;
+          // A passage heard twice leaves the playhead at its start, so Play
+          // hears those bars on their own and the chip hears them again.
+          // The top of the song would lose the place.
+          _position = heardTwice == null
+              ? Duration.zero
+              : Duration(milliseconds: heardTwice.passage.startMs);
+          _thenAndNow = null;
         });
       }
     });
     _positionSub = _player.onPositionChanged.listen((position) {
       if (!mounted) return;
+      // Then and now is one file with the passage in it twice. Read back as
+      // a place on the song, so the playhead crosses the same bars once for
+      // each half and the line under the chip says which.
+      final heardTwice = _thenAndNow;
+      if (heardTwice != null) {
+        if (!_scrubbing) {
+          setState(() {
+            _position = Duration(
+              milliseconds: heardTwice.songMsAt(position.inMilliseconds),
+            );
+            _half = heardTwice.halfAt(position.inMilliseconds);
+          });
+        }
+        return;
+      }
       // The loop through a note's moment, turned round here rather than with
       // the player's own release mode: that loops the whole file, and this is
       // eleven seconds in the middle of it.
@@ -271,7 +305,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       if (!_scrubbing) setState(() => _position = position);
     });
     _durationSub = _player.onDurationChanged.listen((duration) {
-      if (mounted) setState(() => _span = duration);
+      // Not while then and now plays: that file is a few bars long, and the
+      // timeline is the song's.
+      if (mounted && _thenAndNow == null) setState(() => _span = duration);
     });
     unawaited(_loadSongLevel());
     unawaited(_loadMyPart());
@@ -704,7 +740,11 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
 
   bool _sweptOldMixes = false;
 
-  Future<String> _nextMixPath() async {
+  /// [kind] names what the file is. Then and now writes
+  /// `_mix_then_and_now_…`, which keeps the `_mix_` prefix _sweepOldMixes
+  /// looks for, so a passage left behind by an earlier visit goes with the
+  /// mixes.
+  Future<String> _nextMixPath({String kind = 'mix'}) async {
     final root = await getApplicationDocumentsDirectory();
     final dir = Directory('${root.path}/layers/${widget.projectId}');
     if (!await dir.exists()) await dir.create(recursive: true);
@@ -714,7 +754,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     }
     _mixSequence += 1;
     final stamp = DateTime.now().microsecondsSinceEpoch;
-    return '${dir.path}/_mix_${stamp}_$_mixSequence.wav';
+    return '${dir.path}/_${kind}_${stamp}_$_mixSequence.wav';
   }
 
   /// Mixes left behind by earlier visits, which nothing will ever play again.
@@ -864,9 +904,106 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     final wasPlaying = _playing;
     final at = _position;
     final rebuilt = await _rebuildMix();
-    if (!rebuilt || !wasPlaying || _recording) return;
+    // A mute while then and now plays rebuilds the mix for later and leaves
+    // the two halves playing. They are the mix with one take swapped, and
+    // cutting them off for a fader would be answering a question nobody
+    // asked.
+    if (!rebuilt || !wasPlaying || _recording || _thenAndNow != null) return;
     await _playMix(from: at);
     if (mounted) setState(() => _playing = true);
+  }
+
+  /// The file then and now was last written to, deleted when the next one
+  /// is written, the way _rebuildMix deletes the mix it replaces.
+  String? _lastThenAndNowPath;
+
+  /// Plays the bars under the playhead from [pair]'s first take and then
+  /// from its latest -- or, tapped while that plays, stops it.
+  ///
+  /// Every Musician, Same Song, 17 September 2026. The passage is decided
+  /// here, from where the playhead is at the tap, and written as one file
+  /// with the two halves in it (see ThenAndNow.write). Nothing about the
+  /// mix changes: the ordinary mix stays current for Play and for recording
+  /// against, and this file sits beside it.
+  Future<void> _playThenAndNow(ThenAndNowPair pair) async {
+    if (_recording || _busy) return;
+    if (_thenAndNow?.pair == pair) {
+      await _stopThenAndNow();
+      return;
+    }
+    final passage = ThenAndNow.passage(
+      pair,
+      atMs: _position.inMilliseconds,
+      downbeatsMs: _reference?.downbeatsMs ?? const <int>[],
+      songEndMs: _reference?.durationMs,
+    );
+    if (passage == null) return;
+    try {
+      final track = await ThenAndNow.write(
+        takes: MyPartMix.apply(_takes, _myPart),
+        pair: pair,
+        passage: passage,
+        outputPath: await _nextMixPath(kind: 'mix_then_and_now'),
+      );
+      final previous = _lastThenAndNowPath;
+      _lastThenAndNowPath = track.path;
+      if (previous != null && previous != track.path) {
+        try {
+          final stale = File(previous);
+          if (await stale.exists()) await stale.delete();
+        } catch (_) {
+          // Clutter, not a failure worth interrupting playback for.
+        }
+      }
+      if (!mounted) return;
+      // Set before the file loads, so the length the player reports for it
+      // is not taken for the song's, and the first position is read back
+      // through the track.
+      setState(() {
+        _thenAndNow = track;
+        _half = ThenOrNow.then;
+        _position = Duration(milliseconds: passage.startMs);
+        _noteLoop = null;
+        _playing = true;
+      });
+      await _player.setReleaseMode(ReleaseMode.release);
+      await _player.play(audioSourceFor(track.path));
+      // The mix is not what is loaded now. Play afterwards starts it afresh
+      // from the passage rather than resuming into the wrong file.
+      _pausedAt = null;
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _thenAndNow = null;
+        _playing = false;
+        _error = reportAndDescribe(
+          error,
+          service: 'layers',
+          stage: 'takes.then_and_now',
+          route: 'Takes',
+          projectId: widget.projectId,
+        );
+      });
+    }
+  }
+
+  /// Stops then and now where it is. The playhead stays on the bars it was
+  /// crossing, so Play hears them on their own from there.
+  Future<void> _stopThenAndNow() async {
+    if (_thenAndNow == null) return;
+    // The player first, then the state: a position reported between the two
+    // would otherwise be read as a place on the song when it is a place in
+    // the file.
+    try {
+      await _player.stop();
+    } catch (_) {
+      // Already stopped, or never started. Either way it is over.
+    }
+    if (!mounted) return;
+    setState(() {
+      _thenAndNow = null;
+      _playing = false;
+    });
   }
 
   /// Plays the current mix, looping it when it is only a click.
@@ -929,6 +1066,11 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // three-minute song meant sitting through the three minutes, because
       // record always rewound and the mixer had no way to say a take belongs
       // anywhere but zero.
+      //
+      // A take lands on the song, not on a passage heard twice: stopped
+      // here so the mix, not that file, is what plays under the recording.
+      // The playhead stays where it was, which is somewhere on those bars.
+      if (_thenAndNow != null) await _stopThenAndNow();
       _punchInAt = _position;
       final hasBacking = await _rebuildMix();
       await _recorder.start(
@@ -1300,6 +1442,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
 
   Future<void> _togglePlay() async {
     if (_recording) return;
+    // Then and now stops rather than pauses. It is a passage, and the way
+    // back in is the chip, or Play, which lands on the same bars.
+    if (_thenAndNow != null) {
+      await _stopThenAndNow();
+      return;
+    }
     if (_playing) {
       // Paused, not stopped. stop() winds the position back to zero, which is
       // why pressing play again always started the song over — a small thing
@@ -1341,7 +1489,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     if (_pausedAt == _lastMixPath) {
       await _player.resume();
     } else {
-      await _playMix();
+      // From the playhead, not the top. After then and now the playhead is
+      // on the bars just heard, and a scrub before the first play is a
+      // place somebody chose; the mix that starts here starts there.
+      await _playMix(from: _position);
     }
     _pausedAt = null;
     if (mounted) setState(() => _playing = true);
@@ -1882,6 +2033,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                       // song with two takes or more, and not in a browser,
                       // where there is no mix to apply it to.
                       if (!kIsWeb) _myPartRow(),
+                      // Then and now, on a song where somebody has recorded
+                      // a part more than once. Not in a browser, for the
+                      // same reason: there is no mix to build it from.
+                      if (!kIsWeb) _thenAndNowRow(),
                       const SizedBox(height: 14),
                       _timeline(),
                       if (_notes.isNotEmpty) ...<Widget>[
@@ -2458,6 +2613,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// Plays a note's moment: from three seconds before it, round and round.
   Future<void> _openNote(MomentNote note, {bool play = true}) async {
     final from = Duration(milliseconds: note.playFromMs);
+    // A note's moment is on the song, not on a passage heard twice.
+    if (_thenAndNow != null) await _stopThenAndNow();
+    if (!mounted) return;
     setState(() {
       _noteLoop = note;
       _position = from;
@@ -2797,8 +2955,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     final at = Duration(
       milliseconds: (span.inMilliseconds * fraction.clamp(0.0, 1.0)).round(),
     );
-    // Going somewhere else means letting go of a note's loop, or the playhead
-    // would be dragged straight back to it.
+    // Going somewhere else means letting go of a note's loop, or of then and
+    // now, or the playhead would be dragged straight back to it.
+    if (_thenAndNow != null) await _stopThenAndNow();
     setState(() {
       _position = at;
       _noteLoop = null;
@@ -2873,6 +3032,57 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                 'Yours only — it does not change what anybody else hears.',
                 key: Key('my_part_note'),
                 style: TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.4),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Then and now: one chip per part somebody has recorded more than once.
+  ///
+  /// Beside the part chips because it is chosen in the same breath -- hear
+  /// my part, hear my first one. Tapped, it plays the bars under the
+  /// playhead from the first take and then from the latest; tapped again,
+  /// it stops. The line under it says only which half is sounding and which
+  /// bars: never how far apart the two are, and never which is better.
+  /// Every Musician, Same Song, 17 September 2026.
+  Widget _thenAndNowRow() {
+    final pairs = ThenAndNow.pairs(<SharedLayer>[
+      for (final layer in _layers ?? const <SharedLayer>[])
+        if (_localPaths[layer.id] != null) layer,
+    ]);
+    if (pairs.isEmpty) return const SizedBox.shrink();
+    final heardTwice = _thenAndNow;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Wrap(
+            spacing: 6,
+            runSpacing: 2,
+            children: <Widget>[
+              for (final pair in pairs)
+                _ThenAndNowChip(
+                  pair: pair,
+                  // One pair needs no name. Several say whose.
+                  named: pairs.length > 1,
+                  selected: heardTwice != null && heardTwice.pair == pair,
+                  onTap: _busy || _recording
+                      ? null
+                      : () => unawaited(_playThenAndNow(pair)),
+                ),
+            ],
+          ),
+          if (heardTwice != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '${_half.label} · ${heardTwice.passage.label}',
+                key: const Key('then_and_now_half'),
+                style: const TextStyle(
+                    color: AppColors.muted, fontSize: 11.5, height: 1.4),
               ),
             ),
         ],
@@ -3182,6 +3392,51 @@ class _MyPartChip extends StatelessWidget {
       side: BorderSide(color: AppColors.cyan.withValues(alpha: 0.25)),
       visualDensity: VisualDensity.compact,
       onSelected: (_) => onTap(),
+    );
+  }
+}
+
+/// The chip that plays a passage twice: "Then and now", or "Then and now ·
+/// Dylan's lead" when the song has more than one pair to choose from.
+///
+/// The same chip as the part chips, so the screen keeps one kind, with a
+/// play mark on it because this one does something rather than stays
+/// something: it is the difference between a setting and a button, and
+/// the plan's own audit found this app hides things brilliantly and
+/// announces nothing.
+class _ThenAndNowChip extends StatelessWidget {
+  const _ThenAndNowChip({
+    required this.pair,
+    required this.named,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final ThenAndNowPair pair;
+  final bool named;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tap = onTap;
+    return ChoiceChip(
+      key: Key('then_and_now_${pair.now.id}'),
+      avatar: Icon(
+        selected ? Icons.stop_rounded : Icons.play_arrow_rounded,
+        size: 16,
+        color: AppColors.cyan,
+      ),
+      label: Text(
+        named ? '${ThenAndNow.chipLabel} · ${pair.name}' : ThenAndNow.chipLabel,
+      ),
+      selected: selected,
+      backgroundColor: AppColors.raised,
+      selectedColor: AppColors.cyan.withValues(alpha: 0.22),
+      labelStyle: const TextStyle(color: AppColors.text, fontSize: 12.5),
+      side: BorderSide(color: AppColors.cyan.withValues(alpha: 0.25)),
+      visualDensity: VisualDensity.compact,
+      onSelected: tap == null ? null : (_) => tap(),
     );
   }
 }
