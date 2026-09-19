@@ -47,6 +47,7 @@ import '../../services/song_layer_service.dart';
 import '../../services/take_naming.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
+import '../../widgets/text_measures.dart';
 import '../layers/my_part.dart';
 import '../layers/song_level_store.dart';
 import '../layers/take_turns.dart';
@@ -66,6 +67,30 @@ import 'tuner_reference_store.dart';
 import 'whose_song_sheet.dart';
 
 enum LiveScrollMode { off, synced, slow, medium, fast, timed }
+
+/// How fast the words move by themselves, in pixels a second.
+///
+/// The three numbers are lines a minute, written down as the pixels a line
+/// took on the phone they were measured on. [words] is how much bigger the
+/// words are than that — this person's own plus and minus buttons in Perform
+/// multiplied by the size their phone is set to — and the speed has to grow
+/// with it, or a song at twice normal creeps past at half the lines a minute
+/// everybody else reads at and the singer is a verse ahead of the screen by
+/// the second chorus (Every Musician, Same Song, 17 September 2026).
+///
+/// Only the three manual speeds. Synced follows the recording and timed is
+/// told the distance and the time, so both re-derive their own speed.
+double manualScrollSpeed(LiveScrollMode mode, {required double words}) {
+  return switch (mode) {
+    LiveScrollMode.slow => 9.5 * words,
+    LiveScrollMode.medium => 17.0 * words,
+    LiveScrollMode.fast => 27.0 * words,
+    LiveScrollMode.timed ||
+    LiveScrollMode.synced ||
+    LiveScrollMode.off =>
+      0.0,
+  };
+}
 
 /// Which lyric source Live Performance reads from — the live collaborative
 /// workspace (whatever's currently typed, unfrozen), or the Song Sheet (the
@@ -382,6 +407,19 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   MelodyReading _melodyReading = MelodyReading.letters;
   int? _sa;
   double _fontScale = 1;
+
+  /// How much bigger this phone draws the words than the layout assumed.
+  ///
+  /// Every Musician, Same Song, 17 September 2026: the phone's own text size
+  /// is honoured, never clamped. The manual scroll speeds below are read in
+  /// lines per minute and stored in pixels per second, so they were scaled by
+  /// [_fontScale] — this person's own plus and minus buttons. The reader's
+  /// phone scales the words on top of that, and it used to be held to 1.3;
+  /// now it reaches 3.12, and an unscaled speed at 3.12 is a third of the
+  /// lines per minute everybody else gets, which is the "it no longer scrolls
+  /// properly" the comment in _tick describes. Set in build, where there is a
+  /// context and a rebuild when the setting changes.
+  double _wordsScale = 1;
   Duration _songDuration = const Duration(minutes: 3, seconds: 30);
   Duration _elapsed = Duration.zero;
   String? _activeLineKey;
@@ -1411,20 +1449,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       return;
     }
 
-    // Scaled by the size of the words, because the speeds below are read in
-    // lines per minute and stored in pixels per second. Make the words a
-    // third bigger and every line is a third taller, so an unscaled speed
-    // reads a third slower and the song runs away from the player -- which
-    // is what "it no longer scrolls properly after the plus button" was.
-    // Timed mode is already told the distance and the time, so it needs no
-    // scaling: it re-derives its own speed from what is left of both.
-    final pixelsPerSecond = switch (_mode) {
-      LiveScrollMode.slow => 9.5 * _fontScale,
-      LiveScrollMode.medium => 17.0 * _fontScale,
-      LiveScrollMode.fast => 27.0 * _fontScale,
-      LiveScrollMode.timed => _timedPixelsPerSecond(maxExtent),
-      LiveScrollMode.synced || LiveScrollMode.off => 0.0,
-    };
+    // Scaled by the size of the words — both halves of it, this person's own
+    // plus and minus buttons and the size their phone is set to. See
+    // [manualScrollSpeed] and [_wordsScale]. Timed mode is already told the
+    // distance and the time, so it re-derives its own speed from what is
+    // left of both.
+    final pixelsPerSecond = _mode == LiveScrollMode.timed
+        ? _timedPixelsPerSecond(maxExtent)
+        : manualScrollSpeed(_mode, words: _fontScale * _wordsScale);
     if (pixelsPerSecond <= 0) return;
 
     final next = math
@@ -2805,6 +2837,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final landscape = media.orientation == Orientation.landscape;
     final baseSize = landscape ? 22.0 : 25.0;
     final lyricSize = baseSize * _fontScale;
+    // How much taller a line of this song is than the manual scroll speeds
+    // were written for. Read here, where there is a BuildContext and a
+    // rebuild when the phone's setting changes, and used by _tick.
+    _wordsScale = media.textScaler.scale(lyricSize) / lyricSize;
     final sidePadding = landscape ? media.size.width * 0.12 : 24.0;
     final lines = _lines;
     // What the band said the song is in, or failing that what the analysis
@@ -3359,145 +3395,191 @@ class _TopLiveBar extends StatelessWidget {
   /// Whether a note is being held, so the button says so without a word.
   final bool droneOn;
 
+  /// What the middle of the bar says: the word, or the name of the song after
+  /// this one. Named so the bar can be measured with the styles it draws.
+  static const TextStyle _titleStyle = TextStyle(
+    color: AppColors.gold,
+    fontSize: 11,
+    fontWeight: FontWeight.w900,
+    letterSpacing: 2.2,
+  );
+  static const TextStyle _nextStyle = TextStyle(
+    fontSize: 12,
+    fontWeight: FontWeight.w800,
+  );
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: <Color>[
-            const Color(0xFF01050C).withValues(alpha: 0.96),
-            const Color(0xFF01050C).withValues(alpha: 0.78),
-          ],
+    // The middle of the bar says LIVE, except in a set, where it says what is
+    // next and takes you there. That space held one decorative word; the song
+    // after this one is the one thing a player on a Sunday actually wants
+    // from it, and putting it there costs the bar no room on a phone that
+    // already carries six buttons.
+    final Widget middle = nextInSet == null
+        ? const Text('LIVE', textAlign: TextAlign.center, style: _titleStyle)
+        : TextButton.icon(
+            key: const Key('live_next_in_set'),
+            onPressed: onNextInSet,
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.gold,
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              visualDensity: VisualDensity.compact,
+            ),
+            icon: const Icon(Icons.skip_next_rounded, size: 18),
+            label: Text(
+              'Next · ${nextInSet!}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: _nextStyle,
+            ),
+          );
+    final controls = <Widget>[
+      IconButton(
+        key: const Key('close_live_mode'),
+        onPressed: onClose,
+        tooltip: 'Exit Live mode',
+        icon: const Icon(Icons.close_rounded),
+      ),
+      PopupMenuButton<LiveLyricSource>(
+        key: const Key('live_source_menu'),
+        tooltip: 'Lyric source',
+        initialValue: source,
+        onSelected: onSource,
+        icon: Icon(
+          source == LiveLyricSource.songSheet
+              ? Icons.description_rounded
+              : Icons.edit_note_rounded,
+          size: 20,
+        ),
+        itemBuilder: (_) => <PopupMenuEntry<LiveLyricSource>>[
+          PopupMenuItem<LiveLyricSource>(
+            value: LiveLyricSource.workspace,
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.edit_note_rounded),
+              title: const Text('Live workspace'),
+              trailing: source == LiveLyricSource.workspace
+                  ? const Icon(Icons.check_rounded, color: AppColors.gold)
+                  : null,
+            ),
+          ),
+          PopupMenuItem<LiveLyricSource>(
+            value: LiveLyricSource.songSheet,
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.description_rounded),
+              title: const Text('Song Sheet'),
+              trailing: source == LiveLyricSource.songSheet
+                  ? const Icon(Icons.check_rounded, color: AppColors.gold)
+                  : null,
+            ),
+          ),
+        ],
+      ),
+      IconButton(
+        key: const Key('live_toggle_chords'),
+        onPressed: onToggleChords,
+        tooltip: showChords ? 'Hide chords' : 'Show chords',
+        icon: Icon(
+          showChords ? Icons.music_note_rounded : Icons.music_off_rounded,
+          size: 19,
+          color: showChords ? AppColors.gold : AppColors.muted,
         ),
       ),
-      child: Row(
-        children: <Widget>[
-          IconButton(
-            key: const Key('close_live_mode'),
-            onPressed: onClose,
-            tooltip: 'Exit Live mode',
-            icon: const Icon(Icons.close_rounded),
-          ),
-          // The middle of the bar says LIVE, except in a set, where it says
-          // what is next and takes you there. That space held one decorative
-          // word; the song after this one is the one thing a player on a
-          // Sunday actually wants from it, and putting it there costs the
-          // bar no room on a phone that already carries six buttons.
-          Expanded(
-            child: nextInSet == null
-                ? const Text(
-                    'LIVE',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: AppColors.gold,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 2.2,
-                    ),
-                  )
-                : TextButton.icon(
-                    key: const Key('live_next_in_set'),
-                    onPressed: onNextInSet,
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.gold,
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    icon: const Icon(Icons.skip_next_rounded, size: 18),
-                    label: Text(
-                      'Next · ${nextInSet!}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-          ),
-          PopupMenuButton<LiveLyricSource>(
-            key: const Key('live_source_menu'),
-            tooltip: 'Lyric source',
-            initialValue: source,
-            onSelected: onSource,
-            icon: Icon(
-              source == LiveLyricSource.songSheet
-                  ? Icons.description_rounded
-                  : Icons.edit_note_rounded,
-              size: 20,
+      IconButton(
+        key: const Key('live_countdown_settings'),
+        onPressed: onOpenCountdownSettings,
+        // The two things that happen before the first note: a bar to come in
+        // over, and a note to come in on. One button for both, because the
+        // bar already carries seven and an eighth would push one of them off
+        // a phone held upright.
+        tooltip: 'Count-in and drone',
+        icon: Icon(
+          Icons.timer_outlined,
+          size: 19,
+          color:
+              countdownEnabled || droneOn ? AppColors.gold : AppColors.muted,
+        ),
+      ),
+      IconButton(
+        onPressed: onRestart,
+        tooltip: 'Restart song',
+        icon: const Icon(Icons.restart_alt_rounded, size: 20),
+      ),
+      IconButton(
+        onPressed: onSmaller,
+        tooltip: 'Smaller lyrics',
+        icon: const Icon(Icons.text_decrease_rounded, size: 19),
+      ),
+      IconButton(
+        onPressed: onLarger,
+        tooltip: 'Larger lyrics',
+        icon: const Icon(Icons.text_increase_rounded, size: 19),
+      ),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Whether the word still fits between the icons, measured rather than
+        // switched at a scale factor: it depends on how wide the phone is as
+        // much as on the text size, and a phone on a stand is held sideways.
+        //
+        // Every Musician, Same Song, 17 September 2026: the phone's own text
+        // size is honoured, never clamped. At twice normal there are 42
+        // pixels left here and the word needs 97, so it wrapped to three
+        // lines inside a 44-pixel bar and all a reader saw was the middle of
+        // it. It takes its own line above the icons instead, and only when it
+        // has to: the bar is the height it has always been at the sizes where
+        // the word fits. The set's line is already told to shorten itself
+        // with an ellipsis, so it sits beside them at any size.
+        final room = constraints.maxWidth - controls.length * 48 - 12;
+        final beside = nextInSet != null ||
+            textWidthOf(context, 'LIVE', _titleStyle) <= room;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: <Color>[
+                const Color(0xFF01050C).withValues(alpha: 0.96),
+                const Color(0xFF01050C).withValues(alpha: 0.78),
+              ],
             ),
-            itemBuilder: (_) => <PopupMenuEntry<LiveLyricSource>>[
-              PopupMenuItem<LiveLyricSource>(
-                value: LiveLyricSource.workspace,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.edit_note_rounded),
-                  title: const Text('Live workspace'),
-                  trailing: source == LiveLyricSource.workspace
-                      ? const Icon(Icons.check_rounded, color: AppColors.gold)
-                      : null,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if (!beside)
+                Padding(
+                  padding: const EdgeInsets.only(top: 5),
+                  child: middle,
                 ),
-              ),
-              PopupMenuItem<LiveLyricSource>(
-                value: LiveLyricSource.songSheet,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.description_rounded),
-                  title: const Text('Song Sheet'),
-                  trailing: source == LiveLyricSource.songSheet
-                      ? const Icon(Icons.check_rounded, color: AppColors.gold)
-                      : null,
+              SizedBox(
+                // 44 is a row of 48-pixel icons trimmed to the height this
+                // bar has always been. It only has to grow when the words are
+                // sharing the row and are taller than that.
+                height: beside
+                    ? math.max(
+                        44,
+                        linesOfTextHigh(
+                              context,
+                              nextInSet == null ? _titleStyle : _nextStyle,
+                            ) +
+                            12,
+                      )
+                    : 44,
+                child: Row(
+                  children: <Widget>[
+                    controls.first,
+                    if (beside) Expanded(child: middle) else const Spacer(),
+                    ...controls.skip(1),
+                  ],
                 ),
               ),
             ],
           ),
-          IconButton(
-            key: const Key('live_toggle_chords'),
-            onPressed: onToggleChords,
-            tooltip: showChords ? 'Hide chords' : 'Show chords',
-            icon: Icon(
-              showChords ? Icons.music_note_rounded : Icons.music_off_rounded,
-              size: 19,
-              color: showChords ? AppColors.gold : AppColors.muted,
-            ),
-          ),
-          IconButton(
-            key: const Key('live_countdown_settings'),
-            onPressed: onOpenCountdownSettings,
-            // The two things that happen before the first note: a bar to come
-            // in over, and a note to come in on. One button for both, because
-            // the bar already carries seven and an eighth would push one of
-            // them off a phone held upright.
-            tooltip: 'Count-in and drone',
-            icon: Icon(
-              Icons.timer_outlined,
-              size: 19,
-              color: countdownEnabled || droneOn
-                  ? AppColors.gold
-                  : AppColors.muted,
-            ),
-          ),
-          IconButton(
-            onPressed: onRestart,
-            tooltip: 'Restart song',
-            icon: const Icon(Icons.restart_alt_rounded, size: 20),
-          ),
-          IconButton(
-            onPressed: onSmaller,
-            tooltip: 'Smaller lyrics',
-            icon: const Icon(Icons.text_decrease_rounded, size: 19),
-          ),
-          IconButton(
-            onPressed: onLarger,
-            tooltip: 'Larger lyrics',
-            icon: const Icon(Icons.text_increase_rounded, size: 19),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -3558,28 +3640,33 @@ class _CountdownOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final beats = beatsInBar;
+    const numberStyle = TextStyle(
+      color: AppColors.gold,
+      fontSize: 118,
+      fontWeight: FontWeight.w900,
+      height: 1,
+    );
     // The empty box keeps the bar's height before the first beat, so the dots
     // do not jump down the screen when the number arrives.
+    //
+    // Measured rather than written down as 118. Every Musician, Same Song, 17
+    // September 2026: the phone's own text size is honoured, never clamped,
+    // so the number is 236 pixels tall for somebody reading at twice normal
+    // and the placeholder was still 118 — the jump it exists to prevent, on
+    // the phones where it matters most.
     final number = count < 1
-        ? const SizedBox(key: ValueKey<int>(0), height: 118)
-        : Text(
-            '$count',
-            key: ValueKey<int>(count),
-            style: const TextStyle(
-              color: AppColors.gold,
-              fontSize: 118,
-              fontWeight: FontWeight.w900,
-              height: 1,
-            ),
-          );
+        ? SizedBox(
+            key: const ValueKey<int>(0),
+            height: linesOfTextHigh(context, numberStyle),
+          )
+        : Text('$count', key: ValueKey<int>(count), style: numberStyle);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onCancel,
       child: Container(
         color: const Color(0xFF01050C).withValues(alpha: 0.82),
         alignment: Alignment.center,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: _CountdownBody(
           children: <Widget>[
             if (beats == null)
               AnimatedSwitcher(
@@ -3591,56 +3678,86 @@ class _CountdownOverlay extends StatelessWidget {
             else ...<Widget>[
               number,
               const SizedBox(height: 18),
-              // Wrapped and scrollable rather than one row. A bar of the
-              // song's own metre is at most twelve dots and has always fitted
-              // across a phone, but a cycle counts a whole cycle (0162) and
-              // that can be sixty-four: a plain row put sixteen dots off the
-              // right-hand edge of a 360dp phone, in the middle of counting
-              // the band in (review, 18 September 2026). Neither direction
-              // can overflow now, whatever the count and whatever text size
-              // the phone is set to.
-              Flexible(
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Wrap(
-                      alignment: WrapAlignment.center,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      runSpacing: 8,
-                      children: <Widget>[
-                        for (var beat = 1; beat <= beats; beat += 1)
-                          Container(
-                            key: Key('live_count_in_dot_$beat'),
-                            width: beat == count ? 17 : 11,
-                            height: beat == count ? 17 : 11,
-                            // A gap before the beat that starts a group, so a
-                            // seven counted 3+2+2 is read in threes and twos
-                            // rather than as seven even dots.
-                            margin: EdgeInsets.only(
-                              left: _groupStarts(beats).contains(beat) ? 16 : 7,
-                              right: 7,
-                            ),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: beat == count
-                                  ? AppColors.gold
-                                  : beat < count
-                                      ? AppColors.gold.withValues(alpha: 0.35)
-                                      : Colors.white.withValues(alpha: 0.18),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
+              // Wrapped rather than one row. A bar of the song's own metre is
+              // at most twelve dots and has always fitted across a phone, but
+              // a cycle counts a whole cycle (0162) and that can be
+              // sixty-four: a plain row put sixteen dots off the right-hand
+              // edge of a 360dp phone, in the middle of counting the band in
+              // (review, 18 September 2026). The dots take as many lines as
+              // they need, and the count as a whole scrolls when it is taller
+              // than the phone — see [_CountdownBody], which is why there is
+              // no scroll view of its own here: a flexible child inside one
+              // has no height to be a fraction of.
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  runSpacing: 8,
+                  children: <Widget>[
+                    for (var beat = 1; beat <= beats; beat += 1)
+                      Container(
+                        key: Key('live_count_in_dot_$beat'),
+                        width: beat == count ? 17 : 11,
+                        height: beat == count ? 17 : 11,
+                        // A gap before the beat that starts a group, so a
+                        // seven counted 3+2+2 is read in threes and twos
+                        // rather than as seven even dots.
+                        margin: EdgeInsets.only(
+                          left: _groupStarts(beats).contains(beat) ? 16 : 7,
+                          right: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: beat == count
+                              ? AppColors.gold
+                              : beat < count
+                                  ? AppColors.gold.withValues(alpha: 0.35)
+                                  : Colors.white.withValues(alpha: 0.18),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],
             const SizedBox(height: 14),
             Text(
               beats == null ? 'Get ready — tap to skip' : 'Counting you in — tap to skip',
+              textAlign: TextAlign.center,
               style: const TextStyle(color: AppColors.muted, fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The count, centred while it fits and scrolled once it does not.
+///
+/// Every Musician, Same Song, 17 September 2026: the phone's own text size is
+/// honoured, never clamped. The number is 118 pixels before the reader's own
+/// size is applied, so at the largest iOS setting it is 368 — and the whole
+/// count ran 141 pixels off the bottom of a phone on its side, which is how
+/// Perform is held on a stand. Nothing here is shrunk to fit: a musician who
+/// has asked for the largest text has asked for the largest count-in too.
+class _CountdownBody extends StatelessWidget {
+  const _CountdownBody({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minHeight: constraints.hasBoundedHeight ? constraints.maxHeight : 0,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: children,
+          ),
         ),
       ),
     );
@@ -3681,7 +3798,13 @@ class _CountdownSettingsSheetState extends State<_CountdownSettingsSheet> {
     // No safe area of its own any more: the drone sits under this in the same
     // sheet and carries one, and two would leave the notch's worth of nothing
     // between the two sections.
-    return Padding(
+    //
+    // Scrolls, because a bottom sheet is given a fixed share of the screen and
+    // the two paragraphs above the switch do not fit in it once the text is
+    // turned up — 27 pixels over at twice normal, and what got cut was the
+    // sentence saying what a count-in is. Every Musician, Same Song,
+    // 17 September 2026: the phone's own text size is honoured, never clamped.
+    return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(22, 4, 22, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -4089,8 +4212,22 @@ class _LiveControls extends StatelessWidget {
               // Speed first, then the parts. One scrolling row rather than
               // two stacked ones: on a phone in landscape this bar is already
               // a third of the lyrics' height.
+              //
+              // A list that runs sideways has to be given a height, and 34 is
+              // the height somebody measured on their own phone. Every
+              // Musician, Same Song, 17 September 2026: the phone's own text
+              // size is honoured, never clamped, so at the sizes an iOS
+              // accessibility setting asks for the chip labels in it were
+              // sliced top and bottom — silently, because a fixed box clips
+              // rather than overflows. Measured with the label style the
+              // chips are drawn in, with 34 kept as a floor so nothing moves
+              // for anybody who has not turned their text up. The 12 is the
+              // chip's own padding above and below its label.
               SizedBox(
-                height: 34,
+                height: math.max(
+                  34,
+                  linesOfTextHigh(context, _ModeChip.labelStyle) + 12,
+                ),
                 child: ListView(
                   key: const Key('live_practice_row'),
                   scrollDirection: Axis.horizontal,
@@ -4414,6 +4551,13 @@ class _LetterChip extends StatelessWidget {
 class _ModeChip extends StatelessWidget {
   const _ModeChip({required this.label, required this.selected, required this.onTap, this.icon, super.key});
 
+  /// What the row these sit in has to be tall enough for. Public to the file
+  /// so the row measures the same style the chip draws.
+  static const TextStyle labelStyle = TextStyle(
+    fontSize: 10.5,
+    fontWeight: FontWeight.w800,
+  );
+
   final String label;
   final bool selected;
   final VoidCallback onTap;
@@ -4431,9 +4575,7 @@ class _ModeChip extends StatelessWidget {
         label: Text(label),
         onSelected: (_) => onTap(),
         selectedColor: AppColors.gold,
-        labelStyle: TextStyle(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w800,
+        labelStyle: labelStyle.copyWith(
           color: selected ? AppColors.ink : AppColors.muted,
         ),
         visualDensity: VisualDensity.compact,
@@ -4457,10 +4599,33 @@ class _RateStepper extends StatelessWidget {
   final double rate;
   final ValueChanged<double> onRate;
 
+  /// The reading between the two arrows, at whatever size this phone draws
+  /// 11.5 at.
+  static const TextStyle _readingStyle = TextStyle(
+    fontSize: 11.5,
+    fontWeight: FontWeight.w800,
+  );
+
   @override
   Widget build(BuildContext context) {
     final slower = rateStep(rate, faster: false);
     final faster = rateStep(rate, faster: true);
+    // Wide enough for the longest speed there is, not for the one showing.
+    //
+    // Every Musician, Same Song, 17 September 2026: the phone's own text size
+    // is honoured, never clamped. 34 is the width of "90%" on the phone
+    // somebody measured it on; at twice normal it is 44, so the reading wrapped
+    // inside a box 34 wide and 32 tall and what a player saw when they pressed
+    // Slower was "90" with the percent sign cut off underneath. Measured
+    // across every speed rather than the current one so the arrows do not
+    // shuffle sideways as the song is slowed, with 34 kept as a floor.
+    final reading = practiceRates.fold<double>(
+      34,
+      (wide, speed) => math.max(
+        wide,
+        textWidthOf(context, rateLabel(speed), _readingStyle) + 6,
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: Container(
@@ -4479,14 +4644,14 @@ class _RateStepper extends StatelessWidget {
               onTap: slower == null ? null : () => onRate(slower),
             ),
             SizedBox(
-              width: 34,
+              width: reading,
               child: Text(
                 rateLabel(rate),
                 key: const Key('live_rate'),
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w800,
+                maxLines: 1,
+                softWrap: false,
+                style: _readingStyle.copyWith(
                   color: rate == 1 ? AppColors.muted : AppColors.gold,
                 ),
               ),
@@ -4701,6 +4866,7 @@ class _BarLoopSheetState extends State<_BarLoopSheet> {
                   _BarNudge(
                     name: 'First',
                     bar: _first,
+                    barCount: widget.barCount,
                     earlier: _first > 1 ? () => _move(first: _first - 1) : null,
                     later: _first < _last ? () => _move(first: _first + 1) : null,
                     keyPrefix: 'live_bar_first',
@@ -4708,6 +4874,7 @@ class _BarLoopSheetState extends State<_BarLoopSheet> {
                   _BarNudge(
                     name: 'Last',
                     bar: _last,
+                    barCount: widget.barCount,
                     earlier: _last > _first ? () => _move(last: _last - 1) : null,
                     later: _last < widget.barCount ? () => _move(last: _last + 1) : null,
                     keyPrefix: 'live_bar_last',
@@ -4849,6 +5016,7 @@ class _BarNudge extends StatelessWidget {
   const _BarNudge({
     required this.name,
     required this.bar,
+    required this.barCount,
     required this.earlier,
     required this.later,
     required this.keyPrefix,
@@ -4856,8 +5024,20 @@ class _BarNudge extends StatelessWidget {
     this.laterTip = 'A bar later',
   });
 
+  /// The number between the arrows, at whatever size this phone draws 13 at.
+  static const TextStyle _barStyle = TextStyle(
+    color: AppColors.text,
+    fontSize: 13,
+    fontWeight: FontWeight.w800,
+  );
+
   final String name;
   final int bar;
+
+  /// The last bar this picker can reach, so the box is the width of the
+  /// longest number it will ever hold and the arrows stay where they are as
+  /// the bar is stepped past 99.
+  final int barCount;
   final VoidCallback? earlier;
   final VoidCallback? later;
   final String keyPrefix;
@@ -4890,16 +5070,23 @@ class _BarNudge extends StatelessWidget {
                 onTap: earlier,
               ),
               SizedBox(
-                width: 30,
+                // Every Musician, Same Song, 17 September 2026: the phone's
+                // own text size is honoured, never clamped. 30 is the width
+                // of a three-digit bar at the size somebody measured it at;
+                // from about 1.5x "112" — an ordinary bar in a four minute
+                // song — broke into "11" over "2". Measured on the highest
+                // bar this song has, with 30 kept as a floor.
+                width: math.max(
+                  30,
+                  textWidthOf(context, '$barCount', _barStyle) + 4,
+                ),
                 child: Text(
                   '$bar',
                   key: Key(keyPrefix),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: AppColors.text,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                  ),
+                  maxLines: 1,
+                  softWrap: false,
+                  style: _barStyle,
                 ),
               ),
               _RateArrow(
@@ -5007,6 +5194,7 @@ class _CycleSheetState extends State<_CycleSheet> {
               _BarNudge(
                 name: 'Beats',
                 bar: _cycle.beats,
+                barCount: widget.longest,
                 earlier: _cycle.beats > SongCycle.minBeats
                     ? () => _beats(_cycle.beats - 1)
                     : null,

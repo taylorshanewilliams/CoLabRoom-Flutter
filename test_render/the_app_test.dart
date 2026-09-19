@@ -19,6 +19,7 @@ import 'dart:ui' as ui;
 import 'package:colabroom/app/colabroom_app.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
+import 'package:colabroom/features/workspace/live_performance_screen.dart';
 import 'package:colabroom/features/workspace/song_workspace_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -137,12 +138,56 @@ Finder _byLabel(String label) => find.byWidgetPredicate(
       (widget) => widget is Semantics && widget.properties.label == label,
     );
 
+/// Scrolls a keyed control into view, then taps it.
+///
+/// The same lesson `_revealAndTap` was written for, one helper along: at the
+/// largest text sizes the song's toolbar is below the fold, and a tolerant
+/// tap on a control that is built but off screen presses whatever is at those
+/// coordinates — which on a phone is the tab bar. That is how the 3.12x walk
+/// left the song instead of opening Perform, and then reported three screens
+/// it never saw.
 Future<bool> _tapKey(WidgetTester tester, String key) async {
   final finder = find.byKey(Key(key));
   if (finder.evaluate().isEmpty) return false;
+  try {
+    await tester.ensureVisible(finder.last);
+    await _frames(tester);
+  } on StateError {
+    // Not inside anything that scrolls. Then where it is drawn is where it
+    // is, and the tap below is the whole of what can be done.
+  }
   await tester.tap(finder.last, warnIfMissed: false);
   await _frames(tester);
   return true;
+}
+
+/// Closes a dialog, if one is open, and says whether it had to.
+///
+/// A modal barrier swallows every tap on the screen behind it, so one
+/// unexpected dialog turns the rest of a walk into a series of presses on a
+/// grey rectangle — and every one of them is tolerant, so nothing says a word.
+///
+/// One route at a time, and from whichever Navigator is actually holding it.
+/// This app has two, and `showDialog` puts its route on the root one while the
+/// screens are pushed onto the inner one — so "pop the last Navigator" pops a
+/// screen and leaves the dialog exactly where it was.
+Future<bool> _dismissDialog(WidgetTester tester) async {
+  if (find.byType(AlertDialog).evaluate().isEmpty) return false;
+  for (var attempt = 0; attempt < 3; attempt += 1) {
+    final count = find.byType(Navigator).evaluate().length;
+    var popped = false;
+    for (var i = count - 1; i >= 0; i -= 1) {
+      final state = tester.state<NavigatorState>(find.byType(Navigator).at(i));
+      if (!state.canPop()) continue;
+      state.pop();
+      await _frames(tester);
+      popped = true;
+      break;
+    }
+    if (find.byType(AlertDialog).evaluate().isEmpty) return true;
+    if (!popped) return false;
+  }
+  return find.byType(AlertDialog).evaluate().isEmpty;
 }
 
 /// Back to the shell, however deep the walk currently is.
@@ -163,6 +208,15 @@ Future<void> _popToRoot(WidgetTester tester) async {
   }
 }
 
+/// One step back out of wherever the walk is.
+///
+/// The innermost Navigator, not the outermost. There are two in this app and
+/// the one the screens are pushed onto is the inner one, so asking the outer
+/// one to pop found a route it could not pop and did nothing at all —
+/// silently, because this helper has no way to say it failed. `_popToRoot`
+/// has always used `.last` for exactly this reason; this one did not, and the
+/// first screen it cost was Perform: the walk came out of it still inside it,
+/// and Takes and Analyze were both skipped after it.
 Future<void> _back(WidgetTester tester) async {
   final finder = find.byTooltip('Back');
   if (finder.evaluate().isNotEmpty) {
@@ -170,7 +224,8 @@ Future<void> _back(WidgetTester tester) async {
     await _frames(tester);
     return;
   }
-  final state = tester.state<NavigatorState>(find.byType(Navigator).first);
+  if (find.byType(Navigator).evaluate().isEmpty) return;
+  final state = tester.state<NavigatorState>(find.byType(Navigator).last);
   if (state.canPop()) {
     state.pop();
     await _frames(tester);
@@ -403,8 +458,47 @@ void main() {
       // files the wrong picture under the right name is worse than one that
       // says it could not get there.
       await _revealAndTap(tester, find.text('Midnight Signal'));
+      // On a desk the song is already open beside the library, so the last
+      // "Midnight Signal" on screen is the workspace's own header — which is
+      // the control that renames the song. The tap above therefore opened the
+      // rename dialog, 05-song-workspace was a photograph of that dialog, and
+      // every step after it pressed a modal barrier: Perform was reported
+      // unreachable on all three wide devices. Closed rather than avoided,
+      // because the song being open already is the right answer on a desk.
+      await _dismissDialog(tester);
       if (find.byType(SongWorkspaceScreen).evaluate().isNotEmpty) {
         await shoot('05-song-workspace');
+
+        // Perform. The screen somebody is looking at while their hands are
+        // busy, and the one the reader's own text size matters most on: the
+        // whole point of it is words you can read from a music stand. It has
+        // never been in this walk, and until today it was drawn at 1.3
+        // whatever the phone said, because the workspace clamped everything
+        // inside it (Every Musician, Same Song, 17 September 2026).
+        //
+        // The destination is asserted rather than assumed, and the walk only
+        // comes back out if it got in. Perform is opened by an async load
+        // that asks a server this harness does not have; when that does not
+        // land, the tap leaves the workspace exactly where it was, the shot
+        // is a second photograph of the workspace filed under Perform, and
+        // the `_back` after it pops the workspace itself — which is how
+        // Takes and Analyze both vanished from this walk the first time this
+        // step was added.
+        await _tapKey(tester, 'workspace_live_button');
+        if (find.byType(LivePerformanceScreen).evaluate().isNotEmpty) {
+          await shoot('05b-perform');
+          await _back(tester);
+        } else {
+          _findings.add(Finding(
+            rule: 'Nothing reaches it',
+            standard: 'the song opens into Perform',
+            detail: 'pressing Perform on the song did not open it, so the '
+                'screen the words are read from was not walked',
+            severity: Severity.warns,
+            device: device.name,
+            screen: '05-song-workspace',
+          ));
+        }
 
         if (await _tapKey(tester, 'workspace_layers_button')) {
           await shoot('06-takes');
@@ -430,10 +524,40 @@ void main() {
       }
       await _popToRoot(tester);
 
+      // Sets, the other half of Your music. A song and a set are the two
+      // kinds of thing on that tab, and only one of them had ever been
+      // photographed.
+      if (await _tapText(tester, 'Your music')) {
+        if (await _revealAndTap(tester, find.text('Sets'))) {
+          await shoot('04c-sets');
+          await _revealAndTap(tester, find.text('Songs'));
+        } else {
+          _findings.add(Finding(
+            rule: 'Nothing reaches it',
+            standard: 'a song and a set are the two kinds of thing here',
+            detail: 'nothing on this tab reached Sets, so half of what Your '
+                'music holds was not walked',
+            severity: Severity.warns,
+            device: device.name,
+            screen: '04-your-music',
+          ));
+        }
+      }
+      await _popToRoot(tester);
+
       if (await _tapText(tester, 'Open Mic')) {
         await shoot('08-open-mic');
         if (await _tapKey(tester, 'open_mic_statement')) {
           await shoot('09-what-you-are-looking-at');
+        }
+        // A song on the Open Mic, which is the ask card in full: what the
+        // song wants, who has offered, and the way to answer it. The room
+        // opens on the people in it, so the songs are two taps down — the
+        // same two a person makes.
+        if (await _tapText(tester, 'Who needs it') &&
+            await _tapText(tester, 'Everybody') &&
+            await _revealAndTap(tester, find.text('Ladder Of Life'))) {
+          await shoot('10-a-song-on-the-open-mic');
         }
       }
       await _popToRoot(tester);

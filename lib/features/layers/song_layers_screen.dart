@@ -35,6 +35,7 @@ import '../../services/take_export.dart';
 import '../../services/take_naming.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
+import '../../widgets/text_measures.dart';
 import 'layer_console.dart';
 import 'moment_notes.dart';
 import 'my_part.dart';
@@ -145,6 +146,15 @@ class SongLayersScreen extends StatefulWidget {
   @override
   State<SongLayersScreen> createState() => _SongLayersScreenState();
 }
+
+/// What is in the bar across the top of Takes: the word, the song's name
+/// under it, and the one labelled action. Named so the bar can be measured
+/// with the same styles it draws.
+const TextStyle _takesTitleStyle = TextStyle(fontSize: 17);
+const TextStyle _takesUnderStyle =
+    TextStyle(color: AppColors.muted, fontSize: 11);
+const TextStyle _takesActionStyle =
+    TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700);
 
 class _SongLayersScreenState extends State<SongLayersScreen> {
   late final SongLayerService _service = widget.layerService ?? SongLayerService();
@@ -2407,6 +2417,24 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       backgroundColor: AppColors.deepNavy,
       appBar: AppBar(
         backgroundColor: AppColors.deepNavy,
+        // As tall as the words in it, rather than Material's 56.
+        //
+        // Every Musician, Same Song, 17 September 2026: the phone's own text
+        // size is honoured, never clamped. 56 does not move with it, so at
+        // the largest iOS size the Save label lost its bottom — silently,
+        // because a toolbar clips rather than overflows — on the button that
+        // is the only way to get a take off the phone. Measured with the
+        // styles the words are drawn in, and 56 is kept as the floor so
+        // nothing moves for anybody who has not turned their text up.
+        toolbarHeight: math.max(
+          kToolbarHeight,
+          math.max(
+            linesOfTextHigh(context, _takesTitleStyle) +
+                linesOfTextHigh(context, _takesUnderStyle) +
+                8,
+            linesOfTextHigh(context, _takesActionStyle) + 16,
+          ),
+        ),
         automaticallyImplyLeading: !widget.embedded,
         leading: widget.embedded
             ? IconButton(
@@ -2416,14 +2444,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
               )
             : null,
         title: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const Text('Takes', style: TextStyle(fontSize: 17)),
+            const Text('Takes', style: _takesTitleStyle),
             Text(
               widget.songTitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: AppColors.muted, fontSize: 11),
+              style: _takesUnderStyle,
             ),
           ],
         ),
@@ -2452,13 +2481,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                   ? null
                   : () => unawaited(_export()),
               icon: const Icon(Icons.ios_share_rounded, size: 18),
-              label: const Text(
-                'Save',
-                style: TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              label: const Text('Save', style: _takesActionStyle),
               style: TextButton.styleFrom(
                 foregroundColor: AppColors.cyan,
                 disabledForegroundColor: AppColors.line,
@@ -2474,17 +2497,46 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         children: <Widget>[
           SafeArea(
             child: layers == null
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        const CircularProgressIndicator(color: AppColors.gold),
-                        if (_status != null) ...<Widget>[
-                          const SizedBox(height: 14),
-                          Text(_status!,
-                              style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
-                        ],
-                      ],
+                // Scrolls and wraps. Every Musician, Same Song, 17 September
+                // 2026: the phone's own text size is honoured, never clamped,
+                // and the sentence under the spinner is a whole sentence —
+                // at the largest size it is 74 pixels taller than a small
+                // phone, and a "what is happening" line that runs off the
+                // bottom of the screen is worse than none.
+                // Still centred, which is where a spinner belongs and where
+                // this one has always been: inside a scroll view the height
+                // is unbounded, so a Center would only centre it sideways and
+                // the spinner would sit under the app bar for everybody. The
+                // scroll view is given the screen's own height as a minimum
+                // and the column centres inside that, the same shape the
+                // count-in scrim uses.
+                ? LayoutBuilder(
+                    builder: (context, constraints) => SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 20),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: constraints.hasBoundedHeight
+                              ? math.max(0, constraints.maxHeight - 40)
+                              : 0,
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: <Widget>[
+                            const CircularProgressIndicator(
+                                color: AppColors.gold),
+                            if (_status != null) ...<Widget>[
+                              const SizedBox(height: 14),
+                              Text(
+                                _status!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                    color: AppColors.muted, fontSize: 12.5),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
                   )
                 : console && _takes.isNotEmpty

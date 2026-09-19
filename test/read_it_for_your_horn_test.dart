@@ -574,9 +574,11 @@ void main() {
   });
 }
 
+/// A Text.rich rather than a RichText: the note is drawn at the size the
+/// phone asks for now, and a RichText ignores that setting outright.
 String _noteOnScreen(WidgetTester tester) => tester
-    .widget<RichText>(find.byKey(const Key('tuner_note')))
-    .text
+    .widget<Text>(find.byKey(const Key('tuner_note')))
+    .textSpan!
     .toPlainText();
 
 Float64List _tone(double hz, {int samples = 4096, int rate = 44100}) {
