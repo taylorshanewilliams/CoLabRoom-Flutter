@@ -400,8 +400,10 @@ class _ChordWord extends StatelessWidget {
             // like it holds something: a pale tint behind it and a dotted
             // underline — the oldest "there is more here" mark there is —
             // which together cost almost no ink but change what the eye
-            // reads it as. Not in live mode, where nothing is tappable and
-            // an affordance would be a lie.
+            // reads it as. Not in live mode, where a tap does nothing and a
+            // tint that says "tap me" would be a lie; the long press above
+            // is deliberately unmarked there, the way the chart's own long
+            // press is (see chord_chart_view.dart).
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
               decoration: liveMode
