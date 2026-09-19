@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cross_file/cross_file.dart';
@@ -30,6 +31,7 @@ import '../../widgets/offer_notifications.dart';
 import '../../widgets/invite_collaborator_dialog.dart';
 import '../../widgets/microphone_disclosure.dart';
 import '../../widgets/on_this_phone_mark.dart';
+import '../../widgets/text_measures.dart';
 import '../lessons/leaving_practice.dart';
 import '../lessons/sending_a_song.dart';
 import '../lessons/what_to_practise.dart';
@@ -2212,25 +2214,6 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
 
     final middle = panel ?? editor;
 
-    // Held at 1.3 until the next slice reaches this screen.
-    //
-    // Every Musician, Same Song, 17 September 2026: the phone's own text size
-    // is honoured, never clamped — and ColabRoomApp no longer clamps it, so
-    // every tab, the inbox, Messages, the profile and the sign-in screens
-    // hold at the largest iOS size. The song sheet is the *next* slice and it
-    // does not: at 2x the header below overflows its row by 32 pixels, and it
-    // is the screen this app spends most of its time on, so it is the last
-    // place to ship a half-done layout.
-    //
-    // 1.3 is exactly what the whole app got until today, so nothing here is
-    // worse than it was. This MediaQuery comes out the moment the song sheet,
-    // Perform, Takes and Sets have been through the same pass, and the render
-    // harness at 2x is what will say when that is true.
-    //
-    // Asserted, so that it is a fact somebody has to delete rather than one
-    // that quietly stops being true: "the song sheet is held at 1.3 until the
-    // next slice", in the_text_is_the_size_your_phone_says_test.dart. That
-    // test goes with this MediaQuery.
     final Widget sheet = Scaffold(
       key: _scaffoldKey,
       resizeToAvoidBottomInset: true,
@@ -2360,13 +2343,16 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       ),
     );
 
-    return MediaQuery(
-      data: media.copyWith(
-        textScaler:
-            MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3),
-      ),
-      child: sheet,
-    );
+    // No clamp here, and none anywhere inside a song.
+    //
+    // Every Musician, Same Song, 17 September 2026: the phone's own text size
+    // is honoured, never clamped. The slice before this one took the 0.8-1.3
+    // clamp off the whole app and left this one behind on purpose — the song
+    // sheet is where people spend most of their time and its header overflowed
+    // at twice normal, so 1.3 here meant nothing shipped worse than it already
+    // was. The header holds now, so the reader's own size reaches the screen
+    // they actually read from.
+    return sheet;
   }
 }
 
@@ -2443,6 +2429,16 @@ class _PortraitProjectHeader extends StatelessWidget {
     this.sendToStudents = false,
   });
 
+  /// What the theme draws titleLarge at, for measuring only.
+  ///
+  /// The style itself names no size, so it takes Material's own 22 — and a
+  /// measurement has to have a number to ask "how much bigger than this is
+  /// the reader's text?" about.
+  static const double _titleSize = 22;
+
+  static const TextStyle _underStyle =
+      TextStyle(color: AppColors.muted, fontSize: 12);
+
   final SongProject project;
   final MusicRoom room;
   final bool compact;
@@ -2470,9 +2466,30 @@ class _PortraitProjectHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final logoBytes = BetaScope.of(context).roomLogoBytes(room);
+    final titleStyle =
+        Theme.of(context).textTheme.titleLarge ?? const TextStyle();
+    // How many lines the song's name is allowed, and how tall this bar is.
+    //
+    // Every Musician, Same Song, 17 September 2026: the phone's own text size
+    // is honoured, never clamped. 52 and 68 were measured on one phone at one
+    // text size; at twice normal the name and the room under it need 78 and
+    // the column overflowed by 32 pixels into the toolbar. So the bar is as
+    // tall as the words in it, with the two old numbers kept as a floor —
+    // nothing moves for anybody who has not turned their text up.
+    //
+    // The name wraps rather than ellipsing once the text is turned up, at the
+    // same 1.5 the rest of the app switches at, so a reader who nudged their
+    // size one step does not find the header rearranged. Below that it is one
+    // line beside the pencil, exactly as it always was.
+    final grown = textGrowth(context, _titleSize);
+    final titleLines = grown >= 1.5 ? 2 : 1;
+    final needed = linesOfTextHigh(context, titleStyle, lines: titleLines) +
+        (compact ? 0 : linesOfTextHigh(context, _underStyle)) +
+        // The column's own padding, above and below.
+        10;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
-      height: compact ? 52 : 68,
+      height: math.max(compact ? 52 : 68, needed),
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: <Widget>[
@@ -2499,32 +2516,34 @@ class _PortraitProjectHeader extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Row(
-                      children: <Widget>[
-                        Flexible(
-                          child: Text(
-                            project.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleLarge,
+                    Flexible(
+                      child: Row(
+                        children: <Widget>[
+                          Flexible(
+                            child: Text(
+                              project.title,
+                              maxLines: titleLines,
+                              overflow: TextOverflow.ellipsis,
+                              style: titleStyle,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 6),
-                        const Icon(Icons.edit_rounded, size: 14, color: AppColors.cyan),
-                        // The plain state, where the song is named rather
-                        // than inside its menu.
-                        if (keptHere == true) ...const <Widget>[
-                          SizedBox(width: 8),
-                          OnThisPhoneMark(),
+                          const SizedBox(width: 6),
+                          const Icon(Icons.edit_rounded, size: 14, color: AppColors.cyan),
+                          // The plain state, where the song is named rather
+                          // than inside its menu.
+                          if (keptHere == true) ...const <Widget>[
+                            SizedBox(width: 8),
+                            OnThisPhoneMark(),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                     if (!compact)
                       Text(
                         '${room.name}  ·  ${room.members.length} ${room.members.length == 1 ? 'member' : 'members'}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                        style: _underStyle,
                       ),
                   ],
                 ),

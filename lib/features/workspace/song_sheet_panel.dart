@@ -25,6 +25,7 @@ import 'package:colabroom/services/rehearsal_letters.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:colabroom/services/song_language.dart';
 import 'package:colabroom/services/user_facing_error.dart';
+import 'package:colabroom/widgets/text_measures.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1151,6 +1152,70 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
         ? null
         : 'The notes it heard, in '
             '${_shownMelodyReading.label.toLowerCase()}';
+    // Whether this toolbar still fits on two rows.
+    //
+    // Every Musician, Same Song, 17 September 2026: the phone's own text size
+    // is honoured, never clamped. These controls were a fixed set laid out
+    // side by side; at twice normal the first row runs 78 pixels off the
+    // right and the second 194 — which is Edit chords and both text-size
+    // buttons off the edge of the phone. Above 1.5 they fold onto as many
+    // lines as they need, and below it they are exactly the rows they have
+    // always been. The same switch the rest of the app uses, so a reader who
+    // nudged their text one step does not find the sheet rearranged.
+    final grown = textGrowth(context, 10.5) >= 1.5;
+    final editChords = FilledButton.tonalIcon(
+      key: const Key('toggle_chord_editing'),
+      onPressed: _savingChord ? null : _toggleChordEditing,
+      icon: Icon(
+        _editingChords ? Icons.check_rounded : Icons.edit_rounded,
+        size: 17,
+      ),
+      label: Text(_editingChords ? 'Done' : 'Edit chords'),
+    );
+    final viewToggle = _ViewToggle(
+      view: _view,
+      // Editing chords is a lyric-sheet gesture — tap a word, tap a chord —
+      // so the chart used to refuse the switch while it was on. It refused it
+      // *silently*: the segment went grey and a tap did nothing, which is the
+      // same thing a frozen app does. Switching now just ends the edit, which
+      // is what somebody pressing Chart means. Only a save actually in flight
+      // still holds the control, and that one says why.
+      onChanged: _savingChord
+          ? null
+          : (next) => setState(() {
+                _view = next;
+                if (next == SongSheetView.chart) {
+                  _editingChords = false;
+                  _repeatOffer = null;
+                }
+              }),
+    );
+    final chordsOnOff = TextButton.icon(
+      onPressed: () => setState(() => _showChords = !_showChords),
+      icon: Icon(
+        _showChords ? Icons.music_note_rounded : Icons.music_off_rounded,
+        size: 17,
+        color: _showChords ? AppColors.gold : AppColors.muted,
+      ),
+      label: Text(
+        _showChords ? 'Chords on' : 'Chords off',
+        style: const TextStyle(fontSize: 10),
+      ),
+    );
+    final smallerText = IconButton(
+      tooltip: 'Smaller text',
+      onPressed: () => setState(() {
+        _fontScale = (_fontScale - 0.08).clamp(0.78, 1.34).toDouble();
+      }),
+      icon: const Icon(Icons.text_decrease_rounded, size: 18),
+    );
+    final largerText = IconButton(
+      tooltip: 'Larger text',
+      onPressed: () => setState(() {
+        _fontScale = (_fontScale + 0.08).clamp(0.78, 1.34).toDouble();
+      }),
+      icon: const Icon(Icons.text_increase_rounded, size: 18),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -1234,88 +1299,40 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
                         _editingChords ? null : () => _shiftTranspose(1),
                     icon: const Icon(Icons.add_rounded, size: 18),
                   ),
-                  const SizedBox(width: 4),
-                  FilledButton.tonalIcon(
-                    key: const Key('toggle_chord_editing'),
-                    onPressed: _savingChord ? null : _toggleChordEditing,
-                    icon: Icon(
-                      _editingChords
-                          ? Icons.check_rounded
-                          : Icons.edit_rounded,
-                      size: 17,
-                    ),
-                    label: Text(
-                      _editingChords ? 'Done' : 'Edit chords',
-                    ),
-                  ),
+                  if (!grown) ...<Widget>[
+                    const SizedBox(width: 4),
+                    editChords,
+                  ],
                 ],
               ),
+              if (grown)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: editChords,
+                ),
               const SizedBox(height: 3),
-              Row(
-                children: <Widget>[
-                  _ViewToggle(
-                    view: _view,
-                    // Editing chords is a lyric-sheet gesture — tap a word,
-                    // tap a chord — so the chart used to refuse the switch
-                    // while it was on. It refused it *silently*: the segment
-                    // went grey and a tap did nothing, which is the same
-                    // thing a frozen app does. Switching now just ends the
-                    // edit, which is what somebody pressing Chart means.
-                    // Only a save actually in flight still holds the control,
-                    // and that one says why.
-                    onChanged: _savingChord
-                        ? null
-                        : (next) => setState(() {
-                              _view = next;
-                              if (next == SongSheetView.chart) {
-                                _editingChords = false;
-                                _repeatOffer = null;
-                              }
-                            }),
-                  ),
-                  if (_view == SongSheetView.sheet)
-                    TextButton.icon(
-                      onPressed: () => setState(
-                        () => _showChords = !_showChords,
-                      ),
-                      icon: Icon(
-                        _showChords
-                            ? Icons.music_note_rounded
-                            : Icons.music_off_rounded,
-                        size: 17,
-                        color:
-                            _showChords ? AppColors.gold : AppColors.muted,
-                      ),
-                      label: Text(
-                        _showChords ? 'Chords on' : 'Chords off',
-                        style: const TextStyle(fontSize: 10),
-                      ),
-                    ),
-                  const Spacer(),
-                  IconButton(
-                    tooltip: 'Smaller text',
-                    onPressed: () => setState(() {
-                      _fontScale =
-                          (_fontScale - 0.08).clamp(0.78, 1.34).toDouble();
-                    }),
-                    icon: const Icon(
-                      Icons.text_decrease_rounded,
-                      size: 18,
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Larger text',
-                    onPressed: () => setState(() {
-                      _fontScale =
-                          (_fontScale + 0.08).clamp(0.78, 1.34).toDouble();
-                    }),
-                    icon: const Icon(
-                      Icons.text_increase_rounded,
-                      size: 18,
-                    ),
-                  ),
-                ],
-              ),
+              if (grown)
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 2,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: <Widget>[
+                    viewToggle,
+                    if (_view == SongSheetView.sheet) chordsOnOff,
+                    smallerText,
+                    largerText,
+                  ],
+                )
+              else
+                Row(
+                  children: <Widget>[
+                    viewToggle,
+                    if (_view == SongSheetView.sheet) chordsOnOff,
+                    const Spacer(),
+                    smallerText,
+                    largerText,
+                  ],
+                ),
             ],
           ),
         ),

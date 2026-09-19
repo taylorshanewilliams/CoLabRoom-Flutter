@@ -200,7 +200,19 @@ class MusicianSongSheet extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 5),
-                        Row(
+                        // A Wrap, so that the line under the title goes onto
+                        // a second line rather than off the page.
+                        //
+                        // Every Musician, Same Song, 17 September 2026: the
+                        // phone's own text size is honoured, never clamped.
+                        // Twenty letter-spaced capitals and a badge beside
+                        // them ran 96 pixels off the right of the sheet at
+                        // twice normal, and the badge saying the chords are
+                        // being edited was the half that went.
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: <Widget>[
                             Text(
                               'COLABROOM SONG SHEET',
@@ -211,8 +223,7 @@ class MusicianSongSheet extends StatelessWidget {
                                 letterSpacing: 1.4,
                               ),
                             ),
-                            if (editableChords) ...<Widget>[
-                              const SizedBox(width: 8),
+                            if (editableChords)
                               Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 7,
@@ -232,7 +243,6 @@ class MusicianSongSheet extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                            ],
                           ],
                         ),
                         _SungInLine(

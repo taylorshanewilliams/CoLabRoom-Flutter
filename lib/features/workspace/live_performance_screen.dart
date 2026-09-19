@@ -3681,7 +3681,13 @@ class _CountdownSettingsSheetState extends State<_CountdownSettingsSheet> {
     // No safe area of its own any more: the drone sits under this in the same
     // sheet and carries one, and two would leave the notch's worth of nothing
     // between the two sections.
-    return Padding(
+    //
+    // Scrolls, because a bottom sheet is given a fixed share of the screen and
+    // the two paragraphs above the switch do not fit in it once the text is
+    // turned up — 27 pixels over at twice normal, and what got cut was the
+    // sentence saying what a count-in is. Every Musician, Same Song,
+    // 17 September 2026: the phone's own text size is honoured, never clamped.
+    return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(22, 4, 22, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,

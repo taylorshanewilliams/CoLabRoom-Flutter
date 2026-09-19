@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/music_reference_sheets.dart';
@@ -7,6 +9,7 @@ import 'package:colabroom/services/melody_reading.dart';
 import 'package:colabroom/services/number_reading.dart';
 import 'package:colabroom/services/rehearsal_letters.dart';
 import 'package:colabroom/services/song_language.dart';
+import 'package:colabroom/widgets/text_measures.dart';
 import 'package:flutter/material.dart';
 
 typedef MusicianChordTap = void Function(
@@ -421,6 +424,21 @@ class _ChordWord extends StatelessWidget {
     // and a tint that says "tap me" would be a lie; the long press is
     // deliberately unmarked there, the way the chart's own long press is (see
     // chord_chart_view.dart).
+    final chordStyle = TextStyle(
+      color: liveMode
+          ? AppColors.gold
+          : chord != null && chord!.isManual
+              ? const Color(0xFF0D655F)
+              : const Color(0xFF197A74),
+      fontFamily: 'monospace',
+      fontSize: (liveMode ? 10.8 : 11.2) * fontScale,
+      height: 1,
+      fontWeight: FontWeight.w900,
+      decoration: liveMode ? null : TextDecoration.underline,
+      decorationStyle: TextDecorationStyle.dotted,
+      decorationColor:
+          const Color(0xFF197A74).withValues(alpha: editable ? 0.9 : 0.55),
+    );
     final chordBody = chord == null
         ? const SizedBox.shrink()
         : Container(
@@ -449,21 +467,7 @@ class _ChordWord extends StatelessWidget {
               // itself reads the one way it is ever written (review, 18
               // September 2026).
               textDirection: TextDirection.ltr,
-              style: TextStyle(
-                color: liveMode
-                    ? AppColors.gold
-                    : chord!.isManual
-                        ? const Color(0xFF0D655F)
-                        : const Color(0xFF197A74),
-                fontFamily: 'monospace',
-                fontSize: (liveMode ? 10.8 : 11.2) * fontScale,
-                height: 1,
-                fontWeight: FontWeight.w900,
-                decoration: liveMode ? null : TextDecoration.underline,
-                decorationStyle: TextDecorationStyle.dotted,
-                decorationColor: const Color(0xFF197A74)
-                    .withValues(alpha: editable ? 0.9 : 0.55),
-              ),
+              style: chordStyle,
             ),
           );
     final chordKey = chord?.id == null ? null : Key('edit_chord_${chord!.id}');
@@ -498,6 +502,22 @@ class _ChordWord extends StatelessWidget {
                 child: chordBody,
               );
 
+    // The row over the words is as tall as the chord names actually are.
+    //
+    // Every Musician, Same Song, 17 September 2026: the phone's own text size
+    // is honoured, never clamped. 16.5 and 16 are the height of a chord name
+    // at the author's own text size and at this person's own sheet zoom —
+    // but the reader's phone scales the name on top of both, and this box did
+    // not follow. At twice normal the chord was drawn down over the word it
+    // belongs to instead of above it, and a chord sheet whose chords sit on
+    // the wrong syllable is worse than one with no chords at all.
+    //
+    // Measured with the style it is drawn in rather than multiplied by a
+    // guess: the line height belongs to the font, so a multiplier would be
+    // wrong the day the theme changes family and wrong silently. The two old
+    // numbers stay as a floor, so nothing moves for anybody who has not
+    // turned their text up. `+ 2` is the chip's own vertical padding.
+    //
     // widthFactor is intentional. Without it, Align consumes the complete
     // Wrap width and turns every lyric word into its own visual row.
     //
@@ -506,7 +526,12 @@ class _ChordWord extends StatelessWidget {
     // the word is its right-hand end. In every left-to-right song this
     // resolves to bottomLeft, which is what it always was.
     final chordLabel = SizedBox(
-      height: showChords ? (liveMode ? 16.5 : 16) * fontScale : 0,
+      height: showChords
+          ? math.max(
+              (liveMode ? 16.5 : 16) * fontScale,
+              linesOfTextHigh(context, chordStyle) + 2,
+            )
+          : 0,
       child: showChords
           ? Align(
               alignment: AlignmentDirectional.bottomStart,
@@ -570,36 +595,48 @@ class _ChordWord extends StatelessWidget {
           // word itself. Gold on the word being sung, quiet on the rest, and
           // never a guess: a word the tracker heard nothing in gets a blank
           // of the same height, not a dash.
-          if (showNotes)
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: SizedBox(
-                height: 12 * fontScale,
-                child: AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 90),
-                  style: TextStyle(
-                    // On paper the row is ink, not a dimmed white: the sheet
-                    // is a cream page, and the live row's white at 42 % was
-                    // invisible on it.
-                    color: moment == WordMoment.now
-                        ? AppColors.gold
-                        : liveMode
-                            ? Colors.white.withValues(alpha: 0.42)
-                            : const Color(0xFF7A6C5A),
-                    fontFamily: 'monospace',
-                    fontSize: 9.4 * fontScale,
-                    height: 1,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.3,
-                  ),
-                  // A note name is notation too, for the same reason the
-                  // chord above it is: B♭4 must not draw as ♭B4, and ♭7 in
-                  // jianpu must not draw as 7♭.
-                  child: Text(note ?? '', textDirection: TextDirection.ltr),
-                ),
-              ),
-            ),
+          if (showNotes) _notes(context),
         ],
+      ),
+    );
+  }
+
+  /// The note this word is sung on, in a row as tall as the names are.
+  ///
+  /// Every Musician, Same Song, 17 September 2026: the phone's own text size
+  /// is honoured, never clamped. 12 was the height of one of these names at
+  /// the author's text size, so at twice normal the row of sung notes ran
+  /// down into whatever came after it. The old number stays as a floor, and
+  /// the height is measured with the style the names are drawn in — a word
+  /// the tracker heard nothing in still gets a blank of the same height, not
+  /// a dash, so the words along a line stay level.
+  Widget _notes(BuildContext context) {
+    final style = TextStyle(
+      // On paper the row is ink, not a dimmed white: the sheet is a cream
+      // page, and the live row's white at 42 % was invisible on it.
+      color: moment == WordMoment.now
+          ? AppColors.gold
+          : liveMode
+              ? Colors.white.withValues(alpha: 0.42)
+              : const Color(0xFF7A6C5A),
+      fontFamily: 'monospace',
+      fontSize: 9.4 * fontScale,
+      height: 1,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0.3,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: SizedBox(
+        height: math.max(12 * fontScale, linesOfTextHigh(context, style)),
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 90),
+          style: style,
+          // A note name is notation too, for the same reason the chord above
+          // it is: B♭4 must not draw as ♭B4, and ♭7 in jianpu must not draw
+          // as 7♭.
+          child: Text(note ?? '', textDirection: TextDirection.ltr),
+        ),
       ),
     );
   }
