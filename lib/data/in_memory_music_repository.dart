@@ -597,7 +597,14 @@ class InMemoryMusicRepository implements MusicRepository {
   Future<Setlist> createSetlist(String name) async {
     final cleaned = NamePolicy.clean(name);
     NamePolicy.requireUsable(cleaned, label: 'Setlist name');
-    if (_setlists.any((value) => NamePolicy.same(value.name, cleaned))) {
+    // Your own sets, not everybody's: 0005's `setlists_owner_name_unique` is
+    // on (owner_id, the lowered and space-squeezed name), so two people in
+    // one band can each have a set called "Friday practice". Asking the
+    // whole table made the fake refuse a name the database is happy with,
+    // and a test written against that refusal asserts something no phone
+    // ever sees.
+    if (_setlists.any((value) =>
+        value.ownerId == currentUserId && NamePolicy.same(value.name, cleaned))) {
       throw const NameConflict('A setlist with that name already exists.');
     }
     final now = DateTime.now();
@@ -615,8 +622,25 @@ class InMemoryMusicRepository implements MusicRepository {
     return setlist;
   }
 
+  // The five below all take a set somebody is holding and change it, and
+  // none of them asked whose set it was. Holding somebody else's is not
+  // far-fetched: 0005's read policy is owner-only, but the set for Sunday
+  // comes through 0164's security-definer function, so everybody playing on
+  // Sunday has the leader's set object in hand for the week. In the database
+  // each of these lands on 0005's policies, which is why `saveSetlistSong`
+  // and `setSetlistDay` already check. Whether a refusal is silence or an
+  // error is not a choice made here: it is whichever one the Supabase
+  // repository produces, said per method below.
+
   @override
   Future<void> addProjectsToSetlist(Setlist setlist, Iterable<String> projectIds) async {
+    // An insert into setlist_projects, which 0005's create policy checks
+    // with `with check`. A with-check the policy refuses raises rather than
+    // inserting nothing, so this says no out loud where a rename below says
+    // nothing at all.
+    if (setlist.ownerId != currentUserId) {
+      throw StateError(MusicRepository.notYourSet);
+    }
     final knownIds = _allProjects.map((project) => project.id).toSet();
     final merged = <String>{...setlist.projectIds};
     merged.addAll(projectIds.where(knownIds.contains));
@@ -627,7 +651,17 @@ class InMemoryMusicRepository implements MusicRepository {
   Future<void> renameSetlist(Setlist setlist, String name) async {
     final cleaned = NamePolicy.clean(name);
     NamePolicy.requireUsable(cleaned, label: 'Set name');
-    if (_setlists.any((value) => value.id != setlist.id && NamePolicy.same(value.name, cleaned))) {
+    // An update by id with nothing asked back. 0005's update policy narrows
+    // it to the owner's row, so somebody else's rename changes no row and
+    // raises nothing — the Supabase repository has no way of telling, and
+    // neither does this one.
+    if (setlist.ownerId != currentUserId) return;
+    // Per owner again, the way the unique index is. The caller is the owner
+    // by the line above, so this is that owner's own sets.
+    if (_setlists.any((value) =>
+        value.id != setlist.id &&
+        value.ownerId == currentUserId &&
+        NamePolicy.same(value.name, cleaned))) {
       throw const NameConflict('A setlist with that name already exists.');
     }
     _replaceSetlist(setlist.copyWith(name: cleaned, updatedAt: DateTime.now()));
@@ -635,11 +669,17 @@ class InMemoryMusicRepository implements MusicRepository {
 
   @override
   Future<void> deleteSetlist(Setlist setlist) async {
+    // 0005's delete policy: a delete by id matches no row of somebody
+    // else's, and deleting nothing is not an error.
+    if (setlist.ownerId != currentUserId) return;
     _setlists.removeWhere((value) => value.id == setlist.id);
   }
 
   @override
   Future<void> removeProjectFromSetlist(Setlist setlist, String projectId) async {
+    // The same silence, from setlist_projects' delete policy, which asks
+    // that the set be the caller's.
+    if (setlist.ownerId != currentUserId) return;
     _replaceSetlist(setlist.withOrder(
       setlist.projectIds.where((id) => id != projectId),
       updatedAt: DateTime.now(),
@@ -648,6 +688,13 @@ class InMemoryMusicRepository implements MusicRepository {
 
   @override
   Future<void> reorderSetlistProjects(Setlist setlist, List<String> orderedProjectIds) async {
+    // An upsert, and an upsert is the one write that cannot go quiet:
+    // Postgres checks the update policy's `using` against the conflicting
+    // row and raises when it fails rather than skipping the row, and the
+    // insert branch would fail its `with check` just as loudly.
+    if (setlist.ownerId != currentUserId) {
+      throw StateError(MusicRepository.notYourSet);
+    }
     final current = setlist.projectIds.toSet();
     if (orderedProjectIds.toSet().difference(current).isNotEmpty) {
       throw StateError('That song list is out of date. Reopen the setlist and try again.');
