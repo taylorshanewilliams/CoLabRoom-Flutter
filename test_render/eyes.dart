@@ -265,6 +265,38 @@ void stubPlatformChannels() {
   );
 }
 
+// ----------------------------------------------------------------- shadows
+
+/// Runs [body] with shadows drawn, and puts them back before it returns.
+///
+/// The binding turns shadows off so goldens stay stable across platforms.
+/// These images are for looking at rather than diffing, and an app
+/// photographed without its elevation is flatter than the real thing — so the
+/// harness turns them back on.
+///
+/// It has to be per test, and it has to be inside the body.
+/// `debugDisableShadows` is one of the painting debug variables, and the
+/// framework checks that all of them are back at their defaults at the end of
+/// every test body — before it runs any tearDown. Set in `setUpAll` and
+/// restored in `tearDownAll`, the check fires on every test with "the value of
+/// a painting debug variable was changed by the test", which reads like a
+/// rendering fault and is nothing of the kind: it failed all eight welcome
+/// shots and both profile shots, on screens where nothing at all was wrong
+/// with the app.
+///
+/// `finally` rather than two statements, so a body that throws still leaves
+/// the flag as it found it and the *next* test fails for its own reasons rather
+/// than for this one's. the_app_test.dart and the_strip_test.dart do the same
+/// thing inline.
+Future<void> withShadows(Future<void> Function() body) async {
+  debugDisableShadows = false;
+  try {
+    await body();
+  } finally {
+    debugDisableShadows = true;
+  }
+}
+
 // -------------------------------------------------------------- complaints
 
 /// Everything Flutter objected to during the walk.
