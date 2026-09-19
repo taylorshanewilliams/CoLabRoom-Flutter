@@ -20,7 +20,8 @@ library;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/song_analysis_models.dart';
-import '../../services/chord_beat_grid.dart' show beatIndexAt;
+import '../../services/chord_beat_grid.dart'
+    show beatIndexAt, medianBeatIntervalMs;
 import '../../services/chord_names.dart' show chordDisplay;
 
 /// Whether this phone calls the chords.
@@ -111,6 +112,14 @@ class ChordCall {
 /// all. A song the tracker heard no beat in is offered nothing, the same
 /// refusal the chord chart makes when it will not draw bar lines without
 /// downbeats.
+///
+/// A change with no beat anywhere near it is passed over for the same reason.
+/// The grid can stop before the chord map does — a ritardando ending the
+/// tracker gave up on, a breakdown it lost — and the nearest beat to a chord
+/// in that hole can be many seconds away. Called from it, the name would go
+/// out eight seconds early and sound exactly like a call for the very next
+/// beat. Where there is no beat to be a beat ahead of, saying nothing is the
+/// honest answer (review, 19 September 2026).
 List<ChordCall> chordCalls({
   required List<ChordCue> cues,
   required List<int> beatsMs,
@@ -118,6 +127,10 @@ List<ChordCall> chordCalls({
   if (cues.isEmpty || beatsMs.length < 2) return const <ChordCall>[];
   final ordered = List<ChordCue>.of(cues)
     ..sort((a, b) => a.startMs.compareTo(b.startMs));
+  // How far from a beat a change can fall and still be understood as meant
+  // for it. One beat: anything inside that is either on the grid or the push
+  // ahead of a beat the grid does have, and anything past it is in a hole.
+  final window = medianBeatIntervalMs(beatsMs);
   final calls = <ChordCall>[];
   // Which beat the last call was made on, so nothing is said twice in one
   // beat. -1 is "nothing said yet", and the first beat of the song is 0.
@@ -132,6 +145,9 @@ List<ChordCall> chordCalls({
     // to be called from. Saying it late would be naming a chord already
     // sounding, which is what the chart on screen is for.
     if (beat == null || beat < 1) continue;
+    // The nearest beat, however far away it is: past a beat away it is not
+    // this chord's beat at all. See the note above.
+    if (window > 0 && (beatsMs[beat] - cue.startMs).abs() > window) continue;
     final at = beat - 1;
     // Two changes less than a beat apart want the same beat to be called on.
     // The first one keeps it: the second is skipped rather than stacked on
@@ -177,6 +193,80 @@ ChordCall? nextChordCall(
     return call;
   }
   return null;
+}
+
+/// The one call a passage on repeat would otherwise never make: the chord it
+/// turns round onto.
+///
+/// [nextChordCall] will not name a chord on the far side of the turn, and it
+/// is right not to — nobody is going to play it. But something *is* coming at
+/// the turn: the chord the passage starts on. Its own call sits one beat
+/// before the passage begins, outside it, where no lap ever reaches it. So a
+/// player drilling two bars of C into D7 hears "D seven" every lap and never
+/// hears the C they have to get back to, which is half of the change they are
+/// drilling (review, 19 September 2026).
+///
+/// Said on the last beat inside the passage, a beat ahead of the turn exactly
+/// the way every other call is a beat ahead of its change. [changeMs] is the
+/// turn itself, because that is when the chord lands in this lap.
+///
+/// Null when there is nothing to say: a passage that turns round onto the
+/// chord it was already playing has no change at its turn, a beat already
+/// carrying a call of its own keeps it, and a turn with no beat within a beat
+/// of it is a turn there is no grid for.
+ChordCall? loopTurnCall({
+  required List<ChordCue> cues,
+  required List<int> beatsMs,
+  required List<ChordCall> calls,
+  required int startMs,
+  required int endMs,
+}) {
+  if (cues.isEmpty || beatsMs.length < 2 || endMs <= startMs) return null;
+  final coming = _chordAt(startMs, cues);
+  if (coming == null || chordDisplay(coming).isEmpty) return null;
+  // What is sounding as the passage ends. The same chord means the turn is
+  // not a change at all, and a call for a chord already under the fingers is
+  // a call for nothing.
+  if (_chordAt(endMs - 1, cues) == coming) return null;
+  final at = _lastBeatBefore(endMs, beatsMs);
+  if (at == null || beatsMs[at] < startMs) return null;
+  final atMs = beatsMs[at];
+  final window = medianBeatIntervalMs(beatsMs);
+  if (window > 0 && endMs - atMs > window) return null;
+  for (final call in calls) {
+    // A change of its own landing inside the passage on the beat after this
+    // one. That call is the next thing coming, so it keeps the beat.
+    if (call.atMs == atMs && call.changeMs < endMs) return null;
+  }
+  return ChordCall(atMs: atMs, changeMs: endMs, chord: coming);
+}
+
+/// The chord sounding at [ms], or null where the analysis heard none.
+String? _chordAt(int ms, List<ChordCue> cues) {
+  String? found;
+  var latest = -1;
+  for (final cue in cues) {
+    if (cue.startMs <= ms && ms < cue.endMs && cue.startMs > latest) {
+      latest = cue.startMs;
+      found = cue.chord;
+    }
+  }
+  return found;
+}
+
+/// The last beat strictly before [ms], or null when the grid has none.
+int? _lastBeatBefore(int ms, List<int> beatsMs) {
+  var low = 0;
+  var high = beatsMs.length;
+  while (low < high) {
+    final mid = (low + high) >> 1;
+    if (beatsMs[mid] < ms) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low == 0 ? null : low - 1;
 }
 
 /// How long from now, in real time, until [call] is made: the song is at

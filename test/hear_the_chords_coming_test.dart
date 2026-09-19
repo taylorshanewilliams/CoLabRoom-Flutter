@@ -249,6 +249,96 @@ void main() {
       );
     });
 
+    test('a chord with no beat anywhere near it is not called', () {
+      // The tracker's beats stop at eight seconds and the chord map runs on
+      // to the end — a ritardando ending is the ordinary reason, and the
+      // snapping deliberately leaves those changes where they were heard. The
+      // nearest beat to the chord at twelve seconds is four seconds away, and
+      // a name four seconds early sounds exactly like a name for the very
+      // next beat.
+      final short = <int>[for (var ms = 0; ms <= 8000; ms += 500) ms];
+      final calls = chordCalls(
+        cues: <ChordCue>[
+          chord('G:maj', 0, 2000),
+          chord('C:maj', 2000, 4000),
+          chord('D:7', 12000, 14000),
+          chord('G:maj', 14000, 16000),
+        ],
+        beatsMs: short,
+      );
+      expect(calls, <ChordCall>[
+        const ChordCall(atMs: 1500, changeMs: 2000, chord: 'C:maj'),
+      ]);
+    });
+
+    test('a passage on repeat is told about the chord it turns round onto',
+        () {
+      final calls = chordCalls(cues: cues, beatsMs: beats);
+      // Bars 2 and 3 on repeat: a bar of C, a bar of D7, round again at six
+      // seconds. Every lap ends by going back to that C, and the call for it
+      // sits at 1500 — one beat before the passage begins, outside it, where
+      // no lap ever reaches it. Without this the player drilling the change
+      // hears one half of it.
+      expect(
+        loopTurnCall(
+          cues: cues,
+          beatsMs: beats,
+          calls: calls,
+          startMs: 2000,
+          endMs: 6000,
+        ),
+        const ChordCall(atMs: 5500, changeMs: 6000, chord: 'C:maj'),
+      );
+      // And the last beat of the passage is free to carry it: the call that
+      // sits there is for the G on the far side of the turn, which nobody is
+      // going to play.
+      expect(nextChordCall(3500, calls: calls, untilMs: 6000), isNull);
+    });
+
+    test('a passage that turns round onto the chord it was already on is '
+        'told nothing', () {
+      final calls = chordCalls(cues: cues, beatsMs: beats);
+      // One bar of C. The turn is not a change at all, and a name for a chord
+      // already under the fingers is a name for nothing.
+      expect(
+        loopTurnCall(
+          cues: cues,
+          beatsMs: beats,
+          calls: calls,
+          startMs: 2000,
+          endMs: 4000,
+        ),
+        isNull,
+      );
+    });
+
+    test('a beat that already has a call of its own keeps it', () {
+      // A stab in the last tenth of the passage, so the last beat inside it
+      // is already spoken for. That call is the next thing coming; the turn
+      // is a beat further off, and two names at once is neither of them.
+      final stab = <ChordCue>[
+        chord('G:maj', 0, 2000),
+        chord('C:maj', 2000, 3900),
+        chord('F:maj', 3900, 4000),
+        chord('D:7', 4000, 6000),
+      ];
+      final calls = chordCalls(cues: stab, beatsMs: beats);
+      expect(
+        nextChordCall(2000, calls: calls, untilMs: 4000),
+        const ChordCall(atMs: 3500, changeMs: 3900, chord: 'F:maj'),
+      );
+      expect(
+        loopTurnCall(
+          cues: stab,
+          beatsMs: beats,
+          calls: calls,
+          startMs: 2000,
+          endMs: 4000,
+        ),
+        isNull,
+      );
+    });
+
     test('a passage drilled at 70% is called at 70%', () {
       final calls = chordCalls(cues: cues, beatsMs: beats);
       // The call has not moved in the song — it is still a beat and a half
@@ -468,6 +558,90 @@ void main() {
       // time, never from the last call.
       await tester.pump(const Duration(milliseconds: 5715));
       expect(voice.said, <String>['C', 'D seven', 'G']);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a passage on repeat calls the chord it turns round onto',
+        (tester) async {
+      await sized(tester, hear: true);
+      final voice = _WrittenDown();
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: withChords,
+          now: clockOf(tester),
+          chordVoice: voice,
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Bars 2 and 3 on repeat: a bar of C into a bar of D7, round again at
+      // six seconds.
+      await tester.tap(find.byKey(const Key('live_loop_bars')));
+      await tester.pumpAndSettle();
+      tester
+          .widget<RangeSlider>(find.byKey(const Key('live_bar_range')))
+          .onChanged!(const RangeValues(2, 3));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('live_bar_loop_apply')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('live_play_pause')));
+      await tester.pump();
+
+      // The D7 a beat before it lands, and then the C the lap turns round
+      // onto — whose own call sits at 1500, a beat before the passage begins,
+      // where no lap would ever reach it.
+      await tester.pump(const Duration(milliseconds: 1500));
+      expect(voice.said, <String>['D seven']);
+      await tester.pump(const Duration(milliseconds: 2000));
+      expect(voice.said, <String>['D seven', 'C']);
+
+      // Round again, and the same two: both halves of the change being
+      // drilled, on every lap.
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 1500));
+      expect(voice.said, <String>['D seven', 'C', 'D seven']);
+      await tester.pump(const Duration(milliseconds: 2000));
+      expect(voice.said, <String>['D seven', 'C', 'D seven', 'C']);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a name being said is cut off when the song stops under it',
+        (tester) async {
+      await sized(tester, hear: true);
+      final voice = _WrittenDown();
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: withChords,
+          now: clockOf(tester),
+          chordVoice: voice,
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('live_play_pause')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1500));
+      expect(voice.said, <String>['C']);
+
+      // Restart is not the pause button, and it is the likeliest moment of
+      // all for a name to be in the air: the song goes back to the top while
+      // the voice is still naming a chord from where it was.
+      await tester.tap(find.byTooltip('Restart song'));
+      await tester.pump();
+      expect(voice.hushes, greaterThan(0));
+      await tester.pump(const Duration(milliseconds: 4000));
+      expect(voice.said, <String>['C']);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();

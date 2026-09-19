@@ -1136,6 +1136,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     }
     _loop = null;
     if (_mode == LiveScrollMode.synced) _mode = LiveScrollMode.off;
+    _stopCalling();
     setState(() {});
     final key = state.lineKey;
     if (key == null) return;
@@ -1473,6 +1474,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _elapsed = Duration.zero;
       _activeLineKey = null;
     });
+    _stopCalling();
     _lastTick = null;
     if (_scroll.hasClients) _scroll.jumpTo(0);
     _markOffsetsDirty();
@@ -1715,6 +1717,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final lines = _lines;
     if (lines.isEmpty) {
       setState(() => _playing = false);
+      _stopCalling();
       _lastTick = null;
       return;
     }
@@ -1734,6 +1737,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         _playing = false;
         _activeLineKey = nextActiveKey;
       });
+      _stopCalling();
       _lastTick = null;
     } else if (mounted) {
       setState(() => _activeLineKey = nextActiveKey);
@@ -2093,17 +2097,37 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     if (_hearChords == HearTheChords.off || !_playing) return;
     if (_mode != LiveScrollMode.synced) return;
     final nowMs = _elapsedNow.inMilliseconds;
-    final next = nextChordCall(
-      math.max(nowMs, called ?? 0),
+    final from = math.max(nowMs, called ?? 0);
+    final loop = _loop;
+    var next = nextChordCall(
+      from,
       calls: _chordCalls,
       // Nothing is called past where the passage turns round, and nothing is
       // called for a chord on the far side of the turn: while a run of bars
       // is on repeat, the chord after its last one is not coming.
-      untilMs: _loop?.endMs,
+      untilMs: loop?.endMs,
       onTheBeat: onTheBeat,
     );
-    if (next == null) return;
-    _callTimer = Timer(untilCalled(next, fromMs: nowMs, rate: _rate), () {
+    // What is coming at the turn is the chord the passage starts on, and its
+    // own call sits outside the passage where no lap reaches it. See
+    // [loopTurnCall].
+    if (next == null && loop != null) {
+      final turn = loopTurnCall(
+        cues: widget.analysis?.chordCues ?? const <ChordCue>[],
+        beatsMs: _beatsMs,
+        calls: _chordCalls,
+        startMs: loop.startMs,
+        endMs: loop.endMs,
+      );
+      // Forward only, the same rule the calls themselves follow, so the one
+      // that has just gone out is not made again for the rest of the lap.
+      if (turn != null && (onTheBeat ? turn.atMs >= from : turn.atMs > from)) {
+        next = turn;
+      }
+    }
+    final call = next;
+    if (call == null) return;
+    _callTimer = Timer(untilCalled(call, fromMs: nowMs, rate: _rate), () {
       // Paused, stopped, turned off, or put on a scroll speed while the call
       // was waiting. The same guard as above, because the song can leave the
       // state this call was worked out in without arming anything.
@@ -2113,8 +2137,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
           _hearChords == HearTheChords.off) {
         return;
       }
-      _sayChord(next.chord);
-      _armChordCall(called: next.atMs);
+      _sayChord(call.chord);
+      _armChordCall(called: call.atMs);
     });
   }
 
@@ -2139,6 +2163,21 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     ));
     if (words.isEmpty) return;
     unawaited(_voice.say(words).catchError((Object _) {}));
+  }
+
+  /// The song stopped somewhere that is not the Start button: a restart, a
+  /// different set of words, a leader who took their hand off the clock, a
+  /// scroll speed chosen, the end of the song.
+  ///
+  /// The timer's own guard already stops a new call going out with the song
+  /// stopped, which is why the beat taps need nothing here — a tap has no
+  /// tail. A name does: a chord half said over a song that has jumped back to
+  /// the top is naming a bar nobody is in any more, so it is cut off (review,
+  /// 19 September 2026).
+  void _stopCalling() {
+    _callTimer?.cancel();
+    _callTimer = null;
+    _hushChords();
   }
 
   /// Stops mid-word, if anything was being said. Never makes a voice that was
@@ -2240,6 +2279,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _controlsVisible = true;
       _activeLineKey = null;
     });
+    _stopCalling();
     _lastTick = null;
   }
 
@@ -2263,6 +2303,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _mode = LiveScrollMode.timed;
       _playing = false;
     });
+    _stopCalling();
     if (_scroll.hasClients) _scroll.jumpTo(0);
   }
 
@@ -2349,6 +2390,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       return;
     }
     setState(() => _playing = false);
+    _stopCalling();
   }
 
   void _onSeek(Duration where) {

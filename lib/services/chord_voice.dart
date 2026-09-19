@@ -70,6 +70,26 @@ class TtsChordVoice implements ChordVoice {
               defaultTargetPlatform == TargetPlatform.macOS)) {
         await _tts.autoStopSharedSession(false);
       }
+      // The words are English, so the voice has to be.
+      //
+      // Every name this says is written in English — "B flat", "four", "sus
+      // four" — and left alone the engine speaks in whatever language the
+      // phone is set to. A Spanish voice reads the letter E as "eh", which
+      // an English ear hears as A, and B flat as "beh flat": a confidently
+      // wrong chord name, which is the one thing a call must never be (see
+      // speakableChord, and review, 19 September 2026). This asks for the
+      // language of the words and says nothing about the person holding the
+      // phone; the day the app itself speaks another language, the names go
+      // with it. Asked for last so a device that refuses to be asked still
+      // gets the speed and the volume set above, and a phone with no English
+      // voice on it keeps its own rather than being left silent.
+      for (final language in const <String>['en-US', 'en-GB']) {
+        final available = await _tts.isLanguageAvailable(language);
+        if (available == true || available == 1) {
+          await _tts.setLanguage(language);
+          break;
+        }
+      }
     } catch (_) {
       // A device that refuses one of these still speaks, at whatever its own
       // voice is set to. There is nowhere useful to say so, and nothing
