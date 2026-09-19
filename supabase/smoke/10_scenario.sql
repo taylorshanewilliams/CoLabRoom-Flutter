@@ -11334,6 +11334,207 @@ begin
 exception when insufficient_privilege then null;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- What language the song is sung in (0163).
+--
+-- The third shared fact, beside the band's key and where bar 1 is, and
+-- guarded by the same two roles for the same reason: it turns the whole page
+-- around, so an editor can say it, somebody who can only look cannot, and
+-- neither can somebody who is not in the room at all.
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('1a4e0163-0000-0000-0000-000000000164', 'thesinger@smoke.test',
+   '{"display_name": "The Singer"}'),
+  ('1a4e0163-0000-0000-0000-000000000165', 'onlylooking@smoke.test',
+   '{"display_name": "Only Looking"}'),
+  -- Never inserted into room_members anywhere, so room_role_for is null for
+  -- this account: the case the `is distinct from` pair exists for, and the
+  -- one a plain `not in` would wave through.
+  ('1a4e0163-0000-0000-0000-000000000166', 'notfromhere@smoke.test',
+   '{"display_name": "Not From Here"}');
+
+insert into public.rooms (id, account_id, name)
+values ('1a4e0163-0000-0000-0000-000000000160',
+        '11111111-1111-1111-1111-111111111111', 'The Language Room');
+
+-- Distinct colours, as every other room in this file has
+-- (room_members_room_color_unique, 0006).
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('1a4e0163-0000-0000-0000-000000000160', '11111111-1111-1111-1111-111111111111',
+   'The Writer', 'owner', 4294937163),
+  ('1a4e0163-0000-0000-0000-000000000160', '1a4e0163-0000-0000-0000-000000000164',
+   'The Singer', 'editor', 4283215663),
+  ('1a4e0163-0000-0000-0000-000000000160', '1a4e0163-0000-0000-0000-000000000165',
+   'Only Looking', 'viewer', 4284000163);
+
+insert into public.projects (id, room_id, account_id, title, created_by) values
+  ('1a4e0163-0000-0000-0000-000000000161', '1a4e0163-0000-0000-0000-000000000160',
+   '11111111-1111-1111-1111-111111111111', 'A Song In Arabic',
+   '11111111-1111-1111-1111-111111111111'),
+  ('1a4e0163-0000-0000-0000-000000000162', '1a4e0163-0000-0000-0000-000000000160',
+   '11111111-1111-1111-1111-111111111111', 'A Song In Chinese',
+   '11111111-1111-1111-1111-111111111111');
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  -- Null is the honest default: nobody has said, and the page is laid out
+  -- the way it always was.
+  if (select language from public.projects
+        where id = '1a4e0163-0000-0000-0000-000000000161') is not null then
+    raise exception 'a new song arrived with a language nobody gave it';
+  end if;
+
+  perform public.set_song_language('1a4e0163-0000-0000-0000-000000000161', 'ar');
+  if (select language from public.projects
+        where id = '1a4e0163-0000-0000-0000-000000000161')
+     is distinct from 'ar' then
+    raise exception 'the owner could not say what the song is sung in';
+  end if;
+
+  -- One spelling for one tag: the app looks the tag up to decide which way
+  -- the page runs, so 'ZH-hans' has to be stored as the same thing 'zh-Hans'
+  -- is, not refused and not kept as typed.
+  perform public.set_song_language('1a4e0163-0000-0000-0000-000000000162',
+                                   'ZH-hans');
+  if (select language from public.projects
+        where id = '1a4e0163-0000-0000-0000-000000000162')
+     is distinct from 'zh-Hans' then
+    raise exception 'a tag typed in the wrong case was not folded (got %)',
+      (select language from public.projects
+         where id = '1a4e0163-0000-0000-0000-000000000162');
+  end if;
+
+  -- A region comes through too, upper-cased: 'pt-br' is Brazilian
+  -- Portuguese and reads left to right like any other Portuguese.
+  perform public.set_song_language('1a4e0163-0000-0000-0000-000000000162',
+                                   'pt-br');
+  if (select language from public.projects
+        where id = '1a4e0163-0000-0000-0000-000000000162')
+     is distinct from 'pt-BR' then
+    raise exception 'a region was not folded to one spelling';
+  end if;
+
+  -- Null takes the answer away, which is how "Not said" is spelled. It is a
+  -- real answer and not a missing argument, so it is not an error.
+  perform public.set_song_language('1a4e0163-0000-0000-0000-000000000162', null);
+  if (select language from public.projects
+        where id = '1a4e0163-0000-0000-0000-000000000162') is not null then
+    raise exception 'the answer could not be taken away again';
+  end if;
+
+  -- And so does white space, so a blank box cannot stand in for a language.
+  perform public.set_song_language('1a4e0163-0000-0000-0000-000000000162', '   ');
+  if (select language from public.projects
+        where id = '1a4e0163-0000-0000-0000-000000000162') is not null then
+    raise exception 'a blank was stored as a language';
+  end if;
+
+  -- Tags, and nothing else. The word is what a person reads; the tag is what
+  -- the page and the transcriber are driven by, and "Arabic" drives neither.
+  begin
+    perform public.set_song_language('1a4e0163-0000-0000-0000-000000000161',
+                                     'Arabic');
+    raise exception 'a language name was accepted in place of a tag';
+  exception when invalid_parameter_value then null;
+  end;
+
+  begin
+    perform public.set_song_language('1a4e0163-0000-0000-0000-000000000161',
+                                     'ar-EG-cairo');
+    raise exception 'something that is not a tag was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- The check constraint says the same thing at the table, because 0005 lets
+  -- an owner update this row directly and a rule that lives only in a
+  -- function is one request away from nothing.
+  begin
+    update public.projects set language = 'Arabic'
+    where id = '1a4e0163-0000-0000-0000-000000000161';
+    raise exception 'a plain update stored something that is not a tag';
+  exception when check_violation then null;
+  end;
+end $$;
+
+-- An editor can say it. It is usually the singer who noticed, not the person
+-- who owns the catalog.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0163-0000-0000-0000-000000000164"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.set_song_language('1a4e0163-0000-0000-0000-000000000162', 'zh');
+  if (select language from public.projects
+        where id = '1a4e0163-0000-0000-0000-000000000162')
+     is distinct from 'zh' then
+    raise exception 'an editor could not say what the song is sung in';
+  end if;
+end $$;
+
+-- Somebody who can only look cannot turn everybody else's page around.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0163-0000-0000-0000-000000000165"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.set_song_language('1a4e0163-0000-0000-0000-000000000161', 'he');
+    raise exception 'somebody who can only look answered for the room';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- And somebody who is not in the room at all, which is what the null-safety
+-- in the guard is actually for: the viewer above has a role, so
+-- `not in ('owner', 'editor')` would still refuse them -- this account has no
+-- role, `null not in (...)` is null, and the plain form would let a stranger
+-- with any valid token turn a room's song around.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0163-0000-0000-0000-000000000166"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.set_song_language('1a4e0163-0000-0000-0000-000000000161', 'he');
+    raise exception 'somebody outside the room answered for it';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Nobody at all cannot ask either.
+reset role;
+set local request.jwt.claims = '{"role": "anon"}';
+set local role anon;
+
+do $$
+begin
+  perform public.set_song_language('1a4e0163-0000-0000-0000-000000000161', 'he');
+  raise exception 'anon said what a song is sung in';
+exception when insufficient_privilege then null;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select language from public.projects
+        where id = '1a4e0163-0000-0000-0000-000000000161')
+     is distinct from 'ar' then
+    raise exception 'somebody who cannot edit changed what the song is sung in';
+  end if;
+  if (select language from public.projects
+        where id = '1a4e0163-0000-0000-0000-000000000162')
+     is distinct from 'zh' then
+    raise exception 'the editor''s answer did not stand';
+  end if;
+end $$;
+
 reset role;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';

@@ -2,7 +2,9 @@ import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_line.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
+import 'package:colabroom/features/workspace/song_language_sheet.dart';
 import 'package:colabroom/services/horn_reading.dart';
+import 'package:colabroom/services/song_language.dart';
 import 'package:colabroom/services/melody_reading.dart';
 import 'package:colabroom/services/number_reading.dart';
 import 'package:flutter/material.dart';
@@ -34,6 +36,9 @@ class MusicianSongSheet extends StatelessWidget {
     this.onSa,
     this.spelling,
     this.onKey,
+    this.language,
+    this.onLanguage,
+    this.languagesYouSingIn = const <String>[],
     this.keyOverridden = false,
     this.editableChords = false,
     this.selectedChordStartMs,
@@ -103,6 +108,24 @@ class MusicianSongSheet extends StatelessWidget {
   /// room rather than to this device. Null on a sheet whose caller cannot
   /// write it, which leaves the key sheet a reference.
   final SayTheKey? onKey;
+
+  /// What the room said this song is sung in (0163), as a BCP-47 tag, or
+  /// null because nobody has said.
+  ///
+  /// The lines carry it themselves and lay themselves out by it; this is
+  /// only for the line under the title that says what it is and opens the
+  /// question.
+  final String? language;
+
+  /// Where a new answer goes. Null for somebody the room only lets look,
+  /// and for a sheet with no song behind it — the Studio's drafts — which
+  /// leaves the line a statement or leaves it off the page entirely.
+  final SayTheLanguage? onLanguage;
+
+  /// What the person reading has said they sing in (0156), offered first in
+  /// the language list. Never applied on its own: a profile does not know
+  /// what any one song is.
+  final List<String> languagesYouSingIn;
 
   /// Whether [musicalKey] is the band's answer rather than the analysis's, so
   /// the sheet can offer to hand it back.
@@ -211,6 +234,12 @@ class MusicianSongSheet extends StatelessWidget {
                               ),
                             ],
                           ],
+                        ),
+                        _SungInLine(
+                          language: language,
+                          onLanguage: onLanguage,
+                          youSingIn: languagesYouSingIn,
+                          fontScale: fontScale,
                         ),
                       ],
                     ),
@@ -376,6 +405,81 @@ class MusicianSongSheet extends StatelessWidget {
                     ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// What the song is sung in, under its title (0163).
+///
+/// On the sheet rather than in a menu because this is where it shows: the
+/// lines below it run the way it says, and somebody who can see that the
+/// page is laid out wrong is looking straight at the control that fixes it.
+///
+/// Three states and no banner. Nobody who can answer has: one quiet line
+/// asking. Answered: the answer, still tappable, because the first answer
+/// is often the wrong one. Somebody who can only look: the answer if there
+/// is one, and otherwise nothing at all — a question nobody can answer is
+/// not worth the line it is written on.
+class _SungInLine extends StatelessWidget {
+  const _SungInLine({
+    required this.language,
+    required this.onLanguage,
+    required this.youSingIn,
+    required this.fontScale,
+  });
+
+  final String? language;
+  final SayTheLanguage? onLanguage;
+  final List<String> youSingIn;
+  final double fontScale;
+
+  @override
+  Widget build(BuildContext context) {
+    final said = language;
+    final write = onLanguage;
+    if (said == null && write == null) return const SizedBox.shrink();
+    final label = said == null
+        ? 'Say what it is sung in'
+        : 'Sung in ${languageNamed(said)}';
+    final text = Text(
+      label,
+      style: TextStyle(
+        color: const Color(0xFF7A6C5A),
+        fontSize: 8.5 * fontScale,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 0.6,
+        // Underlined like the key badge and the chords, and for the same
+        // reason: nobody taps a label.
+        decoration: write == null ? null : TextDecoration.underline,
+        decorationStyle: TextDecorationStyle.dotted,
+        decorationColor: const Color(0xFF7A6C5A).withValues(alpha: 0.6),
+      ),
+    );
+    if (write == null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: text,
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: InkWell(
+          key: const Key('song_sheet_sung_in'),
+          borderRadius: BorderRadius.circular(6),
+          onTap: () => showSongLanguageSheet(
+            context,
+            language: said,
+            onLanguage: write,
+            suggested: youSingIn,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 1),
+            child: text,
+          ),
         ),
       ),
     );

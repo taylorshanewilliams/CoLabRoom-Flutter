@@ -7,6 +7,7 @@ import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/services/project_export_service.dart';
 import 'package:colabroom/services/rehearsal_letters.dart';
+import 'package:colabroom/services/song_language.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -62,10 +63,16 @@ abstract final class ChordSheetExport {
         letter: line.letter,
       );
     }
-    final words = ProjectExportService.printable(line.body)
-        .split(RegExp(r'\s+'))
-        .where((word) => word.isNotEmpty)
-        .toList(growable: false);
+    // Split the way the sheet splits it — by word, or by character in a
+    // script that does not space them (0163) — because chord placement is by
+    // index into this list, and a chart that counted the pieces differently
+    // would put the same chord over a different syllable from the one on
+    // screen. Folded to printable characters first, as before: a word's
+    // width decides where the chord above it starts.
+    final words = lyricUnits(
+      ProjectExportService.printable(line.body),
+      language: line.language,
+    );
     final placements = chordPlacementsForLine(
       wordCount: words.length,
       lineStartMs: line.startMs,
@@ -92,8 +99,12 @@ abstract final class ChordSheetExport {
 
     final chordRow = StringBuffer();
     final wordRow = StringBuffer();
+    // Nothing between two characters of a script that is written without
+    // spaces: a space after every character would be a line no reader of it
+    // has ever seen, and it would double the width of every line on the page.
+    final gap = unitGap(line.language);
     for (var index = 0; index < words.length; index += 1) {
-      if (index > 0) wordRow.write(' ');
+      if (index > 0) wordRow.write(gap);
       // A placeholder is not a word. An instrumental line carries one marker
       // per chord so the chords have something to sit over on screen (see
       // [instrumentalMark]); printed as written it is a page of dots handed
@@ -295,10 +306,11 @@ abstract final class ChordSheetExport {
     String? musicalKey,
     required bool wordsTravel,
   }) {
-    final words = line.body
-        .split(RegExp(r'\s+'))
-        .where((word) => word.isNotEmpty)
-        .toList(growable: false);
+    // The sheet's own pieces again (0163), for the same reason the printed
+    // chart uses them: a chord in a ChordPro file names the syllable it is
+    // written in front of, and that has to be the syllable it is over here.
+    final words = line.units;
+    final gap = unitGap(line.language);
     final placements = chordPlacementsForLine(
       wordCount: words.length,
       lineStartMs: line.startMs,
@@ -320,7 +332,7 @@ abstract final class ChordSheetExport {
         out.write('[$name]');
         continue;
       }
-      if (index > 0) out.write(' ');
+      if (index > 0) out.write(gap);
       if (name.isNotEmpty) out.write('[$name]');
       // The same rule as the printed chart: a marker is where a word would
       // be, not a word. `[G]· [C]·` for a whole song is a lyric sheet of

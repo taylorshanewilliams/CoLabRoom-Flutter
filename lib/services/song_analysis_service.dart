@@ -13,6 +13,7 @@ import 'chord_beat_grid.dart';
 import 'chord_repeats.dart';
 import 'error_reporter.dart';
 import 'kept_songs.dart';
+import 'song_language.dart';
 
 export 'audio_analysis_utils.dart' show SongAnalysisProgress;
 
@@ -70,6 +71,32 @@ String? lyricsPromptFor(SongProject project) {
   final text = lines.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
   if (text.isEmpty) return null;
   return text.length <= maxLyricsPromptChars ? text : text.substring(0, maxLyricsPromptChars);
+}
+
+/// What the `transcribe-audio` function is asked for: which recording, the
+/// song's own words as a prior, and what the room said it is sung in.
+///
+/// A function of the song rather than three arguments assembled at each call
+/// site, so there is one answer to "what does the transcriber get told about
+/// this song" and both callers — the analysis pass and listening again —
+/// cannot drift apart. It is also the only part of this worth a test: what
+/// happens after it is a network call.
+///
+/// The language is left out entirely on a song nobody has answered for
+/// (0163), which is what every song was before this: the transcriber then
+/// decides the language itself, exactly as it always did.
+Map<String, dynamic> transcribeRequest(
+  SongProject project,
+  String storagePath,
+) {
+  final hint = lyricsPromptFor(project);
+  final language = languageTagTyped(project.language);
+  return <String, dynamic>{
+    'storagePath': storagePath,
+    'bucket': 'room-files',
+    if (hint != null) 'lyricsHint': hint,
+    if (language != null) 'language': language,
+  };
 }
 
 /// How long to keep waiting on separation before calling it.
@@ -737,6 +764,72 @@ class SongAnalysisService {
     return load(projectId);
   }
 
+  /// Listens to the recording again, this time told what language it is
+  /// sung in (0163).
+  ///
+  /// The transcript already on the song was made before anybody said, so
+  /// Whisper decided the language itself from the first few seconds — and on
+  /// a song with an instrumental intro, or a voice it finds hard, that is
+  /// where it decides wrong and writes fluent nonsense in the wrong
+  /// language. Being told removes the guess.
+  ///
+  /// Offered, never automatic. Saying what a song is sung in must not
+  /// silently spend money and replace words somebody may have corrected by
+  /// hand; the sheet asks once and this runs only on a yes (Every Musician,
+  /// Same Song, 17 September 2026).
+  ///
+  /// Only the words are rewritten. Chords, structure, key and the stems are
+  /// not about language and are left exactly as they are, which is also why
+  /// this is not a re-analysis: it is one call to the transcriber.
+  ///
+  /// Throws a sentence when nothing came back, because this was asked for
+  /// and an empty page with no explanation reads as the app having lost the
+  /// words it already had.
+  Future<SongAnalysisBundle> transcribeAgain({
+    required SongProject project,
+    required SongAnalysisBundle bundle,
+  }) async {
+    final reference = bundle.reference;
+    if (reference == null) {
+      throw StateError('There is no recording to listen to.');
+    }
+    // The isolated vocal where separation left one, exactly as the first
+    // pass chose it: transcribing the vocal stem rather than the full mix is
+    // most of the accuracy, and listening again to a worse source would be a
+    // strange thing to call an improvement.
+    String? vocalPath;
+    for (final stem in bundle.stems) {
+      if (stem.kind == StemKind.vocals) {
+        vocalPath = stem.storagePath;
+        break;
+      }
+    }
+    final result = await _transcribeViaCloud(
+      project,
+      vocalPath ?? reference.storagePath,
+    );
+    final rejected = (result['rejected'] as String?)?.trim();
+    if (rejected != null && rejected.isNotEmpty) {
+      throw StateError(
+        'The words came back garbled rather than sung — this happens '
+        'occasionally on a hard recording. What was already on the sheet is '
+        'still there.',
+      );
+    }
+    final words = (result['words'] as List<dynamic>? ?? const <dynamic>[])
+        .map((value) => Map<String, dynamic>.from(value as Map))
+        .where((row) => looksLikeSpeech(row['word'] as String? ?? ''))
+        .map(TranscriptWord.fromJson)
+        .toList(growable: false);
+    if (words.isEmpty) {
+      throw StateError(
+        'No sung words were heard this time. What was already on the sheet '
+        'is still there.',
+      );
+    }
+    return updateTranscript(projectId: project.id, words: words);
+  }
+
   /// Calls the `transcribe-audio` Supabase Edge Function, which forwards
   /// an already-uploaded recording to OpenAI's Whisper API and returns
   /// word-level timestamps. The OpenAI API key lives only in that
@@ -748,17 +841,16 @@ class SongAnalysisService {
   /// separated vocal rather than the raw mix measurably cuts word errors:
   /// most of Whisper's mistakes on singing come from backing instrumentation
   /// bleeding into the signal, not from the words being unclear.
+  ///
+  /// What it is told about the song — the song's own words, and what the
+  /// room said it is sung in (0163) — is [transcribeRequest].
   Future<Map<String, dynamic>> _transcribeViaCloud(
-    String storagePath, {
-    String? lyricsHint,
-  }) async {
+    SongProject project,
+    String storagePath,
+  ) async {
     final response = await client.functions.invoke(
       'transcribe-audio',
-      body: <String, dynamic>{
-        'storagePath': storagePath,
-        'bucket': 'room-files',
-        if (lyricsHint != null) 'lyricsHint': lyricsHint,
-      },
+      body: transcribeRequest(project, storagePath),
     );
     final data = response.data;
     if (data is! Map) {
@@ -1089,8 +1181,8 @@ class SongAnalysisService {
         final cloudResult = inlineTranscript is Map
             ? Map<String, dynamic>.from(inlineTranscript)
             : await _transcribeViaCloud(
+                project,
                 vocalStemPath ?? reference.storagePath,
-                lyricsHint: lyricsPromptFor(project),
               );
         // Whisper (cloud, same as on-device) emits literal "♪" placeholder
         // tokens as "words" for non-lexical/instrumental stretches instead

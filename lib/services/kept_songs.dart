@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../domain/music_models.dart';
 import '../domain/song_analysis_models.dart';
+import 'song_language.dart';
 
 /// A song kept on this phone, read back from disk: its words and its sheet.
 ///
@@ -508,6 +509,11 @@ class KeptSongs {
         // train that counted from a different bar 1 than the room would
         // have a student reading numbers nobody else can see (0161).
         'bar_one_downbeat': project.barOneDownbeat,
+        // And what it is sung in, for the same reason (0163): a copy kept
+        // for the train that did not know it was an Arabic song would lay
+        // every line out the wrong way round, offline, where there is
+        // nothing to ask.
+        'language': project.language,
         // A line's voice note is somebody talking, which Perform never
         // plays, so it is the one thing on a line that is not kept.
         'contributions': <Map<String, dynamic>>[
@@ -551,6 +557,9 @@ class KeptSongs {
         final int said when said >= 1 => said,
         _ => null,
       },
+      // Read the way the server's row is read, so a kept song is laid out
+      // exactly as the same song online (0163).
+      language: languageTagTyped(json['language'] as String?),
       contributions: <Contribution>[
         for (final value in json['contributions'] as List<dynamic>? ?? const <dynamic>[])
           _lineFromJson(Map<String, dynamic>.from(value as Map)),

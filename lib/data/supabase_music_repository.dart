@@ -22,6 +22,7 @@ import '../domain/song_analysis_models.dart' show SongAnalysisState;
 import '../domain/sung_in.dart';
 import 'music_repository.dart';
 import '../services/error_reporter.dart';
+import '../services/song_language.dart';
 
 class SupabaseMusicRepository implements MusicRepository {
   SupabaseMusicRepository(this.client) {
@@ -178,7 +179,7 @@ class SupabaseMusicRepository implements MusicRepository {
         .select(
           'id, account_id, name, icon, created_at, updated_at, sort_order, logo_path, '
           'room_members(user_id, display_name, role, color_value, profiles(avatar_path)), '
-          'projects(id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, bar_one_downbeat, '
+          'projects(id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, bar_one_downbeat, language, '
           'project_audio_references(project_id, analysis_state), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at)))',
@@ -961,7 +962,7 @@ class SupabaseMusicRepository implements MusicRepository {
     final row = await client
         .from('projects')
         .select(
-          'id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, bar_one_downbeat, '
+          'id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, bar_one_downbeat, language, '
           'project_audio_references(project_id, analysis_state), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at))',
@@ -1614,6 +1615,21 @@ class SupabaseMusicRepository implements MusicRepository {
         'target_project': projectId,
         // Null clears it, which is how "Use the detected bars" is spelled.
         'in_downbeat': downbeat == null || downbeat < 1 ? null : downbeat,
+      },
+    );
+  }
+
+  @override
+  Future<void> setSongLanguage(String projectId, String? language) async {
+    await client.rpc<dynamic>(
+      'set_song_language',
+      params: <String, dynamic>{
+        'target_project': projectId,
+        // Sent in the one spelling 0163's check takes, so a tag typed in
+        // upper case is the same tag as the same one from the list. Null
+        // takes the answer away, which is a real answer and not a missing
+        // argument.
+        'in_language': languageTagTyped(language),
       },
     );
   }
@@ -3563,6 +3579,11 @@ class SupabaseMusicRepository implements MusicRepository {
         final num said when said >= 1 => said.toInt(),
         _ => null,
       },
+      // Read through the same parse the app writes with, so a tag stored by
+      // a build that spelled it differently still lays the song out.
+      // Anything that is not a tag reads as nobody having said, which is how
+      // every other answer on this row treats something it cannot read.
+      language: languageTagTyped(row['language'] as String?),
     );
   }
 
@@ -3654,6 +3675,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'song_origin': project.songOrigin?.wireName,
         'key_override': project.keyOverride,
         'bar_one_downbeat': project.barOneDownbeat,
+        'language': project.language,
         'project_audio_references': project.hasAudioReference
             ? <String, dynamic>{'analysis_state': project.analysisState?.name}
             : null,

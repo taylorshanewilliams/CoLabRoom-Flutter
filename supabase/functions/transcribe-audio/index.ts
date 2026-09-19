@@ -67,6 +67,26 @@ async function sha256OfText(value: string): Promise<string> {
   return encodeHex(new Uint8Array(digest));
 }
 
+/// The language the song is sung in, as Whisper wants it, or '' when the
+/// room has not said (migration 0163).
+///
+/// Whisper's `language` takes an ISO-639-1 code and nothing after it, so the
+/// BCP-47 tag the song carries is cut back to its first subtag: 'ar' from
+/// 'ar-EG', 'zh' from 'zh-Hans'. Anything that is not a plausible code is
+/// dropped rather than forwarded — an unknown code is a 400 from OpenAI, and
+/// a transcription must not fail because somebody typed a tag oddly.
+///
+/// This is worth passing on. Left to guess, Whisper decides the language
+/// from the first few seconds, and a sung vocal over an instrumental intro
+/// is exactly where it guesses wrong: an Arabic song transcribed as English
+/// comes back as fluent nonsense, which is the failure the hallucination
+/// guard below exists for. Being told the language removes the guess.
+function whisperLanguage(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const first = raw.trim().split('-')[0].toLowerCase();
+  return /^[a-z]{2,3}$/.test(first) ? first : '';
+}
+
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -78,11 +98,13 @@ Deno.serve(async (req) => {
   let storagePath: string;
   let bucket: string;
   let lyricsHint: string;
+  let language: string;
   try {
     const body = await req.json();
     storagePath = body.storagePath;
     bucket = body.bucket ?? 'room-files';
     lyricsHint = typeof body.lyricsHint === 'string' ? body.lyricsHint.trim() : '';
+    language = whisperLanguage(body.language);
     if (typeof storagePath !== 'string' || storagePath.length === 0) {
       return json({ error: 'storagePath is required' }, 400);
     }
@@ -154,7 +176,18 @@ Deno.serve(async (req) => {
     .from(bucket)
     .createSignedUrl(storagePath, 600);
   const audioSha256 = signedUrlData ? await sha256OfUrl(signedUrlData.signedUrl) : null;
-  const promptSha256 = await sha256OfText(prompt);
+  // The language is part of what the cached transcript is an answer to, the
+  // same way the prompt is (migration 0025). Whisper returns different words
+  // for the same audio when it is told the language, so a cache keyed on the
+  // prompt alone would hand back the English-guess transcript for ever —
+  // and re-transcribing after saying what the song is sung in, which is the
+  // whole point of asking, would silently change nothing. It is hashed into
+  // the prompt key rather than stored in its own column so that no schema
+  // change is needed and every transcript cached before this stays valid for
+  // the no-language case, which is what it was.
+  const promptSha256 = await sha256OfText(
+    language.length > 0 ? `[${language}] ${prompt}` : prompt,
+  );
 
   if (audioSha256) {
     const { data: cached } = await adminClient
@@ -202,6 +235,10 @@ Deno.serve(async (req) => {
   openAiForm.append('response_format', 'verbose_json');
   openAiForm.append('timestamp_granularities[]', 'word');
   openAiForm.append('prompt', prompt);
+  // Only when the room has said. Left out, Whisper detects the language
+  // itself, which is what it did before this and what it still does for
+  // every song nobody has answered for.
+  if (language.length > 0) openAiForm.append('language', language);
 
   let openAiResponse: Response;
   try {
