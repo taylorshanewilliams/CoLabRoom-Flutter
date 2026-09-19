@@ -630,7 +630,6 @@ class _SongsScreenState extends State<SongsScreen> {
       final song = _songById(controller, newest.projectId);
       if (song == null) continue;
       practised.add(newest.projectId);
-      toCount.add(song);
       final mark = _cardMark(controller, newest);
       // Practising from a brief's card keeps this person's own mark on the
       // song, like any other practice, and a second card beside the brief
@@ -641,7 +640,11 @@ class _SongsScreenState extends State<SongsScreen> {
       if (briefed.contains(mark.projectId) && isYourOwnPractice(mark, me: me)) continue;
       // Named by how the song counts itself now, not by the words the mark
       // was kept under: see practicePassage, and _countOf for where the
-      // counting comes from.
+      // counting comes from. Only a mark that points at somewhere inside the
+      // song needs the grid; "The whole song" is called that whatever the
+      // band counts, and asking for a grid to confirm it would be a request
+      // made for nothing.
+      if (mark.parts.any((part) => part.isLoop)) toCount.add(song);
       final worked = practiceWorked(mark, counted: _countOf(song));
       final note = mark.note;
       final mine = isYourOwnPractice(mark, me: me);
