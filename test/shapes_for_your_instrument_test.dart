@@ -10,6 +10,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../test_render/rules.dart';
+
 /// The same chord, four pictures of it.
 ///
 /// Every Musician, Same Song, 17 September 2026: the diagrams were a
@@ -269,7 +271,7 @@ void main() {
       expect((fifth.string, fifth.fret), (2, 5));
       expect(
         bassNeckReading('C major', bassPositionsFor('C')),
-        'C major. root, A string, 3rd fret. 5th, D string, 5th fret.',
+        'C major. Root, A string, 3rd fret. 5th, D string, 5th fret.',
       );
     });
 
@@ -280,7 +282,7 @@ void main() {
       expect((positions.last.string, positions.last.fret), (0, 3));
       expect(
         bassNeckReading('C major over G', positions),
-        endsWith('bass note, E string, 3rd fret.'),
+        endsWith('Bass note, E string, 3rd fret.'),
       );
     });
 
@@ -340,7 +342,7 @@ void main() {
           positions: bassPositionsFor('C/G'),
           spokenName: 'C major over G',
         ),
-        'C major over G. root, A string, 3rd fret.',
+        'C major over G. Root, A string, 3rd fret.',
       ),
       (
         'piano',
@@ -367,6 +369,9 @@ void main() {
       );
       expect(semantics.properties.image, isTrue, reason: name);
       expect(semantics.properties.label, startsWith(said), reason: name);
+      // And the eyes harness agrees, which is the rule that reads lib/ for
+      // painters and would have caught the two new ones unlabelled.
+      expect(auditPaintedMeaning(tester), isEmpty, reason: name);
     }
   });
 
@@ -494,6 +499,156 @@ void main() {
         .pop();
     await tester.pumpAndSettle();
 
+    // And the same chord as a bass neck.
+    await tester.tap(find.byKey(const Key('song_sheet_key_badge')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('read_shapes_bass')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('read_shapes_bass')));
+    await tester.pumpAndSettle();
+    Navigator.of(tester.element(find.byKey(const Key('key_reference_sheet'))))
+        .pop();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('edit_chord_1')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('bass_neck_diagram')), findsOneWidget);
+    Navigator.of(tester.element(find.byKey(const Key('chord_reference_sheet'))))
+        .pop();
+    await tester.pumpAndSettle();
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    ShapeReadingStore.resetForTesting();
+    LeftHandedStore.resetForTesting();
+    SimplerShapesStore.resetForTesting();
+  });
+
+  testWidgets('a capo comes back off for a pianist', (tester) async {
+    // A capo moves the shapes under a fretting hand and changes nothing the
+    // room hears, so it says nothing at all to somebody reading a keyboard.
+    // The same rule the horn reading has followed since it landed (Every
+    // Musician, Same Song, 17 September 2026).
+    ShapeReadingStore.resetForTesting();
+    LeftHandedStore.resetForTesting();
+    SimplerShapesStore.resetForTesting();
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'song_capo_song-capo': 3,
+    });
+    tester.view.physicalSize = const Size(520, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData.dark(),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: SongSheetPanel(
+            project: _project('song-capo'),
+            bundle: _analysis('song-capo'),
+            onReviewLyrics: null,
+            onOpenLive: null,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    // Capo 3 in G: the hand plays an E shape and the room hears a G.
+    expect(_chordOnScreen(tester), 'E');
+
+    await tester.tap(find.byKey(const Key('song_sheet_key_badge')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('read_shapes_piano')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('read_shapes_piano')));
+    await tester.pumpAndSettle();
+    Navigator.of(tester.element(find.byKey(const Key('key_reference_sheet'))))
+        .pop();
+    await tester.pumpAndSettle();
+
+    // The page heard about it and put the chords back where they sound.
+    expect(_chordOnScreen(tester), 'G');
+
+    // And the capo is still there for the hand that has one: going back to
+    // the guitar gives the shapes back rather than forgetting the fret.
+    await tester.tap(find.byKey(const Key('song_sheet_key_badge')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('read_shapes_guitar')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('read_shapes_guitar')));
+    await tester.pumpAndSettle();
+    Navigator.of(tester.element(find.byKey(const Key('key_reference_sheet'))))
+        .pop();
+    await tester.pumpAndSettle();
+    expect(_chordOnScreen(tester), 'E');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    ShapeReadingStore.resetForTesting();
+    LeftHandedStore.resetForTesting();
+    SimplerShapesStore.resetForTesting();
+  });
+
+  testWidgets('a left-handed uke player gets four strings, the other way '
+      'round', (tester) async {
+    ShapeReadingStore.resetForTesting();
+    LeftHandedStore.resetForTesting();
+    SimplerShapesStore.resetForTesting();
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    tester.view.physicalSize = const Size(520, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData.dark(),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: SongSheetPanel(
+            project: _project('song-uke'),
+            bundle: _analysis('song-uke', musicalKey: null),
+            onReviewLyrics: null,
+            onOpenLive: null,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    // The chart and a song with no key open the plain Read as sheet, and the
+    // shapes belong on it too — a chord has one whether or not the analysis
+    // found a key.
+    await tester.tap(find.byKey(const Key('song_sheet_read_as')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('reading_choice_sheet')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('read_shapes_ukulele')));
+    await tester.pumpAndSettle();
+    // A uke has a neck, so the left hand question is still asked. Simpler
+    // shapes is not: it is decided by what a guitar hand can reach.
+    expect(find.byKey(const Key('left_handed_shapes')), findsOneWidget);
+    expect(find.byKey(const Key('simpler_shapes')), findsNothing);
+    await tester.tap(find.byKey(const Key('left_handed_shapes')));
+    await tester.pumpAndSettle();
+    expect(await LeftHandedStore.load(), isTrue);
+    Navigator.of(tester.element(find.byKey(const Key('reading_choice_sheet'))))
+        .pop();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('edit_chord_1')));
+    await tester.pumpAndSettle();
+    final diagram =
+        tester.widget<FrettedChordDiagram>(find.byType(FrettedChordDiagram));
+    expect(diagram.chord.strings, <String>['A', 'E', 'C', 'G']);
+    // The open G on a uke, read from the first string in.
+    expect(diagram.chord.frets, <int>[2, 3, 2, 0]);
+    expect(
+      chordDiagramReading(diagram.chord),
+      'G major. A, 2nd fret. E, 3rd fret. C, 2nd fret. G, open.',
+    );
+
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     ShapeReadingStore.resetForTesting();
@@ -501,6 +656,14 @@ void main() {
     SimplerShapesStore.resetForTesting();
   });
 }
+
+/// The first chord on the sheet, as it is printed.
+String _chordOnScreen(WidgetTester tester) => tester
+    .widget<Text>(find.descendant(
+      of: find.byKey(const Key('edit_chord_1')),
+      matching: find.byType(Text),
+    ))
+    .data!;
 
 /// The frets of the first uke shape for a chord, which is the one a class is
 /// taught.

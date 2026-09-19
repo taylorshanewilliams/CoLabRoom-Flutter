@@ -55,11 +55,14 @@ Future<void> showChordReference(
   // built in the frame the chord was tapped in.
   final shapes = ShapeReadingStore.held;
   // The plain chord inside this one, for somebody who has asked for those.
-  // Only where a hand has to fret it: Simpler shapes weighs one shape against
-  // another by what the fretting hand can reach, and that reasoning says
-  // nothing about a keyboard or about the two notes of a root and a fifth
-  // (Every Musician, Same Song, 17 September 2026).
-  final simpler = SimplerShapesStore.held && shapes.mirrors
+  // A guitar answer and only a guitar answer: simplerShapeFor weighs one
+  // shape against another by what a guitar hand can reach — open, then two
+  // fingers on three strings, then a barre — and handing that verdict to a
+  // uke player would give them a different chord for a reason that is not
+  // about their instrument. It says even less about a keyboard, or about the
+  // two notes of a root and a fifth (Every Musician, Same Song, 17 September
+  // 2026).
+  final simpler = SimplerShapesStore.held && shapes == ShapeReading.guitar
       ? simplerShapeFor(chordLabel)
       : null;
   return showModalBottomSheet<void>(
@@ -357,10 +360,11 @@ class _ShapesSectionState extends State<_ShapesSection> {
                 ),
             ],
           ),
-          // Both of these are about a fretting hand, so neither is offered to
-          // somebody reading a keyboard or a bass: a left-handed pianist plays
-          // the same keyboard, and the plain chord inside an extended one is
-          // chosen by what the hand can reach on a neck.
+          // Both of these are about a neck, so neither is offered to somebody
+          // reading a keyboard: a left-handed pianist plays the same keyboard
+          // the rest of us do. Simpler shapes is narrower still — it is
+          // decided by what a guitar hand can reach, so it is offered where
+          // that is the hand (see showChordReference).
           if (_shapes.mirrors) ...<Widget>[
             const SizedBox(height: 8),
             Wrap(
@@ -376,15 +380,16 @@ class _ShapesSectionState extends State<_ShapesSection> {
                     unawaited(LeftHandedStore.save(_left));
                   },
                 ),
-                _PickerChip(
-                  label: 'Simpler shapes',
-                  itemKey: const Key('simpler_shapes'),
-                  selected: _simpler,
-                  onTap: () {
-                    setState(() => _simpler = !_simpler);
-                    unawaited(SimplerShapesStore.save(_simpler));
-                  },
-                ),
+                if (_shapes == ShapeReading.guitar)
+                  _PickerChip(
+                    label: 'Simpler shapes',
+                    itemKey: const Key('simpler_shapes'),
+                    selected: _simpler,
+                    onTap: () {
+                      setState(() => _simpler = !_simpler);
+                      unawaited(SimplerShapesStore.save(_simpler));
+                    },
+                  ),
               ],
             ),
           ],

@@ -33,10 +33,15 @@ String bassNeckReading(String spokenName, List<BassPosition> positions) {
         ? bassStrings[position.string]
         : null;
     if (string == null) continue;
+    // Each position starts a sentence, so the degree starts with a capital.
+    // It is written lower case where it belongs — "C, the root" on the keys,
+    // "root" under a note chip on the sheet.
+    final degree = position.degree.isEmpty
+        ? position.degree
+        : position.degree[0].toUpperCase() + position.degree.substring(1);
     said.add(position.fret == 0
-        ? '${position.degree}, $string string, open'
-        : '${position.degree}, $string string, '
-            '${ordinalFret(position.fret)} fret');
+        ? '$degree, $string string, open'
+        : '$degree, $string string, ${ordinalFret(position.fret)} fret');
   }
   return said.isEmpty ? '' : '${said.join('. ')}.';
 }
@@ -86,11 +91,14 @@ class _BassPainter extends CustomPainter {
   static const _strings = 4;
 
   /// The lowest fret anything is stopped at, which is where the window starts.
-  /// All open strings put it at the nut.
+  ///
+  /// An open string puts it at the nut whatever else is in the chord: an O
+  /// above a diagram that starts at the 2nd fret would be an open string
+  /// drawn where there is no nut for it to be open against.
   int get _base {
     var lowest = 0;
     for (final position in positions) {
-      if (position.fret <= 0) continue;
+      if (position.fret == 0) return 1;
       if (lowest == 0 || position.fret < lowest) lowest = position.fret;
     }
     return lowest == 0 ? 1 : lowest;

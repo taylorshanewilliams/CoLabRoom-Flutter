@@ -715,10 +715,13 @@ List<ChordShape> ukuleleShapesFor(String label) {
 
   final family = quality.shapeFamily;
   final movable = family == null ? null : _ukuleleMovable[family];
-  // At the nut the movable shape is the open one already in the table, so it
-  // is only worth drawing further up the neck.
+  // Only where the table has nothing, unlike the guitar's two shapes side by
+  // side. There is one movable family here, so the second shape would be the
+  // same grip every time, and on a uke it is usually most of the way up a
+  // neck with twelve frets on it: a barre at the 10th beside an open G is not
+  // a choice anybody makes.
   final fret = ((rootPitch - 9) % 12 + 12) % 12;
-  if (movable != null && fret >= 1 && shapes.length < 2) {
+  if (movable != null && fret >= 1 && shapes.isEmpty) {
     shapes.add(ChordShape(
       name: name,
       frets: movable,
