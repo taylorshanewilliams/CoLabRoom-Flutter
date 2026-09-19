@@ -27,6 +27,7 @@ import '../../services/number_reading.dart';
 import '../../services/pitch.dart';
 import '../../services/pitch_listener.dart';
 import '../../services/play_along.dart';
+import '../../services/rehearsal_letters.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/song_layer_service.dart';
 import '../../services/take_naming.dart';
@@ -411,6 +412,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   List<StructureSection> get _sections =>
       widget.analysis?.reference?.structureSections ??
       const <StructureSection>[];
+
+  /// A letter per part, the way a band names them: "from B". Derived from
+  /// the sections every time rather than kept, so a re-analysis or a rename
+  /// cannot leave a stale letter behind (see rehearsal_letters.dart).
+  List<RehearsalLetter> get _letters => rehearsalLetters(_sections);
 
   /// The first beat of each bar, which is the whole of what bar loops are
   /// built on. Empty for a recording analysed before beat tracking, or one
@@ -2037,6 +2043,46 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _armControlHide();
   }
 
+  /// "From B": the song jumps to that part and plays on through it.
+  ///
+  /// A loop comes off, because the sentence is "from B", not "B again" —
+  /// somebody asking for a letter is asking to run the song from there, and
+  /// a repeat still on would pull them back into the part they just left
+  /// (Every Musician, Same Song, 17 September 2026). "B again" is the loop
+  /// chip, which is a tap away in the same row.
+  ///
+  /// Playing or paused, the same as choosing a part to loop: paused, the
+  /// words still move so the next press of Start begins where the eye is.
+  ///
+  /// Nothing new is needed for this to reach a room that is following. Follow
+  /// me carries where the song is and what is on repeat, and this changes
+  /// both; the next heartbeat takes it, exactly as a section jump has always
+  /// travelled (see _followStateNow and worthSending).
+  void _jumpToLetter(RehearsalLetter letter) {
+    _takeOver();
+    _cancelCountdown();
+    final at = sectionDownbeatMs(letter.startMs, _downbeats);
+    setState(() {
+      _loop = null;
+      _controlsVisible = true;
+      if (_mode == LiveScrollMode.off && _hasSync) _mode = LiveScrollMode.synced;
+      _seekTo(Duration(milliseconds: at));
+    });
+    if (_mode == LiveScrollMode.synced) {
+      _markOffsetsDirty();
+      if (!_playing) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_scroll.hasClients) return;
+          final position = _scroll.position;
+          final maxExtent = position.maxScrollExtent;
+          if (maxExtent > 0) _tickSynced(position, maxExtent);
+        });
+      }
+    }
+    _lastTick = null;
+    _armControlHide();
+  }
+
   /// Pick the bars to put on repeat.
   ///
   /// It opens on the bars the song is sitting in rather than on bar 1, so
@@ -2362,6 +2408,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         loops: sectionLoops(_sections),
                         loop: _loop,
                         onLoop: _setLoop,
+                        letters: _letters,
+                        onLetter: _jumpToLetter,
                         barCount: _downbeats.length,
                         onBars: _openBarLoop,
                         rate: _rate,
@@ -2922,6 +2970,8 @@ class _LiveControls extends StatelessWidget {
     required this.loops,
     required this.loop,
     required this.onLoop,
+    this.letters = const <RehearsalLetter>[],
+    this.onLetter,
     this.barCount = 0,
     this.onBars,
     required this.rate,
@@ -2995,6 +3045,12 @@ class _LiveControls extends StatelessWidget {
   final PracticeLoop? loop;
   final ValueChanged<PracticeLoop> onLoop;
 
+  /// A letter per part of the song, in order, and where a tap on one goes.
+  /// Empty for a recording with no sections found, and then the row is not
+  /// there at all — see rehearsal_letters.dart.
+  final List<RehearsalLetter> letters;
+  final ValueChanged<RehearsalLetter>? onLetter;
+
   /// How many bars the recording has, and the way to pick a run of them.
   /// Nought means no beat grid was found, and then there are no bar
   /// controls at all: sections are the only thing that can be looped.
@@ -3020,6 +3076,25 @@ class _LiveControls extends StatelessWidget {
   /// A run of bars is what is on repeat, rather than a named part.
   bool get _barsOn => loop?.isBars ?? false;
 
+  /// The letters are offered on the same terms as the loops: a jump only
+  /// means something when the song is the clock. In a manual scroll mode
+  /// there is nothing to seek, so "from B" would have nowhere to go.
+  bool get _showLetters =>
+      _showPractice && letters.isNotEmpty && onLetter != null;
+
+  /// Which part the song is in, so the letter being played is the one lit.
+  /// -1 before the first section and after the last, which is a real place
+  /// to be on plenty of recordings.
+  int get _letterHere {
+    final at = elapsed.inMilliseconds;
+    for (var index = letters.length - 1; index >= 0; index -= 1) {
+      if (at >= letters[index].startMs && at < letters[index].endMs) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
   @override
   Widget build(BuildContext context) {
     final total = duration.inMilliseconds;
@@ -3035,6 +3110,36 @@ class _LiveControls extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             if (together != null) ...<Widget>[together!, const SizedBox(height: 2)],
+            // The form, above the transport, where a band's eyes already
+            // are. One tap is "from B" — the sentence rehearsals are run on
+            // (Every Musician, Same Song, 17 September 2026). Nothing
+            // explains it: the letter the song is in lights up as it plays,
+            // and the parts are named on the loop chips in the same bar, so
+            // the row teaches itself by being used.
+            if (_showLetters) ...<Widget>[
+              SizedBox(
+                // The row is as tall as the letters actually are on this
+                // phone. A fixed height would be a clamp on the reader's own
+                // text size, which is the one thing this screen must not do.
+                height: MediaQuery.textScalerOf(context).scale(_letterSize) *
+                        1.1 +
+                    12,
+                child: ListView(
+                  key: const Key('live_letters'),
+                  scrollDirection: Axis.horizontal,
+                  children: <Widget>[
+                    for (var i = 0; i < letters.length; i += 1)
+                      _LetterChip(
+                        key: Key('live_letter_$i'),
+                        letter: letters[i],
+                        here: i == _letterHere,
+                        onTap: () => onLetter!(letters[i]),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+            ],
             Row(
               children: <Widget>[
                 FilledButton.tonalIcon(
@@ -3381,6 +3486,81 @@ class _YouAndTheSong extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// How big a rehearsal letter is set, before the phone's own text size is
+/// applied to it. Read by the row that holds the letters as well, so the row
+/// is as tall as its letters however large they come out.
+const double _letterSize = 12.5;
+
+/// One rehearsal letter.
+///
+/// The letter alone, because the row underneath already names every part of
+/// the song on its loop chips and this bar is a third of the lyrics' height
+/// on the phone in landscape it is built for. The name is what a screen
+/// reader says instead, so "B" is never only a shape.
+class _LetterChip extends StatelessWidget {
+  const _LetterChip({
+    required this.letter,
+    required this.here,
+    required this.onTap,
+    super.key,
+  });
+
+  final RehearsalLetter letter;
+
+  /// Whether the song is inside this part now.
+  final bool here;
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    // The name is left off where it would only repeat the letter, the same
+    // way a printed heading leaves it off (rehearsal_letters.dart): "A, A"
+    // is worse than "A" to listen to.
+    final name = nameBeside(letter.letter, letter.label);
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: Semantics(
+        button: true,
+        label: name.isEmpty ? letter.letter : '${letter.letter}, $name',
+        // The tap belongs on the node that carries the label.
+        // excludeSemantics drops the InkWell's own node, and the tap action
+        // with it, so without this the row reads as a set of buttons that
+        // cannot be pressed — a player using TalkBack or VoiceOver would
+        // hear "B, Chorus, button", double-tap, and the song would not move.
+        onTap: onTap,
+        excludeSemantics: true,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(9),
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 28),
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: here ? AppColors.gold : Colors.transparent,
+              borderRadius: BorderRadius.circular(9),
+              border: Border.all(
+                color: here ? AppColors.gold : AppColors.line,
+              ),
+            ),
+            child: Text(
+              letter.letter,
+              style: TextStyle(
+                color: here ? AppColors.ink : AppColors.text,
+                fontSize: _letterSize,
+                height: 1.1,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.6,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

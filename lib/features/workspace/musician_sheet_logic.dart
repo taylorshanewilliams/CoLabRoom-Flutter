@@ -20,6 +20,7 @@ class MusicianSheetLine {
     required this.approximateTiming,
     this.wordStartsMs,
     this.bar,
+    this.letter,
   });
 
   final String? contributionId;
@@ -46,6 +47,16 @@ class MusicianSheetLine {
   /// reason beat tracking was worth building: it turns a line that happens
   /// at 48.2 seconds into a line a band can find.
   final int? bar;
+
+  /// The rehearsal letter of the part this line opens — "A", "I" — on a
+  /// [section] line whose heading came from the recording's own sections
+  /// (see [ChordSheetExport.withSectionNames] and rehearsal_letters.dart).
+  ///
+  /// Null everywhere else, including on a heading somebody typed into the
+  /// song: those are the band's own words for their parts and nothing says
+  /// which part of the analysis each one is. Nothing is inferred (Every
+  /// Musician, Same Song, 17 September 2026).
+  final String? letter;
 }
 
 List<Contribution> visibleMusicianLyrics(SongProject project) {

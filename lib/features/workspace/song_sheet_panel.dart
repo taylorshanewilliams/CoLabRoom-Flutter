@@ -17,6 +17,7 @@ import 'package:colabroom/services/chord_chart.dart';
 import 'package:colabroom/services/chord_repeats.dart';
 import 'package:colabroom/services/horn_reading.dart';
 import 'package:colabroom/services/number_reading.dart';
+import 'package:colabroom/services/rehearsal_letters.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:colabroom/services/user_facing_error.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -455,13 +456,27 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
         ignoreWorkspaceLyrics: true,
       );
 
-  /// What both exports are handed: the page as it is being read, with the
-  /// recording's section names folded in so the chart carries the shape of
-  /// the song and not just its lines.
-  List<MusicianSheetLine> _linesToExport() => ChordSheetExport.withSectionNames(
+  /// The page: the sheet's lines with the recording's section names folded
+  /// in, each heading carrying its rehearsal letter, so the page carries the
+  /// shape of the song and not just its lines.
+  ///
+  /// The screen reads this and so do both exports. It used to be the exports
+  /// alone, which meant the printed page had the shape of the song on it and
+  /// the screen somebody printed it from did not — and there was nowhere on
+  /// the sheet for a letter to sit beside (Every Musician, Same Song, 17
+  /// September 2026). Every line that is not a heading is the same object
+  /// either way, so a chord tapped on screen is still the chord the editor
+  /// is handed.
+  List<MusicianSheetLine> _sheetPage() => ChordSheetExport.withSectionNames(
         _sheetLines(),
         _bundle.reference?.structureSections ?? const <StructureSection>[],
       );
+
+  /// The song's whole form on one line, for the top of the chart and the top
+  /// of the printed page. Empty when the recording has no sections.
+  String _arrangement() => arrangementCode(rehearsalLetters(
+        _bundle.reference?.structureSections ?? const <StructureSection>[],
+      ));
 
   /// Both exports carry this person's own key and deliberately not their
   /// reading.
@@ -476,10 +491,11 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     try {
       await ChordSheetExport.printChart(
         project: widget.project,
-        lines: _linesToExport(),
+        lines: _sheetPage(),
         transpose: _shownTranspose,
         musicalKey: _songKey,
         bpm: _bundle.reference?.bpm,
+        arrangement: _arrangement(),
       );
     } catch (error) {
       _saySomethingWentWrong(error);
@@ -490,7 +506,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     try {
       await ChordSheetExport.shareChordPro(
         project: widget.project,
-        lines: _linesToExport(),
+        lines: _sheetPage(),
         transpose: _shownTranspose,
         musicalKey: _songKey,
         bpm: _bundle.reference?.bpm,
@@ -815,7 +831,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   @override
   Widget build(BuildContext context) {
     final transpose = _shownTranspose;
-    final sheetLines = _sheetLines();
+    final sheetLines = _sheetPage();
     final reading = _shownReading;
     final numbers = _shownNumbers;
     // A capo is a guitar answer about the key the band is in, so it is only
@@ -1101,6 +1117,8 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             transpose: transpose + reading.semitones - capo,
             numbers: numbers,
             fontScale: _fontScale,
+            // The shape of the song, at the top of the page.
+            arrangement: _arrangement(),
             // The song, so a tapped chord can say where it sits in it rather
             // than only what it is.
             musicalKey: songKey,

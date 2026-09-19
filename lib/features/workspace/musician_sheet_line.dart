@@ -4,6 +4,7 @@ import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/practice_rules.dart';
 import 'package:colabroom/services/number_reading.dart';
+import 'package:colabroom/services/rehearsal_letters.dart';
 import 'package:flutter/material.dart';
 
 typedef MusicianChordTap = void Function(
@@ -36,7 +37,13 @@ class MusicianSectionLine extends StatelessWidget {
         bottom: liveMode ? 8 : 7,
       ),
       child: Text(
-        line.body.toUpperCase(),
+        // The rehearsal letter first, where the part has one: "B  CHORUS".
+        // It is what gets said out loud — "from B" — and the name is what
+        // it means (Every Musician, Same Song, 17 September 2026). A heading
+        // somebody typed into the song carries no letter and is printed
+        // exactly as it always was, and a part the analysis lettered itself
+        // prints that letter once (see rehearsal_letters.dart).
+        letteredHeading(line.letter, line.body),
         style: TextStyle(
           color: liveMode
               ? AppColors.gold

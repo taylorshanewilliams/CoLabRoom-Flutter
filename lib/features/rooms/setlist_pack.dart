@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/project_export_service.dart';
+import '../../services/rehearsal_letters.dart';
 import '../workspace/chord_sheet_export.dart';
 import '../workspace/continuous_song_editor.dart' show displayContributionBody;
 import '../workspace/count_in.dart';
@@ -149,11 +150,17 @@ class SetlistPackSong {
     required this.project,
     required this.facts,
     required this.lines,
+    this.arrangement = '',
   });
 
   final SongProject project;
   final SetSongFacts facts;
   final List<MusicianSheetLine> lines;
+
+  /// The song's whole form on one line — "I A A B A C B B O" — for the top
+  /// of its chart page, exactly as the song's own print writes it. Empty
+  /// when the recording has no sections.
+  final String arrangement;
 
   bool get hasChart => lines.isNotEmpty;
 }
@@ -176,6 +183,10 @@ abstract final class SetlistPack {
           project: project,
           facts: setSongFacts(setlist.songFor(project.id), project, analyses[project.id]),
           lines: chartLines(project, analyses[project.id]),
+          arrangement: arrangementCode(rehearsalLetters(
+            analyses[project.id]?.reference?.structureSections ??
+                const <StructureSection>[],
+          )),
         ),
     ];
   }
@@ -300,6 +311,7 @@ abstract final class SetlistPack {
           musicalKey: song.facts.songKey,
           keyLabel: song.facts.songKey == null ? null : song.facts.key,
           bpm: song.facts.bpm,
+          arrangement: song.arrangement,
         ),
       );
     }

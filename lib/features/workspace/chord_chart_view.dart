@@ -7,6 +7,7 @@ import '../../services/set_aside.dart';
 import '../../app/colabroom_theme.dart';
 import '../../services/chord_chart.dart';
 import '../../services/number_reading.dart';
+import '../../services/rehearsal_letters.dart';
 import 'music_reference_sheets.dart';
 import 'musician_sheet_logic.dart'
     show chordAsPlayed, chordAsRead, keyAsPlayed;
@@ -52,6 +53,7 @@ class ChordChartView extends StatelessWidget {
     required this.rows,
     required this.transpose,
     required this.fontScale,
+    this.arrangement = '',
     this.numbers = NumberReading.letters,
     this.musicalKey,
     this.roles = const <String>{},
@@ -63,6 +65,11 @@ class ChordChartView extends StatelessWidget {
   final List<ChartRow> rows;
   final int transpose;
   final double fontScale;
+
+  /// The whole form on one line — "I A A B A C B B O". Empty for a song
+  /// whose sections are not known, and then nothing is drawn for it: a chart
+  /// with no shape to say says nothing (see rehearsal_letters.dart).
+  final String arrangement;
 
   /// Whether somebody has already said where bar 1 is, so the long press can
   /// offer to put the detected bars back.
@@ -141,6 +148,24 @@ class ChordChartView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
+        // The whole form on one line, at the top of the page where a chart
+        // writes it. It is the fastest thing on this screen to read: a
+        // player who has the shape can follow a song they have never heard
+        // (Every Musician, Same Song, 17 September 2026).
+        if (arrangement.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10, left: 2),
+            child: Text(
+              arrangement,
+              key: const Key('chart_arrangement'),
+              style: TextStyle(
+                color: AppColors.text,
+                fontSize: 12 * fontScale,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 2.2,
+              ),
+            ),
+          ),
         if (drawn.length != rows.length)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
@@ -183,7 +208,12 @@ class ChordChartView extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 14, bottom: 5, left: 2),
               child: Text(
-                row.sectionLabel!.toUpperCase(),
+                // The letter first, then the name, the way a chart marks a
+                // part: "B  CHORUS". The letter is what gets said out loud
+                // and the name is what it means — and where the analysis
+                // lettered the part itself, the letter is the whole heading
+                // rather than being printed twice (rehearsal_letters.dart).
+                letteredHeading(row.sectionLetter, row.sectionLabel!),
                 style: TextStyle(
                   color: AppColors.gold,
                   fontSize: 10 * fontScale,
