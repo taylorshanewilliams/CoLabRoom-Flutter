@@ -838,6 +838,56 @@ class SongAnalysisService {
         .toList(growable: false);
   }
 
+  /// The two ways a database says "there is no such column": PostgREST's
+  /// schema cache has never seen it, and Postgres itself does not have it.
+  static const Set<String> _unknownColumnCodes = <String>{'PGRST204', '42703'};
+
+  /// Saves a row of the reference track, and saves the rest of it anyway if
+  /// the database does not know the columns named in [ifKnown] yet.
+  ///
+  /// PostgREST refuses a whole update for naming one column it has never
+  /// heard of, so a single new column can cost an analysis everything else
+  /// it just spent a GPU job learning. transcript_language (0167) is
+  /// bookkeeping — all it decides is whether the sheet offers to listen
+  /// again — and it must never be the reason a finished analysis is written
+  /// down as failed on a build that reached a database before the migration
+  /// did: the debug APK that builds on every push to main, a rollback, a
+  /// migration still waiting to be applied. The words, chords and structure
+  /// land; the offer is the only thing lost, and only until the column
+  /// exists (review, 19 September 2026).
+  Future<void> _saveReference(
+    String projectId,
+    Map<String, dynamic> values, {
+    Set<String> ifKnown = const <String>{},
+  }) async {
+    try {
+      await client
+          .from('project_audio_references')
+          .update(values)
+          .eq('project_id', projectId);
+    } on PostgrestException catch (error) {
+      final optional = ifKnown.where(values.containsKey).toList(growable: false);
+      if (optional.isEmpty || !_unknownColumnCodes.contains(error.code)) rethrow;
+      await client
+          .from('project_audio_references')
+          .update(
+            Map<String, dynamic>.of(values)
+              ..removeWhere((column, _) => optional.contains(column)),
+          )
+          .eq('project_id', projectId);
+      // Worth a row: from the outside this looks like an ordinary analysis,
+      // and the only sign that a migration has not landed is that nobody is
+      // ever offered a second listen.
+      await _reporter.reportWarning(
+        service: 'analysis',
+        stage: 'lyrics',
+        message: 'Saved the analysis without ${optional.join(', ')}: '
+            'the database does not have that column yet (${error.code}).',
+        projectId: projectId,
+      );
+    }
+  }
+
   /// Overwrites the saved transcript itself (not the manual workspace) —
   /// used by the lyric review screen so corrections show up on the Song
   /// Sheet and in Live Performance's "Song Sheet" source, both of which
@@ -847,14 +897,18 @@ class SongAnalysisService {
     required List<TranscriptWord> words,
     String? heardIn,
   }) async {
-    await client.from('project_audio_references').update(<String, dynamic>{
-      'transcript_words': words.map((word) => word.toJson()).toList(growable: false),
-      'transcript_text': words.map((word) => word.word).join(' '),
-      // Only when the transcriber is the one writing. A correction typed on
-      // the lyric review screen changes the words, not the language they
-      // were heard in, so it leaves this alone rather than blanking it.
-      if (heardIn != null) 'transcript_language': heardIn,
-    }).eq('project_id', projectId);
+    await _saveReference(
+      projectId,
+      <String, dynamic>{
+        'transcript_words': words.map((word) => word.toJson()).toList(growable: false),
+        'transcript_text': words.map((word) => word.word).join(' '),
+        // Only when the transcriber is the one writing. A correction typed on
+        // the lyric review screen changes the words, not the language they
+        // were heard in, so it leaves this alone rather than blanking it.
+        if (heardIn != null) 'transcript_language': heardIn,
+      },
+      ifKnown: const <String>{'transcript_language'},
+    );
     return load(projectId);
   }
 
@@ -1428,9 +1482,9 @@ class SongAnalysisService {
       final melody = usedFallback || chordResult['melody'] is! Map
           ? null
           : Melody.fromJson(Map<String, dynamic>.from(chordResult['melody'] as Map));
-      await client
-          .from('project_audio_references')
-          .update(<String, dynamic>{
+      await _saveReference(
+          project.id,
+          <String, dynamic>{
             'analysis_state': 'ready',
             'duration_ms': durationMs,
             'bpm': bpm,
@@ -1461,8 +1515,8 @@ class SongAnalysisService {
             'melody_high_midi': melody?.highMidi,
             'analysis_warning': lyricsWarning,
             'last_error': null,
-          })
-          .eq('project_id', project.id);
+          },
+          ifKnown: const <String>{'transcript_language'});
       // Collected. Nothing left to resume.
       await _rememberJob(project.id, null);
       onProgress?.call(const SongAnalysisProgress('Ready', 1));

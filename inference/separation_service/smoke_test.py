@@ -181,11 +181,37 @@ def main() -> int:
         finally:
             server.shutdown()
 
+        # And once with nothing declared at all, because that is still the
+        # path nearly every song takes: a room that has never said what its
+        # song is sung in, and every Studio idea. The handler run above now
+        # always declares one, so without this the image would stop proving
+        # that auto-detect works — and faster-whisper is unpinned, so it is
+        # the path most likely to move under a rebuild (review, 19 September
+        # 2026). Cheap: the weights are already loaded and the VAD filter
+        # finds no speech in sine waves.
+        detected = None
+        if "error" not in result:
+            print("Listening once more with no language declared…")
+            detected = separation._transcribe(clip)
+
     if "error" in result:
         print(f"FAIL: handler returned an error: {result['error']}")
         return 1
 
     failures: list[str] = []
+
+    if detected is None:
+        failures.append("transcription with no language declared returned nothing")
+    elif detected.get("error"):
+        failures.append(
+            f"transcription with no language declared raised: {detected['error']}"
+        )
+    else:
+        # Printed, not asserted: what the model makes of fifteen seconds of
+        # sine waves is its business, and on a clip the VAD empties it may
+        # honestly name nothing. The failure this catches is the call itself
+        # breaking.
+        print(f"  with no language declared: heard {detected.get('language')!r}")
 
     print("Running the pitch tracker on a voice by itself…")
     with tempfile.TemporaryDirectory() as tmp:
