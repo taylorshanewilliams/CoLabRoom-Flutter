@@ -583,6 +583,316 @@ List<ChordShape> _shapesFor(String rootText, int rootPitch, _Quality quality) {
   return shapes;
 }
 
+/// The four strings of a ukulele, fourth string to first, as pitch classes:
+/// G C E A, the tuning all but a handful of ukuleles are in.
+///
+/// Pitch classes and not notes, because the fourth string is usually the *high*
+/// G an octave up and a chord shape does not care: the same grip is the same
+/// chord whether the uke is re-entrant or has a low G on it.
+const List<int> ukuleleTuning = <int>[7, 0, 4, 9];
+
+/// The four strings of a bass, lowest first: E A D G.
+const List<int> bassTuning = <int>[4, 9, 2, 7];
+
+/// Ukulele shapes worth knowing, by written chord name, in the same form the
+/// guitar's open shapes are stored in: one entry per string, fourth string to
+/// first, -1 muted, 0 open, and every one of them inside the first four frets
+/// so it draws from the nut.
+///
+/// A hand-written table rather than the guitar shapes moved over, for the
+/// reason a uke player would give: G C E A is the guitar's top four strings up
+/// a fourth, so deriving one from the other gets the notes right and the grip
+/// wrong. These are the shapes a uke class is taught.
+///
+/// Flat names as well as sharp ones, unlike the guitar table: B♭ and E♭ are
+/// first-position uke chords people learn by that name, and the lookup tries
+/// both spellings of a root anyway.
+const Map<String, List<int>> _ukuleleShapes = <String, List<int>>{
+  'C': <int>[0, 0, 0, 3],
+  'C7': <int>[0, 0, 0, 1],
+  'Cmaj7': <int>[0, 0, 0, 2],
+  'Cm': <int>[0, 3, 3, 3],
+  'Cm7': <int>[3, 3, 3, 3],
+  'Db': <int>[1, 1, 1, 4],
+  'Dbm': <int>[1, 1, 0, 4],
+  'Db7': <int>[1, 1, 1, 2],
+  'D': <int>[2, 2, 2, 0],
+  'Dm': <int>[2, 2, 1, 0],
+  'D7': <int>[2, 2, 2, 3],
+  'Dm7': <int>[2, 2, 1, 3],
+  'Dmaj7': <int>[2, 2, 2, 4],
+  'Dsus2': <int>[2, 2, 0, 0],
+  'Dsus4': <int>[0, 2, 3, 0],
+  'Eb': <int>[3, 3, 3, 1],
+  'Ebm': <int>[3, 3, 2, 1],
+  'Eb7': <int>[3, 3, 3, 4],
+  'E': <int>[1, 4, 0, 2],
+  'Em': <int>[0, 4, 3, 2],
+  'E7': <int>[1, 2, 0, 2],
+  'Em7': <int>[0, 2, 0, 2],
+  'Emaj7': <int>[1, 3, 0, 2],
+  'Esus4': <int>[2, 4, 0, 2],
+  'F': <int>[2, 0, 1, 0],
+  'Fm': <int>[1, 0, 1, 3],
+  'F7': <int>[2, 3, 1, 0],
+  'Fm7': <int>[1, 3, 1, 3],
+  'Fmaj7': <int>[2, 4, 1, 3],
+  'F#': <int>[3, 1, 2, 1],
+  'F#m': <int>[2, 1, 2, 0],
+  'F#m7': <int>[2, 4, 2, 4],
+  'G': <int>[0, 2, 3, 2],
+  'Gm': <int>[0, 2, 3, 1],
+  'G7': <int>[0, 2, 1, 2],
+  'Gm7': <int>[0, 2, 1, 1],
+  'Gmaj7': <int>[0, 2, 2, 2],
+  'Gsus4': <int>[0, 2, 3, 3],
+  'Ab': <int>[1, 3, 4, 3],
+  'Abm': <int>[1, 3, 4, 2],
+  'Ab7': <int>[1, 3, 2, 3],
+  'A': <int>[2, 1, 0, 0],
+  'Am': <int>[2, 0, 0, 0],
+  'A7': <int>[0, 1, 0, 0],
+  'Am7': <int>[0, 0, 0, 0],
+  'Amaj7': <int>[1, 1, 0, 0],
+  // The same four notes as Esus4, which is what a suspension is.
+  'Asus2': <int>[2, 4, 0, 2],
+  'Asus4': <int>[2, 2, 0, 0],
+  'Bb': <int>[3, 2, 1, 1],
+  'Bbm': <int>[3, 1, 1, 1],
+  'Bb7': <int>[1, 2, 1, 1],
+  'Bbm7': <int>[1, 1, 1, 1],
+  'Bbmaj7': <int>[3, 2, 1, 0],
+  'B': <int>[4, 3, 2, 2],
+  'Bm': <int>[4, 2, 2, 2],
+  'B7': <int>[2, 3, 2, 2],
+  'Bm7': <int>[2, 2, 2, 2],
+};
+
+/// The movable uke shapes, written relative to their own barre — the open A
+/// family with a finger laid across all four strings behind it, so the root is
+/// on the first string at the barre.
+///
+/// One family where the guitar has two, because four strings give one root
+/// string worth barring: the C family needs a four-fret stretch nobody makes.
+/// The table above is what covers the rest.
+const Map<String, List<int>> _ukuleleMovable = <String, List<int>>{
+  'maj': <int>[3, 2, 1, 1],
+  'min': <int>[3, 1, 1, 1],
+  '7': <int>[1, 2, 1, 1],
+  'min7': <int>[1, 1, 1, 1],
+  'maj7': <int>[2, 2, 1, 1],
+  // Two notes and no third. The third string comes off rather than being
+  // barred, because the note under that finger is the third the chord has not
+  // got.
+  '5': <int>[3, -1, 1, 1],
+};
+
+/// What a ukulele player puts their hand on for [label], in the same shape the
+/// guitar's own [ChordReference.shapes] come back in.
+///
+/// Empty for a chord this cannot read or has no uke shape for, which the sheet
+/// shows rather than papers over — the same answer the guitar gives for a 13th.
+/// A slash bass is ignored, as it is on the guitar: that note is the bass
+/// player's.
+List<ChordShape> ukuleleShapesFor(String label) {
+  final parts = _chordParts(label);
+  if (parts == null) return const <ChordShape>[];
+  final quality = _qualities[parts.quality];
+  final rootPitch = _pitchValues[parts.root];
+  if (quality == null || rootPitch == null) return const <ChordShape>[];
+
+  final short = _shortForms[quality.id] ?? '';
+  final name = '${parts.root}$short';
+  final shapes = <ChordShape>[];
+  // Written first, then both spellings of the root: a table with B♭ in it and
+  // a chart with A♯ on it have to meet somewhere.
+  final open = _ukuleleShapes[name] ??
+      _ukuleleShapes['${noteName(rootPitch, flats: false)}$short'] ??
+      _ukuleleShapes['${noteName(rootPitch, flats: true)}$short'];
+  if (open != null) {
+    shapes.add(ChordShape(name: name, frets: open, hint: _openHint));
+  }
+
+  final family = quality.shapeFamily;
+  final movable = family == null ? null : _ukuleleMovable[family];
+  // At the nut the movable shape is the open one already in the table, so it
+  // is only worth drawing further up the neck.
+  final fret = ((rootPitch - 9) % 12 + 12) % 12;
+  if (movable != null && fret >= 1 && shapes.length < 2) {
+    shapes.add(ChordShape(
+      name: name,
+      frets: movable,
+      baseFret: fret,
+      hint: family == '5'
+          ? '$_fifthHint$fret, root on the first string'
+          : '$_barreHint$fret, root on the first string',
+    ));
+  }
+  return shapes;
+}
+
+/// One note marked on a bass neck: where it is, and what it is.
+class BassPosition {
+  const BassPosition({
+    required this.string,
+    required this.fret,
+    required this.degree,
+    required this.note,
+  });
+
+  /// 0 for the low E, 3 for the G — the order [bassTuning] is in.
+  final int string;
+
+  /// The fret it is stopped at, counted from the nut. 0 is the open string.
+  final int fret;
+
+  /// What the note is to the chord: `root`, `5th`, `flat 5th`, or `bass note`
+  /// for the one written under a slash.
+  final String degree;
+
+  final String note;
+}
+
+/// The root and the fifth of [label] on a four-string bass, as places to put a
+/// finger.
+///
+/// Every Musician, Same Song, 17 September 2026 draws the line this stays on
+/// the right side of: chord tones and shapes *describe*, a line you are told to
+/// play *composes*. So these are positions and nothing else — no order, no
+/// rhythm, no walking. Which of them to play and when is the bass player's.
+///
+/// The fifth is the chord's own fifth and never an assumed one: a diminished
+/// chord's is flat and an augmented chord's is sharp, and putting a perfect
+/// fifth over either would be a note the chord does not contain. A chord with
+/// no fifth at all gets the root by itself.
+///
+/// A slash bass is marked too, because on this one instrument it is not
+/// somebody else's note — it is the note the chord is written over.
+List<BassPosition> bassPositionsFor(String label) {
+  final parts = _chordParts(label);
+  if (parts == null) return const <BassPosition>[];
+  final quality = _qualities[parts.quality];
+  final rootPitch = _pitchValues[parts.root];
+  if (quality == null || rootPitch == null) return const <BassPosition>[];
+  final flats = _prefersFlats(parts.root);
+
+  final root = _lowestOnTheBass(rootPitch);
+  final marked = <BassPosition>[
+    BassPosition(
+      string: root.string,
+      fret: root.fret,
+      degree: _degreeNames[0]!,
+      note: noteName(rootPitch, flats: flats),
+    ),
+  ];
+
+  // Whatever this chord calls a fifth: 6, 7 or 8 semitones, taken from the
+  // chord's own notes rather than assumed.
+  int? fifth;
+  for (final interval in quality.intervals) {
+    if (interval >= 6 && interval <= 8) {
+      fifth = interval;
+      break;
+    }
+  }
+  if (fifth != null) {
+    // The strings are a fourth apart, so a note is on the next string up at
+    // five frets less: the fifth sits two frets above the root on it, which is
+    // the shape a bass player's hand is already in.
+    marked.add(BassPosition(
+      string: root.string + 1,
+      fret: root.fret + fifth - 5,
+      degree: _degreeNames[fifth]!,
+      note: noteName(rootPitch + fifth, flats: flats),
+    ));
+  }
+
+  final bassPitch = parts.bass.isEmpty ? null : _pitchValues[parts.bass.trim()];
+  if (bassPitch != null) {
+    final bass = _lowestOnTheBass(bassPitch);
+    marked.add(BassPosition(
+      string: bass.string,
+      fret: bass.fret,
+      degree: 'bass note',
+      note: parts.bass.trim(),
+    ));
+  }
+  return marked;
+}
+
+/// Where a bass player finds [pitch] lowest down the neck, on the E string or
+/// the A string — the two the root of a chord is played on.
+({int string, int fret}) _lowestOnTheBass(int pitch) {
+  var best = (string: 0, fret: 12);
+  for (var string = 0; string <= 1; string += 1) {
+    final fret = ((pitch - bassTuning[string]) % 12 + 12) % 12;
+    if (fret < best.fret) best = (string: string, fret: fret);
+  }
+  return best;
+}
+
+/// One key of a keyboard, marked because the chord has that note in it.
+class PianoKey {
+  const PianoKey({
+    required this.pitch,
+    required this.note,
+    required this.degree,
+    required this.bass,
+  });
+
+  /// The pitch class, 0 for C up to 11 for B. A chord is marked on one octave
+  /// of keys: which octave it is played in is the player's.
+  final int pitch;
+
+  final String note;
+
+  /// What the note is to the chord: `root`, `3rd`, `flat 7th`.
+  final String degree;
+
+  /// Whether this is the note the chord is written over.
+  final bool bass;
+}
+
+/// The keys of [label], root first.
+///
+/// A slash bass is marked as well, because a pianist plays it: `C/G` is a C in
+/// the right hand with a G underneath. When the bass is one of the chord's own
+/// notes it is that key, marked as the bass rather than marked twice.
+List<PianoKey> pianoKeysFor(String label) {
+  final parts = _chordParts(label);
+  if (parts == null) return const <PianoKey>[];
+  final quality = _qualities[parts.quality];
+  final rootPitch = _pitchValues[parts.root];
+  if (quality == null || rootPitch == null) return const <PianoKey>[];
+  final flats = _prefersFlats(parts.root);
+  final bassPitch = parts.bass.isEmpty ? null : _pitchValues[parts.bass.trim()];
+
+  final keys = <PianoKey>[
+    for (final interval in quality.intervals)
+      PianoKey(
+        pitch: (rootPitch + interval) % 12,
+        note: noteName(rootPitch + interval, flats: flats),
+        degree: _degreeNames[interval] ?? '+$interval',
+        bass: bassPitch != null && (rootPitch + interval) % 12 == bassPitch % 12,
+      ),
+  ];
+  // A 9th, an 11th and a 13th are the same key as the 2nd, the 4th and the
+  // 6th, and a keyboard has one of each. The lower name stays, because it is
+  // the one the chord was built from.
+  final seen = <int>{};
+  keys.retainWhere((key) => seen.add(key.pitch));
+
+  if (bassPitch != null && !keys.any((key) => key.bass)) {
+    keys.add(PianoKey(
+      pitch: bassPitch % 12,
+      note: parts.bass.trim(),
+      degree: 'bass note',
+      bass: true,
+    ));
+  }
+  return keys;
+}
+
 List<(String, String)> _bassMovesFor(int rootPitch, _Quality quality, bool flats) {
   final root = noteName(rootPitch, flats: flats);
   final minor = quality.intervals.contains(3);

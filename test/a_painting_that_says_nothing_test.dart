@@ -160,7 +160,7 @@ void main() {
       await tester.pumpWidget(const Directionality(
         textDirection: TextDirection.ltr,
         child: Center(
-          child: GuitarChordDiagram(
+          child: FrettedChordDiagram(
             chord: ChordDiagramData(
               name: 'G',
               spokenName: 'G major',

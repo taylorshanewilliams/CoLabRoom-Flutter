@@ -4,24 +4,28 @@ import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
 
-/// A six-string fretted-instrument chord shape, low string to high string
-/// (standard guitar tuning order: E A D G B E).
+/// A fretted-instrument chord shape, one entry per string.
 ///
 /// Lived in the Toolbox until the Toolbox was removed. It moved here rather
 /// than being deleted with it because the chord chart draws these — which was
 /// always the better place for them: a shape you open by tapping the chord
 /// you are looking at, already in your key.
+///
+/// Six strings in the guitar's order until the ukulele arrived; [strings]
+/// names them now, so four of them in G C E A order is the same class drawing
+/// a different instrument (Every Musician, Same Song, 17 September 2026).
 class ChordDiagramData {
   const ChordDiagramData({
     required this.name,
     required this.frets,
     this.baseFret = 1,
     this.spokenName,
+    this.strings = guitarStrings,
   });
 
   final String name;
 
-  /// One entry per string, low to high. -1 = muted (X), 0 = open (O),
+  /// One entry per string, in [strings] order. -1 = muted (X), 0 = open (O),
   /// N = fret N relative to [baseFret].
   final List<int> frets;
 
@@ -32,10 +36,14 @@ class ChordDiagramData {
   /// anybody says: "G major" for `G`, "G minor 7th" for `Gm7`. Falls back to
   /// [name], which a screen reader will spell rather than pronounce.
   final String? spokenName;
+
+  /// The strings, in the order they are drawn left to right, named the way a
+  /// player says them.
+  final List<String> strings;
 }
 
-/// The six strings, low to high, named the way a player says them.
-const List<String> _stringNames = <String>[
+/// The six strings of a guitar, low to high, named the way a player says them.
+const List<String> guitarStrings = <String>[
   'Low E',
   'A',
   'D',
@@ -43,6 +51,28 @@ const List<String> _stringNames = <String>[
   'B',
   'High E',
 ];
+
+/// The four strings of a ukulele, fourth to first. A uke player says "the G
+/// string" about the one nearest them, whether it is the high G nearly every
+/// uke has or a low one.
+const List<String> ukuleleStrings = <String>['G', 'C', 'E', 'A'];
+
+/// The same shape as a left-handed player sees it: the strings the other way
+/// round, at the same frets.
+///
+/// Every Musician, Same Song, 17 September 2026. A left-handed guitarist reads
+/// every diagram ever printed backwards, and the usual answer — hold the book
+/// up to a mirror — is not one an app has any excuse for. Nothing about the
+/// shape changes: the 3rd fret is still the 3rd fret, and it is still the low
+/// E that is held there. It is the drawing, and the order the strings are said
+/// in, that turn around.
+ChordDiagramData mirrorForLeftHand(ChordDiagramData chord) => ChordDiagramData(
+      name: chord.name,
+      frets: chord.frets.reversed.toList(growable: false),
+      baseFret: chord.baseFret,
+      spokenName: chord.spokenName,
+      strings: chord.strings.reversed.toList(growable: false),
+    );
 
 /// What a screen reader says instead of the picture.
 ///
@@ -68,19 +98,20 @@ String chordDiagramReading(ChordDiagramData chord) {
   // one thing the dots cannot show.
   final barre = _barre(chord);
   if (barre != null) {
-    said.add('Barre at the ${_ordinal(barre.fret)} fret, '
-        '${_stringNames[barre.from]} to ${_stringNames[barre.to]}');
+    said.add('Barre at the ${ordinalFret(barre.fret)} fret, '
+        '${chord.strings[barre.from]} to ${chord.strings[barre.to]}');
   }
 
-  final strings = math.min(_stringNames.length, chord.frets.length);
+  final strings = math.min(chord.strings.length, chord.frets.length);
   for (var s = 0; s < strings; s += 1) {
     final fret = chord.frets[s];
     if (fret < 0) {
-      said.add('${_stringNames[s]}, muted');
+      said.add('${chord.strings[s]}, muted');
     } else if (fret == 0) {
-      said.add('${_stringNames[s]}, open');
+      said.add('${chord.strings[s]}, open');
     } else {
-      said.add('${_stringNames[s]}, ${_ordinal(chord.baseFret + fret - 1)} fret');
+      said.add(
+          '${chord.strings[s]}, ${ordinalFret(chord.baseFret + fret - 1)} fret');
     }
   }
   return said.isEmpty ? '' : '${said.join('. ')}.';
@@ -106,7 +137,7 @@ String chordDiagramReading(ChordDiagramData chord) {
 /// Two strings is enough — the A shape only sounds the barre at its two ends
 /// — which is why the span is what rules a pair of ordinary fingers out.
 ({int fret, int from, int to})? _barre(ChordDiagramData chord) {
-  final strings = math.min(_stringNames.length, chord.frets.length);
+  final strings = math.min(chord.strings.length, chord.frets.length);
   final sounding = <int>[];
   final fretted = <int>[];
   for (var s = 0; s < strings; s += 1) {
@@ -131,7 +162,10 @@ String chordDiagramReading(ChordDiagramData chord) {
 
 /// "1st", "2nd", "3rd" — said rather than shown, so a fret number reads as a
 /// place on the neck and not as a count.
-String _ordinal(int n) {
+///
+/// Public because the bass neck says its frets too, and a fret should be said
+/// one way everywhere.
+String ordinalFret(int n) {
   if (n % 100 >= 11 && n % 100 <= 13) return '${n}th';
   return switch (n % 10) {
     1 => '${n}st',
@@ -141,11 +175,14 @@ String _ordinal(int n) {
   };
 }
 
-/// Draws a standard six-string chord diagram: strings run vertically,
-/// frets horizontally, with X/O markers above muted/open strings and
-/// filled dots on fretted positions.
-class GuitarChordDiagram extends StatelessWidget {
-  const GuitarChordDiagram({required this.chord, this.size = 120, super.key});
+/// Draws a chord diagram: strings run vertically, frets horizontally, with
+/// X/O markers above muted/open strings and filled dots on fretted positions.
+///
+/// Six strings or four, and either way round: the picture is whatever
+/// [ChordDiagramData] says it is, so a mirrored uke shape needs no second
+/// painter.
+class FrettedChordDiagram extends StatelessWidget {
+  const FrettedChordDiagram({required this.chord, this.size = 120, super.key});
 
   final ChordDiagramData chord;
   final double size;
@@ -169,8 +206,9 @@ class _ChordPainter extends CustomPainter {
   _ChordPainter(this.chord);
 
   final ChordDiagramData chord;
-  static const _strings = 6;
   static const _frets = 4;
+
+  int get _strings => math.max(2, chord.strings.length);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -178,7 +216,10 @@ class _ChordPainter extends CustomPainter {
     final baseFretRowHeight = chord.baseFret > 1 ? size.height * 0.12 : 0.0;
     final gridTop = markerRowHeight + baseFretRowHeight;
     final gridHeight = size.height - gridTop - size.height * 0.04;
-    final gridWidth = size.width * 0.86;
+    // A four-string neck is drawn narrower rather than stretched to the same
+    // width, so a uke shape reads as a uke and not as a guitar with two
+    // strings missing.
+    final gridWidth = size.width * 0.86 * (_strings >= 6 ? 1 : 0.7);
     final gridLeft = (size.width - gridWidth) / 2;
 
     final stringGap = gridWidth / (_strings - 1);

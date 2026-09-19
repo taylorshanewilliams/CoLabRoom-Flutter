@@ -227,6 +227,17 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     // built in the frame the chord was tapped in, so the choice has to be in
     // hand before anybody taps one.
     unawaited(SimplerShapesStore.warm());
+    unawaited(ShapeReadingStore.warm());
+    unawaited(LeftHandedStore.warm());
+    // The page reads one of them itself: a capo says nothing to a pianist or
+    // a bass player, so the chords go back to concert pitch when the shapes
+    // being read are not a fretting hand's. The sheets write the store
+    // directly, so a listener is how the page hears about the choice.
+    ShapeReadingStore.changes.addListener(_shapesChanged);
+  }
+
+  void _shapesChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -711,6 +722,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
 
   @override
   void dispose() {
+    ShapeReadingStore.changes.removeListener(_shapesChanged);
     _sheetFocus.dispose();
     super.dispose();
   }
@@ -1116,9 +1128,15 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     final sheetLines = _sheetPage();
     final reading = _shownReading;
     final numbers = _shownNumbers;
-    // A capo is a guitar answer about the key the band is in, so it is only
-    // ever in play in concert pitch -- see the capo rows in the key sheet.
-    final capo = reading == HornReading.concert ? _shownCapo : 0;
+    // A capo is a fretting hand's answer about the key the band is in, so it
+    // is only ever in play in concert pitch, and only for an instrument that
+    // can wear one: a pianist and a bass player read the chords as they sound
+    // (Every Musician, Same Song, 17 September 2026). See the capo rows in
+    // the key sheet, which follow the same two rules.
+    final capo =
+        reading == HornReading.concert && ShapeReadingStore.held.takesACapo
+            ? _shownCapo
+            : 0;
     final baseLabel = transpose == 0
         ? 'Original key'
         : transpose > 0
