@@ -329,9 +329,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final theme = Theme.of(context);
     final labelStyle = theme.textTheme.labelLarge ??
         const TextStyle(fontSize: 14, fontWeight: FontWeight.w500);
-    final titleStyle = theme.appBarTheme.titleTextStyle ??
-        theme.textTheme.titleLarge ??
-        const TextStyle(fontSize: 22);
+    final titleStyle = appBarTitleStyle(context);
     // A back arrow and the key icon are 48 apiece and do not grow with text;
     // a TextButton pads its label by 16 on each side, and so does the title.
     final roomForWords = MediaQuery.sizeOf(context).width -
@@ -347,6 +345,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
+        // As tall as the words in it while they are words. An action's label
+        // is not held to any ceiling the way a title's is, so at the largest
+        // text sizes "Clear read" lost its bottom — silently, because a
+        // toolbar clips rather than overflows. Nothing to allow for once the
+        // actions have moved into the menu: a glyph is 48 and does not grow.
+        toolbarHeight: appBarHighEnoughFor(
+          context,
+          actions: intoTheMenu ? const <TextStyle>[] : <TextStyle>[labelStyle],
+        ),
         title: const Text('Inbox'),
         actions: <Widget>[
           if (!intoTheMenu)

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 /// How tall [lines] lines of [style] actually are, at the text size this
@@ -18,10 +20,15 @@ import 'package:flutter/material.dart';
 /// re-derives.
 ///
 /// Cheap: one layout of two glyphs, once per build of the strip.
+///
+/// [scaler] is for the one caller that has to ask about a text size other
+/// than the one this phone is set to: [appBarHighEnoughFor], because Flutter
+/// draws an app bar's title at a scale of its own.
 double linesOfTextHigh(
   BuildContext context,
   TextStyle style, {
   int lines = 1,
+  TextScaler? scaler,
 }) {
   // Merged with the default the way Text merges it, or the answer is short
   // by whatever line height the theme sets and the row overflows by four
@@ -34,12 +41,97 @@ double linesOfTextHigh(
   final painter = TextPainter(
     text: TextSpan(text: 'Ag', style: merged),
     textDirection: Directionality.maybeOf(context) ?? TextDirection.ltr,
-    textScaler: MediaQuery.textScalerOf(context),
+    textScaler: scaler ?? MediaQuery.textScalerOf(context),
     maxLines: 1,
   )..layout();
   final height = painter.height;
   painter.dispose();
   return height * lines;
+}
+
+/// The most an [AppBar] will ever grow its own title by, however large the
+/// reader has set their text.
+///
+/// Flutter's, not ours: `_kMaxTitleTextScaleFactor` in the framework's
+/// app_bar.dart, which wraps every title in a clamped `MediaQuery` so that a
+/// large text size does not turn the top of the screen into the whole of it.
+/// Copied here because it is private there, and because measuring the title
+/// at the reader's full scale instead would hand a bar forty pixels of empty
+/// air at the accessibility sizes. Actions are not clamped, which is why a
+/// labelled one is the part that loses its bottom.
+const double _appBarClampsItsTitleAt = 1.34;
+
+/// How tall an app bar has to be to hold what is in it, at the text size this
+/// phone is set to — never less than Material's 56.
+///
+/// Every Musician, Same Song, 17 September 2026: the phone's own text size is
+/// honoured, never clamped. A bar does not push back when the words in it
+/// outgrow it: [AppBar] hands its title and its actions the toolbar height it
+/// was given and draws whatever fits, so a labelled action loses the bottom of
+/// its letters and a two-line title spills past the edge of the bar — both
+/// silently, which is how this survived every test and the render harness.
+/// So the height is measured from the styles the bar actually draws.
+///
+/// [title] is the styles of the lines stacked in the title, top to bottom, and
+/// [actions] the styles of any labelled actions — an icon-only action is 48
+/// square and needs nothing. Each is given as the caller writes it in the bar;
+/// what the bar falls back to underneath is filled in here, because a line
+/// height taken from whatever body style the screen happens to sit in is a
+/// different number from the one the words are drawn at. 56 is the floor, so
+/// nothing moves for a reader who has not turned their text up.
+double appBarHighEnoughFor(
+  BuildContext context, {
+  List<TextStyle> title = const <TextStyle>[],
+  List<TextStyle> actions = const <TextStyle>[],
+}) {
+  final scaler = MediaQuery.textScalerOf(context);
+  final titleScaler = scaler.clamp(maxScaleFactor: _appBarClampsItsTitleAt);
+  // The 8 below and the 16 below that are the air the Takes bar has kept
+  // since it was the only bar that measured itself: enough that the words are
+  // not flush against the edges of the bar they sit in.
+  //
+  // Kept air, not the button's own padding, so the answer passes 56 a little
+  // before anything is actually being cut — a label alone reaches 56 at about
+  // 2.8, and with the 16 the bar starts growing from about 2.0. So between
+  // those two sizes a bar is a few pixels taller than it was although nothing
+  // was lost. That is deliberate: it is the same margin Takes has always had,
+  // and a bar whose words sit hard against its bottom edge reads as broken
+  // even when every letter is there.
+  var high = kToolbarHeight;
+  if (title.isNotEmpty) {
+    final beneath = appBarTitleStyle(context);
+    var stacked = 0.0;
+    for (final style in title) {
+      stacked +=
+          linesOfTextHigh(context, beneath.merge(style), scaler: titleScaler);
+    }
+    high = math.max(high, stacked + 8);
+  }
+  if (actions.isNotEmpty) {
+    // An action is a button label, drawn in labelLarge unless it says
+    // otherwise.
+    final beneath = Theme.of(context).textTheme.labelLarge ??
+        const TextStyle(fontSize: 14);
+    for (final style in actions) {
+      high = math.max(
+        high,
+        linesOfTextHigh(context, beneath.merge(style), scaler: scaler) + 16,
+      );
+    }
+  }
+  return high;
+}
+
+/// The style an [AppBar] draws its title in on this theme.
+///
+/// The fallbacks live inside [AppBar] where nothing can see them, and two
+/// things need the answer: how tall the title is, and how wide, which decides
+/// whether a bar's actions still fit beside it as words.
+TextStyle appBarTitleStyle(BuildContext context) {
+  final theme = Theme.of(context);
+  return theme.appBarTheme.titleTextStyle ??
+      theme.textTheme.titleLarge ??
+      const TextStyle(fontSize: 22);
 }
 
 /// How wide one line of [text] is in [style], at the text size this phone is
