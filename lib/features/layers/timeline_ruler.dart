@@ -1,6 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
+import '../../widgets/text_measures.dart';
 
 /// The strip of times above the lanes.
 ///
@@ -17,11 +20,33 @@ class TimelineRuler extends StatelessWidget {
   /// rather than with the names beside it.
   final double leftInset;
 
+  /// The style a time is drawn in.
+  ///
+  /// Lifted out of the build so the strip is measured against the style it
+  /// actually draws rather than a second copy of the numbers, which is the
+  /// kind of pair that drifts apart the first time somebody changes one.
+  static const labelStyle = TextStyle(
+    color: Color(0xFF4E6183),
+    fontSize: 9,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0.3,
+  );
+
+  /// The mark under the time.
+  static const double _tickHigh = 5;
+
   @override
   Widget build(BuildContext context) {
     final marks = _marks(totalMs);
     return SizedBox(
-      height: 22,
+      // 22 held a 9-point time over a 5-pixel tick at the text size of the
+      // phone it was measured on, and only there. Every Musician, Same Song,
+      // 17 September 2026: the phone's own text size is honoured, never
+      // clamped, so the times grow — at twice the size the time alone is 25
+      // and the strip overflowed by 8, once for every mark on it. Measured
+      // now, with the old number as the floor so that nothing moves for a
+      // reader who has not turned their text up.
+      height: math.max(22, linesOfTextHigh(context, labelStyle) + _tickHigh),
       child: Row(
         children: <Widget>[
           SizedBox(width: leftInset),
@@ -34,16 +59,9 @@ class TimelineRuler extends StatelessWidget {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        Text(
-                          mark.label,
-                          style: const TextStyle(
-                            color: Color(0xFF4E6183),
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                        Container(width: 1, height: 5, color: AppColors.line),
+                        Text(mark.label, style: labelStyle),
+                        Container(
+                            width: 1, height: _tickHigh, color: AppColors.line),
                       ],
                     ),
                   ),

@@ -7,6 +7,7 @@ import '../../app/colabroom_theme.dart';
 import '../../services/multitrack.dart';
 import '../../services/take_naming.dart';
 import '../../widgets/player_face.dart';
+import '../../widgets/text_measures.dart';
 
 /// One take on the timeline: who played it, and what it looks like.
 ///
@@ -106,6 +107,59 @@ class TakeLane extends StatelessWidget {
   final VoidCallback? onAdjust;
   final String? subtitle;
 
+  /// Who played it, and what part it is: the two labels in the lane's left
+  /// column, lifted out of the build so the lane is measured against the
+  /// styles it draws.
+  ///
+  /// Only their colours change from lane to lane — whether the take is muted,
+  /// silent or still unheard — and a colour is not a height.
+  static const nameStyle = TextStyle(
+    fontSize: 10.5,
+    height: 1.15,
+    fontWeight: FontWeight.w800,
+  );
+  static const partStyle = TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700);
+
+  /// The face beside the name. A drawing at a fixed size — see
+  /// [PlayerFace] — so it does not grow with the text.
+  static const double _faceHigh = 22;
+
+  /// One of the mute, levels and delete buttons under it. Icons at a fixed
+  /// size, so they do not grow either.
+  static const double buttonsHigh = 22;
+
+  static const EdgeInsets _padding = EdgeInsets.fromLTRB(9, 8, 10, 8);
+
+  /// The lane's outline, which a [Container] lays out inside its padding
+  /// rather than around it — so it is two more pixels the column does not
+  /// get, and leaving it out of the measure left the lane overflowing by
+  /// exactly two.
+  static const double _outline = 1;
+
+  /// How tall a lane has to be to hold what is in it, at the text size this
+  /// phone is set to — never less than the 78 it has always been.
+  ///
+  /// Every Musician, Same Song, 17 September 2026: the phone's own text size
+  /// is honoured, never clamped. 78 was measured at one text size and holds
+  /// only there; at twice that the left column overflowed its lane by 15, on
+  /// every take in the song.
+  ///
+  /// Measured from the styles rather than from this take's own words, and
+  /// with the name taken at the two lines it is allowed whether it needs them
+  /// or not. Every lane in a song has to be exactly as tall as the one above
+  /// it: the lanes share one clock, the playhead is drawn straight down all of
+  /// them, and a lane that grew because somebody's name was long would bend
+  /// the one thing about this view that must not bend.
+  static double _highEnoughFor(BuildContext context) {
+    return math.max(
+      78,
+      _padding.vertical +
+          _outline * 2 +
+          math.max(_faceHigh, linesOfTextHigh(context, nameStyle, lines: 2)) +
+          math.max(buttonsHigh, linesOfTextHigh(context, partStyle)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final name = TakeNaming.describe(take);
@@ -113,8 +167,8 @@ class TakeLane extends StatelessWidget {
     final live = take.enabled && !silent;
 
     return Container(
-      height: 78,
-      padding: const EdgeInsets.fromLTRB(9, 8, 10, 8),
+      height: _highEnoughFor(context),
+      padding: _padding,
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(12),
@@ -124,6 +178,7 @@ class TakeLane extends StatelessWidget {
               : take.enabled
                   ? tint.withValues(alpha: 0.30)
                   : AppColors.line,
+          width: _outline,
         ),
       ),
       child: Row(
@@ -140,7 +195,7 @@ class TakeLane extends StatelessWidget {
                       name: take.performer,
                       color: playerColor,
                       photo: playerPhoto,
-                      size: 22,
+                      size: _faceHigh,
                     ),
                     const SizedBox(width: 6),
                     Expanded(
@@ -148,11 +203,8 @@ class TakeLane extends StatelessWidget {
                         name,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
+                        style: nameStyle.copyWith(
                           color: take.enabled ? AppColors.text : AppColors.muted,
-                          fontSize: 10.5,
-                          height: 1.15,
-                          fontWeight: FontWeight.w800,
                         ),
                       ),
                     ),
@@ -204,14 +256,12 @@ class TakeLane extends StatelessWidget {
                                 : (subtitle ?? _length)),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
+                        style: partStyle.copyWith(
                           color: silent
                               ? AppColors.orange
                               : (onShare != null
                                   ? AppColors.cyan
                                   : AppColors.muted),
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
@@ -382,7 +432,9 @@ class _LaneButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
         child: Container(
           width: 26,
-          height: 22,
+          // The same 22 the lane measures itself against, so the two cannot
+          // drift apart.
+          height: TakeLane.buttonsHigh,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: background,

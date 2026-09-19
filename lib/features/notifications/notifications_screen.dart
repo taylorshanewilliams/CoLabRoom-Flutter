@@ -332,9 +332,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final titleStyle = appBarTitleStyle(context);
     // A back arrow and the key icon are 48 apiece and do not grow with text;
     // a TextButton pads its label by 16 on each side, and so does the title.
+    //
+    // The title is measured at the size a bar actually draws a title at, not
+    // at the reader's: Flutter holds a title to 1.34 however large the text is
+    // set, so past that a full-scale measure reports a title wider than any
+    // that is ever painted — at 3.12 it claimed 343 pixels for five letters
+    // drawn in 147 — and took that much room away from the words beside it.
+    // Nothing was ever cut off by it; the actions simply moved into the menu
+    // while there was still width to keep them as words.
     final roomForWords = MediaQuery.sizeOf(context).width -
         96 -
-        textWidthOf(context, 'Inbox', titleStyle) -
+        textWidthOf(context, 'Inbox', titleStyle,
+            scaler: appBarTitleScaler(context)) -
         32;
     final wordsNeed = wordActions.fold<double>(
       0,
