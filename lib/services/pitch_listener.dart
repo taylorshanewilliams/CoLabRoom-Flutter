@@ -31,7 +31,7 @@ class PitchListener {
   /// the microphone, so a call on this phone has to stand down for it, and
   /// the session has to be record-capable before the stream is asked for.
   final PhoneAudio _audio;
-  AudioHold? _hold;
+  late final AudioHolding _hold = AudioHolding(_audio, AudioNeed.recording);
 
   /// Where the samples come from. Production leaves this null and uses the
   /// microphone; a test hands in a sine wave.
@@ -78,15 +78,21 @@ class PitchListener {
         throw StateError('The microphone is needed to hear you.');
       }
       final recorder = _recorder ??= AudioRecorder();
-      _hold ??= await _audio.need(AudioNeed.recording);
+      await _hold.take();
       try {
-        stream = await recorder.startStream(RecordConfig(
-          encoder: AudioEncoder.pcm16bits,
-          sampleRate: sampleRate,
-          numChannels: 1,
+        // Through the owner, which tells the record plugin to leave the
+        // session alone while a call holds it. See recordingOn.
+        stream = await recorder.startStream(await recordingOn(
+          recorder,
+          RecordConfig(
+            encoder: AudioEncoder.pcm16bits,
+            sampleRate: sampleRate,
+            numChannels: 1,
+          ),
+          audio: _audio,
         ));
       } catch (_) {
-        await _letGoOfTheAudio();
+        await _hold.letGo();
         rethrow;
       }
     }
@@ -113,7 +119,7 @@ class PitchListener {
     // the microphone back, and that is awaited.
     unawaited(samples?.cancel());
     await _recorder?.stop().catchError((_) => null);
-    await _letGoOfTheAudio();
+    await _hold.letGo();
     _buffer.clear();
     _recent.clear();
     _heardAt = null;
@@ -130,17 +136,9 @@ class PitchListener {
     _samples = null;
     unawaited(_recorder?.stop().catchError((_) => null));
     unawaited(_recorder?.dispose());
-    unawaited(_letGoOfTheAudio());
+    unawaited(_hold.letGo());
     reading.dispose();
     listening.dispose();
-  }
-
-  /// Cleared before the release is awaited, so stop() and dispose() racing
-  /// each other cannot release the same hold twice.
-  Future<void> _letGoOfTheAudio() async {
-    final hold = _hold;
-    _hold = null;
-    await hold?.release();
   }
 
   void _onSamples(Uint8List bytes) {

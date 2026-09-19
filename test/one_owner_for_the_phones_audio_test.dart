@@ -256,9 +256,72 @@ void main() {
       expect(wrote.handedBack, everyElement(isFalse));
       await call.release();
       expect(wrote.handedBack.last, isTrue);
-      // And not again on the next ordinary transition.
-      await owner.need(AudioNeed.playing);
+      // And not again: an ordinary transition afterwards is not a hand-back.
+      final second = await owner.callIsUp(_ACallsMicrophone(), music: false);
       expect(wrote.handedBack.last, isFalse);
+      await second.release();
+    });
+
+    test('the session is handed back only once the song has finished', () async {
+      // Handing back deactivates the process's one session, and on iOS
+      // deactivating a session with running I/O stops that I/O. A song
+      // playing under a call that the other person hangs up would go silent
+      // with the bar still saying it was playing.
+      final wrote = _WroteItDown();
+      final owner = AudioSessionOwner(wrote);
+      final call = await owner.callIsUp(_ACallsMicrophone(), music: true);
+      final song = await owner.need(AudioNeed.playing);
+
+      await call.release();
+      expect(owner.state, PhoneAudioState.music);
+      expect(wrote.applied.last, PhoneAudioState.music);
+      expect(wrote.handedBack.last, isFalse, reason: 'the song is still playing');
+
+      await song.release();
+      expect(wrote.handedBack.last, isTrue);
+      expect(owner.state, PhoneAudioState.music);
+    });
+
+    test('a call with nothing sounding hands the session straight back', () async {
+      final wrote = _WroteItDown();
+      final owner = AudioSessionOwner(wrote);
+      final call = await owner.callIsUp(_ACallsMicrophone(), music: false);
+      await call.release();
+      expect(wrote.handedBack.last, isTrue);
+      // And a phone that never had a call never hands anything back.
+      final second = _WroteItDown();
+      final quiet = AudioSessionOwner(second);
+      final song = await quiet.need(AudioNeed.playing);
+      await song.release();
+      expect(second.handedBack, everyElement(isFalse));
+    });
+
+    test('a hold taken twice at once is one hold, and one release lets it go', () async {
+      // `_hold ??= await need(...)` reads the field, suspends, and assigns
+      // afterwards, so two overlapping takes both see null and the second
+      // orphans the first. An orphaned hold is never released, and every
+      // later call on the phone is a call with music in it.
+      final wrote = _WroteItDown();
+      final owner = AudioSessionOwner(wrote);
+      final holding = AudioHolding(owner, AudioNeed.playing);
+      await Future.wait(<Future<void>>[holding.take(), holding.take()]);
+      expect(owner.state, PhoneAudioState.music);
+      await holding.letGo();
+      final call = await owner.callIsUp(_ACallsMicrophone(), music: false);
+      expect(owner.state, PhoneAudioState.callTalking);
+      await call.release();
+    });
+
+    test('letting go while the hold is still being taken leaves nothing held', () async {
+      final wrote = _WroteItDown();
+      final owner = AudioSessionOwner(wrote);
+      final holding = AudioHolding(owner, AudioNeed.playing);
+      final taking = holding.take();
+      await holding.letGo();
+      await taking;
+      await holding.letGo();
+      await owner.callIsUp(_ACallsMicrophone(), music: false);
+      expect(owner.state, PhoneAudioState.callTalking);
     });
 
     test('a session the phone refuses does not leave the owner believing the old one is on', () async {
@@ -269,11 +332,28 @@ void main() {
       // next transition is worked out from the call being up, not from the
       // music session that is no longer what anybody wants.
       expect(owner.state, PhoneAudioState.callTalking);
-      await owner.need(AudioNeed.playing);
+      final song = await owner.need(AudioNeed.playing);
       expect(owner.state, PhoneAudioState.callWithMusic);
       await call.release();
       expect(owner.state, PhoneAudioState.music);
+      await song.release();
       expect(wrote.handedBack.last, isTrue);
+    });
+
+    test('a refusal is written over on the very next transition, even an unchanged one', () async {
+      // Nobody knows what session a phone that threw is actually on, so the
+      // usual "this is the state you are already in" shortcut cannot be
+      // taken until one configuration has landed.
+      final wrote = _WroteItDown()..refuses = PhoneAudioState.take;
+      final owner = AudioSessionOwner(wrote);
+      final screen = await owner.need(AudioNeed.readyToRecord);
+      final writes = wrote.applied.length;
+      // The state the phone is already meant to be in, so ordinarily
+      // nothing would be written at all.
+      final song = await owner.need(AudioNeed.playing);
+      expect(wrote.applied.length, greaterThan(writes));
+      await song.release();
+      await screen.release();
     });
 
     test('two transitions at once never apply two configurations at once', () async {
@@ -310,6 +390,54 @@ void main() {
       await take;
       expect(wrote.applied, isNot(contains(PhoneAudioState.callWithMusic)));
       await call.release();
+    });
+  });
+
+  group('nothing is written to the phone for nothing', () {
+    test('a second sound in a state the phone is already in writes nothing', () async {
+      // Every write is a setCategory on the process's one session, which is
+      // a route change -- with Bluetooth headphones, an audible one.
+      final wrote = _WroteItDown();
+      final owner = AudioSessionOwner(wrote);
+      final song = await owner.need(AudioNeed.playing);
+      final writes = wrote.applied.length;
+      final click = await owner.need(AudioNeed.playing);
+      expect(wrote.applied.length, writes);
+      await click.release();
+      expect(wrote.applied.length, writes);
+      await song.release();
+      expect(wrote.applied.length, writes);
+    });
+
+    test('the click under a take does not rewrite the session mid-take', () async {
+      // The takes screen holds readyToRecord for its whole life, the
+      // recorder opens, and the count-in sounds after it. Before this, the
+      // click's hold restated the session while the microphone was open: on
+      // iOS a category change under a running recorder, which is a route
+      // change in the middle of the take -- and with a Bluetooth headset an
+      // A2DP-to-HFP flip in the middle of the take.
+      final wrote = _WroteItDown();
+      final owner = AudioSessionOwner(wrote);
+      await owner.need(AudioNeed.readyToRecord);
+      await owner.need(AudioNeed.recording);
+      final writes = wrote.applied.length;
+
+      final click = await owner.need(AudioNeed.playing);
+      expect(wrote.applied.length, writes, reason: 'the microphone is open');
+      await click.release();
+      expect(wrote.applied.length, writes);
+    });
+
+    test('a call state is restated, because two libraries write it', () async {
+      // The exception to the rule above: in a call LiveKit and audioplayers
+      // both write this session and either can be the last writer.
+      final wrote = _WroteItDown();
+      final owner = AudioSessionOwner(wrote);
+      await owner.callIsUp(_ACallsMicrophone(), music: true);
+      final writes = wrote.applied.length;
+      await owner.need(AudioNeed.playing);
+      expect(wrote.applied.length, greaterThan(writes));
+      expect(wrote.applied.last, PhoneAudioState.callWithMusic);
     });
   });
 
@@ -350,13 +478,85 @@ void main() {
       // Headset handling has to keep working although the mode is no longer
       // a communication mode: unplugging headphones mid-call still routes.
       expect(music.android.forceAudioRouting, isTrue);
-      // One focus request on the phone, and it is the call's. The song under
-      // it asks for none, which is what stops it taking focus away.
-      expect(music.android.manageAudioFocus, isTrue);
+      // And nothing in a call with music asks Android for focus. Focus is
+      // granted per request, not per app, so a call asking for it takes it
+      // from this app's own music player when a song was already playing --
+      // audioplayers pauses that player and tells Dart nothing.
+      expect(music.android.manageAudioFocus, isFalse);
       expect(
         AudioSetup.of(PhoneAudioState.callWithMusic).players.android.audioFocus,
         AndroidAudioFocus.none,
       );
+    });
+
+    test('a song already playing is not asked to give up its audio focus', () async {
+      // The device check this stands in for: start a song, then join a
+      // call. Before this, the call asked for AUDIOFOCUS_GAIN, the player's
+      // listener heard AUDIOFOCUS_LOSS, and the song stopped with the bar
+      // still saying it was playing.
+      final wrote = _WroteItDown();
+      final owner = AudioSessionOwner(wrote);
+      final song = await owner.need(AudioNeed.playing);
+      final call = await owner.callIsUp(_ACallsMicrophone(), music: false);
+      expect(owner.state, PhoneAudioState.callWithMusic);
+      expect(wrote.setups.last.call?.android.manageAudioFocus, isFalse);
+      await call.release();
+      await song.release();
+    });
+
+    test('music-grade call states keep Bluetooth on A2DP, not the headset profile', () {
+      // allowBluetooth is HFP: with playAndRecord and an open microphone iOS
+      // takes any headset with a microphone in it over a 16 kHz mono link,
+      // in both directions. That is the thin, narrow sound this whole class
+      // exists to remove, on the one setting that says to wear headphones.
+      for (final state in <PhoneAudioState>[
+        PhoneAudioState.callWithMusic,
+        PhoneAudioState.callWithTake,
+      ]) {
+        final call = AudioSetup.of(state).call!;
+        expect(
+          call.apple.categoryOptions,
+          isNot(contains(lk.AppleAudioCategoryOption.allowBluetooth)),
+          reason: '$state',
+        );
+        expect(
+          call.apple.categoryOptions,
+          contains(lk.AppleAudioCategoryOption.allowBluetoothA2DP),
+          reason: '$state',
+        );
+      }
+      // A plain talking call is left exactly as LiveKit makes it, headset
+      // microphone included.
+      expect(
+        AudioSetup.of(PhoneAudioState.callTalking).call!.apple.categoryOptions,
+        contains(lk.AppleAudioCategoryOption.allowBluetooth),
+      );
+    });
+
+    test('the two writes a call state makes ask for the same thing', () {
+      // audioplayers is written first and the call second, on every
+      // transition and on every useOn. Two different option sets written
+      // back to back are two route changes -- with a Bluetooth headset,
+      // audibly one dropped and picked up again.
+      const sameOption = <lk.AppleAudioCategoryOption, AVAudioSessionOptions>{
+        lk.AppleAudioCategoryOption.allowBluetooth: AVAudioSessionOptions.allowBluetooth,
+        lk.AppleAudioCategoryOption.allowBluetoothA2DP: AVAudioSessionOptions.allowBluetoothA2DP,
+        lk.AppleAudioCategoryOption.allowAirPlay: AVAudioSessionOptions.allowAirPlay,
+        lk.AppleAudioCategoryOption.defaultToSpeaker: AVAudioSessionOptions.defaultToSpeaker,
+        lk.AppleAudioCategoryOption.mixWithOthers: AVAudioSessionOptions.mixWithOthers,
+      };
+      for (final state in <PhoneAudioState>[
+        PhoneAudioState.callTalking,
+        PhoneAudioState.callWithMusic,
+        PhoneAudioState.callWithTake,
+      ]) {
+        final setup = AudioSetup.of(state);
+        expect(
+          setup.players.iOS.options,
+          setup.call!.apple.categoryOptions!.map((o) => sameOption[o]).toSet(),
+          reason: '$state',
+        );
+      }
     });
 
     test('a take during a call is recorded on a music session, not a voice one', () {

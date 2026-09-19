@@ -288,6 +288,9 @@ Uint8List _pcm16(Float64List floats) {
 /// A count-in that makes no sound, because there is no audio here.
 class _SilentClick implements ClickPlayer {
   @override
+  Future<void> prepare() async {}
+
+  @override
   Future<void> play({
     required double bpm,
     required int beatsPerBar,

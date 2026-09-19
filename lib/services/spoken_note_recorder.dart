@@ -31,7 +31,7 @@ class SpokenNoteRecorder {
   /// during a call is a recording pass like any other, and the call has to
   /// stand down for it.
   final PhoneAudio _audio;
-  AudioHold? _hold;
+  late final AudioHolding _hold = AudioHolding(_audio, AudioNeed.recording);
 
   /// Resolved on use, not in the constructor, so making the screen costs
   /// nothing until somebody actually holds the button.
@@ -47,18 +47,25 @@ class SpokenNoteRecorder {
 
   Future<void> start() async {
     final path = await _path();
-    _hold ??= await _audio.need(AudioNeed.recording);
+    final mic = _mic;
+    await _hold.take();
     try {
-      await _mic.start(
-        const RecordConfig(
-          encoder: AudioEncoder.wav,
-          sampleRate: 44100,
-          numChannels: 1,
+      // Through the owner, which tells the record plugin to leave the
+      // session alone while a call holds it. See recordingOn.
+      await mic.start(
+        await recordingOn(
+          mic,
+          const RecordConfig(
+            encoder: AudioEncoder.wav,
+            sampleRate: 44100,
+            numChannels: 1,
+          ),
+          audio: _audio,
         ),
         path: path,
       );
     } catch (_) {
-      await _letGoOfTheAudio();
+      await _hold.letGo();
       rethrow;
     }
   }
@@ -69,7 +76,7 @@ class SpokenNoteRecorder {
     try {
       path = await _mic.stop();
     } finally {
-      await _letGoOfTheAudio();
+      await _hold.letGo();
     }
     if (path == null) return null;
     final bytes = await XFile(path).readAsBytes();
@@ -87,22 +94,14 @@ class SpokenNoteRecorder {
     try {
       await _mic.cancel();
     } finally {
-      await _letGoOfTheAudio();
+      await _hold.letGo();
     }
   }
 
   Future<void> dispose() async {
-    await _letGoOfTheAudio();
+    await _hold.letGo();
     await _recorder?.dispose();
     _recorder = null;
-  }
-
-  /// Cleared before the release is awaited, so two ways out of one recording
-  /// cannot release the same hold twice.
-  Future<void> _letGoOfTheAudio() async {
-    final hold = _hold;
-    _hold = null;
-    await hold?.release();
   }
 
   Future<String> _path() async {

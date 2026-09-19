@@ -24,7 +24,7 @@ class TakeRecorder {
   /// moment the pass is over -- including the paths where it fails. A hold
   /// left out would leave a call with its microphone handed away.
   final PhoneAudio _audio;
-  AudioHold? _hold;
+  late final AudioHolding _hold = AudioHolding(_audio, AudioNeed.recording);
 
   /// Whether this has been let go of for good.
   ///
@@ -62,11 +62,16 @@ class TakeRecorder {
     // Asked for before the microphone opens rather than after, because the
     // session a take needs has to be in place before anything is captured,
     // and because this is what tells a call on this phone to stand down.
-    _hold ??= await _audio.need(AudioNeed.recording);
+    await _hold.take();
     try {
-      await mic.start(config, path: path);
+      // The record plugin writes and activates the iOS session itself, and
+      // asks Android for focus, unless it is told that somebody else owns
+      // the session. With no call that is exactly what a take wants, so
+      // nothing changes there; in a call it would undo what the owner just
+      // applied. See recordingOn.
+      await mic.start(await recordingOn(mic, config, audio: _audio), path: path);
     } catch (_) {
-      await _letGoOfTheAudio();
+      await _hold.letGo();
       rethrow;
     }
   }
@@ -77,7 +82,7 @@ class TakeRecorder {
     try {
       return await _mic.stop();
     } finally {
-      await _letGoOfTheAudio();
+      await _hold.letGo();
     }
   }
 
@@ -90,7 +95,7 @@ class TakeRecorder {
     try {
       await _recorder?.cancel();
     } finally {
-      await _letGoOfTheAudio();
+      await _hold.letGo();
     }
   }
 
@@ -98,17 +103,8 @@ class TakeRecorder {
     // Set first, so a call racing this one cannot slip a new recorder in
     // between the await below and the field being cleared.
     _disposed = true;
-    await _letGoOfTheAudio();
+    await _hold.letGo();
     await _recorder?.dispose();
     _recorder = null;
-  }
-
-  /// Cleared before the release is awaited, so two paths out of a failed
-  /// recording cannot release the same hold twice and take the phone out of
-  /// a state something else still wants.
-  Future<void> _letGoOfTheAudio() async {
-    final hold = _hold;
-    _hold = null;
-    await hold?.release();
   }
 }

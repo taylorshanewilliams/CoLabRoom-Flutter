@@ -31,6 +31,13 @@
 /// holds need, which is what "restore it afterwards" means when several
 /// things overlap.
 ///
+/// The `record` plugin is the one library that cannot simply be asked: it
+/// configures and activates the iOS session itself on every `start`, and
+/// takes Android audio focus for itself, from inside the plugin. It is
+/// brought under the rule from outside instead, by [recordingOn], which every
+/// recorder in the app passes its configuration through: while a call holds
+/// the session, the plugin is told to leave it alone.
+///
 /// **The evidence this replaces, kept because it cost three rounds of
 /// fixes.** The takes screen used to set a contradictory audioplayers
 /// context of its own. Android defaults to `AudioFocus.gain` — "this app is
@@ -59,6 +66,7 @@ import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
+import 'package:record/record.dart';
 
 /// What the phone's one audio session is for, right now.
 ///
@@ -212,13 +220,11 @@ class AudioSetup {
       case PhoneAudioState.take:
         return AudioSetup._(state, _takePlayers, null);
       case PhoneAudioState.callTalking:
-        return AudioSetup._(state, _inCallPlayers(talking: true), _talkingCall);
+        return AudioSetup._(state, _inCallPlayers(state), _talkingCall);
       case PhoneAudioState.callWithMusic:
-        return AudioSetup._(state, _inCallPlayers(talking: false), _musicCall);
+        return AudioSetup._(state, _inCallPlayers(state), _musicCall);
       case PhoneAudioState.callWithTake:
-        // The same players context as a call with music: what is playing in
-        // both is the track, and only the microphone differs.
-        return AudioSetup._(state, _inCallPlayers(talking: false), _takeCall);
+        return AudioSetup._(state, _inCallPlayers(state), _takeCall);
     }
   }
 
@@ -278,14 +284,18 @@ class AudioSetup {
   /// exactly what silenced the capture in the takes bug above. There is
   /// nothing to duck either — the call and the song are both this app.
   ///
-  /// The Android mode here agrees with what the call is about to be set to,
-  /// and `isSpeakerphoneOn` is left false because LiveKit's own routing runs
-  /// straight after this and knows about the headset. Neither value is load
-  /// bearing: the call writes them again afterwards.
-  static AudioContext _inCallPlayers({required bool talking}) => AudioContext(
+  /// The iOS options are the same ones the call is about to be given, and
+  /// the Android mode agrees with it too. That matters more than it looks:
+  /// these two writes land back to back on every transition and on every
+  /// [PhoneAudio.useOn], and two different option sets written in a row are
+  /// two route changes — audibly, a Bluetooth headset dropped and picked up
+  /// again. Identical sets make the pair idempotent.
+  static AudioContext _inCallPlayers(PhoneAudioState state) => AudioContext(
         android: AudioContextAndroid(
           isSpeakerphoneOn: false,
-          audioMode: talking ? AndroidAudioMode.inCommunication : AndroidAudioMode.normal,
+          audioMode: state == PhoneAudioState.callTalking
+              ? AndroidAudioMode.inCommunication
+              : AndroidAudioMode.normal,
           stayAwake: true,
           contentType: AndroidContentType.music,
           usageType: AndroidUsageType.media,
@@ -293,10 +303,23 @@ class AudioSetup {
         ),
         iOS: AudioContextIOS(
           category: AVAudioSessionCategory.playAndRecord,
-          options: const <AVAudioSessionOptions>{
-            AVAudioSessionOptions.defaultToSpeaker,
-            AVAudioSessionOptions.allowBluetooth,
-            AVAudioSessionOptions.mixWithOthers,
+          options: switch (state) {
+            PhoneAudioState.callTalking => const <AVAudioSessionOptions>{
+                AVAudioSessionOptions.allowBluetooth,
+                AVAudioSessionOptions.allowBluetoothA2DP,
+                AVAudioSessionOptions.allowAirPlay,
+              },
+            PhoneAudioState.callWithTake => const <AVAudioSessionOptions>{
+                AVAudioSessionOptions.allowBluetoothA2DP,
+                AVAudioSessionOptions.allowAirPlay,
+                AVAudioSessionOptions.defaultToSpeaker,
+                AVAudioSessionOptions.mixWithOthers,
+              },
+            _ => const <AVAudioSessionOptions>{
+                AVAudioSessionOptions.allowBluetoothA2DP,
+                AVAudioSessionOptions.allowAirPlay,
+                AVAudioSessionOptions.defaultToSpeaker,
+              },
           },
         ),
       );
@@ -320,21 +343,36 @@ class AudioSetup {
   /// headphones, or the others will hear themselves.") and never actually
   /// did.
   ///
-  /// On Android `normal` with media attributes moves both the song and the
-  /// other person's voice off the narrow voice-call path onto the music one,
-  /// which is what "sounds full" means. `forceAudioRouting` keeps LiveKit's
-  /// headset handling working even though the mode is no longer a
-  /// communication mode, so unplugging headphones mid-call still routes.
+  /// On Android the media attributes move the song off the narrow voice-call
+  /// path onto the music one, which is what "sounds full" means.
+  /// `forceAudioRouting` keeps LiveKit's headset handling working even though
+  /// the mode is no longer a communication mode, so unplugging headphones
+  /// mid-call still routes.
   ///
-  /// Audio focus stays LiveKit's here, and stays exactly one request: the
-  /// audioplayers context that goes with every call state asks for none, so
-  /// the song under the call does not take focus off it. Nothing is
-  /// recording in this state, which is the condition the takes bug needed.
+  /// **No `allowBluetooth`.** That option is HFP, the hands-free profile, and
+  /// with `playAndRecord` and an open microphone iOS routes any headset with
+  /// a microphone in it — AirPods and nearly everything else — over HFP the
+  /// moment it is offered: 16 kHz mono, in both directions. That is exactly
+  /// the thin, narrow sound this whole class exists to get rid of, on the one
+  /// setting that tells people to put headphones on. Without it and with
+  /// `allowBluetoothA2DP`, the output goes out over A2DP in stereo and the
+  /// input stays on the phone's own microphone, which is also where an
+  /// instrument being played into the phone wants to be. A plain talking call
+  /// keeps LiveKit's own options, headset microphone included.
+  ///
+  /// **No audio focus.** Android grants focus per request, not per app, so
+  /// LiveKit asking for `AUDIOFOCUS_GAIN` takes focus *from this app's own
+  /// music player* when a song was already playing before the call: the
+  /// player's listener hears `AUDIOFOCUS_LOSS`, audioplayers pauses it, and
+  /// no event is sent to Dart — the bar goes on saying the song is playing
+  /// while the phone is silent. Nothing on this phone is going to duck
+  /// anything anyway: the call and the song are both this app. So there is
+  /// exactly one focus holder in a call with music, and it is whichever
+  /// player is actually sounding, or nobody.
   static lk.AudioSessionOptions get _musicCall => lk.AudioSessionOptions.communication(
         apple: const lk.AppleAudioSessionConfiguration(
           category: lk.AppleAudioCategory.playAndRecord,
           categoryOptions: <lk.AppleAudioCategoryOption>{
-            lk.AppleAudioCategoryOption.allowBluetooth,
             lk.AppleAudioCategoryOption.allowBluetoothA2DP,
             lk.AppleAudioCategoryOption.allowAirPlay,
             lk.AppleAudioCategoryOption.defaultToSpeaker,
@@ -343,8 +381,7 @@ class AudioSetup {
         ),
         android: const lk.AndroidAudioSessionConfiguration(
           audioMode: lk.AndroidAudioMode.normal,
-          manageAudioFocus: true,
-          focusMode: lk.AndroidAudioFocusMode.gain,
+          manageAudioFocus: false,
           streamType: lk.AndroidAudioStreamType.music,
           usageType: lk.AndroidAudioAttributesUsageType.media,
           contentType: lk.AndroidAudioAttributesContentType.music,
@@ -361,18 +398,17 @@ class AudioSetup {
   /// and taken back after it is undone; that part is the owner's job, not
   /// the configuration's.
   ///
-  /// `manageAudioFocus: false` is the one place this slice departs from
-  /// LiveKit's defaults on the focus question, and it is the one place the
-  /// takes bug's evidence applies exactly: the `record` plugin is holding
-  /// the microphone, and a focus request made while this app holds the
-  /// microphone is what produced 2,486 bytes for 4,000 ms. There is nothing
-  /// to duck anyway — the call and the track are both this app.
+  /// `manageAudioFocus: false` matters even more here than in a call with
+  /// music: the `record` plugin is holding the microphone, and a focus
+  /// request made while this app holds the microphone is what produced 2,486
+  /// bytes for 4,000 ms. `allowBluetooth` is left out for the same reason it
+  /// is left out there — a take recorded over HFP is a 16 kHz mono take.
   static lk.AudioSessionOptions get _takeCall => lk.AudioSessionOptions.communication(
         apple: const lk.AppleAudioSessionConfiguration(
           category: lk.AppleAudioCategory.playAndRecord,
           categoryOptions: <lk.AppleAudioCategoryOption>{
-            lk.AppleAudioCategoryOption.allowBluetooth,
             lk.AppleAudioCategoryOption.allowBluetoothA2DP,
+            lk.AppleAudioCategoryOption.allowAirPlay,
             lk.AppleAudioCategoryOption.defaultToSpeaker,
             lk.AppleAudioCategoryOption.mixWithOthers,
           },
@@ -510,6 +546,20 @@ class AudioSessionOwner implements PhoneAudio {
   /// Whether the call's microphone is currently let go of for a take.
   bool _micLetGo = false;
 
+  /// Whether a call has taken the platform session over and not yet given it
+  /// back.
+  ///
+  /// Separate from [_call] because the giving back can be later than the
+  /// call ending: see [_moveToWhatIsWanted].
+  bool _callHoldsThePlatform = false;
+
+  /// Whether the last configuration this asked for was refused by the phone.
+  ///
+  /// A refusal means the phone is in some state nobody chose, so the next
+  /// transition has to be written even when it looks like the one that is
+  /// already on.
+  bool _refused = false;
+
   PhoneAudioState _state = PhoneAudioState.music;
 
   /// Transitions run one at a time, and each one works out afresh what the
@@ -592,40 +642,87 @@ class AudioSessionOwner implements PhoneAudio {
   }
 
   Future<void> _moveToWhatIsWanted() async {
-    // Worked out afresh here rather than when the hold was asked for, and
-    // applied even when it is the state the phone is already in: audioplayers
-    // and LiveKit both write this session behind the owner's back -- the one
-    // on every play and stop, the other until it is put into manual mode --
-    // so restating it on every transition is what keeps it true.
+    // Worked out afresh here rather than when the hold was asked for.
     final wanted = _wanted();
-    final leavingCall = _call == null && _state != PhoneAudioState.music && _state != PhoneAudioState.take;
+    final sounding = (_held[AudioNeed.playing] ?? 0) > 0;
+    // The call's hold on the platform is handed back on the first transition
+    // after the call has gone where nothing of this app's is still sounding.
+    //
+    // Later than the call ending, deliberately. Handing back deactivates the
+    // process's one session, and on iOS deactivating a session with running
+    // I/O stops that I/O: a song that was playing under the call would go
+    // silent the moment the other person hung up, with the now-playing bar
+    // still saying it was playing. So when a song is still going the call's
+    // configuration is simply replaced with the music one, and the hand-back
+    // waits for the song to end.
+    final leavingCall = _callHoldsThePlatform && _call == null && !sounding;
+    if (_call != null) _callHoldsThePlatform = true;
     // The microphone goes before the session changes, so the input is free
     // by the time the recorder asks for it.
     if (wanted == PhoneAudioState.callWithTake && !_micLetGo) {
       _micLetGo = true;
       await _ask((microphone) => microphone.letGo());
     }
+    final was = _state;
     // Written down before the configuration is applied, not after: a phone
     // that refuses one must not leave the owner believing the old one is
     // still on, or the next transition would be worked out from a state the
     // phone is not in.
     _state = wanted;
-    try {
-      await _sessions.apply(AudioSetup.of(wanted), leavingCall: leavingCall);
-    } catch (_) {
-      // Swallowed, and it has to be. Holds are taken from initState and from
-      // the middle of a tap on Record, so a phone that refuses a session
-      // would otherwise throw out of a screen being built or a button being
-      // pressed -- and a phone that refuses is still a phone that plays what
-      // is already recorded, and records when nothing else is sounding. It
-      // is worse, not broken. There is nowhere useful to say so either: no
-      // screen exists yet at the moment most of these are asked for.
+    if (_worthWriting(was, wanted, leavingCall: leavingCall)) {
+      try {
+        await _sessions.apply(AudioSetup.of(wanted), leavingCall: leavingCall);
+        _refused = false;
+        if (leavingCall) _callHoldsThePlatform = false;
+      } catch (_) {
+        // Swallowed, and it has to be. Holds are taken from initState and
+        // from the middle of a tap on Record, so a phone that refuses a
+        // session would otherwise throw out of a screen being built or a
+        // button being pressed -- and a phone that refuses is still a phone
+        // that plays what is already recorded, and records when nothing else
+        // is sounding. It is worse, not broken. There is nowhere useful to
+        // say so either: no screen exists yet at the moment most of these
+        // are asked for.
+        _refused = true;
+        if (leavingCall) _callHoldsThePlatform = false;
+      }
     }
     if (wanted != PhoneAudioState.callWithTake && _micLetGo) {
       _micLetGo = false;
       // Nothing to hand back to when the call itself is what ended.
       if (_call != null) await _ask((microphone) => microphone.takeBack());
     }
+  }
+
+  /// Whether this transition is worth writing to the phone at all.
+  ///
+  /// A write is not free. On iOS every one of them is a
+  /// `setCategory(_:options:)` on the process's one session, which is a
+  /// route change — with Bluetooth headphones, audibly one. So a transition
+  /// that asks for the state the phone is already in is skipped, with three
+  /// exceptions.
+  ///
+  /// The first two are plain: the call handing the session back has to be
+  /// written, and so does anything at all after a phone refused the last
+  /// configuration, because then nobody knows what is on.
+  ///
+  /// The third is the one worth reading twice. Restating an unchanged state
+  /// is worth it *in a call*, where LiveKit and audioplayers both write this
+  /// session and each can be the last writer. It is never worth it while the
+  /// microphone is open: a category written under a running recorder is a
+  /// route change in the middle of a take, and with a Bluetooth headset an
+  /// A2DP-to-HFP flip in the middle of a take. That is the shape the silent
+  /// takes had, and the reason the click is prepared before the recorder
+  /// starts rather than on its first beat.
+  bool _worthWriting(
+    PhoneAudioState was,
+    PhoneAudioState wanted, {
+    required bool leavingCall,
+  }) {
+    if (leavingCall || wanted != was) return true;
+    if ((_held[AudioNeed.recording] ?? 0) > 0) return false;
+    if (_refused) return true;
+    return AudioSetup.of(wanted).callOwnsSession;
   }
 
   Future<void> _ask(Future<void> Function(CallMicrophone) what) async {
@@ -695,3 +792,108 @@ class _CallHold implements CallHold {
 
 /// The app's owner, for the callers that reach it directly.
 PhoneAudio get phoneAudio => AudioSessionOwner.instance;
+
+/// One slot for one hold, taken and let go of any number of times.
+///
+/// **Why this is a class rather than nine copies of `_hold ??= await
+/// need(...)`.** That line reads the field, suspends at the `await`, and
+/// assigns afterwards. Two calls that overlap — tapping Play and changing
+/// the beats in a bar inside the same round trip, or a screen being popped
+/// while it is still taking its hold — therefore both see null, both take a
+/// hold, and the second assignment orphans the first. Nobody ever releases
+/// the orphan, the owner counts it forever, and from then on every call on
+/// that phone is a call with music in it whether or not anything is
+/// sounding. Storing the *future* fills the slot before the first suspension,
+/// so the second caller waits for the first one's hold instead of taking
+/// another.
+class AudioHolding {
+  AudioHolding(this._audio, this._need);
+
+  final PhoneAudio _audio;
+  final AudioNeed _need;
+  Future<AudioHold>? _holding;
+
+  /// Whether this slot is holding, or on its way to holding.
+  bool get isHeld => _holding != null;
+
+  /// Take the hold, or wait for the one already being taken.
+  Future<void> take() async {
+    final holding = _holding ??= _audio.need(_need);
+    try {
+      await holding;
+    } catch (_) {
+      // Nothing in the owner throws -- it swallows what the phone refuses --
+      // but an empty slot is the right thing to be left with if one ever
+      // did, so the next attempt can try again rather than waiting on a
+      // future that failed.
+      if (identical(_holding, holding)) _holding = null;
+    }
+  }
+
+  /// Let go. Safe to call twice, and safe to call while [take] is still in
+  /// flight: the slot is cleared first, so two ways out of one recording
+  /// cannot release the same hold twice.
+  Future<void> letGo() async {
+    final holding = _holding;
+    _holding = null;
+    if (holding == null) return;
+    try {
+      await (await holding).release();
+    } catch (_) {
+      // As above: there was nothing to let go of.
+    }
+  }
+}
+
+/// Gets [recorder] ready for the session this phone is in, and returns the
+/// configuration to start it with.
+///
+/// The `record` plugin is the one audio library that cannot be asked to keep
+/// its hands off the session by asking the owner, because it writes it from
+/// the inside: on iOS every `start` does its own
+/// `setCategory(.playAndRecord, options:)` and `setActive(true)`, and on
+/// Android it requests `AUDIOFOCUS_GAIN` for itself and pauses the recording
+/// on any later focus loss. With no call that is exactly right, and it is
+/// what the takes screen has always recorded against — so with no call
+/// nothing here changes at all.
+///
+/// In a call it is wrong twice over. The owner and LiveKit have already put
+/// an active `playAndRecord` session in place, chosen for music; the plugin
+/// would replace its options a moment later, and its focus request is the
+/// one condition the silent takes needed. So in a call, and only in a call,
+/// the plugin is told to leave the session alone and not to chase focus.
+Future<RecordConfig> recordingOn(
+  AudioRecorder recorder,
+  RecordConfig config, {
+  PhoneAudio? audio,
+}) async {
+  final inACall = AudioSetup.of((audio ?? phoneAudio).state).callOwnsSession;
+  try {
+    // Null off iOS, so this is a no-op on Android and on the web. Told on
+    // every start rather than only in a call, because a recorder that
+    // recorded during a call is the same recorder that records after it.
+    await recorder.ios?.manageAudioSession(!inACall);
+  } catch (_) {
+    // A recorder the plugin does not know about yet, or a phone that
+    // refuses. Left alone means the plugin manages the session, which is
+    // what it did before this owner existed.
+  }
+  if (!inACall) return config;
+  return RecordConfig(
+    encoder: config.encoder,
+    bitRate: config.bitRate,
+    sampleRate: config.sampleRate,
+    numChannels: config.numChannels,
+    device: config.device,
+    autoGain: config.autoGain,
+    echoCancel: config.echoCancel,
+    noiseSuppress: config.noiseSuppress,
+    androidConfig: config.androidConfig,
+    iosConfig: config.iosConfig,
+    // No focus request, and no pausing this recording when something else
+    // takes focus: the call is holding the session and this app is the only
+    // thing in it.
+    audioInterruption: AudioInterruptionMode.none,
+    streamBufferSize: config.streamBufferSize,
+  );
+}

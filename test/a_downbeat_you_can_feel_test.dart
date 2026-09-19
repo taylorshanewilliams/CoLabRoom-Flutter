@@ -14,6 +14,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// wait for a file to be written.
 class _SilentClick implements ClickPlayer {
   @override
+  Future<void> prepare() async {}
+
+  @override
   Future<void> play({
     required double bpm,
     required int beatsPerBar,

@@ -37,7 +37,8 @@ class NowPlaying extends ChangeNotifier {
   /// outlives every screen, so it is the one that can still be sounding when
   /// a call starts. Whether it is holding is what decides whether the phone
   /// is in a talking call or a call with music in it.
-  AudioHold? _hold;
+  late final AudioHolding _hold =
+      AudioHolding(AudioSessionOwner.instance, AudioNeed.playing);
 
   StreamSubscription<Duration>? _positions;
   StreamSubscription<void>? _completions;
@@ -136,17 +137,22 @@ class NowPlaying extends ChangeNotifier {
   /// Asked for before the sound rather than after, so the session is already
   /// right when the first note arrives, and let go of on every way out --
   /// paused, stopped, finished on its own, or the player thrown away.
-  Future<void> _sounding(bool on) async {
-    if (on) {
-      _hold ??= await AudioSessionOwner.instance.need(AudioNeed.playing);
-      // And on this player, which was built as a field initialiser and so
-      // may never have seen the app's default.
-      await AudioSessionOwner.instance.useOn(_player);
+  ///
+  /// [aNewSource] is what decides whether the session is put on the player
+  /// itself as well, and it is deliberately *not* done on a resume. On
+  /// Android, giving a player a context that differs from the one it was
+  /// prepared with stops the MediaPlayer and prepares the source again, and
+  /// the position is not kept: a song paused in a call and resumed after it
+  /// would start from the top. Before a new source there is nothing to lose.
+  Future<void> _sounding(bool on, {bool aNewSource = false}) async {
+    if (!on) {
+      await _hold.letGo();
       return;
     }
-    final hold = _hold;
-    _hold = null;
-    await hold?.release();
+    await _hold.take();
+    // And on this player, which was built as a field initialiser and so may
+    // never have seen the app's default.
+    if (aNewSource) await AudioSessionOwner.instance.useOn(_player);
   }
 
   /// Plays [storagePath], or pauses it if it is already the one playing.
@@ -239,7 +245,7 @@ class NowPlaying extends ChangeNotifier {
     try {
       // Before the sound, so the session is music-grade by the time the
       // first note arrives rather than a moment after it.
-      await _sounding(true);
+      await _sounding(true, aNewSource: true);
       await _player.play(UrlSource(url));
       if (_path != storagePath) return;
       _playing = true;

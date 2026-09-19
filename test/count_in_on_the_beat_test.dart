@@ -24,6 +24,9 @@ class _SilentClick implements ClickPlayer {
   final List<String> log = <String>[];
 
   @override
+  Future<void> prepare() async => log.add('prepare');
+
+  @override
   Future<void> play({
     required double bpm,
     required int beatsPerBar,
@@ -45,6 +48,9 @@ class _SilentClick implements ClickPlayer {
 class _SlowClick implements ClickPlayer {
   final Completer<void> written = Completer<void>();
   final List<String> log = <String>[];
+
+  @override
+  Future<void> prepare() async => log.add('prepare');
 
   @override
   Future<void> play({

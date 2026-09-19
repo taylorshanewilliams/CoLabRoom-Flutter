@@ -510,7 +510,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// session that moved between music-grade and voice-grade on every tap of
   /// Play would be an audible route change every time — the opposite of what
   /// this is for. See PhoneAudio.
-  AudioHold? _audioHold;
+  late final AudioHolding _audioHold =
+      AudioHolding(phoneAudio, AudioNeed.playing);
 
   /// When [_elapsed] was last read off the player. The player reports its
   /// position a few times a second; two phones comparing those reports
@@ -1430,6 +1431,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       // start building now rather than after the player below is ready.
       if (!_referenceReady.isCompleted) _referenceReady.complete();
       final player = AudioPlayer();
+      // Before the source and the seek below, not after. On Android a player
+      // given a context that differs from the one it was prepared with is
+      // stopped and prepared again, and the position is not kept -- so the
+      // recording would start from the top under words that are at 1:10.
+      await _thePhoneIsPlaying(player);
       await player.setSource(audioSourceFor(path));
       if (_rate != 1) await player.setPlaybackRate(_rate);
       // The song may already be somewhere: Start pressed while this loaded,
@@ -1458,7 +1464,6 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         _audioPlayer = player;
         _audioReady = true;
       });
-      await _thePhoneIsPlaying(player);
       // If playback was already started (Play tapped before this finished
       // loading), the audio needs to catch up now rather than sitting
       // loaded-but-silent until the next play/pause toggle.
@@ -1558,9 +1563,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     unawaited(_audioPositionSub?.cancel());
     unawaited(_audioCompleteSub?.cancel());
     unawaited(_audioPlayer?.dispose());
-    final audio = _audioHold;
-    _audioHold = null;
-    unawaited(audio?.release());
+    unawaited(_audioHold.letGo());
     // The part mix under the words, if there was one: a whole song as WAV
     // that nothing will play again. The stems' mix stays -- PlayAlong keeps
     // that one on purpose, under a name it finds again next time.
@@ -2917,7 +2920,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// call to a call with music in it, and the session is what stops the
   /// player asking Android for the audio focus the call is holding.
   Future<void> _thePhoneIsPlaying(AudioPlayer player) async {
-    _audioHold ??= await phoneAudio.need(AudioNeed.playing);
+    await _audioHold.take();
+    if (!mounted) {
+      // The screen went away while the hold was being taken. Nothing is
+      // going to sound, and a hold nobody releases makes every later call on
+      // this phone a call with music in it.
+      await _audioHold.letGo();
+      return;
+    }
     await phoneAudio.useOn(player);
   }
 

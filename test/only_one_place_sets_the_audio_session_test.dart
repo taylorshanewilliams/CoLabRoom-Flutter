@@ -69,6 +69,13 @@ void main() {
     // dictation opens the microphone too, and on iOS takes the shared
     // session for itself.
     //
+    // Asking for a *hold* rather than merely importing the file is the rule,
+    // because the owner only knows the phone is making a sound through the
+    // holds that are out. A file that imports phone_audio.dart and calls
+    // nothing but useOn puts the session on its player and then leaves the
+    // phone in a talking call while that player sounds, which is the exact
+    // bug the owner was written to end.
+    //
     // flutter_tts is deliberately not here. It writes no configuration: the
     // one thing it is asked for is `autoStopSharedSession(false)`, which
     // tells it *not* to take the session down at the end of an utterance —
@@ -83,12 +90,38 @@ void main() {
     sources.forEach((path, source) {
       if (path == owner) return;
       final usesAudio = users.any(source.contains);
-      if (usesAudio && !source.contains('phone_audio.dart')) silent.add(path);
+      if (usesAudio && !source.contains('AudioNeed.')) silent.add(path);
     });
     expect(
       silent,
       isEmpty,
-      reason: 'These build a player or a recorder without asking $owner.',
+      reason: 'These build a player or a recorder without asking $owner '
+          'for a hold. Importing it is not asking.',
+    );
+  });
+
+  test('nothing configures the record plugin except through the owner', () {
+    // The one audio library that cannot be asked to keep off the session,
+    // because it writes it from the inside: record_ios does its own
+    // setCategory and setActive on every start unless it is told not to,
+    // and record_android takes audio focus for itself. Every recorder in
+    // the app passes its configuration through recordingOn, which is where
+    // that decision is made once.
+    final byThemselves = <String>[];
+    sources.forEach((path, source) {
+      if (path == owner) return;
+      if (!source.contains('AudioRecorder(')) return;
+      if (!source.contains('recordingOn(')) byThemselves.add(path);
+      // And the plugin's own session knobs stay in the owner's hands.
+      for (final knob in <String>['iosConfig:', 'androidConfig:', 'manageAudioSession']) {
+        if (source.contains(knob)) byThemselves.add('$path sets $knob');
+      }
+    });
+    expect(
+      byThemselves,
+      isEmpty,
+      reason: 'These open the microphone without going through recordingOn '
+          'in $owner.',
     );
   });
 

@@ -76,11 +76,20 @@ class _StemPlayerPanelState extends State<StemPlayerPanel> {
   /// over the slider.
   int? _scrubbingMs;
 
+  /// The phone's audio while a stem is sounding.
+  ///
+  /// Taken when a stem starts and let go of when it stops, finishes or the
+  /// panel goes. Without it the owner has no way to know this panel is
+  /// making a sound, and a stem played during a call would be squeezed down
+  /// the voice path -- which is the whole thing PhoneAudio exists to stop.
+  late final AudioHolding _sounds = AudioHolding(phoneAudio, AudioNeed.playing);
+
   @override
   void dispose() {
     unawaited(_positionSubscription?.cancel());
     unawaited(_durationSubscription?.cancel());
     unawaited(_completeSubscription?.cancel());
+    unawaited(_sounds.letGo());
     final player = _player;
     if (player != null) unawaited(player.dispose());
     super.dispose();
@@ -99,6 +108,7 @@ class _StemPlayerPanelState extends State<StemPlayerPanel> {
       setState(() => _duration = duration);
     });
     _completeSubscription = player.onPlayerComplete.listen((_) {
+      unawaited(_sounds.letGo());
       if (!mounted) return;
       setState(() {
         _playing = false;
@@ -131,6 +141,10 @@ class _StemPlayerPanelState extends State<StemPlayerPanel> {
       // re-download every time.
       final path = await widget.ensureLocalStem(stem);
       await player.stop();
+      // Before the source, not after: on Android a player given a context
+      // that differs from the one it was prepared with is stopped and
+      // prepared again, and the seek below would be lost.
+      await _sounds.take();
       await player.setSource(audioSourceFor(path));
       final keepPosition = resumeAt > Duration.zero && resumeAt < _duration;
       if (keepPosition) await player.seek(resumeAt);
@@ -144,6 +158,7 @@ class _StemPlayerPanelState extends State<StemPlayerPanel> {
         });
       }
     } catch (error) {
+      await _sounds.letGo();
       if (mounted) {
         setState(() {
           _loading = null;
@@ -158,8 +173,10 @@ class _StemPlayerPanelState extends State<StemPlayerPanel> {
     if (player == null || _selected == null) return;
     if (_playing) {
       await player.pause();
+      await _sounds.letGo();
       if (mounted) setState(() => _playing = false);
     } else {
+      await _sounds.take();
       await player.resume();
       if (mounted) setState(() => _playing = true);
     }

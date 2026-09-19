@@ -119,24 +119,29 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
     final directory = await getTemporaryDirectory();
     final capturePath = '${directory.path}/latency_capture_$trial.wav';
 
+    // Through the owner, which tells the record plugin to leave the session
+    // alone while a call holds it. See recordingOn.
     await _recorder.start(
-      const RecordConfig(
-        encoder: AudioEncoder.wav,
-        sampleRate: LatencyProbe.sampleRate,
-        numChannels: 1,
-        // All three off, deliberately, and echo cancellation above all.
-        //
-        // Acoustic echo cancellation exists to remove from the microphone
-        // whatever the speaker is playing — which is precisely the signal
-        // this is trying to hear. Left on, the probe would report that no
-        // marker was found, on a device where the measurement was fine.
-        //
-        // The same applies to the real feature: automatic gain and noise
-        // suppression are tuned for speech on calls and audibly wreck music,
-        // pumping on sustained notes and gating quiet passages.
-        echoCancel: false,
-        noiseSuppress: false,
-        autoGain: false,
+      await recordingOn(
+        _recorder,
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: LatencyProbe.sampleRate,
+          numChannels: 1,
+          // All three off, deliberately, and echo cancellation above all.
+          //
+          // Acoustic echo cancellation exists to remove from the microphone
+          // whatever the speaker is playing — which is precisely the signal
+          // this is trying to hear. Left on, the probe would report that no
+          // marker was found, on a device where the measurement was fine.
+          //
+          // The same applies to the real feature: automatic gain and noise
+          // suppression are tuned for speech on calls and audibly wreck
+          // music, pumping on sustained notes and gating quiet passages.
+          echoCancel: false,
+          noiseSuppress: false,
+          autoGain: false,
+        ),
       ),
       path: capturePath,
     );
@@ -202,13 +207,16 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
       final capturePath = '${directory.path}/latency_playalong.wav';
 
       await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.wav,
-          sampleRate: LatencyProbe.sampleRate,
-          numChannels: 1,
-          echoCancel: false,
-          noiseSuppress: false,
-          autoGain: false,
+        await recordingOn(
+          _recorder,
+          const RecordConfig(
+            encoder: AudioEncoder.wav,
+            sampleRate: LatencyProbe.sampleRate,
+            numChannels: 1,
+            echoCancel: false,
+            noiseSuppress: false,
+            autoGain: false,
+          ),
         ),
         path: capturePath,
       );

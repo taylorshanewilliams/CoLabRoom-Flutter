@@ -10,6 +10,9 @@ class _SilentClick implements ClickPlayer {
   final List<String> log = <String>[];
 
   @override
+  Future<void> prepare() async {}
+
+  @override
   Future<void> play({
     required double bpm,
     required int beatsPerBar,

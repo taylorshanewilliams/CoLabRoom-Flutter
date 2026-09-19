@@ -82,7 +82,7 @@ class AudioPlayerOutput implements DroneOutput {
   /// look at it will never turn the drone on.
   AudioPlayer? _player;
   final PhoneAudio _audio;
-  AudioHold? _hold;
+  late final AudioHolding _hold = AudioHolding(_audio, AudioNeed.playing);
   bool _prepared = false;
 
   @override
@@ -92,7 +92,7 @@ class AudioPlayerOutput implements DroneOutput {
     required double volume,
   }) async {
     final player = _player ??= AudioPlayer();
-    _hold ??= await _audio.need(AudioNeed.playing);
+    await _hold.take();
     // Awaited before the first sound rather than applied at construction: a
     // focus request that landed after the source had started would already
     // have taken focus off whatever else was going.
@@ -119,21 +119,13 @@ class AudioPlayerOutput implements DroneOutput {
   @override
   Future<void> stop() async {
     await _player?.stop();
-    await _letGoOfTheAudio();
+    await _hold.letGo();
   }
 
   @override
   Future<void> dispose() async {
-    await _letGoOfTheAudio();
+    await _hold.letGo();
     await _player?.dispose();
-  }
-
-  /// Cleared before the release is awaited, so a stop and a dispose racing
-  /// each other cannot release the same hold twice.
-  Future<void> _letGoOfTheAudio() async {
-    final hold = _hold;
-    _hold = null;
-    await hold?.release();
   }
 }
 
