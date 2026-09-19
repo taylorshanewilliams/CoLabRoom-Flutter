@@ -3,6 +3,7 @@ import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/practice_rules.dart';
+import 'package:colabroom/services/melody_reading.dart';
 import 'package:colabroom/services/number_reading.dart';
 import 'package:colabroom/services/rehearsal_letters.dart';
 import 'package:flutter/material.dart';
@@ -71,6 +72,7 @@ class MusicianChordLyricLine extends StatelessWidget {
     this.active = false,
     this.elapsedMs,
     this.melody,
+    this.spelling,
     this.selectedChordStartMs,
     this.onEditChord,
     this.onAddChord,
@@ -113,6 +115,16 @@ class MusicianChordLyricLine extends StatelessWidget {
   /// every word is a score, and this is a sheet.
   final Melody? melody;
 
+  /// The language this person reads the sung notes in, when it is not
+  /// letters — do-re-mi, fixed do, sargam or jianpu (see MelodySpelling).
+  ///
+  /// It is also what turns the row on away from Perform. A page of notes
+  /// under every word is a score and the sheet deliberately is not one, but
+  /// somebody who has chosen sargam has asked for exactly that page: it is
+  /// off until they do, and it is theirs alone (Every Musician, Same Song,
+  /// 17 September 2026).
+  final MelodySpelling? spelling;
+
   /// Where the song is, for the line being sung.
   ///
   /// Set only on the active line in Perform. With it, and with real word
@@ -146,7 +158,10 @@ class MusicianChordLyricLine extends StatelessWidget {
     final sung = liveMode && active
         ? wordAt(line.wordStartsMs, elapsedMs, words.length)
         : null;
-    final notes = liveMode && active
+    // In Perform, the line being sung and no other. On the sheet, only once
+    // somebody has asked for the notes by choosing a language to read them
+    // in -- see [spelling].
+    final notes = (liveMode && active) || (!liveMode && spelling != null)
         ? notesForWords(
             melody,
             line.wordStartsMs,
@@ -154,6 +169,7 @@ class MusicianChordLyricLine extends StatelessWidget {
             words.length,
             transpose: transpose,
             key: musicalKey,
+            spelling: spelling,
           )
         : const <String?>[];
     return Padding(
@@ -469,9 +485,14 @@ class _ChordWord extends StatelessWidget {
                 child: AnimatedDefaultTextStyle(
                   duration: const Duration(milliseconds: 90),
                   style: TextStyle(
+                    // On paper the row is ink, not a dimmed white: the sheet
+                    // is a cream page, and the live row's white at 42 % was
+                    // invisible on it.
                     color: moment == WordMoment.now
                         ? AppColors.gold
-                        : Colors.white.withValues(alpha: 0.42),
+                        : liveMode
+                            ? Colors.white.withValues(alpha: 0.42)
+                            : const Color(0xFF7A6C5A),
                     fontFamily: 'monospace',
                     fontSize: 9.4 * fontScale,
                     height: 1,

@@ -8,6 +8,7 @@ import '../../services/what_works_here.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../services/horn_reading.dart';
+import '../../services/melody_reading.dart';
 import '../../services/music_reference.dart';
 import '../../services/number_reading.dart';
 import 'guitar_chord_diagram.dart';
@@ -85,6 +86,11 @@ Future<void> showKeyReference(
   ValueChanged<NumberReading>? onNumbers,
   int capo = 0,
   ValueChanged<int>? onCapo,
+  MelodyReading melody = MelodyReading.letters,
+  ValueChanged<MelodyReading>? onMelody,
+  int? sa,
+  ValueChanged<int?>? onSa,
+  bool hasTune = false,
   String? songKey,
   bool overridden = false,
   SayTheKey? onKey,
@@ -103,6 +109,11 @@ Future<void> showKeyReference(
       onNumbers: onNumbers,
       capo: capo,
       onCapo: onCapo,
+      melody: melody,
+      onMelody: onMelody,
+      sa: sa,
+      onSa: onSa,
+      hasTune: hasTune,
       songKey: songKey,
       overridden: overridden,
       onKey: onKey,
@@ -128,6 +139,11 @@ Future<void> showReadingChoice(
   ValueChanged<NumberReading>? onNumbers,
   int capo = 0,
   ValueChanged<int>? onCapo,
+  MelodyReading melody = MelodyReading.letters,
+  ValueChanged<MelodyReading>? onMelody,
+  int? sa,
+  ValueChanged<int?>? onSa,
+  bool hasTune = false,
   String? songKey,
   bool overridden = false,
   SayTheKey? onKey,
@@ -143,15 +159,20 @@ Future<void> showReadingChoice(
       onNumbers: onNumbers,
       capo: capo,
       onCapo: onCapo,
+      melody: melody,
+      onMelody: onMelody,
+      sa: sa,
+      onSa: onSa,
+      hasTune: hasTune,
       songKey: songKey,
       overridden: overridden,
       onKey: onKey,
     );
   }
-  // Numbers, a capo and "where is the 1" are all counted from a key, so on a
-  // song that has none there is nothing for them to say. The instrument row
-  // still works: the chords move whether or not anything can be said about
-  // the key they are in.
+  // Numbers, a capo, the sung notes and "where is the 1" are all counted from
+  // a key, so on a song that has none there is nothing for them to say. The
+  // instrument row still works: the chords move whether or not anything can
+  // be said about the key they are in.
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
@@ -364,6 +385,11 @@ class _KeyReferenceSheet extends StatefulWidget {
     this.onNumbers,
     this.capo = 0,
     this.onCapo,
+    this.melody = MelodyReading.letters,
+    this.onMelody,
+    this.sa,
+    this.onSa,
+    this.hasTune = false,
     this.songKey,
     this.overridden = false,
     this.onKey,
@@ -379,6 +405,19 @@ class _KeyReferenceSheet extends StatefulWidget {
 
   final int capo;
   final ValueChanged<int>? onCapo;
+
+  /// Which language this person reads the sung notes in, and where they
+  /// count them from when it is not the song's key. Personal, like the rest
+  /// of this sheet above the divider.
+  final MelodyReading melody;
+  final ValueChanged<MelodyReading>? onMelody;
+  final int? sa;
+  final ValueChanged<int?>? onSa;
+
+  /// Whether this song has a tune worth reading out at all. False leaves the
+  /// notes row off the sheet: offering a language for notes that were never
+  /// heard is a control that cannot do anything.
+  final bool hasTune;
 
   /// The song's own key, before this person moved anything — the only key
   /// "Set the key" can be about, because that one is the room's and the rest
@@ -399,6 +438,8 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
   late HornReading _reading = widget.reading;
   late NumberReading _numbers = widget.numbers;
   late int _capo = widget.capo;
+  late MelodyReading _melody = widget.melody;
+  late int? _sa = widget.sa;
   late String? _songKey = widget.songKey;
   late bool _overridden = widget.overridden;
 
@@ -452,6 +493,37 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
     if (capo == _capo) return;
     setState(() => _capo = capo);
     widget.onCapo?.call(capo);
+  }
+
+  void _chooseMelody(MelodyReading melody) {
+    if (melody == _melody) return;
+    setState(() => _melody = melody);
+    widget.onMelody?.call(melody);
+  }
+
+  /// The 1 the sung notes are counted from: this person's own, or the song's
+  /// key when they have not picked one.
+  ///
+  /// The song's own key rather than the one they have moved it to, the same
+  /// rule the numbers over the words follow: a tune read as 1 2 3 is read as
+  /// 1 2 3 in every key, which is the whole point of reading it that way.
+  int? get _saPitch => _sa ?? keyRootPitch(_songKey ?? widget.concertKey);
+
+  String get _saLabel {
+    final pitch = _saPitch;
+    if (pitch == null) return 'the song’s key';
+    return _printedKey(_theTwelve[pitch]);
+  }
+
+  /// Where this person counts the notes from. The song's own root is the
+  /// absence of a choice, so tapping it is how somebody hands the row back to
+  /// the song's key rather than a second control for undoing.
+  void _chooseSa(int pitch) {
+    final own = keyRootPitch(_songKey ?? widget.concertKey);
+    final next = pitch == own ? null : pitch;
+    if (next == _sa) return;
+    setState(() => _sa = next);
+    widget.onSa?.call(next);
   }
 
   /// Says where the 1 is. The sheet redraws in the new key straight away, so
@@ -567,6 +639,62 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
                     selected: convention == _numbers.minor,
                     onTap: () =>
                         _chooseNumbers(_numbers.withMinor(convention)),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 14),
+        ],
+        // What the recording sang, for anybody who does not read letters.
+        // Named for what it is and nothing more: this is pyin over a
+        // separated vocal, which rounds an ornament away and has never heard
+        // a gamaka, so the row says what was heard and claims nothing about
+        // what the song is (Every Musician, Same Song, 17 September 2026).
+        // Off the sheet entirely on a song with no tune in it.
+        if (widget.onMelody != null && widget.hasTune) ...<Widget>[
+          _Section(
+            heading: 'The notes it heard',
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final melody in MelodyReading.values)
+                  _PickerChip(
+                    label: melody.label,
+                    itemKey: Key('read_notes_${melody.name}'),
+                    selected: melody == _melody,
+                    onTap: () => _chooseMelody(melody),
+                  ),
+              ],
+            ),
+          ),
+          // Only once somebody is reading the notes from the 1, because
+          // until then there is no 1 in play. Fixed do names the sounding
+          // pitch and counts from nothing.
+          if (_melody.countsFromTheOne && widget.onSa != null) ...<Widget>[
+            const SizedBox(height: 10),
+            Text(
+              _melody == MelodyReading.sargam
+                  ? 'Sa is $_saLabel. Pick another and only your notes move.'
+                  : 'The 1 is $_saLabel. Pick another and only your notes '
+                      'move.',
+              style: const TextStyle(
+                  color: AppColors.muted, fontSize: 12.5, height: 1.45),
+            ),
+            const SizedBox(height: 9),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final root in _theTwelve)
+                  _PickerChip(
+                    label: _printedKey(root),
+                    itemKey: Key('sa_is_$root'),
+                    selected: pitchOf(root) == _saPitch,
+                    onTap: () {
+                      final pitch = pitchOf(root);
+                      if (pitch != null) _chooseSa(pitch);
+                    },
                   ),
               ],
             ),

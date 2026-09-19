@@ -246,6 +246,30 @@ class Melody {
 
   bool get isEmpty => notes.isEmpty;
 
+  /// How much of the stem has to have been sung before the notes are worth
+  /// reading out under the words.
+  ///
+  /// A sixth of it. Demucs hands back a vocal stem for every song, including
+  /// one nobody ever sang on, and pyin will happily find pitches in whatever
+  /// is left in it -- a guitar bleeding through, a synth pad -- so a row of
+  /// notes drawn off a stem that is barely voiced names notes nobody sang. A
+  /// song that really is sung clears this easily: a long instrumental intro,
+  /// a solo and an outro together still leave well over a sixth of the stem
+  /// voiced. A sixth is low enough to keep a mostly instrumental song with
+  /// one sung verse, and high enough that an instrumental does not get a row
+  /// of invented syllables (Every Musician, Same Song, 17 September 2026).
+  static const double readableVoicedRatio = 0.15;
+
+  /// Whether this tune is worth reading out note by note.
+  ///
+  /// An analysis from before the worker measured the voicing says nothing
+  /// either way, and it is left as it was rather than hidden on a guess: the
+  /// notes under the words on those songs are what the app has always drawn,
+  /// and taking them away on no evidence would be inventing a fact in the
+  /// other direction.
+  bool get worthReading =>
+      !isEmpty && (voicedRatio == null || voicedRatio! >= readableVoicedRatio);
+
   /// "E3 – A4", or null when there is no range to speak of.
   String? get rangeLabel {
     final low = lowMidi;

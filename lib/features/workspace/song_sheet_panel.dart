@@ -16,6 +16,7 @@ import 'package:colabroom/features/workspace/sung_and_written_sheet.dart';
 import 'package:colabroom/services/chord_chart.dart';
 import 'package:colabroom/services/chord_repeats.dart';
 import 'package:colabroom/services/horn_reading.dart';
+import 'package:colabroom/services/melody_reading.dart';
 import 'package:colabroom/services/number_reading.dart';
 import 'package:colabroom/services/rehearsal_letters.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
@@ -111,6 +112,13 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   /// from (see SongNumbersStore and MinorNumbersStore).
   NumberReading _numbers = NumberReading.letters;
   bool _numbersTouched = false;
+
+  /// Which language this person reads the sung notes in, and the 1 they count
+  /// them from when it is not the song's key (see MelodyReadingStore and
+  /// MelodySaStore). Personal, like every other reading here.
+  MelodyReading _melodyReading = MelodyReading.letters;
+  int? _sa;
+  bool _melodyTouched = false;
   double _fontScale = 1;
   bool _showChords = true;
   bool _editingChords = false;
@@ -169,6 +177,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     unawaited(_loadReading());
     unawaited(_loadCapo());
     unawaited(_loadNumbers());
+    unawaited(_loadMelody());
   }
 
   @override
@@ -208,10 +217,14 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       _capoTouched = false;
       _numbers = NumberReading.letters;
       _numbersTouched = false;
+      _melodyReading = MelodyReading.letters;
+      _sa = null;
+      _melodyTouched = false;
       unawaited(_loadTranspose());
       unawaited(_loadReading());
       unawaited(_loadCapo());
       unawaited(_loadNumbers());
+      unawaited(_loadMelody());
     }
   }
 
@@ -245,6 +258,19 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     if (kept != _numbers) setState(() => _numbers = kept);
   }
 
+  Future<void> _loadMelody() async {
+    final projectId = widget.project.id;
+    final reading = await MelodyReadingStore.load(projectId);
+    final sa = await MelodySaStore.load(projectId);
+    if (!mounted || _melodyTouched || widget.project.id != projectId) return;
+    if (reading != _melodyReading || sa != _sa) {
+      setState(() {
+        _melodyReading = reading;
+        _sa = sa;
+      });
+    }
+  }
+
   void _chooseReading(HornReading reading) {
     setState(() {
       _readingTouched = true;
@@ -270,6 +296,22 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     // The convention is not per song -- somebody who reads 6- reads 6-
     // everywhere -- so it is saved once and read back on every song.
     unawaited(MinorNumbersStore.save(numbers.minor));
+  }
+
+  void _chooseMelodyReading(MelodyReading reading) {
+    setState(() {
+      _melodyTouched = true;
+      _melodyReading = reading;
+    });
+    unawaited(MelodyReadingStore.save(widget.project.id, reading));
+  }
+
+  void _chooseSa(int? sa) {
+    setState(() {
+      _melodyTouched = true;
+      _sa = sa;
+    });
+    unawaited(MelodySaStore.save(widget.project.id, sa));
   }
 
   /// Where the 1 is, said to the room.
@@ -374,11 +416,19 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       onNumbers: _chooseNumbers,
       capo: _shownCapo,
       onCapo: _chooseCapo,
+      melody: _shownMelodyReading,
+      onMelody: _chooseMelodyReading,
+      sa: _sa,
+      onSa: _chooseSa,
+      hasTune: _melody?.worthReading ?? false,
       songKey: key,
       overridden: _keyOverridden,
       onKey: widget.onSetKey == null ? null : _sayTheKey,
     ));
   }
+
+  /// The tune the recording sang, when it heard one.
+  Melody? get _melody => _bundle.reference?.melody;
 
   void _shiftTranspose(int delta) {
     final next = (_transpose + delta)
@@ -415,6 +465,26 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
 
   NumberReading get _shownNumbers =>
       _editingChords ? NumberReading.letters : _numbers;
+
+  /// The same rule for the sung notes: while chords are being corrected the
+  /// page is what is stored, and a row of syllables under the words is one
+  /// more thing between the person and the chord they came to fix.
+  MelodyReading get _shownMelodyReading =>
+      _editingChords ? MelodyReading.letters : _melodyReading;
+
+  /// How the sung notes are read on this page, or null for letters — which
+  /// is the sheet with no note row on it at all, the way it has always been.
+  MelodySpelling? get _spelling => MelodySpelling.forSong(
+        reading: _shownMelodyReading,
+        melody: _melody,
+        key: _songKey,
+        // A reading counted from the 1 ignores this; fixed do names the
+        // sounding pitch, which is the singer's own key with their
+        // instrument's part on top of it. Not the capo: a capo moves the
+        // hand and not the voice.
+        transpose: _shownTranspose + _shownReading.semitones,
+        sa: _sa,
+      );
 
   void _toggleChordEditing() {
     setState(() {
@@ -860,6 +930,16 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
         : capo > 0 && _view == SongSheetView.chart && songKey != null
             ? capoLine(songKey, capo: capo, transpose: transpose)
             : null;
+    final spelling = _view == SongSheetView.sheet ? _spelling : null;
+    // The row of syllables under the words says what it is, once, where the
+    // rest of the reading is already named. "The notes it heard": pyin over a
+    // separated vocal, not a score somebody wrote. No accuracy figure and no
+    // "this may not fit" — the sentence is the honesty (Every Musician, Same
+    // Song, 17 September 2026).
+    final melodyLine = spelling == null
+        ? null
+        : 'The notes it heard, in '
+            '${_shownMelodyReading.label.toLowerCase()}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -911,6 +991,18 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
                               if (readingLine != null)
                                 Text(
                                   readingLine,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: AppColors.muted,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              if (melodyLine != null)
+                                Text(
+                                  melodyLine,
+                                  key: const Key('song_sheet_melody_row'),
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
                                     color: AppColors.muted,
@@ -1144,6 +1236,12 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             onNumbers: _editingChords ? null : _chooseNumbers,
             capo: capo,
             onCapo: _editingChords ? null : _chooseCapo,
+            melody: _melody,
+            melodyReading: _shownMelodyReading,
+            onMelodyReading: _editingChords ? null : _chooseMelodyReading,
+            sa: _sa,
+            onSa: _editingChords ? null : _chooseSa,
+            spelling: spelling,
             keyOverridden: _keyOverridden,
             onKey: _editingChords || widget.onSetKey == null
                 ? null

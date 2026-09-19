@@ -478,8 +478,8 @@ String keyAsPlayed(String key, int transpose) {
 /// the chords nine semitones away, so the same root in the other mode moves
 /// nothing either.
 int semitonesBetweenKeys(String? from, String? to) {
-  final pa = _keyRootPitch(from);
-  final pb = _keyRootPitch(to);
+  final pa = keyRootPitch(from);
+  final pb = keyRootPitch(to);
   if (pa == null || pb == null) return 0;
   final fromMinor = keyIsMinor(from);
   final toMinor = keyIsMinor(to);
@@ -487,12 +487,6 @@ int semitonesBetweenKeys(String? from, String? to) {
   final fromMajor = fromMinor ? pa + 3 : pa;
   final toMajor = toMinor ? pb + 3 : pb;
   return ((toMajor - fromMajor) % 12 + 12) % 12;
-}
-
-int? _keyRootPitch(String? key) {
-  if (key == null) return null;
-  final root = RegExp(r'^([A-G][#b]?)').firstMatch(key.trim())?.group(1);
-  return root == null ? null : pitchOf(root);
 }
 
 /// A chord as this person is reading it: letters in their key, or the number
