@@ -33,6 +33,7 @@ import '../../services/song_layer_service.dart';
 import '../../services/spoken_note_recorder.dart';
 import '../../services/take_export.dart';
 import '../../services/take_naming.dart';
+import '../../services/take_recorder.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
 import '../../widgets/text_measures.dart';
@@ -43,6 +44,7 @@ import 'song_level_store.dart';
 import 'layer_group.dart';
 import 'sealing_a_take.dart';
 import 'sending_a_take.dart';
+import 'spent_audio.dart';
 import 'take_count_in.dart';
 import 'take_lane.dart';
 import 'take_prompt.dart';
@@ -77,6 +79,7 @@ class SongLayersScreen extends StatefulWidget {
     this.layerService,
     this.analysisService,
     this.spokenNoteRecorder,
+    this.takeRecorder,
     this.embedded = false,
     this.onClose,
     this.openNote,
@@ -135,6 +138,11 @@ class SongLayersScreen extends StatefulWidget {
   /// tests for the same reason as the two above.
   final SpokenNoteRecorder? spokenNoteRecorder;
 
+  /// The microphone a take is recorded with. Substituted in tests for the
+  /// same reason again: what this screen has to do when a recording fails
+  /// part-way can only be tested by a microphone that fails on request.
+  final TakeRecorder? takeRecorder;
+
   /// Needed for the storage path, which is {room}/{project}/layers/{id} —
   /// the same shape every other object in this app uses, and the shape the
   /// storage policies are written against.
@@ -171,8 +179,23 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// eventually will not be.
   ReferenceTrack? _reference;
   String? _referencePath;
-  final AudioRecorder _recorder = AudioRecorder();
+  late final TakeRecorder _recorder = widget.takeRecorder ?? TakeRecorder();
   final AudioPlayer _player = AudioPlayer();
+
+  /// The file the microphone is writing to, from the press on Record until
+  /// the take is stopped or given up on. Null the rest of the time.
+  ///
+  /// Kept because a recording that never became a take has to be cleaned up
+  /// after: the sweep must leave it alone while it is being written, and
+  /// whatever is left of it goes when the recording fails or the screen does.
+  String? _recordingPath;
+
+  /// The take [_stop] is holding: recorded, and on its way to the room.
+  ///
+  /// Never deleted from anywhere but the upload itself, which deletes it once
+  /// it is safely up. Until then it is the only copy of something somebody
+  /// played, and this screen's own housekeeping must not be what loses it.
+  String? _savingPath;
 
   /// The microphone for a note said rather than typed (0152), and what is
   /// known about the hold while it lasts.
@@ -457,9 +480,22 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     unawaited(_positionSub?.cancel());
     unawaited(_durationSub?.cancel());
     unawaited(_voiceDone?.cancel());
+    // A recording still running when this screen goes away is given up on
+    // rather than left behind. Backing out during the count, or in the middle
+    // of a take, used to leave both the microphone running and a new_… file
+    // on the phone that nothing would ever delete. A take already on its way
+    // to the room is untouched by this.
+    unawaited(_letGoOfTheRecording());
     unawaited(_recorder.dispose());
     unawaited(_mic.dispose());
-    unawaited(_player.dispose());
+    // Silenced the way the count's click is on the way out of a failed
+    // recording, and for the same reason. A player that never opened -- no
+    // audio behind the channel, which is a widget test and is also a browser
+    // tab that has lost its audio context -- throws from dispose(), and this
+    // is the last line that will ever hold that future: the throw becomes an
+    // error with nobody left to catch it, out of a screen that is already
+    // gone.
+    unawaited(_player.dispose().catchError((Object _) {}));
     unawaited(_countClick?.dispose());
     unawaited(_voice?.dispose());
     _hushTurns.dispose();
@@ -845,50 +881,74 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   static int _mixSequence = 0;
   String? _lastMixPath;
 
-  bool _sweptOldMixes = false;
+  bool _sweptSpentAudio = false;
+
+  /// Every take on its way to the room, from any visit to this screen.
+  ///
+  /// Static for the reason [_mixSequence] is, and for a sharper one. A take
+  /// deliberately outlives the screen it was played on: _stop does not stop
+  /// because a widget went away, because a take somebody has played is the
+  /// most expensive thing this feature can lose. So leaving Takes the instant
+  /// Stop is pressed and walking straight back in gives two screens at once --
+  /// the old one still reading the file, the new one sweeping the directory.
+  /// A field on the state would make the new screen's set empty, and its
+  /// first mix would delete the take out from under the upload.
+  ///
+  /// Added in _stop before the recorder is even asked to stop, and removed in
+  /// its finally.
+  static final Set<String> _takesInFlight = <String>{};
 
   /// [kind] names what the file is. Then and now writes
-  /// `_mix_then_and_now_…`, which keeps the `_mix_` prefix _sweepOldMixes
+  /// `_mix_then_and_now_…`, which keeps the `_mix_` prefix [isSpentAudio]
   /// looks for, so a passage left behind by an earlier visit goes with the
   /// mixes.
-  Future<String> _nextMixPath({String kind = 'mix'}) async {
-    final root = await getApplicationDocumentsDirectory();
-    final dir = Directory('${root.path}/layers/${widget.projectId}');
-    if (!await dir.exists()) await dir.create(recursive: true);
-    if (!_sweptOldMixes) {
-      _sweptOldMixes = true;
-      await _sweepOldMixes(dir);
-    }
-    _mixSequence += 1;
-    final stamp = DateTime.now().microsecondsSinceEpoch;
-    return '${dir.path}/_${kind}_${stamp}_$_mixSequence.wav';
-  }
-
-  /// Mixes left behind by earlier visits, which nothing will ever play again.
   ///
-  /// Unique filenames stop the cache going stale and start the directory
-  /// filling up instead; one of those is a bug and the other is housekeeping.
+  /// The first one of these each visit sweeps up what earlier visits left in
+  /// the directory: their mixes, and any recording that never became a take.
+  /// Unique filenames stop the player's cache going stale and start the
+  /// directory filling up instead; one of those is a bug and the other is
+  /// housekeeping. See spent_audio.dart, which is where the sweep and the
+  /// names it knows about live so that a test can reach them.
   ///
-  /// Done from here rather than from _load on purpose. Loading the list of
+  /// Swept from here rather than from _load on purpose. Loading the list of
   /// takes must not depend on a plugin: the widget tests build this screen
   /// with no platform channels behind it precisely so that a screen which
   /// cannot finish loading is caught in a second rather than on a phone, and
   /// a path_provider call on that path leaves the progress ring turning
   /// forever — which is the exact bug those tests exist to catch, reached by
   /// a new route. Nothing needs a directory until there is a mix to write.
-  Future<void> _sweepOldMixes(Directory dir) async {
-    try {
-      await for (final entry in dir.list()) {
-        if (entry is! File) continue;
-        final name = entry.uri.pathSegments.last;
-        if (!name.startsWith('_mix_') || !name.endsWith('.wav')) continue;
-        if (entry.path == _lastMixPath) continue;
-        await entry.delete();
-      }
-    } catch (_) {
-      // Clutter, not a failure worth showing anybody.
+  Future<String> _nextMixPath({String kind = 'mix'}) async {
+    final root = await getApplicationDocumentsDirectory();
+    final dir = Directory('${root.path}/layers/${widget.projectId}');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    if (!_sweptSpentAudio) {
+      _sweptSpentAudio = true;
+      await sweepSpentAudio(dir, inUse: () => _audioInUse);
     }
+    _mixSequence += 1;
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    return '${dir.path}/_${kind}_${stamp}_$_mixSequence.wav';
   }
+
+  /// Everything in this song's directory that something is still holding, so
+  /// that the sweep of earlier visits' leftovers cannot take it.
+  ///
+  /// The two recordings are the ones that matter. A sweep runs at the first
+  /// mix this visit writes, which can be a mute pressed while the microphone
+  /// is running or a rebuild while a take is still going up.
+  ///
+  /// [_takesInFlight] is in here as well as [_savingPath] because an upload
+  /// belonging to an earlier visit is not on this state at all.
+  Set<String> get _audioInUse => <String>{
+        for (final path in <String?>[
+          _lastMixPath,
+          _lastThenAndNowPath,
+          _recordingPath,
+          _savingPath,
+        ])
+          if (path != null) path,
+        ..._takesInFlight,
+      };
 
   /// Whether what is about to play is a click on its own, and so should loop.
   bool _loopingClick = false;
@@ -1555,6 +1615,11 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         // it has always been.
         await _readyTheCount(countIn);
       }
+      // Written down before the microphone opens, so that whatever happens
+      // next there is a name for what has to be cleaned up: the sweep leaves
+      // it alone while it is being written, and _letGoOfTheRecording deletes
+      // it if this recording never becomes a take.
+      _recordingPath = path;
       await _recorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
@@ -1570,6 +1635,20 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         ),
         path: path,
       );
+      // The screen went away while the microphone was opening.
+      //
+      // Getting here at all takes a back press during _rebuildMix or the
+      // count, both of which are seconds long on a song with takes under it.
+      // dispose() ran before this line: it found _recordingPath still null,
+      // so it had nothing to give up on, and the recorder it disposed is not
+      // the one now running. Nothing below would stop it either -- the count
+      // is not involved on this path, and the failure handler only runs on a
+      // throw. Given up on here instead, or the microphone stays open,
+      // writing a file nobody will ever hear, until the process dies.
+      if (!mounted) {
+        await _letGoOfTheRecording();
+        return;
+      }
       _backingWasPlaying = hasBacking && _lastMixPath != null;
       if (_backingWasPlaying) {
         // The recorder gets a head start before anything plays.
@@ -1593,12 +1672,25 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         if (countIn == null) {
           await _playMix(from: _punchInAt);
         } else if (!await _countInAndComeIn(countIn)) {
-          // The screen went away during the bar, and took the recorder with
-          // it. Nobody is left to bring a song in for.
+          // The screen went away during the bar. Nobody is left to bring a
+          // song in for -- and the microphone has been running since before
+          // the count, so it is let go of here rather than left open. This
+          // used to say the screen "took the recorder with it", which was
+          // true of a recorder built in a field initialiser and is not true
+          // of one built on use: dispose() had nothing to dispose yet.
+          // A no-op when dispose already gave up on this recording.
+          await _letGoOfTheRecording();
           return;
         }
       }
 
+      // Same again after the count and the song coming in, either of which
+      // can be the second somebody leaves. A periodic timer started on a
+      // screen that has gone is one nothing will ever cancel.
+      if (!mounted) {
+        await _letGoOfTheRecording();
+        return;
+      }
       _elapsed = Duration.zero;
       _timer = Timer.periodic(const Duration(milliseconds: 200), (_) {
         if (mounted) setState(() => _elapsed += const Duration(milliseconds: 200));
@@ -1625,6 +1717,15 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // recorder that is already gone -- and stopping a disposed player
       // would then raise a second error with nobody left to catch it.
       unawaited(_countClick?.stop().catchError((Object _) {}));
+      // And the microphone, which this used to leave running.
+      //
+      // Only the count was stopped here, so anything that threw after
+      // start() -- the song failing to come in, the count failing to hand
+      // over -- left the recorder on the microphone, filling a file nothing
+      // would ever play. The next press on Record then opened a second
+      // recorder beside the first. Awaited before _busy is cleared, because
+      // _busy is the only thing holding that second press back.
+      await _letGoOfTheRecording();
       if (mounted) {
         setState(() {
           _error = reportAndDescribe(error, service: 'layers', route: 'Takes');
@@ -1632,6 +1733,35 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           _countingIn = null;
         });
       }
+    }
+  }
+
+  /// Gives up on a recording that never became a take: the microphone is let
+  /// go of, and whatever was written is deleted.
+  ///
+  /// Called when the recording fails and when the screen goes away with one
+  /// still running. Never called for a take that is on its way to the room --
+  /// that one is [_savingPath], and the upload deletes it itself once it is
+  /// safely up.
+  Future<void> _letGoOfTheRecording() async {
+    final orphan = _recordingPath;
+    // Nothing was ever opened: the failure came before the microphone did.
+    if (orphan == null) return;
+    _recordingPath = null;
+    try {
+      // cancel() rather than stop(): it stops the recorder and discards what
+      // it wrote, which is the whole of what is wanted here.
+      await _recorder.cancel();
+    } catch (_) {
+      // Already gone -- disposed with the screen, or never really started.
+      // There is no microphone left to let go of either way.
+    }
+    try {
+      final file = File(orphan);
+      if (await file.exists()) await file.delete();
+    } catch (_) {
+      // An orphan in the app's own directory, not a failure worth a sentence.
+      // The next visit's sweep takes it.
     }
   }
 
@@ -1723,6 +1853,22 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   Future<void> _stop() async {
     if (!_recording) return;
     _timer?.cancel();
+    // From this press the file is a take on its way to the room rather than a
+    // recording in progress. Handed over here, before the recorder is even
+    // asked to stop, because leaving the screen in that second would
+    // otherwise find a recording in progress and delete it -- and a take
+    // somebody has played is the most expensive thing this feature can lose.
+    // Held here as well as on the state, and removed in the finally below.
+    // The set is static and this list is what this particular take put in it,
+    // so two takes going up at once cannot clear each other's entries.
+    final handedToTheUpload = <String>{};
+    _savingPath = _recordingPath;
+    _recordingPath = null;
+    final saving = _savingPath;
+    if (saving != null) {
+      handedToTheUpload.add(saving);
+      _takesInFlight.add(saving);
+    }
     setState(() {
       _busy = true;
       _recording = false;
@@ -1731,6 +1877,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     });
     try {
       final path = await _recorder.stop();
+      // The recorder's own answer, which is the file it really wrote.
+      if (path != null) {
+        _savingPath = path;
+        handedToTheUpload.add(path);
+        _takesInFlight.add(path);
+      }
       await _player.stop();
 
       // Every way this can end without a take now says so.
@@ -1941,6 +2093,11 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     } finally {
       // Whatever happened, the turn is no longer being recorded.
       _turnFor = null;
+      // And the take is no longer in flight. A take that failed on the way up
+      // is deliberately left on the phone -- the sentence above says so -- and
+      // the next visit's sweep is what eventually takes it.
+      _savingPath = null;
+      _takesInFlight.removeAll(handedToTheUpload);
       if (mounted) {
         setState(() {
           _busy = false;
