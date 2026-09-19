@@ -1,0 +1,9 @@
+# Painted things these screens say nothing about: a CustomPaint, an Image or
+# an icon-only control with no label, hint or value, and no declaration that
+# it is decoration. One line per screen and thing. WCAG 2.1 SC 1.1.1 (A).
+#
+# Empty is the state to keep it in. Adding a line is how a drawing ships
+# silent, so a line appearing here has to be argued for in the pull request.
+#
+# Re-record rather than hand-editing:
+#   UPDATE_SILENT_PAINT=1 flutter test test/nothing_new_says_nothing_test.dart
