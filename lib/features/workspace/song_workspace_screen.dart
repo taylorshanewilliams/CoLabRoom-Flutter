@@ -3094,7 +3094,16 @@ class _RoomMark extends StatelessWidget {
       ),
       child: bytes == null
           ? null
-          : Image.memory(bytes, fit: BoxFit.cover, width: size, height: size),
+          // The room's name is read out on the next line of this same header,
+          // so a screen reader that announced the logo as well would say the
+          // room twice — and with nothing to say about the picture, it said
+          // "image" and stopped. Declared decoration instead. Every Musician,
+          // Same Song, 17 September 2026: nothing painted ships silent.
+          : Image.memory(bytes,
+              fit: BoxFit.cover,
+              width: size,
+              height: size,
+              excludeFromSemantics: true),
     );
   }
 }
