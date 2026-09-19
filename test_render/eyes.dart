@@ -50,26 +50,41 @@ class Device {
 
 /// The screens this app is judged at.
 ///
-/// Two phones because that is where the users are, and three wider ones
-/// because that is where every recent complaint has been and where the
-/// existing suite has never once looked: it runs at 360x690 and 390x844 and
-/// nothing else, so a desk layout could be anything at all and pass.
+/// Phones because that is where the users are, three of them with the text
+/// turned up because that is who this is for, and the wider ones because that
+/// is where every recent complaint has been and where the existing suite has
+/// never once looked: it runs at 360x690 and 390x844 and nothing else, so a
+/// desk layout could be anything at all and pass.
 const List<Device> kDevices = <Device>[
   Device('Small phone', Size(360, 690)),
   Device('iPhone', Size(390, 844)),
   // A size a lot of people over fifty are already reading at.
   Device('iPhone at 1.3x text', Size(390, 844), textScale: 1.3),
-  // The largest text this app can now be asked to draw.
+  // Large text, and then the largest text this app can be asked to draw.
   //
   // Every Musician, Same Song, 17 September 2026: the phone's own text size is
   // honoured, never clamped. ColabRoomApp used to hold the system scale down
-  // to 1.3, so this device could not exist; iOS's largest accessibility size
-  // is a little over 2x, so that is where the app is judged. A screen that
-  // overflows here is a screen a partially sighted musician cannot read, and
-  // it is what ADA Title II and WCAG 2.1 AA ask about first.
+  // to 1.3, so neither of these could exist.
+  //
+  // 3.12 and not "a little over 2x": iOS's five accessibility sizes reach
+  // Flutter as 1.64, 1.94, 2.35, 2.76 and 3.12, so judging the app at 2.0 left
+  // three real settings above the top of the range — and the first strip on
+  // the landing tab ran off the bottom at 2.35 while 2.0 looked clean. 2.0
+  // stays as well: it is the size most of this work was drawn against, and a
+  // regression there is worth seeing on its own.
+  //
+  // A screen that overflows on either is a screen a partially sighted
+  // musician cannot read, and it is what ADA Title II and WCAG 2.1 AA ask
+  // about first.
   Device('iPhone at 2x text', Size(390, 844), textScale: 2.0),
+  Device('iPhone at 3.12x text', Size(390, 844), textScale: 3.12),
   Device('Tablet', Size(834, 1112)),
   Device('Laptop', Size(1440, 900)),
+  // A desk with the text turned up, which nothing here had ever looked at:
+  // every large-text device was a phone, so a header that clips four pixels
+  // off a room's name on a laptop at 1.3 went unreported for as long as it
+  // has existed.
+  Device('Laptop at 1.3x text', Size(1440, 900), textScale: 1.3),
   Device('Desk', Size(1920, 1080)),
 ];
 

@@ -8,6 +8,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../services/now_playing.dart';
 import '../../widgets/player_face.dart';
+import '../../widgets/text_measures.dart';
 
 /// Everything that wants something from you, as a row of title cards.
 ///
@@ -304,6 +305,48 @@ class WaitingOnYou extends StatefulWidget {
   /// phone and a short window always are.
   static const double shortScreen = 620;
 
+  /// How tall a card has to be for everything on it to fit, at the text size
+  /// this phone is set to.
+  ///
+  /// A sideways list is the one layout Flutter will not size for itself, so
+  /// the height is measured here rather than guessed at — the same way the
+  /// Open Mic strip and the people strip do it now that the reader's own text
+  /// size is honoured (Every Musician, Same Song, 17 September 2026).
+  ///
+  /// This used to be [rowHeight] times the scale clamped at 1.45, on the
+  /// grounds that past that a card stops being a glance. The text went on
+  /// growing regardless: at iOS's third-largest accessibility size (which
+  /// reaches Flutter as 2.35) the card ran off the bottom by 20 pixels and at
+  /// its largest (3.12) by 88, and what went was the row holding Record and
+  /// See. A ceiling on the height is a ceiling on the card's contents, so the
+  /// limit belongs on the number of lines instead — the title and the line
+  /// under it are each already held to two, and that is what keeps this from
+  /// growing without end.
+  ///
+  /// The sum is the card in [_WaitingCard.build] read top to bottom. At 1x it
+  /// lands a pixel under [rowHeight], and a pixel under [denseRowHeight] when
+  /// dense — which is where both of those numbers came from — so the floor is
+  /// what answers and the strip is exactly the height it has always been for
+  /// anybody who has not changed their text size. Above 1x the measurement
+  /// answers and the strip grows with the words.
+  static double cardHeight(BuildContext context, {required bool dense}) {
+    final measured = _WaitingCard.padding.vertical +
+        _WaitingCard.borderWidth * 2 +
+        // The face and the air under it: not text, and a dense card has
+        // neither.
+        (dense ? 0 : _WaitingCard.faceSize + 6) +
+        linesOfTextHigh(context, _WaitingCard.eyebrowStyle) +
+        2 +
+        linesOfTextHigh(context, _WaitingCard.titleStyle, lines: 2) +
+        // Where and when, which the dense card drops along with the face.
+        (dense
+            ? 0
+            : 2 + linesOfTextHigh(context, _WaitingCard.underStyle, lines: 2)) +
+        8 +
+        _WaitingCard.actionHeight(context);
+    return math.max(dense ? denseRowHeight : rowHeight, measured);
+  }
+
   /// How wide each card is, given the room the row has.
   static double cardWidth(double available) => math.max(
         cardMin,
@@ -387,16 +430,11 @@ class _WaitingOnYouState extends State<WaitingOnYou> {
     final items = _visible;
     if (items.isEmpty) return const SizedBox.shrink();
 
-    // The row is a fixed height so that it can scroll sideways at all, so the
-    // height follows the text rather than ignoring it. Clamped, because past
-    // about 1.45 a card stops being a glance and becomes a screen, and at
-    // that point an ellipsis is kinder than a taller strip.
-    final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+    // The row has to be given a height before it can scroll sideways at all,
+    // so the height is measured off the card. See [WaitingOnYou.cardHeight].
     final dense =
         MediaQuery.sizeOf(context).height < WaitingOnYou.shortScreen;
-    final height =
-        (dense ? WaitingOnYou.denseRowHeight : WaitingOnYou.rowHeight) *
-            scale.clamp(1.0, 1.45);
+    final height = WaitingOnYou.cardHeight(context, dense: dense);
 
     return Column(
       key: const Key('waiting_on_you'),
@@ -524,6 +562,62 @@ class _WaitingCard extends StatelessWidget {
   /// read, which is the wrong trade on the screen that has the least room.
   final bool dense;
 
+  /// The card's own inset, and the face at the top of it.
+  ///
+  /// Named rather than written twice, because [WaitingOnYou.cardHeight] adds
+  /// them up to work out how tall the row has to be: a number that lives in
+  /// two places is a strip that overflows the day somebody changes one of
+  /// them.
+  static const EdgeInsets padding = EdgeInsets.fromLTRB(11, 10, 11, 10);
+  static const double faceSize = 20;
+
+  /// The line around the card, which is inside its height and cost two
+  /// pixels of the contents until it was counted here.
+  static const double borderWidth = 1;
+
+  /// What kind of thing this is, then what it is, then where and when.
+  ///
+  /// Here for the same reason as [padding]: the height of the row is measured
+  /// from these styles, so the card and the measurement cannot drift apart.
+  /// The colour is the only thing a card changes.
+  static const TextStyle eyebrowStyle = TextStyle(
+    fontSize: 9.5,
+    fontWeight: FontWeight.w800,
+    letterSpacing: 0.5,
+  );
+  static const TextStyle titleStyle = TextStyle(
+    color: AppColors.text,
+    fontSize: 13.5,
+    fontWeight: FontWeight.w700,
+    height: 1.2,
+  );
+  static const TextStyle underStyle = TextStyle(
+    color: AppColors.muted,
+    fontSize: 10.5,
+    height: 1.2,
+  );
+
+  /// The one verb, and how tall its button ends up.
+  static const TextStyle actionStyle = TextStyle(
+    fontSize: 12.5,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// How tall the button at the foot of the card is.
+  ///
+  /// 40 at rest — the tap target a Material button of this density gets, and
+  /// more than its label needs until about twice normal text. Above that the
+  /// label decides, and a button is a pixel or two taller than the line it
+  /// holds. Measured against the real thing rather than worked out from the
+  /// theme: the two pixels are Material's own rounding and there is nowhere
+  /// honest to read them from.
+  static const double restingActionHeight = 40;
+
+  static double actionHeight(BuildContext context) => math.max(
+        restingActionHeight,
+        linesOfTextHigh(context, actionStyle) + 2,
+      );
+
   /// Said the way somebody would say it, not in units.
   ///
   /// "Overnight" is the one worth having. It is the whole promise of an app
@@ -572,12 +666,13 @@ class _WaitingCard extends StatelessWidget {
               color: item.isNews
                   ? item.tint.withValues(alpha: 0.34)
                   : AppColors.line,
+              width: borderWidth,
             ),
           ),
           child: Stack(
             children: <Widget>[
               Padding(
-                padding: const EdgeInsets.fromLTRB(11, 10, 11, 10),
+                padding: padding,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
@@ -602,12 +697,12 @@ class _WaitingCard extends StatelessWidget {
                         name: item.who!,
                         color: item.tint,
                         photo: controller.avatarBytesFor(item.whoAvatarPath),
-                        size: 20,
+                        size: faceSize,
                       )
                     else
                       Container(
-                        width: 20,
-                        height: 20,
+                        width: faceSize,
+                        height: faceSize,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: item.tint.withValues(alpha: 0.13),
@@ -620,24 +715,14 @@ class _WaitingCard extends StatelessWidget {
                       item.eyebrow ?? item.defaultEyebrow,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: item.tint,
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.5,
-                      ),
+                      style: eyebrowStyle.copyWith(color: item.tint),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       item.line,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.text,
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w700,
-                        height: 1.2,
-                      ),
+                      style: titleStyle,
                     ),
                     if (sub != null && !dense)
                       Padding(
@@ -646,11 +731,7 @@ class _WaitingCard extends StatelessWidget {
                           sub,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 10.5,
-                            height: 1.2,
-                          ),
+                          style: underStyle,
                         ),
                       ),
                     const Spacer(),
@@ -704,7 +785,7 @@ class _CardAction extends StatelessWidget {
       item.actionLabel,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800),
+      style: _WaitingCard.actionStyle,
     );
     final size = Size.fromHeight(dense ? 28 : 30);
 
@@ -779,7 +860,7 @@ class _PlayButton extends StatelessWidget {
             playing ? 'Playing' : 'Hear it',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800),
+            style: _WaitingCard.actionStyle,
           ),
           style: FilledButton.styleFrom(
             backgroundColor: AppColors.cyan,

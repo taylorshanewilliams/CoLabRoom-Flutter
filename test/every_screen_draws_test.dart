@@ -4,6 +4,7 @@ import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/features/openmic/open_mic_song_screen.dart';
 import 'package:colabroom/features/workspace/song_analysis_screen.dart';
+import 'package:colabroom/features/workspace/song_workspace_screen.dart';
 import 'package:colabroom/widgets/brand_mark.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -193,6 +194,25 @@ Future<Finder> _reveal(WidgetTester tester, Finder finder) async {
   return finder;
 }
 
+/// Scrolls [finder] into view and taps it, or says it is not there at all.
+///
+/// Two steps, because "not found" and "found but off the bottom of the
+/// screen" are different problems and only the first one `_reveal` solves. A
+/// widget that is built below the fold is visible to `find` and invisible to
+/// a finger: `tap` with `warnIfMissed: false` then presses whatever happens
+/// to be at those coordinates — on a phone that is the bottom bar — and the
+/// test carries on believing it opened something. At 2x text that is most of
+/// the shelf.
+Future<bool> _revealAndTap(WidgetTester tester, Finder finder) async {
+  if (finder.evaluate().isEmpty) await _reveal(tester, finder);
+  if (finder.evaluate().isEmpty) return false;
+  await tester.ensureVisible(finder.last);
+  await _frames(tester);
+  await tester.tap(finder.last, warnIfMissed: false);
+  await _frames(tester);
+  return true;
+}
+
 void main() {
   // Proves the harness before any of it is believed. If the viewport is not
   // what was asked for, every result below is meaningless — and meaningless
@@ -219,10 +239,11 @@ void main() {
     'iPhone': Size(390, 844),
   };
   // 1.0 is the author's own device. 1.3 is a size a lot of people over fifty
-  // are already reading at. 2.0 is roughly iOS's largest accessibility size
-  // and, since the clamp came off, the worst case that can reach a real
-  // screen.
-  const scales = <double>[1.0, 1.3, 2.0];
+  // are already reading at. 3.12 is iOS's largest accessibility size — the
+  // five of them reach Flutter as 1.64, 1.94, 2.35, 2.76 and 3.12, so "about
+  // 2x" was three settings short of what a phone can actually ask for, and
+  // since the clamp came off every one of them reaches a real screen.
+  const scales = <double>[1.0, 1.3, 2.0, 3.12];
 
   for (final phone in phones.entries) {
     for (final scale in scales) {
@@ -266,7 +287,24 @@ void main() {
         // The seeded song. Opening one is the single most-used path in the
         // app and the one carrying the most layout: a toolbar, the ask bar,
         // and a full-height editor.
-        await _tapText(tester, 'Midnight Signal');
+        //
+        // Scrolled to before it is tapped, and the destination asserted
+        // afterwards. At 2x the shelf is taller than the screen, so the song
+        // is built but below the fold: a tolerant tap landed on the bottom
+        // bar instead and this row passed without ever opening the screen it
+        // is named after — the exact failure this file exists to prevent, and
+        // the one thing that would have noticed the local clamp on the song
+        // sheet going missing.
+        expect(
+          await _revealAndTap(tester, find.text('Midnight Signal')),
+          isTrue,
+          reason: 'the seeded song is nowhere on the shelf',
+        );
+        expect(
+          find.byType(SongWorkspaceScreen),
+          findsOneWidget,
+          reason: 'tapping the song did not open the workspace',
+        );
         expect(
           tester.takeException(),
           isNull,

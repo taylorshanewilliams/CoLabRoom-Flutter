@@ -2217,6 +2217,11 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     // worse than it was. This MediaQuery comes out the moment the song sheet,
     // Perform, Takes and Sets have been through the same pass, and the render
     // harness at 2x is what will say when that is true.
+    //
+    // Asserted, so that it is a fact somebody has to delete rather than one
+    // that quietly stops being true: "the song sheet is held at 1.3 until the
+    // next slice", in the_text_is_the_size_your_phone_says_test.dart. That
+    // test goes with this MediaQuery.
     final Widget sheet = Scaffold(
       key: _scaffoldKey,
       resizeToAvoidBottomInset: true,
@@ -2723,8 +2728,14 @@ class _LandscapeWorkspace extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: <Widget>[
-        SizedBox(
-          height: 48,
+        ConstrainedBox(
+          // 48 is the shape of the bar, not a ceiling on what is in it. The
+          // title and the room name under it are two lines of real text, and
+          // at 1.3x they came to 52 — so a desk or a landscape tablet with
+          // the text turned up clipped the room's name by four pixels. This
+          // has been true on main since the header was written; the harness
+          // had no wide device with large text to notice it.
+          constraints: const BoxConstraints(minHeight: 48),
           child: Row(
             children: <Widget>[
               // Gone rather than disabled when there is nowhere to go back

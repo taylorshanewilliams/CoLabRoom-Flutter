@@ -19,6 +19,7 @@ import 'dart:ui' as ui;
 import 'package:colabroom/app/colabroom_app.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
+import 'package:colabroom/features/workspace/song_workspace_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -85,6 +86,38 @@ Future<void> _frames(WidgetTester tester) async {
 Future<bool> _tapText(WidgetTester tester, String label) async {
   final finder = find.text(label);
   if (finder.evaluate().isEmpty) return false;
+  await tester.tap(finder.last, warnIfMissed: false);
+  await _frames(tester);
+  return true;
+}
+
+/// Scrolls something into view and taps it.
+///
+/// "Not on screen" and "on screen but below the fold" are different problems
+/// and a tolerant tap tells them apart by pressing whatever is at those
+/// coordinates — which, near the bottom of a phone, is the tab bar. That is
+/// how this walk spent every 2x run photographing the Open Mic and calling it
+/// the song workspace.
+Future<bool> _revealAndTap(WidgetTester tester, Finder finder) async {
+  if (finder.evaluate().isEmpty) {
+    // Named rather than left to itself: Your music holds two scrollables, the
+    // page and the row of cards that runs sideways across the top of it, and
+    // `scrollUntilVisible` asks for *the* Scrollable and throws on two.
+    final down = find.byWidgetPredicate((widget) =>
+        widget is Scrollable && widget.axisDirection == AxisDirection.down);
+    if (down.evaluate().isEmpty) return false;
+    try {
+      await tester.scrollUntilVisible(finder, 220,
+          maxScrolls: 12, scrollable: down.first);
+    } on StateError {
+      // Not on this screen at all. A survey says so and carries on.
+      return false;
+    }
+    await _frames(tester);
+  }
+  if (finder.evaluate().isEmpty) return false;
+  await tester.ensureVisible(finder.last);
+  await _frames(tester);
   await tester.tap(finder.last, warnIfMissed: false);
   await _frames(tester);
   return true;
@@ -362,7 +395,15 @@ void main() {
 
       // The single most-used path in the app, and the one carrying the most
       // layout: a toolbar, the asks, and a full-height editor.
-      if (await _tapText(tester, 'Midnight Signal')) {
+      //
+      // Scrolled to, then checked. At 2x text the shelf is taller than the
+      // screen and the song sits below the fold: the tap landed on the Open
+      // Mic tab instead, 05-song-workspace was a photograph of the Open Mic,
+      // and 06-takes and 07-analyze were skipped without a word. A walk that
+      // files the wrong picture under the right name is worse than one that
+      // says it could not get there.
+      await _revealAndTap(tester, find.text('Midnight Signal'));
+      if (find.byType(SongWorkspaceScreen).evaluate().isNotEmpty) {
         await shoot('05-song-workspace');
 
         if (await _tapKey(tester, 'workspace_layers_button')) {
@@ -376,6 +417,16 @@ void main() {
             await _tapKey(tester, 'workspace_record_button')) {
           await shoot('07-analyze');
         }
+      } else {
+        _findings.add(Finding(
+          rule: 'Nothing reaches it',
+          standard: 'a song on the shelf opens its workspace',
+          detail: 'tapping the seeded song did not open the workspace, so '
+              'the workspace, Takes and Analyze were not walked',
+          severity: Severity.warns,
+          device: device.name,
+          screen: '04-your-music',
+        ));
       }
       await _popToRoot(tester);
 

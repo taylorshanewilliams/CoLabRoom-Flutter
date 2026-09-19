@@ -4,6 +4,7 @@ import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/features/auth/supabase_auth_screen.dart';
 import 'package:colabroom/features/openmic/musician_profile_screen.dart';
+import 'package:colabroom/features/workspace/song_workspace_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -142,6 +143,23 @@ Future<bool> _tapText(WidgetTester tester, String label) async {
   return true;
 }
 
+/// Scrolls something into view first, then taps it.
+///
+/// At twice normal text a form is taller than the phone, so the control at
+/// the foot of it is built and off the bottom of the screen. `tap` with
+/// `warnIfMissed: false` then presses whatever is at those coordinates and
+/// the test carries on as though it had pressed the button — which is how
+/// the create-account half of this file looked like it was passing.
+Future<bool> _revealAndTap(WidgetTester tester, String label) async {
+  final finder = find.text(label);
+  if (finder.evaluate().isEmpty) return false;
+  await tester.ensureVisible(finder.last);
+  await _frames(tester);
+  await tester.tap(finder.last, warnIfMissed: false);
+  await _frames(tester);
+  return true;
+}
+
 void main() {
   testWidgets('the app draws text at the size the phone asked for',
       (tester) async {
@@ -221,6 +239,62 @@ void main() {
     }
   });
 
+  testWidgets('the song sheet is held at 1.3 until the next slice',
+      (tester) async {
+    // The one place in the app that still clamps, and the only screen this
+    // slice deliberately did not finish: at 2x its header overflows by 32
+    // pixels, and it is where people spend most of their time. 1.3 is what
+    // the whole app got until today, so nothing there ships worse than it
+    // was.
+    //
+    // Asserted rather than left as a comment. Without this, the day somebody
+    // deletes that MediaQuery — or the next slice takes it out before the
+    // header is fixed — every test still passes and the overflow ships.
+    // **This test goes when that MediaQuery goes.**
+    await _boot(tester, textScale: 2.0);
+
+    // At twice normal text the shelf is taller than the phone, so the song is
+    // built below the fold: tapping it where it is drawn presses the tab bar.
+    final song = find.text('Midnight Signal');
+    if (song.evaluate().isEmpty) {
+      final down = find.byWidgetPredicate((widget) =>
+          widget is Scrollable && widget.axisDirection == AxisDirection.down);
+      await tester.scrollUntilVisible(song, 220,
+          maxScrolls: 12, scrollable: down.first);
+      await _frames(tester);
+    }
+    expect(song, findsWidgets, reason: 'the seeded song is not on the shelf');
+    await tester.ensureVisible(song.last);
+    await _frames(tester);
+    await tester.tap(song.last, warnIfMissed: false);
+    await _frames(tester);
+
+    expect(
+      find.byType(SongWorkspaceScreen),
+      findsOneWidget,
+      reason: 'tapping the song did not open the workspace',
+    );
+
+    final inside = tester
+        .widget<MediaQuery>(
+          find
+              .descendant(
+                of: find.byType(SongWorkspaceScreen),
+                matching: find.byType(MediaQuery),
+              )
+              .first,
+        )
+        .data
+        .textScaler;
+    expect(
+      inside.scale(10),
+      13,
+      reason: 'the song sheet is no longer held at 1.3 — if that is on '
+          'purpose, this test and the MediaQuery in song_workspace_screen '
+          'both go, and the header there has to hold at the largest size',
+    );
+  });
+
   testWidgets('a profile page holds at the largest text size', (tester) async {
     // Somebody else's, which is the version most people see, and the one
     // carrying the most: a face, what they play, where they are, and the
@@ -265,8 +339,23 @@ void main() {
     // And the way in for somebody who has no account yet, which is a
     // different layout: a name field, an age-and-terms checkbox with two
     // links in the sentence, and a second button.
-    if (await _tapText(tester, 'Create an account')) {
-      expect(tester.takeException(), isNull, reason: _why('create an account'));
-    }
+    //
+    // The whole label, and the destination asserted. `find.text` matches
+    // exactly and the button reads "New to CoLabRoom? Create an account", so
+    // the finder was empty, the tolerant tap returned false, and the `if`
+    // swallowed it: the half of this test that covers the longer form had
+    // never run. This file warns elsewhere that a tolerant tap is how a loop
+    // ends up testing nothing.
+    expect(
+      await _revealAndTap(tester, 'New to CoLabRoom? Create an account'),
+      isTrue,
+      reason: 'there is no way through to creating an account',
+    );
+    expect(
+      find.text('Create your account'),
+      findsOneWidget,
+      reason: 'the form did not change to the create-account layout',
+    );
+    expect(tester.takeException(), isNull, reason: _why('create an account'));
   });
 }
