@@ -371,6 +371,18 @@ abstract interface class MusicRepository {
   /// the song back to the detected bars.
   Future<void> setBarOne(String projectId, int? downbeat);
 
+  /// Says what language the song is sung in, as a BCP-47 tag.
+  ///
+  /// Owner or editor, and shared with the room like the key and bar 1: it
+  /// decides which way every line of the sheet runs and which piece of a
+  /// line each chord sits over, so everybody has to be reading the same
+  /// answer (Every Musician, Same Song, 17 September 2026; migration 0163).
+  /// Declared, never inferred — nothing looks at the words, the recording or
+  /// a profile to work it out. A null [language] takes the answer away
+  /// again, which lays the song out the way a song nobody has answered for
+  /// is laid out.
+  Future<void> setSongLanguage(String projectId, String? language);
+
   /// The room a recording lands in when nobody has said where it goes.
   ///
   /// Created on first use rather than at signup, so an account that never

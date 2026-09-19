@@ -21,6 +21,7 @@ import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
 import 'music_repository.dart';
 import '../services/invite_link.dart';
+import '../services/song_language.dart';
 
 class InMemoryMusicRepository implements MusicRepository {
   InMemoryMusicRepository._(this._rooms, this._invites, this._setlists);
@@ -1944,6 +1945,31 @@ class InMemoryMusicRepository implements MusicRepository {
       for (final project in room.projects) {
         if (project.id != projectId) continue;
         _replaceProject(project.copyWith(barOneDownbeat: said));
+        return;
+      }
+    }
+  }
+
+  @override
+  Future<void> setSongLanguage(String projectId, String? language) async {
+    // Anything that is not a tag reads as nothing said, the way 0163's
+    // `nullif(btrim(...))` reads a blank: the picker only ever sends a tag,
+    // and a preview that stored 'Arabic' as a language would lay the song
+    // out one way here and another way against real Supabase.
+    final said = languageTagTyped(language);
+    for (final room in _rooms) {
+      for (final project in room.projects) {
+        if (project.id != projectId) continue;
+        // The preview refuses what 0163 refuses, in the same words. This is
+        // a shared fact: somebody who can only look cannot turn everybody
+        // else's sheet around. A debug build that allowed it would be
+        // somebody testing a refusal they never see.
+        if (!room.canEditSongs(currentUserId)) {
+          throw StateError(
+            'Only somebody who can edit this song can say what it is sung in.',
+          );
+        }
+        _replaceProject(project.copyWith(language: said));
         return;
       }
     }

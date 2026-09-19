@@ -199,6 +199,7 @@ class SongProject {
     this.songOrigin,
     this.keyOverride,
     this.barOneDownbeat,
+    this.language,
   });
 
   final String id;
@@ -304,6 +305,21 @@ class SongProject {
     return said == null || said < 1 ? 1 : said;
   }
 
+  /// The language this song is sung in, as a BCP-47 tag, or null because
+  /// nobody has said.
+  ///
+  /// The third shared fact, beside the band's key and where bar 1 is, and
+  /// shared for the same reason: it decides which way every line on the
+  /// sheet runs and which piece of a line each chord sits over, so it is a
+  /// fact about the song rather than a setting on one phone (Every Musician,
+  /// Same Song, 17 September 2026; migration 0163).
+  ///
+  /// Declared by the room's owner or an editor and never inferred — not from
+  /// the characters in the words, not from the recording, and not from
+  /// anybody's profile. Null means nobody has said, and a song nobody has
+  /// said anything about is laid out exactly as this app always laid it out.
+  final String? language;
+
   SongProject copyWith({
     String? roomId,
     String? title,
@@ -319,6 +335,7 @@ class SongProject {
     SongOrigin? songOrigin,
     Object? keyOverride = _unset,
     Object? barOneDownbeat = _unset,
+    Object? language = _unset,
   }) {
     return SongProject(
       id: id,
@@ -347,6 +364,11 @@ class SongProject {
       barOneDownbeat: identical(barOneDownbeat, _unset)
           ? this.barOneDownbeat
           : barOneDownbeat as int?,
+      // And this one, because "not said" is an answer a song can go back to
+      // the same way it goes back to the detected key.
+      language: identical(language, _unset)
+          ? this.language
+          : language as String?,
     );
   }
 }

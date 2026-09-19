@@ -6,6 +6,7 @@ import 'package:colabroom/features/workspace/practice_rules.dart';
 import 'package:colabroom/services/melody_reading.dart';
 import 'package:colabroom/services/number_reading.dart';
 import 'package:colabroom/services/rehearsal_letters.dart';
+import 'package:colabroom/services/song_language.dart';
 import 'package:flutter/material.dart';
 
 typedef MusicianChordTap = void Function(
@@ -40,7 +41,9 @@ class MusicianSectionLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return _ReadThisWay(
+      language: line.language,
+      child: Padding(
       padding: EdgeInsets.only(
         top: liveMode ? 22 : 18,
         bottom: liveMode ? 8 : 7,
@@ -62,7 +65,32 @@ class MusicianSectionLine extends StatelessWidget {
           letterSpacing: liveMode ? 1.55 : 1.3,
         ),
       ),
+      ),
     );
+  }
+}
+
+/// The page, turned the way this song is read (0163).
+///
+/// A song nobody has said anything about gets nothing: [child] is returned
+/// as it is, so every sheet that existed before this is laid out by exactly
+/// the widgets that laid it out before. A song somebody said is in Arabic,
+/// Hebrew, Persian or Urdu is wrapped in a right-to-left Directionality,
+/// and that one wrapper is what turns the whole line round — the Wrap lays
+/// its words from the right, each word's column aligns its chord over the
+/// right-hand end of the word it belongs to, and the words themselves are
+/// laid out by Flutter's own bidi algorithm with the correct base direction,
+/// which is what puts a line's trailing punctuation on the correct side.
+class _ReadThisWay extends StatelessWidget {
+  const _ReadThisWay({required this.language, required this.child});
+
+  final String? language;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!readsRightToLeft(language)) return child;
+    return Directionality(textDirection: TextDirection.rtl, child: child);
   }
 }
 
@@ -158,10 +186,11 @@ class MusicianChordLyricLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final words = line.body
-        .split(RegExp(r'\s+'))
-        .where((word) => word.isNotEmpty)
-        .toList(growable: false);
+    // The pieces a chord can sit over: words, or characters in a script that
+    // does not put spaces between them (0163). One call, so the sheet, the
+    // printed chart and the ChordPro file cannot disagree about which piece
+    // a chord belongs to.
+    final words = line.units;
     final placements = chordPlacementsForLine(
       wordCount: words.length,
       lineStartMs: line.startMs,
@@ -186,7 +215,9 @@ class MusicianChordLyricLine extends StatelessWidget {
             spelling: spelling,
           )
         : const <String?>[];
-    return Padding(
+    return _ReadThisWay(
+      language: line.language,
+      child: Padding(
       padding: EdgeInsets.symmetric(vertical: liveMode ? 3 : 4),
       child: Wrap(
         spacing: liveMode ? 7 : 5,
@@ -236,6 +267,7 @@ class MusicianChordLyricLine extends StatelessWidget {
             ),
         ],
       ),
+      ),
     );
   }
 }
@@ -258,10 +290,15 @@ class _BarMarker extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       // Sits on the chord row, not the lyric row: it's information about the
-      // music, and it lines up with the chords above the words.
-      padding: EdgeInsets.only(bottom: liveMode ? 2 : 1, right: 2),
+      // music, and it lines up with the chords above the words. `end` rather
+      // than `right`, so on a song read from the right the gap is on the
+      // side the first word is actually on.
+      padding: EdgeInsetsDirectional.only(bottom: liveMode ? 2 : 1, end: 2),
       child: Text(
         '$number',
+        // A bar number is counted the one way everywhere, like the chord
+        // names it sits beside.
+        textDirection: TextDirection.ltr,
         style: TextStyle(
           color: const Color(0xFF7A6C5A),
           fontSize: (liveMode ? 10 : 9) * fontScale,
@@ -402,6 +439,16 @@ class _ChordWord extends StatelessWidget {
                   ),
             child: Text(
               chordText,
+              // A chord name is Latin music notation and not lyric text. On a
+              // song read from the right it would otherwise be handed to the
+              // bidi algorithm with a right-to-left base, which moves a
+              // trailing or leading symbol to the other end: A♯ drew as ♯A,
+              // B♭ as ♭B, F# as #F, and the number reading ♭7 as 7♭. The
+              // position of the name is still directional — it sits over the
+              // start of its word, whichever side that is — but the name
+              // itself reads the one way it is ever written (review, 18
+              // September 2026).
+              textDirection: TextDirection.ltr,
               style: TextStyle(
                 color: liveMode
                     ? AppColors.gold
@@ -453,11 +500,16 @@ class _ChordWord extends StatelessWidget {
 
     // widthFactor is intentional. Without it, Align consumes the complete
     // Wrap width and turns every lyric word into its own visual row.
+    //
+    // AlignmentDirectional, not Alignment: a chord goes over the start of
+    // the word it changes on, and on a song read from the right the start of
+    // the word is its right-hand end. In every left-to-right song this
+    // resolves to bottomLeft, which is what it always was.
     final chordLabel = SizedBox(
       height: showChords ? (liveMode ? 16.5 : 16) * fontScale : 0,
       child: showChords
           ? Align(
-              alignment: Alignment.bottomLeft,
+              alignment: AlignmentDirectional.bottomStart,
               widthFactor: 1,
               child: chordWidget,
             )
@@ -540,7 +592,10 @@ class _ChordWord extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.3,
                   ),
-                  child: Text(note ?? ''),
+                  // A note name is notation too, for the same reason the
+                  // chord above it is: B♭4 must not draw as ♭B4, and ♭7 in
+                  // jianpu must not draw as 7♭.
+                  child: Text(note ?? '', textDirection: TextDirection.ltr),
                 ),
               ),
             ),

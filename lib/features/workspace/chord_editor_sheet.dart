@@ -63,10 +63,10 @@ class _ChordEditorSheetState extends State<ChordEditorSheet> {
   late final TextEditingController _controller;
   late int _wordIndex;
 
-  List<String> get _words => widget.line.body
-      .split(RegExp(r'\s+'))
-      .where((word) => word.isNotEmpty)
-      .toList(growable: false);
+  /// The pieces of the line a chord can be put over — the sheet's own, so
+  /// the piece this picker moves a chord to is the piece it lands over on
+  /// the page (0163).
+  List<String> get _words => widget.line.units;
 
   @override
   void initState() {

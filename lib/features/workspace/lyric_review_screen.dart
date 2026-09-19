@@ -6,6 +6,7 @@ import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
+import '../../services/song_language.dart';
 
 /// Lets the user proofread and correct the transcript before it becomes the
 /// project's actual lyrics — the direct "Replace project lyrics with this"
@@ -40,8 +41,17 @@ class _LyricReviewScreenState extends State<LyricReviewScreen> {
   void initState() {
     super.initState();
     _originalLines = _service.groupTranscriptWords(widget.reference.transcriptWords);
+    // Written the way the song is written (0163): a space between words, and
+    // nothing between two characters of a script that does not space them.
+    // Correcting a Chinese line spaced out into single characters is reading
+    // it in a form nobody writes it in (review, 18 September 2026).
     _controllers = _originalLines
-        .map((line) => TextEditingController(text: line.map((word) => word.word).join(' ')))
+        .map((line) => TextEditingController(
+              text: joinLyricUnits(
+                line.map((word) => word.word).toList(growable: false),
+                widget.project.language,
+              ),
+            ))
         .toList();
   }
 
@@ -73,7 +83,12 @@ class _LyricReviewScreenState extends State<LyricReviewScreen> {
       final original = _originalLines[i];
       final text = _controllers[i].text.trim();
       if (text.isEmpty) continue;
-      final words = text.split(RegExp(r'\s+'));
+      // Split back into the pieces the song is read in, which is splitting on
+      // white space in every language that has any — and by character in one
+      // that does not, where splitting on white space would hand the whole
+      // corrected line back as a single word with a single timestamp.
+      final words = lyricUnits(text, language: widget.project.language);
+      if (words.isEmpty) continue;
       final startMs = original.first.startMs;
       final endMs = math.max(original.last.endMs, startMs + 120);
       final span = endMs - startMs;

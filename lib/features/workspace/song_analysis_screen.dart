@@ -27,6 +27,7 @@ import 'song_sheet_panel.dart';
 import 'stem_player_panel.dart';
 import '../../services/user_facing_error.dart';
 import '../../services/idea_naming.dart';
+import '../../services/song_language.dart';
 
 enum _ReferenceSource { record, file }
 
@@ -102,6 +103,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(_loadWhatYouSingIn());
     unawaited(_refresh().then((_) {
       if (widget.autoRecord && mounted && !_working) {
         setState(() => _working = true);
@@ -155,6 +157,56 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     if (!mounted) return;
     setState(() => _project = _project.copyWith(barOneDownbeat: downbeat));
     unawaited(controller.refreshProject(_project.id));
+  }
+
+  /// Says what the song is sung in, or takes the answer away with a null.
+  ///
+  /// Owner or editor (0163), the same two as the key and bar 1, and for the
+  /// same reason: this turns everybody's page around, not just this
+  /// reader's. A refusal is thrown on rather than swallowed, so the sentence
+  /// lands on the sheet where the person tapped.
+  ///
+  /// The local copy catches up before anything is drawn, as it does for the
+  /// key: the sheet lays every line out from what the song says here, and a
+  /// host that opened this screen as a route hands it the project once and
+  /// never again.
+  Future<void> _setSongLanguage(String? language) async {
+    final controller = BetaScope.of(context, listen: false);
+    await controller.repository.setSongLanguage(_project.id, language);
+    if (!mounted) return;
+    // Kept in the one spelling the server stores it in, so the local copy
+    // and the row cannot disagree about which language this is.
+    setState(
+      () => _project = _project.copyWith(language: languageTagTyped(language)),
+    );
+    unawaited(controller.refreshProject(_project.id));
+  }
+
+  /// What this person has said they sing in (0156), offered first when they
+  /// are choosing what a song is sung in.
+  ///
+  /// Read once, quietly, and never waited on: it is an ordering of a list
+  /// somebody is about to search, so a profile that will not load costs
+  /// nothing but the order. Empty for anybody who has not said, which is
+  /// most people.
+  List<String> _youSingIn = const <String>[];
+
+  Future<void> _loadWhatYouSingIn() async {
+    try {
+      // maybeOf, and from initState: this is decoration, and a screen pumped
+      // in a widget test with nothing above it must still build.
+      final controller = BetaScope.maybeOf(context, listen: false);
+      if (controller == null) return;
+      final me = await controller.repository.loadMusician(
+        controller.meOrNobody,
+      );
+      if (!mounted || me == null) return;
+      final tags = languageTagsSuggestedBy(me.singsIn);
+      if (tags.isEmpty) return;
+      setState(() => _youSingIn = tags);
+    } catch (_) {
+      // Only the order of a list. Nothing to say and nothing to retry.
+    }
   }
 
   /// Takes what was sung into one written line: the recording's words for
@@ -334,7 +386,13 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
       final resumeJobId = await _service.resumableJobId(widget.project.id);
       final localPath = _localPath ?? await _service.ensureLocalReference(reference);
       final bundle = await _service.analyze(
-        project: widget.project,
+        // The song as this screen knows it, not as it was handed in: what it
+        // is sung in decides the language the transcriber is told (0163),
+        // and this screen is where that is said. A host that opened this as
+        // a route hands the project over once and never again, so
+        // widget.project is the song as it was before anything said on this
+        // page — which is the same reason Perform is opened with _project.
+        project: _project,
         reference: reference,
         localPath: localPath,
         depth: depth,
@@ -527,7 +585,11 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
         settings: RouteSettings(name: AppRoutes.songLyrics(widget.project.id)),
-        builder: (_) => LyricReviewScreen(project: widget.project, reference: reference),
+        // _project, not widget.project: the language may have been said on
+        // this screen, and the review screen splits and rejoins the words by
+        // it. The same drop that silently lost the language on the way into
+        // the analysis (see _analyze).
+        builder: (_) => LyricReviewScreen(project: _project, reference: reference),
         fullscreenDialog: true,
       ),
     );
@@ -543,9 +605,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
   Future<void> _replaceProjectLyrics() async {
     final reference = _bundle?.reference;
     if (_working || reference == null) return;
-    final lines = _service.transcriptLyricLines(reference);
+    final lines =
+        _service.transcriptLyricLines(reference, language: _project.language);
     if (lines.isEmpty) return;
-    final hasExisting = widget.project.contributions.any((line) => line.body.trim().isNotEmpty);
+    final hasExisting = _project.contributions.any((line) => line.body.trim().isNotEmpty);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -932,6 +995,9 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                         onAnalysisChanged: (updated) => setState(() => _bundle = updated),
                         onSetKey: canEditTheSong ? _setSongKey : null,
                         onSetBarOne: canEditTheSong ? _setBarOne : null,
+                        onSetLanguage:
+                            canEditTheSong ? _setSongLanguage : null,
+                        languagesYouSingIn: _youSingIn,
                         onUseSung: canEditTheSong ? _useSungLine : null,
                       );
                     }),

@@ -8,6 +8,7 @@ import 'package:colabroom/services/chord_names.dart';
 import 'package:colabroom/services/horn_reading.dart';
 import 'package:colabroom/services/music_reference.dart';
 import 'package:colabroom/services/number_reading.dart';
+import 'package:colabroom/services/song_language.dart';
 
 class MusicianSheetLine {
   const MusicianSheetLine({
@@ -21,6 +22,7 @@ class MusicianSheetLine {
     this.wordStartsMs,
     this.bar,
     this.letter,
+    this.language,
   });
 
   final String? contributionId;
@@ -57,6 +59,23 @@ class MusicianSheetLine {
   /// which part of the analysis each one is. Nothing is inferred (Every
   /// Musician, Same Song, 17 September 2026).
   final String? letter;
+
+  /// What the room said this song is sung in, as a BCP-47 tag (0163), or
+  /// null because nobody has said.
+  ///
+  /// Carried on the line rather than passed beside it because everything
+  /// that draws, prints or exports a line has to break it into the same
+  /// pieces, in the same order: a sheet that anchored a chord to the third
+  /// character and a printed chart that anchored it to the whole line would
+  /// be two charts of one song. See [units].
+  final String? language;
+
+  /// The pieces of this line a chord can sit over — its words, or its
+  /// characters in a script that does not space them (see [lyricUnits]).
+  ///
+  /// Chord placement is by index into this list everywhere, so this is the
+  /// one place a line is broken up.
+  List<String> get units => lyricUnits(body, language: language);
 }
 
 List<Contribution> visibleMusicianLyrics(SongProject project) {
@@ -282,6 +301,7 @@ List<MusicianSheetLine> buildMusicianSheetLines(
       durationMs: duration,
       downbeatsMs: bundle.reference?.downbeatsMs ?? const <int>[],
       barOne: project.barOne,
+      language: project.language,
     );
   }
 
@@ -299,6 +319,7 @@ List<MusicianSheetLine> buildMusicianSheetLines(
       durationMs: duration,
       downbeatsMs: bundle.reference?.downbeatsMs ?? const <int>[],
       barOne: project.barOne,
+      language: project.language,
     );
   }
 
@@ -317,6 +338,7 @@ List<MusicianSheetLine> buildMusicianSheetLines(
         endMs: 0,
         chords: const <ChordCue>[],
         approximateTiming: false,
+        language: project.language,
       );
     }
     final exact = bundle.cueForContribution(line.id);
@@ -348,6 +370,7 @@ List<MusicianSheetLine> buildMusicianSheetLines(
               bundle.reference?.downbeatsMs ?? const <int>[],
               barOne: project.barOne,
             ),
+      language: project.language,
     );
   }).toList(growable: false);
 }
@@ -635,6 +658,11 @@ String cleanSheetSection(String value) => value
 /// [barOne] is which downbeat the band counts as bar 1 (0161). A line that
 /// falls in the pickup ahead of it gets no bar number, the same as a line
 /// ahead of the whole grid: the pickup is asked for by name, not by number.
+///
+/// [language] is what the room said the song is sung in (0163). It is null
+/// for every song nobody has answered for, and for the Studio's pre-project
+/// drafts, which have no song to have been answered for yet — both come out
+/// exactly as they always did.
 List<MusicianSheetLine> transcriptSheetLines({
   required List<TranscriptWord> transcriptWords,
   required String? transcriptText,
@@ -642,7 +670,15 @@ List<MusicianSheetLine> transcriptSheetLines({
   required int durationMs,
   List<int> downbeatsMs = const <int>[],
   int barOne = 1,
+  String? language,
 }) {
+  // In a script with no spaces between words, the transcriber's tokens are
+  // joined without them: putting a space between every character of a
+  // Chinese line would be a line no reader of Chinese has ever seen.
+  // A space stays where one side of the join is not such a character, so an
+  // English word inside a Chinese line is still a word (review, 18 September
+  // 2026).
+  final byCharacter = anchorsByCharacter(language);
   List<ChordCue> chordsForRange(int startMs, int endMs) => chordCues
       .where((cue) => cue.endMs >= startMs && cue.startMs <= endMs)
       .toList(growable: false);
@@ -678,30 +714,44 @@ List<MusicianSheetLine> transcriptSheetLines({
     return slices
         .map((slice) => MusicianSheetLine(
               contributionId: null,
-              body: slice.map((word) => word.word).join(' '),
+              body: joinLyricUnits(
+                slice.map((word) => word.word).toList(growable: false),
+                language,
+              ),
               section: false,
               startMs: slice.first.startMs,
               endMs: slice.last.endMs,
               chords: chordsForRange(slice.first.startMs, slice.last.endMs),
               approximateTiming: false,
-              wordStartsMs:
-                  slice.map((word) => word.startMs).toList(growable: false),
+              // One start per unit, whatever a unit is on this line, because
+              // chordPlacementsForLine only trusts real timing when it has
+              // exactly as many starts as pieces to hang chords on.
+              wordStartsMs: byCharacter
+                  ? _characterStarts(slice, language)
+                  : slice.map((word) => word.startMs).toList(growable: false),
               bar: barNumberAt(slice.first.startMs, downbeatsMs,
                   barOne: barOne),
+              language: language,
             ))
         .toList(growable: false);
   }
   final text = transcriptText?.trim() ?? '';
   if (text.isEmpty) {
-    return _chordOnlyLines(chordCues, downbeatsMs, barOne: barOne);
+    return _chordOnlyLines(chordCues, downbeatsMs, barOne: barOne,
+        language: language);
   }
-  final wordsOnly = text.replaceAll(RegExp(r'\s+'), ' ').split(' ');
+  // Seven words to a line, or fourteen characters where there are no words
+  // to count: a line of Chinese has no spaces to break on, so breaking on
+  // them put the whole transcript on one line that ran off the page.
+  final pieces = lyricUnits(text, language: language);
+  final perLine = byCharacter ? 14 : 7;
   final chunks = <String>[];
-  for (var start = 0; start < wordsOnly.length; start += 7) {
+  for (var start = 0; start < pieces.length; start += perLine) {
     chunks.add(
-      wordsOnly
-          .sublist(start, math.min(start + 7, wordsOnly.length))
-          .join(' '),
+      joinLyricUnits(
+        pieces.sublist(start, math.min(start + perLine, pieces.length)),
+        language,
+      ),
     );
   }
   return chunks.asMap().entries.map((entry) {
@@ -715,6 +765,7 @@ List<MusicianSheetLine> transcriptSheetLines({
       endMs: range.$2,
       chords: chordsForRange(range.$1, range.$2),
       approximateTiming: true,
+      language: language,
       // Deliberately no bar: these lines are spread evenly across the
       // recording because there was no word timing to place them by. A bar
       // number on a guessed position would read as precision that isn't
@@ -746,6 +797,7 @@ List<MusicianSheetLine> _chordOnlyLines(
   List<ChordCue> chords,
   List<int> downbeatsMs, {
   int barOne = 1,
+  String? language,
 }) {
   if (chords.isEmpty) return const <MusicianSheetLine>[];
   final bars = groupChordsIntoBars(chords, downbeatsMs, barOne: barOne);
@@ -764,6 +816,7 @@ List<MusicianSheetLine> _chordOnlyLines(
           // The pickup comes back as bar 0 and is drawn with no number, the
           // same as a line the grid does not reach.
           bar: bar.number < 1 ? null : bar.number,
+          language: language,
         ),
     ];
   }
@@ -780,10 +833,37 @@ List<MusicianSheetLine> _chordOnlyLines(
         endMs: slice.last.endMs,
         chords: slice,
         approximateTiming: false,
+        language: language,
       ),
     );
   }
   return lines;
+}
+
+/// One start per character, for a line in a script that anchors chords by
+/// character rather than by word.
+///
+/// The transcriber hands back tokens, and a token in Chinese is one or two
+/// characters. Each token's own start and end are spread across the
+/// characters in it, so the chord that changes in the middle of a two-
+/// character word lands on the second character rather than on the first.
+/// Inside one token that is a share-out and not a measurement, which is the
+/// same thing the sheet already does between two timed lines — and it is
+/// bounded by two real timestamps a few hundred milliseconds apart, rather
+/// than by the whole song.
+List<int> _characterStarts(List<TranscriptWord> words, String? language) {
+  final starts = <int>[];
+  for (final word in words) {
+    // Split by the same call the line itself is split by, so the starts
+    // cannot come out one longer or shorter than the pieces they are for.
+    final pieces = lyricUnits(word.word, language: language);
+    if (pieces.isEmpty) continue;
+    final span = math.max(0, word.endMs - word.startMs);
+    for (var index = 0; index < pieces.length; index += 1) {
+      starts.add(word.startMs + (span * index / pieces.length).round());
+    }
+  }
+  return starts;
 }
 
 /// Every chord on a sheet, in the order somebody reads them, with the line
@@ -799,10 +879,7 @@ List<({MusicianSheetLine line, ChordCue chord, int wordIndex})>
   final found = <({MusicianSheetLine line, ChordCue chord, int wordIndex})>[];
   for (final line in lines) {
     if (line.section || line.body.trim().isEmpty) continue;
-    final words = line.body
-        .split(RegExp(r'\s+'))
-        .where((word) => word.isNotEmpty)
-        .toList(growable: false);
+    final words = line.units;
     final placements = chordPlacementsForLine(
       wordCount: words.length,
       lineStartMs: line.startMs,

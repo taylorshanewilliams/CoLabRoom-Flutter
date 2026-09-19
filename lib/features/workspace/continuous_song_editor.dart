@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
+import '../../services/song_language.dart';
 import 'line_reconciliation.dart';
 
 /// What an intentionally-blank line is actually stored as: contributions'
@@ -544,7 +545,14 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
       fontWeight: FontWeight.w400,
     );
 
-    return LayoutBuilder(
+    // The page, turned the way this song is written (0163). Above the
+    // LayoutBuilder on purpose: the measuring below already asks the context
+    // which way the text runs, the field aligns and wraps by the same
+    // answer, and the rail of voice-note dots moves to the side the lines
+    // now begin on. A song nobody has said anything about is untouched.
+    return _WrittenThisWay(
+      language: widget.project.language,
+      child: LayoutBuilder(
       builder: (context, constraints) {
         final railWidth = compact ? 24.0 : 28.0;
         final textWidth = math.max(80.0, constraints.maxWidth - railWidth - 14).toDouble();
@@ -648,7 +656,11 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
                             border: InputBorder.none,
                             enabledBorder: InputBorder.none,
                             focusedBorder: InputBorder.none,
-                            contentPadding: EdgeInsets.fromLTRB(0, 4, 4, 16),
+                            // Directional, so the padding that keeps the
+                            // words clear of the rail is on the side the
+                            // rail is on (0163).
+                            contentPadding:
+                                EdgeInsetsDirectional.fromSTEB(0, 4, 4, 16),
                             hintText: 'Tap anywhere and start writing…',
                           ),
                         ),
@@ -659,9 +671,14 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
               ),
             ),
             if (_saving || _dirty || _saveFailed)
-              Positioned(
+              // Directional: on a song read from the right the rail and the
+              // start of every line are on the right, so a fixed right-hand
+              // corner put "Editing" on top of the first word somebody was
+              // typing. It is unchanged for every left-to-right song (review,
+              // 18 September 2026).
+              PositionedDirectional(
                 top: 8,
-                right: 12,
+                end: 12,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: _saveStalled && _failureMessage != null ? _explainFailure : null,
@@ -705,7 +722,29 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
           ],
         );
       },
+      ),
     );
+  }
+}
+
+/// The writing space, turned the way this song is written (0163).
+///
+/// The same shape as the sheet's `_ReadThisWay` and for the same reason: a
+/// song nobody has said anything about is built by exactly the widgets that
+/// built it before, and one wrapper is all a song in Arabic, Hebrew, Persian
+/// or Urdu needs — the field aligns from the right, the lines are measured
+/// the way they are drawn, and the rail of voice-note dots sits beside the
+/// end of the line the words now start at.
+class _WrittenThisWay extends StatelessWidget {
+  const _WrittenThisWay({required this.language, required this.child});
+
+  final String? language;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!readsRightToLeft(language)) return child;
+    return Directionality(textDirection: TextDirection.rtl, child: child);
   }
 }
 

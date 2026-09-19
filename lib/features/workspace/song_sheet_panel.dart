@@ -23,6 +23,7 @@ import 'package:colabroom/services/melody_reading.dart';
 import 'package:colabroom/services/number_reading.dart';
 import 'package:colabroom/services/rehearsal_letters.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
+import 'package:colabroom/services/song_language.dart';
 import 'package:colabroom/services/user_facing_error.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -42,6 +43,8 @@ class SongSheetPanel extends StatefulWidget {
     this.onAnalysisChanged,
     this.onSetKey,
     this.onSetBarOne,
+    this.onSetLanguage,
+    this.languagesYouSingIn = const <String>[],
     this.onUseSung,
     this.analysisService,
     super.key,
@@ -90,6 +93,19 @@ class SongSheetPanel extends StatefulWidget {
   /// room only lets look — long-pressing a bar of the chart then does nothing
   /// at all, rather than offering a change the room will refuse.
   final Future<void> Function(int? downbeat)? onSetBarOne;
+
+  /// Says what the song is sung in, as a BCP-47 tag, or takes the answer
+  /// away again with a null (0163).
+  ///
+  /// The third shared fact, written by the same two people as the other two.
+  /// Null on a panel with nowhere to write it and for somebody the room only
+  /// lets look, which leaves the line under the title a statement of what
+  /// the song is — or nothing at all, on a song nobody has answered for.
+  final Future<void> Function(String? language)? onSetLanguage;
+
+  /// The languages this person has said they sing in (0156), offered first
+  /// when they are choosing one. Never applied on its own.
+  final List<String> languagesYouSingIn;
 
   @override
   State<SongSheetPanel> createState() => _SongSheetPanelState();
@@ -146,6 +162,19 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   /// every direction (Every Musician, Same Song, 17 September 2026).
   ChordRepeatOffer? _repeatOffer;
 
+  /// The language just said, while the one line offering to listen to the
+  /// recording again in it is on screen (0163).
+  ///
+  /// Put up by the answer and taken away by anything that moves on from it,
+  /// exactly like the repeat offer above: it is an offer attached to what
+  /// somebody just did, not a banner that waits on the page. Null on a song
+  /// with no transcript to improve, and on one nobody has answered for.
+  String? _offerToListenAgain;
+
+  /// Whether the recording is being listened to again right now, which is a
+  /// network call worth saying is happening.
+  bool _listening = false;
+
   /// The bar grid, worked out once per bundle rather than once per frame.
   ///
   /// It used to be built inline in [build], so every setState on this panel —
@@ -163,9 +192,12 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   /// re-scanned every chord cue against every line on every frame, including
   /// the frames that draw the chart and never look at them.
   ///
-  /// Safe to key on the bundle alone: with `ignoreWorkspaceLyrics` these come
-  /// entirely from the recording, so the project the panel is holding does
-  /// not enter into them.
+  /// The words come entirely from the recording (`ignoreWorkspaceLyrics`),
+  /// but two facts about the song do enter into them and both have to throw
+  /// this away when they change: where bar 1 is, which numbers the gutter
+  /// (0161), and what the song is sung in, which decides how each line is
+  /// broken into the pieces a chord sits over and which way it runs (0163).
+  /// See [didUpdateWidget].
   List<MusicianSheetLine>? _lines;
 
   List<ChartRow> get _chart => _chartRows ??= buildChartRows(
@@ -216,12 +248,23 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       _chartRows = null;
       _lines = null;
       _repeatOffer = null;
+      // And so does the offer to listen again: it asked about the words
+      // these lines were built from, and they are not those words now.
+      _offerToListenAgain = null;
     }
     // Where bar 1 is decides every number on the chart and in the sheet's
     // gutter, and both are worked out once per bundle — so a song that has
     // just been told where it starts has to have them worked out again.
     if (oldWidget.project.barOne != widget.project.barOne) {
       _chartRows = null;
+      _lines = null;
+    }
+    // What the song is sung in decides how every line is broken into the
+    // pieces a chord sits over and which way it runs (0163), and the lines
+    // are worked out once per bundle — so a song that has just been told
+    // what it is sung in has to have them worked out again, or the answer
+    // shows on the next correction rather than on the next frame.
+    if (oldWidget.project.language != widget.project.language) {
       _lines = null;
     }
     if (oldWidget.project.id != widget.project.id) {
@@ -380,6 +423,90 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
           projectId: widget.project.id,
         )),
       ));
+    }
+  }
+
+  /// Says what the song is sung in, to the room (0163).
+  ///
+  /// The same shape as the key above: the write belongs to the caller, and a
+  /// refusal is handed back to the language sheet to say, because that is
+  /// where the person tapped and a snackbar here would sit underneath it.
+  ///
+  /// Once it lands, and only then, the offer to listen again is put up — see
+  /// [_listenAgain]. Asked rather than done: saying what a song is sung in
+  /// must not quietly spend money and overwrite words somebody may have
+  /// corrected by hand.
+  ///
+  /// Only when the answer actually changed what the transcriber was told.
+  /// Re-tapping the language a song already has does not make the words on
+  /// it any older, and offering to listen again there would say something
+  /// untrue ("these words were heard before anybody said") and charge for a
+  /// call that returns the cached result. Compared as the transcriber sees
+  /// it — the first subtag — because ar-EG and ar are the same instruction
+  /// to Whisper (review, 18 September 2026).
+  Future<String?> _sayTheLanguage(String? tag) async {
+    final write = widget.onSetLanguage;
+    if (write == null) return null;
+    final heardIn = languageOf(widget.project.language);
+    try {
+      await write(tag);
+      if (mounted &&
+          tag != null &&
+          languageOf(tag) != heardIn &&
+          (_bundle.reference?.hasTranscript ?? false)) {
+        setState(() => _offerToListenAgain = tag);
+      }
+      return null;
+    } catch (error) {
+      return reportAndDescribe(
+        error,
+        service: 'app',
+        stage: 'set_song_language',
+        route: 'Song sheet',
+        projectId: widget.project.id,
+      );
+    }
+  }
+
+  /// Listens to the recording again, now that it knows what language to
+  /// listen in.
+  ///
+  /// The transcript on the song was made before anybody said, so the
+  /// transcriber decided the language itself — and on a song with an
+  /// instrumental intro that is where it decides wrong. Only the words are
+  /// replaced; the chords, the key and the structure are not about language
+  /// and are left alone.
+  Future<void> _listenAgain() async {
+    if (_listening) return;
+    setState(() {
+      _offerToListenAgain = null;
+      _listening = true;
+    });
+    try {
+      final updated = await _service.transcribeAgain(
+        project: widget.project,
+        bundle: _bundle,
+      );
+      if (!mounted) return;
+      setState(() {
+        _bundle = updated;
+        _chartRows = null;
+        _lines = null;
+      });
+      widget.onAnalysisChanged?.call(updated);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(reportAndDescribe(
+          error,
+          service: 'analysis',
+          stage: 'transcribe_again',
+          route: 'Song sheet',
+          projectId: widget.project.id,
+        )),
+      ));
+    } finally {
+      if (mounted) setState(() => _listening = false);
     }
   }
 
@@ -718,10 +845,9 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     final cue = _selected;
     final line = _selectedLine;
     if (cue == null || line == null || _savingChord) return;
-    final words = line.body
-        .split(RegExp(r'\s+'))
-        .where((word) => word.isNotEmpty)
-        .toList(growable: false);
+    // The sheet's own pieces, so an arrow key moves the chord one piece of
+    // the line along and lands where the page draws it (0163).
+    final words = line.units;
     if (words.isEmpty) return;
     final target = (_selectedWord + delta).clamp(0, words.length - 1);
     if (target == _selectedWord) return;
@@ -861,10 +987,8 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
           originalChord: existing.chord,
         );
       } else {
-        final words = line.body
-            .split(RegExp(r'\s+'))
-            .where((word) => word.isNotEmpty)
-            .toList(growable: false);
+        // The same pieces the editor counted its word index against (0163).
+        final words = line.units;
         final startMs = chordStartForWordIndex(
           wordIndex: result.wordIndex,
           wordCount: math.max(1, words.length).toInt(),
@@ -1267,19 +1391,41 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    _view == SongSheetView.chart
-                        ? 'Tap any underlined chord for its shape, the notes '
-                            'in it, and what works over it.'
-                        : 'Tap any underlined chord for its shape, the notes '
-                            'in it, and what works over it — or the key for '
-                            'the scale and where to put a capo.',
-                    style: const TextStyle(
-                      color: AppColors.text,
-                      fontSize: 10.5,
-                      height: 1.35,
-                    ),
-                  ),
+                  // The offer to listen again stands in the same box the
+                  // repeat offer stands in when chords are being corrected,
+                  // and for the same reason: it belongs to the thing that
+                  // was just done, and the alternative is a banner.
+                  child: _listening
+                      ? const Text(
+                          key: Key('listening_again'),
+                          'Listening to the recording again…',
+                          style: TextStyle(
+                            color: AppColors.text,
+                            fontSize: 10.5,
+                            height: 1.35,
+                          ),
+                        )
+                      : _offerToListenAgain != null
+                          ? _ListenAgainLine(
+                              language: _offerToListenAgain!,
+                              onListen: () => unawaited(_listenAgain()),
+                              onLeave: () =>
+                                  setState(() => _offerToListenAgain = null),
+                            )
+                          : Text(
+                              _view == SongSheetView.chart
+                                  ? 'Tap any underlined chord for its shape, '
+                                      'the notes in it, and what works over it.'
+                                  : 'Tap any underlined chord for its shape, '
+                                      'the notes in it, and what works over '
+                                      'it — or the key for the scale and '
+                                      'where to put a capo.',
+                              style: const TextStyle(
+                                color: AppColors.text,
+                                fontSize: 10.5,
+                                height: 1.35,
+                              ),
+                            ),
                 ),
               ],
             ),
@@ -1333,6 +1479,11 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             onKey: _editingChords || widget.onSetKey == null
                 ? null
                 : _sayTheKey,
+            language: widget.project.language,
+            onLanguage: _editingChords || widget.onSetLanguage == null
+                ? null
+                : _sayTheLanguage,
+            languagesYouSingIn: widget.languagesYouSingIn,
             fontScale: _fontScale,
             showChords: _showChords,
             editableChords: _editingChords && !_savingChord,
@@ -1515,6 +1666,69 @@ class _RepeatOfferLine extends StatelessWidget {
           style: compact,
           onPressed: onEverywhere,
           child: const Text('Yes', style: label),
+        ),
+      ],
+    );
+  }
+}
+
+/// The one line that asks, once, after somebody says what a song is sung in:
+/// the words on the sheet were heard before anybody said, so does the room
+/// want them heard again?
+///
+/// Asked rather than done. Listening again costs money, takes a minute, and
+/// replaces words a person may have corrected by hand — none of which should
+/// happen because somebody answered a question about layout. Both answers
+/// are the same size and the same weight; neither is the one to press.
+///
+/// It says the language by name because that is the whole reason the offer
+/// exists: "in Arabic" is the thing that is different this time.
+class _ListenAgainLine extends StatelessWidget {
+  const _ListenAgainLine({
+    required this.language,
+    required this.onListen,
+    required this.onLeave,
+  });
+
+  final String language;
+  final VoidCallback onListen;
+  final VoidCallback onLeave;
+
+  @override
+  Widget build(BuildContext context) {
+    final compact = TextButton.styleFrom(
+      foregroundColor: AppColors.gold,
+      minimumSize: const Size(0, 30),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+    const label = TextStyle(fontSize: 11, fontWeight: FontWeight.w800);
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: Text(
+            'These words were heard before anybody said the song is in '
+            '${languageNamed(language)}. Listen again?',
+            key: const Key('listen_again_question'),
+            style: const TextStyle(
+              color: AppColors.text,
+              fontSize: 10.5,
+              height: 1.35,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        TextButton(
+          key: const Key('listen_again_leave'),
+          style: compact,
+          onPressed: onLeave,
+          child: const Text('Leave them', style: label),
+        ),
+        TextButton(
+          key: const Key('listen_again_yes'),
+          style: compact,
+          onPressed: onListen,
+          child: const Text('Listen again', style: label),
         ),
       ],
     );
