@@ -492,9 +492,15 @@ class AudioSessionOwner implements PhoneAudio {
 
   PhoneAudioState _state = PhoneAudioState.music;
 
-  /// Transitions run one at a time, in the order they were asked for. Two
-  /// overlapping holds could otherwise apply their configurations backwards
-  /// and leave the phone in a state nobody asked for.
+  /// Transitions run one at a time, and each one works out afresh what the
+  /// holds add up to when its turn comes.
+  ///
+  /// Two things at once is the ordinary case -- the click and the song, a
+  /// call and a take -- and overlapping configurations applied on top of
+  /// each other are how the phone ends up in a state nobody asked for.
+  /// Working the answer out at the front of the queue also means a state
+  /// nothing wants any more is never applied on the way past, which on a
+  /// phone is an audible route change for nothing.
   Future<void> _queue = Future<void>.value();
 
   @override
@@ -518,13 +524,27 @@ class AudioSessionOwner implements PhoneAudio {
     return hold;
   }
 
+  /// Queued with the transitions, because it writes the same global settings
+  /// they do: a per-player context is documented as global on iOS and sets
+  /// `audioManager.mode` on Android. Interleaved with a transition it could
+  /// be the last write to land, leaving the phone on a session nobody is in
+  /// any more.
   @override
-  Future<void> useOn(AudioPlayer player, {bool amongOthers = false}) async {
+  Future<void> useOn(AudioPlayer player, {bool amongOthers = false}) =>
+      _after(() => _putOnPlayer(player, amongOthers: amongOthers));
+
+  Future<void> _putOnPlayer(AudioPlayer player, {required bool amongOthers}) async {
     final setup = AudioSetup.of(_state);
-    await _sessions.applyToPlayer(
-      player,
-      amongOthers ? AudioSetup._(setup.state, setup.playersAmongOthers, setup.call) : setup,
-    );
+    try {
+      await _sessions.applyToPlayer(
+        player,
+        amongOthers ? AudioSetup._(setup.state, setup.playersAmongOthers, setup.call) : setup,
+      );
+    } catch (_) {
+      // As with a transition that is refused: a phone that will not take the
+      // session still plays, and this is called from build paths with
+      // nowhere to put a message.
+    }
   }
 
   /// What the holds that are out add up to.
@@ -539,12 +559,24 @@ class AudioSessionOwner implements PhoneAudio {
     return PhoneAudioState.callTalking;
   }
 
-  Future<void> _settle() {
-    _queue = _queue.then((_) => _moveToWhatIsWanted());
-    return _queue;
+  Future<void> _settle() => _after(_moveToWhatIsWanted);
+
+  /// Runs [work] after everything already queued, and never lets a failure
+  /// travel down the queue: one transition that threw would otherwise make
+  /// every later one fail without running, and the phone would be stuck on
+  /// whatever session happened to be applied when it went wrong.
+  Future<void> _after(Future<void> Function() work) {
+    final next = _queue.then((_) => work());
+    _queue = next.catchError((Object _) {});
+    return next;
   }
 
   Future<void> _moveToWhatIsWanted() async {
+    // Worked out afresh here rather than when the hold was asked for, and
+    // applied even when it is the state the phone is already in: audioplayers
+    // and LiveKit both write this session behind the owner's back -- the one
+    // on every play and stop, the other until it is put into manual mode --
+    // so restating it on every transition is what keeps it true.
     final wanted = _wanted();
     final leavingCall = _call == null && _state != PhoneAudioState.music && _state != PhoneAudioState.take;
     // The microphone goes before the session changes, so the input is free
@@ -558,7 +590,17 @@ class AudioSessionOwner implements PhoneAudio {
     // still on, or the next transition would be worked out from a state the
     // phone is not in.
     _state = wanted;
-    await _sessions.apply(AudioSetup.of(wanted), leavingCall: leavingCall);
+    try {
+      await _sessions.apply(AudioSetup.of(wanted), leavingCall: leavingCall);
+    } catch (_) {
+      // Swallowed, and it has to be. Holds are taken from initState and from
+      // the middle of a tap on Record, so a phone that refuses a session
+      // would otherwise throw out of a screen being built or a button being
+      // pressed -- and a phone that refuses is still a phone that plays what
+      // is already recorded, and records when nothing else is sounding. It
+      // is worse, not broken. There is nowhere useful to say so either: no
+      // screen exists yet at the moment most of these are asked for.
+    }
     if (wanted != PhoneAudioState.callWithTake && _micLetGo) {
       _micLetGo = false;
       // Nothing to hand back to when the call itself is what ended.
