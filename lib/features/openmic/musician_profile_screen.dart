@@ -17,6 +17,7 @@ import '../../widgets/play_button.dart';
 import 'ask_musician_sheet.dart';
 import 'invite_to_room_sheet.dart';
 import 'open_mic_song_screen.dart';
+import 'profile_gallery.dart';
 import 'person_thread_sheet.dart';
 import 'report_sheet.dart';
 import '../workspace/song_workspace_screen.dart';
@@ -76,6 +77,7 @@ class MusicianProfileScreen extends StatefulWidget {
 class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
   Musician? _musician;
   List<ShowcaseLink>? _links;
+  List<GalleryPicture>? _gallery;
   List<OpenMicSong>? _songs;
   String? _sharedCity;
   String? _error;
@@ -138,6 +140,15 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
       final musician = await widget.repository.loadMusician(widget.profileId);
       unawaited(_loadFace(musician?.avatarPath ?? widget.initial?.avatarPath));
       final links = await widget.repository.loadShowcase(widget.profileId);
+      // Its own try: a gallery that will not load is a page without a strip
+      // of pictures on it, not a page with an error where somebody's face
+      // should be.
+      var gallery = const <GalleryPicture>[];
+      try {
+        gallery = await widget.repository.loadGallery(widget.profileId);
+      } catch (_) {
+        gallery = const <GalleryPicture>[];
+      }
       final songs = await widget.repository.songsBy(widget.profileId);
       // Only about yourself. What the app has worked out about somebody else
       // is not a thing to show anybody, including them.
@@ -183,6 +194,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
         _missing = musician == null && widget.initial == null;
         if (musician != null) _musician = musician;
         _links = links;
+        _gallery = gallery;
         _songs = songs;
         _noticed = noticed;
         _sharedCity = shared;
@@ -196,6 +208,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
       if (!mounted) return;
       setState(() {
         _links = const <ShowcaseLink>[];
+        _gallery = const <GalleryPicture>[];
         _error = reportAndDescribe(
           error,
           service: 'app',
@@ -735,6 +748,9 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
             : _Body(
                 musician: musician,
                 links: _links,
+                gallery: _gallery,
+                repository: widget.repository,
+                onGalleryChanged: _load,
                 songs: _songs,
                 onOpenSong: (song) => unawaited(_openSong(song)),
                 sharedCity: _sharedCity,
@@ -790,6 +806,9 @@ class _Body extends StatelessWidget {
   const _Body({
     required this.musician,
     required this.links,
+    required this.gallery,
+    required this.repository,
+    required this.onGalleryChanged,
     required this.songs,
     required this.onOpenSong,
     required this.sharedCity,
@@ -843,6 +862,13 @@ class _Body extends StatelessWidget {
   final ValueChanged<String> onClaim;
 
   final List<ShowcaseLink>? links;
+
+  /// Their pictures, or null while they are still coming.
+  final List<GalleryPicture>? gallery;
+  final MusicRepository repository;
+
+  /// One was added or taken off, so the page reads them again.
+  final Future<void> Function() onGalleryChanged;
   final List<OpenMicSong>? songs;
   final ValueChanged<OpenMicSong> onOpenSong;
   final String? sharedCity;
@@ -1270,6 +1296,18 @@ class _Body extends StatelessWidget {
               onTap: () => onOpenSong(song),
             ),
         ],
+        // After what they sound like and before what they say about
+        // themselves. A gallery is the other half of the same question a
+        // stranger is asking -- what is this person actually like to be in
+        // a room with -- and it answers it in the way a page of words
+        // cannot.
+        ProfileGallery(
+          repository: repository,
+          pictures: gallery,
+          isMe: isMe,
+          ownerName: musician.displayName,
+          onChanged: onGalleryChanged,
+        ),
         if (musician.soundsLike.isNotEmpty) ...<Widget>[
           const SizedBox(height: 28),
           const _Heading('Sounds like', note: 'their own words'),

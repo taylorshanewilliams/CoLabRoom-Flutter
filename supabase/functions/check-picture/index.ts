@@ -48,7 +48,10 @@ const REFUSE = [
 type Body = {
   bucket?: string;
   path?: string;
-  kind?: 'profile' | 'room_logo';
+  kind?: 'profile' | 'room_logo' | 'gallery_picture';
+  // What the picture belongs to: a profile, a room, or — for a gallery
+  // picture (0171) — the `profile_pictures` row itself, because a person has
+  // up to eight of them and the profile id does not say which.
   subject?: string;
 };
 
@@ -80,11 +83,27 @@ Deno.serve(async (request: Request) => {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+  // A gallery picture (0171) is the one kind that is invisible to everybody
+  // but its owner until this runs, so every way out of here that is not a
+  // refusal has to let it through. Including the ways out where nothing was
+  // actually looked at: this function fails open by design — see the note at
+  // the top — and a picture left silently invisible because an API had a bad
+  // afternoon is the same product failure in a quieter place.
+  const letThrough = async () => {
+    if (kind !== 'gallery_picture') return;
+    await supabase
+      .from('profile_pictures')
+      .update({ passed_at: new Date().toISOString() })
+      .eq('id', subject)
+      .is('passed_at', null);
+  };
+
   // Without a key this does nothing and says so, rather than silently
   // reporting every picture as fine — which would be a moderation system
   // that exists only in the release notes.
   if (!OPENAI_API_KEY) {
     console.error('check-picture: OPENAI_API_KEY is not set; nothing checked');
+    await letThrough();
     return new Response(JSON.stringify({ checked: false, reason: 'not configured' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -95,6 +114,7 @@ Deno.serve(async (request: Request) => {
   const signed = await supabase.storage.from(bucket).createSignedUrl(path, 120);
   if (signed.error || !signed.data?.signedUrl) {
     console.error('check-picture: could not sign', path, signed.error?.message);
+    await letThrough();
     return new Response(JSON.stringify({ checked: false, reason: 'unreadable' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -119,6 +139,7 @@ Deno.serve(async (request: Request) => {
 
     if (!response.ok) {
       console.error('check-picture: moderation returned', response.status);
+      await letThrough();
       return new Response(JSON.stringify({ checked: false, reason: 'upstream' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -134,6 +155,7 @@ Deno.serve(async (request: Request) => {
     // Fails open. See the note at the top: a moderation system that takes the
     // product down with it is one that gets switched off.
     console.error('check-picture: moderation failed', String(error));
+    await letThrough();
     return new Response(JSON.stringify({ checked: false, reason: 'error' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -141,6 +163,7 @@ Deno.serve(async (request: Request) => {
   }
 
   if (!flagged) {
+    await letThrough();
     return new Response(JSON.stringify({ checked: true, flagged: false }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -150,23 +173,57 @@ Deno.serve(async (request: Request) => {
   // Unpointed first, so it stops being served while the rest happens. The
   // object itself is left for tools/take_down.py, which is the only thing
   // that can delete it — see 0079.
+  //
+  // A gallery picture is marked rather than deleted, for 0171's reason: the
+  // row is what the report about to be filed points at, and every target on
+  // content_reports cascades.
+  let owner = subject;
   if (kind === 'profile') {
     await supabase.from('profiles').update({ avatar_path: null }).eq('id', subject);
+  } else if (kind === 'gallery_picture') {
+    // Read before writing: the report needs a reporter, and for a gallery
+    // picture the subject is the row rather than a person.
+    const picture = await supabase
+      .from('profile_pictures')
+      .select('profile_id')
+      .eq('id', subject)
+      .maybeSingle();
+    if (picture.data?.profile_id) owner = picture.data.profile_id as string;
+    await supabase
+      .from('profile_pictures')
+      .update({ taken_down_at: new Date().toISOString() })
+      .eq('id', subject);
   } else {
+    // The same read, for the same reason, and it fixes a refusal that was
+    // already here: `reporter_id` references profiles, so filing a room
+    // logo's report under the room's own id was a foreign key violation and
+    // the report was never written at all. The logo was unpointed and
+    // nobody was told (found while adding the gallery kind, 19 September
+    // 2026).
+    const room = await supabase
+      .from('rooms')
+      .select('account_id')
+      .eq('id', subject)
+      .maybeSingle();
+    if (room.data?.account_id) owner = room.data.account_id as string;
     await supabase.from('rooms').update({ logo_path: null }).eq('id', subject);
   }
 
-  // And a report, so a person sees it. `reporter_id` is the subject
-  // themselves because content_reports requires one and this had no human
+  // And a report, so a person sees it. `reporter_id` is whoever the picture
+  // belonged to, because content_reports requires one and this had no human
   // reporter; the note is what says otherwise.
   await supabase.from('content_reports').insert({
-    reporter_id: subject,
+    reporter_id: owner,
     kind,
     reason: categories.includes('sexual/minors') ? 'sexual' : 'abuse',
     detail: `Filed automatically by check-picture. Flagged: ${categories.join(', ')}. ` +
       `Object: ${bucket}/${path}. The picture has been unpointed; the object ` +
       `still needs deleting through the Storage API.`,
-    ...(kind === 'profile' ? { target_profile: subject } : { target_room: subject }),
+    ...(kind === 'profile'
+      ? { target_profile: subject }
+      : kind === 'gallery_picture'
+          ? { target_picture: subject }
+          : { target_room: subject }),
   });
 
   console.error(

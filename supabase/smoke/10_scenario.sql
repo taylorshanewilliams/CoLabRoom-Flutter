@@ -12720,6 +12720,347 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- A gallery on your profile (0171).
+--
+-- The three things this table is careful about, each checked from the side
+-- that would break it: a picture nobody has looked at yet is visible to
+-- nobody but its owner; a picture can only play a song its owner owns and
+-- has already put on the Open Mic; and eight is eight. Then the moderation
+-- path end to end -- report, take down, gone -- because a gallery that
+-- outlives a takedown is the one place removed work survives.
+
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('1a4e0171-0000-0000-0000-000000000001', 'gallerist@smoke.test',
+   '{"display_name": "The Gallerist"}'),
+  ('1a4e0171-0000-0000-0000-000000000002', 'passerby@smoke.test',
+   '{"display_name": "A Passer By"}');
+
+-- Listed, so the passer-by can open their page at all. Without this the
+-- gallery would be hidden for the right reason and the wrong one at once.
+update public.profiles set discoverable = true
+where id = '1a4e0171-0000-0000-0000-000000000001';
+
+insert into public.rooms (id, account_id, name) values
+  ('1a4e0171-0000-0000-0000-000000000010',
+   '1a4e0171-0000-0000-0000-000000000001', 'The Gallerist''s Band');
+
+insert into public.room_members (room_id, user_id, display_name, role, color_value)
+values ('1a4e0171-0000-0000-0000-000000000010',
+        '1a4e0171-0000-0000-0000-000000000001', 'The Gallerist', 'owner',
+        4294937164);
+
+-- One song out in the open and one that never left the room, so the tie is
+-- tested against both answers.
+insert into public.projects (id, room_id, account_id, title, created_by,
+                             open_mic_at)
+values ('1a4e0171-0000-0000-0000-000000000011',
+        '1a4e0171-0000-0000-0000-000000000010',
+        '1a4e0171-0000-0000-0000-000000000001', 'The Song From That Night',
+        '1a4e0171-0000-0000-0000-000000000001', now()),
+       ('1a4e0171-0000-0000-0000-000000000012',
+        '1a4e0171-0000-0000-0000-000000000010',
+        '1a4e0171-0000-0000-0000-000000000001', 'Not Finished',
+        '1a4e0171-0000-0000-0000-000000000001', null);
+
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+insert into public.profile_pictures
+  (id, profile_id, storage_path, caption, project_id, position)
+values ('1a4e0171-0000-0000-0000-0000000000a1',
+        '1a4e0171-0000-0000-0000-000000000001',
+        '1a4e0171-0000-0000-0000-000000000001/gallery/one.png',
+        'The Bird, October', '1a4e0171-0000-0000-0000-000000000011', 0);
+
+do $$
+begin
+  -- A song of theirs that is not on the Open Mic. Tying to it would make a
+  -- profile picture the way into a room nobody was let into.
+  begin
+    insert into public.profile_pictures (profile_id, storage_path, project_id)
+    values ('1a4e0171-0000-0000-0000-000000000001',
+            '1a4e0171-0000-0000-0000-000000000001/gallery/private.png',
+            '1a4e0171-0000-0000-0000-000000000012');
+    raise exception 'a picture was tied to a song that is not on the Open Mic';
+  exception when sqlstate '22023' then null;
+  end;
+
+  -- Somebody else's song, which would be a picture claiming it.
+  begin
+    insert into public.profile_pictures (profile_id, storage_path, project_id)
+    values ('1a4e0171-0000-0000-0000-000000000001',
+            '1a4e0171-0000-0000-0000-000000000001/gallery/theirs.png',
+            '44444444-4444-4444-4444-444444444444');
+    raise exception 'a picture was tied to somebody else''s song';
+  exception when sqlstate '22023' then null;
+  end;
+
+  -- An object in somebody else's folder. The storage policies would refuse
+  -- the write; the row must refuse to name it either way.
+  begin
+    insert into public.profile_pictures (profile_id, storage_path)
+    values ('1a4e0171-0000-0000-0000-000000000001',
+            '1a4e0171-0000-0000-0000-000000000002/gallery/stolen.png');
+    raise exception 'a picture pointed at somebody else''s object';
+  exception when check_violation then null;
+  end;
+end $$;
+
+-- Your own, before anybody has looked at it: you see it, and you are told
+-- it is still waiting.
+do $$
+declare
+  seen integer;
+  still_waiting boolean;
+begin
+  select count(*) into seen from public.gallery_for(
+    '1a4e0171-0000-0000-0000-000000000001');
+  if seen <> 1 then
+    raise exception 'your own unchecked picture was not on your own page (got %)',
+      seen;
+  end if;
+  select g.waiting into still_waiting from public.gallery_for(
+    '1a4e0171-0000-0000-0000-000000000001') g;
+  if still_waiting is distinct from true then
+    raise exception 'a picture nobody has looked at did not say it was waiting';
+  end if;
+end $$;
+
+-- The passer-by, before it has passed: nothing at all.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.gallery_for(
+               '1a4e0171-0000-0000-0000-000000000001')) then
+    raise exception 'a picture nobody had looked at was shown to a stranger';
+  end if;
+  -- And not through the table either, which is where a missing policy would
+  -- show up as a gallery that is private only through one function.
+  if exists (select 1 from public.profile_pictures
+               where profile_id = '1a4e0171-0000-0000-0000-000000000001') then
+    raise exception 'an unchecked picture was readable straight from the table';
+  end if;
+
+  -- Nobody adds a picture to somebody else's profile.
+  begin
+    insert into public.profile_pictures (profile_id, storage_path)
+    values ('1a4e0171-0000-0000-0000-000000000001',
+            '1a4e0171-0000-0000-0000-000000000001/gallery/theirs.png');
+    raise exception 'a stranger put a picture on somebody else''s profile';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- check-picture, which runs with the service key. Nothing a phone can do:
+-- passed_at is not granted to anybody signing in.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    update public.profile_pictures set passed_at = now()
+    where id = '1a4e0171-0000-0000-0000-0000000000a1';
+    raise exception 'a phone let its own picture through the check';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
+update public.profile_pictures set passed_at = now()
+where id = '1a4e0171-0000-0000-0000-0000000000a1';
+
+-- Now the passer-by sees it, with its words and with the song it plays.
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+declare
+  shown record;
+begin
+  select * into shown from public.gallery_for(
+    '1a4e0171-0000-0000-0000-000000000001');
+  if shown.id is null then
+    raise exception 'a picture that passed was still hidden from a stranger';
+  end if;
+  if shown.caption is distinct from 'The Bird, October' then
+    raise exception 'the words under the picture did not come back (got %)',
+      coalesce(shown.caption, '<null>');
+  end if;
+  if shown.song_id is distinct from '1a4e0171-0000-0000-0000-000000000011' then
+    raise exception 'the picture lost the song it plays';
+  end if;
+  if shown.waiting then
+    raise exception 'a picture that has passed still said it was waiting';
+  end if;
+end $$;
+
+-- Eight is eight, and it is counted per profile rather than per session.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+begin
+  for i in 2..8 loop
+    insert into public.profile_pictures (profile_id, storage_path, position)
+    values ('1a4e0171-0000-0000-0000-000000000001',
+            '1a4e0171-0000-0000-0000-000000000001/gallery/' || i || '.png', i);
+  end loop;
+
+  begin
+    insert into public.profile_pictures (profile_id, storage_path)
+    values ('1a4e0171-0000-0000-0000-000000000001',
+            '1a4e0171-0000-0000-0000-000000000001/gallery/nine.png');
+    raise exception 'a ninth picture went onto a profile';
+  exception when sqlstate '54000' then null;
+  end;
+end $$;
+
+-- Reporting one, and taking it down.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+declare
+  filed uuid;
+begin
+  filed := public.report_content(
+    in_kind => 'gallery_picture',
+    in_reason => 'abuse',
+    in_detail => 'Not what it says it is.',
+    in_picture => '1a4e0171-0000-0000-0000-0000000000a1');
+  if filed is null then
+    raise exception 'a gallery picture could not be reported';
+  end if;
+end $$;
+
+reset role;
+
+do $$
+declare
+  done record;
+  left_over integer;
+begin
+  select * into done from public.take_down_image(
+    (select id from public.content_reports
+      where target_picture = '1a4e0171-0000-0000-0000-0000000000a1'
+      order by created_at desc limit 1),
+    'Smoke.');
+  if done.bucket is distinct from 'avatars' then
+    raise exception 'the takedown named the wrong bucket (got %)',
+      coalesce(done.bucket, '<null>');
+  end if;
+  if done.cleared_path is distinct from
+     '1a4e0171-0000-0000-0000-000000000001/gallery/one.png' then
+    raise exception 'the takedown did not hand back the object to delete';
+  end if;
+
+  -- And the report it closed is still there to read, which is the reason the
+  -- row is marked rather than deleted.
+  select count(*) into left_over from public.content_reports
+  where target_picture = '1a4e0171-0000-0000-0000-0000000000a1';
+  if left_over <> 1 then
+    raise exception 'the takedown took the report with it (% left)', left_over;
+  end if;
+end $$;
+
+-- Gone from the owner's own page as well, and the place it held is free
+-- again -- the eighth slot, since the taken-down one no longer counts.
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.gallery_for(
+               '1a4e0171-0000-0000-0000-000000000001')
+             where id = '1a4e0171-0000-0000-0000-0000000000a1') then
+    raise exception 'a picture that was taken down was still on its own page';
+  end if;
+
+  insert into public.profile_pictures (profile_id, storage_path)
+  values ('1a4e0171-0000-0000-0000-000000000001',
+          '1a4e0171-0000-0000-0000-000000000001/gallery/again.png');
+end $$;
+
+-- Taking your own picture off is a delete, and it is yours alone to do.
+do $$
+declare
+  before_count integer;
+  after_count integer;
+begin
+  select count(*) into before_count from public.profile_pictures
+  where profile_id = '1a4e0171-0000-0000-0000-000000000001';
+  delete from public.profile_pictures
+  where storage_path =
+    '1a4e0171-0000-0000-0000-000000000001/gallery/again.png';
+  select count(*) into after_count from public.profile_pictures
+  where profile_id = '1a4e0171-0000-0000-0000-000000000001';
+  if after_count <> before_count - 1 then
+    raise exception 'removing your own picture removed % of them',
+      before_count - after_count;
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+declare
+  removed integer;
+begin
+  delete from public.profile_pictures
+  where profile_id = '1a4e0171-0000-0000-0000-000000000001';
+  get diagnostics removed = row_count;
+  if removed <> 0 then
+    raise exception 'a stranger removed % pictures from somebody else''s profile',
+      removed;
+  end if;
+end $$;
+
+-- A block closes the gallery with everything else.
+reset role;
+insert into public.user_blocks (blocker_id, blocked_id) values
+  ('1a4e0171-0000-0000-0000-000000000001',
+   '1a4e0171-0000-0000-0000-000000000002');
+
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.gallery_for(
+               '1a4e0171-0000-0000-0000-000000000001')) then
+    raise exception 'a blocked person could still see the gallery';
+  end if;
+end $$;
+
+reset role;
+delete from public.user_blocks
+where blocker_id = '1a4e0171-0000-0000-0000-000000000001'
+  and blocked_id = '1a4e0171-0000-0000-0000-000000000002';
+
+-- Nobody at all cannot ask.
+set local request.jwt.claims = '{"role": "anon"}';
+set local role anon;
+
+do $$
+begin
+  perform public.gallery_for('1a4e0171-0000-0000-0000-000000000001');
+  raise exception 'anon read somebody''s gallery';
+exception when insufficient_privilege then null;
+end $$;
+
+reset role;
+
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;

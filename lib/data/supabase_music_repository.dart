@@ -1189,6 +1189,128 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<List<GalleryPicture>> loadGallery(String profileId) async {
+    // Through the function rather than the table, the same reason as the
+    // showcase above: a block, a profile that is not yours to open, and a
+    // picture nobody has looked at yet are all decided in one place (0171).
+    final rows = await client.rpc<dynamic>(
+      'gallery_for',
+      params: <String, dynamic>{'target_profile': profileId},
+    );
+    return <GalleryPicture>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        GalleryPicture(
+          id: (row as Map<String, dynamic>)['id'] as String,
+          storagePath: row['storage_path'] as String? ?? '',
+          caption: row['caption'] as String? ?? '',
+          songId: row['song_id'] as String?,
+          songTitle: row['song_title'] as String?,
+          songStoragePath: row['song_storage_path'] as String? ?? '',
+          songDurationMs: (row['song_duration_ms'] as num?)?.toInt(),
+          position: (row['sort_position'] as num?)?.toInt() ?? 0,
+          waiting: row['waiting'] as bool? ?? false,
+        ),
+    ];
+  }
+
+  @override
+  Future<void> addGalleryPicture({
+    required Uint8List bytes,
+    String caption = '',
+    String? songId,
+  }) async {
+    // '<user id>/gallery/<name>.png', so the first path segment is what the
+    // avatars bucket's policies check to decide this is yours to write
+    // (0027), and the row's own check constraint reads the same thing.
+    //
+    // Random rather than a timestamp: the bucket is readable by any signed-in
+    // account that has the path, and a path anybody could guess from a user
+    // id and a minute would put a picture nobody has looked at yet in reach
+    // of somebody who went looking for it.
+    final random = math.Random.secure();
+    final name = List<String>.generate(
+      8,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    final path = '$_userId/gallery/$name.png';
+
+    await client.storage.from('avatars').uploadBinary(
+          path,
+          bytes,
+          fileOptions: const FileOptions(upsert: false, contentType: 'image/png'),
+        );
+
+    String pictureId;
+    try {
+      final row = await client
+          .from('profile_pictures')
+          .insert(<String, dynamic>{
+            'profile_id': _userId,
+            'storage_path': path,
+            'caption': caption.trim(),
+            'project_id': songId,
+            // `position` is left at its default. It exists for the owner's
+            // own arrangement; until somebody arranges them, the order is the
+            // order they were added, which is what gallery_for falls back to.
+          })
+          .select('id')
+          .single();
+      pictureId = row['id'] as String;
+    } catch (error) {
+      // The object is already up and nothing points at it. Left alone it is a
+      // file this app pays for every month forever, and the refusal the
+      // person is about to read — a full gallery, a song that is not theirs —
+      // is one they will try again after, which would leave another.
+      try {
+        await client.storage.from('avatars').remove(<String>[path]);
+      } catch (_) {
+        unawaited(ErrorReporter().reportWarning(
+          service: 'app',
+          stage: 'gallery_cleanup',
+          message: 'orphaned $path',
+        ));
+      }
+      rethrow;
+    }
+
+    // Awaited rather than fired off, so that by the time the page reloads the
+    // picture has either been let through or is already gone. Nobody else can
+    // see it until this has run: that is what `passed_at` is (0171).
+    await checkPicture(
+      bucket: 'avatars',
+      path: path,
+      kind: 'gallery_picture',
+      subject: pictureId,
+    );
+  }
+
+  @override
+  Future<void> removeGalleryPicture(String pictureId) async {
+    final row = await client
+        .from('profile_pictures')
+        .select('storage_path')
+        .eq('id', pictureId)
+        .maybeSingle();
+    await client.from('profile_pictures').delete().eq('id', pictureId);
+    final path = row?['storage_path'] as String?;
+    if (path == null) return;
+    try {
+      await client.storage.from('avatars').remove(<String>[path]);
+    } catch (error) {
+      // The picture is off the profile either way. Counted because storage is
+      // the one line on this bill paid again every month, on everything ever
+      // uploaded — the same note the avatar cleanup carries.
+      unawaited(ErrorReporter().reportWarning(
+        service: 'app', stage: 'gallery_cleanup', message: error.toString()));
+    }
+  }
+
+  @override
+  Future<Uint8List> loadGalleryImage(String storagePath) {
+    return client.storage.from('avatars').download(storagePath);
+  }
+
+  @override
   Future<String?> sharedCityWith(String profileId) async {
     final city = await client.rpc<dynamic>(
       'shared_city_with',
@@ -1858,6 +1980,7 @@ class SupabaseMusicRepository implements MusicRepository {
     String? layerId,
     String? linkId,
     String? roomId,
+    String? pictureId,
   }) async {
     await client.rpc<dynamic>(
       'report_content',
@@ -1870,6 +1993,7 @@ class SupabaseMusicRepository implements MusicRepository {
         'in_layer': layerId,
         'in_link': linkId,
         'in_room': roomId,
+        'in_picture': pictureId,
       },
     );
   }

@@ -268,6 +268,35 @@ abstract interface class MusicRepository {
 
   Future<void> removeShowcaseLink(String linkId);
 
+  /// The pictures on somebody's profile, in the order they put them in.
+  ///
+  /// Somebody else's arrive already filtered: only pictures that have been
+  /// looked at, and only from a profile you could already open. Your own
+  /// arrive whether they have been looked at or not, each saying which.
+  Future<List<GalleryPicture>> loadGallery(String profileId);
+
+  /// Puts one picture on your own profile.
+  ///
+  /// [bytes] are uploaded as they are given — shrink and re-encode them
+  /// first, which is what `PictureForUpload.forGallery` is for. [songId] must
+  /// be one of your own songs that is already on the Open Mic; the server
+  /// refuses anything else, because a picture that plays a song in a private
+  /// room would be a way into a room nobody was let into.
+  ///
+  /// Throws with the server's own sentence when the profile already has
+  /// eight.
+  Future<void> addGalleryPicture({
+    required Uint8List bytes,
+    String caption,
+    String? songId,
+  });
+
+  /// Takes one of your own pictures off your profile, and deletes the image.
+  Future<void> removeGalleryPicture(String pictureId);
+
+  /// The image itself.
+  Future<Uint8List> loadGalleryImage(String storagePath);
+
   /// The city you and [profileId] turn out to share, if you have made
   /// something together and they allow it. Null otherwise, which is the
   /// normal case and not an error.
@@ -467,6 +496,7 @@ abstract interface class MusicRepository {
     String? layerId,
     String? linkId,
     String? roomId,
+    String? pictureId,
   });
 
   /// Songs you are on and could offer to [profileId], newest first.

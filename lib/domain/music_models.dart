@@ -1149,6 +1149,58 @@ class ShowcaseLink {
   String get displayTitle => title.trim().isEmpty ? platform : title.trim();
 }
 
+/// One picture on somebody's profile.
+///
+/// Up to eight of them, in the order their owner put them in, and nothing
+/// else is ever counted about one: no likes, no views, no ordering by
+/// anything but the owner's own arrangement (Every Musician, Same Song,
+/// 17 September 2026 — a profile is a room somebody is proud of, not a feed).
+///
+/// A picture can play a song. When it does, [songId] is one of the owner's
+/// own songs that is already on the Open Mic, and [songStoragePath] is the
+/// audio to play — so a photograph of a gig plays the song from that night.
+class GalleryPicture {
+  const GalleryPicture({
+    required this.id,
+    required this.storagePath,
+    this.caption = '',
+    this.songId,
+    this.songTitle,
+    this.songStoragePath = '',
+    this.songDurationMs,
+    this.position = 0,
+    this.waiting = false,
+  });
+
+  final String id;
+
+  /// Where the image is, in the avatars bucket, under its owner's own id.
+  final String storagePath;
+
+  /// Their own words about their own picture. Empty is the ordinary case.
+  final String caption;
+
+  final String? songId;
+  final String? songTitle;
+
+  /// Where the song's audio is, or empty when there is no song or it has no
+  /// recording — in which case nothing offers to play.
+  final String songStoragePath;
+  final int? songDurationMs;
+
+  final int position;
+
+  /// Still waiting to be looked at, so nobody else can see it yet.
+  ///
+  /// Only ever true on your own pictures: everybody else's are filtered out
+  /// by the server until they have passed, which is the whole point of the
+  /// column. Your own page says so rather than drawing a picture other
+  /// people cannot see and saying nothing about it.
+  final bool waiting;
+
+  bool get playsASong => songId != null && songStoragePath.isNotEmpty;
+}
+
 /// Somebody you might work with.
 ///
 /// Carries the two kinds of truth separately and refuses to average them.
