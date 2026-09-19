@@ -88,6 +88,17 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
   /// nor say a word about it (review, 19 September 2026).
   int _reordersStarted = 0;
 
+  /// The last order this screen saw reach the server, or null before any did.
+  ///
+  /// The controller's own copy of the set is not that. reorderSetlistProjects
+  /// writes and then reloads the whole library, and that load swallows its own
+  /// failure and returns at once when another load is already running — so a
+  /// drag that did save can leave the cache still holding the order from
+  /// before it. Restoring a later failed drag to the cache would then put the
+  /// set back to an order the server no longer has, while saying it is back as
+  /// it was (review, 19 September 2026).
+  List<String>? _lastSaved;
+
   /// The options menu, so a share chosen from it can say where on screen it
   /// was asked for: an iPad hangs the share sheet off the control that was
   /// tapped, and the menu is still there when the choice comes back. See
@@ -134,8 +145,17 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
     List<String> order,
     int mine,
   ) async {
+    // A drag that a later drag has already overtaken is not sent at all.
+    // Every write carries the whole running order, so the newer one waiting
+    // behind this one says everything this one would have said, and sending
+    // both makes the order that matters wait out a round trip — on a bad
+    // line, a round trip's timeout and its retries, and the spring-back with
+    // it (review, 19 September 2026). Being off screen is not a reason to
+    // skip: that order may still be the newest thing anybody asked for.
+    if (mine != _reordersStarted) return;
     try {
       await controller.reorderSetlistProjects(setlist, order);
+      _lastSaved = List<String>.from(order);
     } catch (error) {
       // The order the server holds, not the one this screen guessed: a
       // second drag may have saved before this one failed, and a set kept on
@@ -153,12 +173,32 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
             service: 'app', stage: 'reorder_set_unheard', route: 'Setlist');
         return;
       }
-      setState(() => _localOrder = List<String>.from(held.projectIds));
+      setState(() => _localOrder = _orderOnTheServer(held));
       ScaffoldMessenger.of(context).showNote(
         'The new order did not save, so the set is back as it was: '
         '${reportAndDescribe(error, service: 'app', stage: 'reorder_set', route: 'Setlist')}',
       );
     }
+  }
+
+  /// The order the set is put back to when a drag does not save.
+  ///
+  /// The last order this screen wrote, if it wrote one, because that is the
+  /// only thing it knows reached the server — see [_lastSaved] for why the
+  /// controller's copy is not. The set's membership does come from the
+  /// controller: a song added or taken out since that write is the cache's to
+  /// know, and keeping membership right is also what stops build() throwing
+  /// this order away the moment it is set.
+  List<String> _orderOnTheServer(Setlist held) {
+    final saved = _lastSaved;
+    if (saved == null) return List<String>.from(held.projectIds);
+    final members = held.projectIds.toSet();
+    final order = <String>[for (final id in saved) if (members.contains(id)) id];
+    final placed = order.toSet();
+    // A song added to the set since that write goes on the end, which is
+    // where the set itself puts a newly added song.
+    order.addAll(held.projectIds.where((id) => !placed.contains(id)));
+    return order;
   }
 
   Future<SongAnalysisBundle?> _fromService(String projectId) async {
@@ -263,7 +303,13 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
       setState(() => _localOrder = updated);
       final mine = ++_reordersStarted;
       _reorders = _reorders
-          .then((_) => _saveOrder(controller, setlist, updated, mine));
+          .then((_) => _saveOrder(controller, setlist, updated, mine))
+          // _saveOrder is written never to throw, and this is what happens if
+          // it ever does: an errored tail would skip the .then of every later
+          // drag, so the rows would go on moving while nothing was written and
+          // nothing said — worse than the bug all this fixes. The queue is put
+          // back on its feet instead (review, 19 September 2026).
+          .catchError((Object _) {});
     }
 
     /// Which day this set is for (0164), or no day at all.
@@ -311,6 +357,26 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
       );
       if (day == null) return;
       await keepTheDay(day);
+    }
+
+    /// Takes one song out of the set, and says so if it does not go.
+    ///
+    /// The remove-circle used to hand its Future straight to a VoidCallback,
+    /// which discarded it: with no signal the throw went into the zone,
+    /// nothing was said, and the song was still there at the next load with no
+    /// explanation. Nothing local moves here, so unlike a drag the screen was
+    /// not lying — only silent, which is the same silence this slice is about.
+    Future<void> removeSong(SongProject project) async {
+      try {
+        await controller.removeProjectFromSetlist(setlist, project.id);
+      } catch (error) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showNote(
+            reportAndDescribe(error,
+                service: 'app', stage: 'remove_from_set', route: 'Setlist'),
+          );
+        }
+      }
     }
 
     Future<void> rename() async {
@@ -822,7 +888,8 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                           icon: const Icon(Icons.tune_rounded, color: AppColors.muted),
                         ),
                         IconButton(
-                          onPressed: () => controller.removeProjectFromSetlist(setlist, project.id),
+                          key: Key('remove_from_set_${project.id}'),
+                          onPressed: () => unawaited(removeSong(project)),
                           tooltip: 'Remove from setlist',
                           icon: const Icon(Icons.remove_circle_outline_rounded, color: AppColors.muted),
                         ),

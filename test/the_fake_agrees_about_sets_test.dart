@@ -229,4 +229,36 @@ void main() {
       expect(await repository.loadSetlists(), isEmpty);
     });
   });
+
+  group('a room keeps every song added to it', () {
+    test('two songs added from the one room snapshot are both there', () async {
+      // The same family of drift as the rest of this file, one table over.
+      // createSong rebuilt the whole room from the snapshot it was handed, so
+      // a second song added to the room as it was before the first did not
+      // have the first in it, and a test setting up two songs was quietly
+      // left with one. Postgres inserts one row and cannot do that.
+      final repository = InMemoryMusicRepository.seeded();
+      final room = (await repository.loadRooms()).first;
+      final before = room.projects.length;
+
+      final first = await repository.createSong(room: room, title: 'Harbour Lights');
+      // The same snapshot again, which is the whole point: a caller holding a
+      // room from a moment ago is the ordinary case.
+      final second = await repository.createSong(room: room, title: 'Slow Train');
+
+      final held = (await repository.loadRooms()).first;
+      expect(held.projects, hasLength(before + 2));
+      expect(
+        held.projects.map((project) => project.id),
+        containsAll(<String>[first.id, second.id]),
+      );
+      // And the second sits after the first rather than on top of it.
+      expect(
+        held.projects.firstWhere((project) => project.id == second.id).sortOrder,
+        greaterThan(
+          held.projects.firstWhere((project) => project.id == first.id).sortOrder,
+        ),
+      );
+    });
+  });
 }

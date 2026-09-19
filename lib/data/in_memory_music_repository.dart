@@ -285,21 +285,35 @@ class InMemoryMusicRepository implements MusicRepository {
       throw const NameConflict('A song with that name already exists in your account.');
     }
     final now = DateTime.now();
-    final maxSort = room.projects.isEmpty
+    // The room as it is now, not as the caller last saw it. Rebuilding the
+    // room from the handed-in snapshot lost a song whenever two were added
+    // from the same one -- the second call's rebuild simply did not have the
+    // first song in it. Postgres inserts one row and cannot do that, so this
+    // was the fake drifting from the database again, the way #413 found for
+    // sets. reorderRoomProjects below has always looked the room up this way.
+    //
+    // A room this repository has never held falls back to the snapshot, which
+    // is what it did before: _replaceRoom does nothing with an unknown room,
+    // so the song is handed back and stored nowhere either way.
+    final current = _rooms.firstWhere(
+      (candidate) => candidate.id == room.id,
+      orElse: () => room,
+    );
+    final maxSort = current.projects.isEmpty
         ? 0.0
-        : room.projects.map((project) => project.sortOrder).reduce((a, b) => a > b ? a : b);
+        : current.projects.map((project) => project.sortOrder).reduce((a, b) => a > b ? a : b);
     final project = SongProject(
       id: _id('song'),
-      roomId: room.id,
-      accountId: room.accountId,
+      roomId: current.id,
+      accountId: current.accountId,
       title: cleaned,
       createdAt: now,
       updatedAt: now,
       sortOrder: maxSort + 1024,
     );
     _replaceRoom(
-      room.copyWith(
-        projects: <SongProject>[...room.projects, project],
+      current.copyWith(
+        projects: <SongProject>[...current.projects, project],
         updatedAt: now,
       ),
     );
