@@ -59,8 +59,8 @@ class ProfileGallery extends StatefulWidget {
 
 class _ProfileGalleryState extends State<ProfileGallery> {
   /// The images themselves, once each has arrived. Held here rather than in
-  /// each tile so that scrolling the strip does not fetch the same picture
-  /// again, and so a rebuild of the page does not start eight downloads.
+  /// each tile so that a rebuild of the page does not start eight downloads
+  /// over again.
   final Map<String, Uint8List> _images = <String, Uint8List>{};
   final Set<String> _asked = <String>{};
   bool _busy = false;
@@ -227,21 +227,24 @@ class _ProfileGalleryState extends State<ProfileGallery> {
         ),
         const SizedBox(height: 9),
         if (pictures != null && pictures.isNotEmpty) ...<Widget>[
-          SizedBox(
-            height: 104,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: pictures.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (_, index) {
-                final picture = pictures[index];
-                return _PictureTile(
+          // Wrapped rather than a strip that scrolls sideways. Two reasons,
+          // and they point the same way: eight pictures fit in three rows on
+          // any phone, so nothing is hidden behind a sideways swipe nobody is
+          // told about — and a scrolling row inside this page would put a
+          // second Scrollable in the tree, which is a nested scroll gesture
+          // for a person and an ambiguous one for anything looking for the
+          // page's own list.
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final picture in pictures)
+                _PictureTile(
                   picture: picture,
                   image: _images[picture.storagePath],
                   onTap: () => unawaited(_open(picture)),
-                );
-              },
-            ),
+                ),
+            ],
           ),
           if (waiting) ...<Widget>[
             const SizedBox(height: 7),
@@ -287,7 +290,7 @@ class _ProfileGalleryState extends State<ProfileGallery> {
   }
 }
 
-/// One picture in the strip.
+/// One picture on the wall.
 class _PictureTile extends StatelessWidget {
   const _PictureTile({
     required this.picture,
@@ -323,8 +326,10 @@ class _PictureTile extends StatelessWidget {
             key: Key('gallery_picture_${picture.id}'),
             onTap: onTap,
             child: SizedBox(
-              width: 104,
-              height: 104,
+              // Small enough that three fit across the narrowest phone this
+              // app draws on, so eight pictures are three rows and not four.
+              width: 96,
+              height: 96,
               child: Stack(
                 fit: StackFit.expand,
                 children: <Widget>[
