@@ -12210,12 +12210,15 @@ begin
   -- And the cache stays what it has always been: written and read by the
   -- Edge Function with the service role and by nothing else. It now holds
   -- one more fact about somebody's song, which is one more reason a client
-  -- that could read it would be able to say whose recording this is.
-  select count(*) into cached from public.analysis_cache;
-  if cached <> 0 then
-    raise exception 'a signed-in account could read the analysis cache (% rows)',
+  -- that could read it could say whose recording this is. Refused at the
+  -- grant, before any policy is consulted, which is where 0024 left it.
+  begin
+    select count(*) into cached from public.analysis_cache;
+    raise exception
+      'the analysis cache answered a signed-in account (% rows); it is service role only',
       cached;
-  end if;
+  exception when insufficient_privilege then null;
+  end;
 end $$;
 
 -- Somebody who can only look can see what the words were heard in, and
