@@ -262,13 +262,12 @@ void main() {
           reason: 'Save is taller than 56 at this size, and it is the only '
               'way to keep the corrections somebody has just typed');
       _theBarHoldsItsWords(tester, 'Review lyrics at 3.12');
-      // Not asked whether anything else on this screen overflowed, because
-      // something does and it is not the bar: the sentence above the lines is
-      // an unflexed child of a Column, so at this size it is taller than the
-      // screen and the list under it overflows by 376 — with the bar still at
-      // 56 and before any of this. That is its own fix; this one is about the
-      // bar. Cleared so it does not land in the next test.
-      tester.takeException();
+      // Asked about the whole screen, not only the bar. It used to overflow
+      // by 376 here whatever the bar did — the sentence above the lines was an
+      // unflexed child of a Column and at this size it is taller than the
+      // screen — and that was left to its own fix, which has since been made:
+      // the sentence is the first thing in the list now and the body scrolls.
+      expect(tester.takeException(), isNull);
       await _close(tester);
     });
 

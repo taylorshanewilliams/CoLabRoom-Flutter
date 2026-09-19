@@ -163,48 +163,55 @@ class _LyricReviewScreenState extends State<LyricReviewScreen> {
         ],
       ),
       body: SafeArea(
-        child: Column(
-          children: <Widget>[
-            const Padding(
-              padding: EdgeInsets.fromLTRB(18, 8, 18, 12),
-              child: Text(
-                'These are the words heard in the recording, split into lines by the pauses in the singing. '
-                'Fix anything mis-heard, then save to update the Song Sheet and Live Performance.',
-                style: TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4),
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
-                itemCount: _controllers.length,
-                itemBuilder: (context, index) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: TextField(
-                            key: Key('review_lyric_line_$index'),
-                            controller: _controllers[index],
-                            style: const TextStyle(color: AppColors.text),
-                            decoration: InputDecoration(
-                              isDense: true,
-                              hintText: 'Line ${index + 1}',
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => _removeLine(index),
-                          tooltip: 'Remove line',
-                          icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.muted),
-                        ),
-                      ],
+        // The sentence scrolls with the lines it is about, as the first thing
+        // in the list rather than as an unflexed child of a Column above it.
+        //
+        // Every Musician, Same Song, 17 September 2026: the phone's own text
+        // size is honoured, never clamped. Held out of the scroll, that
+        // sentence took whatever height its words wanted: at the largest text
+        // size it wrapped to taller than the screen, the body overflowed by
+        // 376, and the correction fields — the entire point of the screen —
+        // were off the bottom of it with no way to reach them.
+        child: ListView.builder(
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+          itemCount: _controllers.length + 1,
+          itemBuilder: (context, index) {
+            if (index == 0) {
+              return const Padding(
+                padding: EdgeInsets.only(top: 8, bottom: 12),
+                child: Text(
+                  'These are the words heard in the recording, split into lines by the pauses in the singing. '
+                  'Fix anything mis-heard, then save to update the Song Sheet and Live Performance.',
+                  style:
+                      TextStyle(color: AppColors.muted, fontSize: 12, height: 1.4),
+                ),
+              );
+            }
+            final line = index - 1;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      key: Key('review_lyric_line_$line'),
+                      controller: _controllers[line],
+                      style: const TextStyle(color: AppColors.text),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        hintText: 'Line ${line + 1}',
+                      ),
                     ),
-                  );
-                },
+                  ),
+                  IconButton(
+                    onPressed: () => _removeLine(line),
+                    tooltip: 'Remove line',
+                    icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.muted),
+                  ),
+                ],
               ),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );

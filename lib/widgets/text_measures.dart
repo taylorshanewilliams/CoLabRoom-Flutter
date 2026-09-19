@@ -21,9 +21,9 @@ import 'package:flutter/material.dart';
 ///
 /// Cheap: one layout of two glyphs, once per build of the strip.
 ///
-/// [scaler] is for the one caller that has to ask about a text size other
-/// than the one this phone is set to: [appBarHighEnoughFor], because Flutter
-/// draws an app bar's title at a scale of its own.
+/// [scaler] is for a caller that has to ask about a text size other than the
+/// one this phone is set to — [appBarHighEnoughFor], because Flutter draws an
+/// app bar's title at a scale of its own. See [appBarTitleScaler].
 double linesOfTextHigh(
   BuildContext context,
   TextStyle style, {
@@ -61,6 +61,18 @@ double linesOfTextHigh(
 /// labelled one is the part that loses its bottom.
 const double _appBarClampsItsTitleAt = 1.34;
 
+/// The text size an [AppBar] actually draws its title at on this phone.
+///
+/// The reader's own size until it reaches Flutter's ceiling, and the ceiling
+/// after that. Anything measuring a title — how tall it is, or how wide, which
+/// decides whether a bar's actions still fit beside it as words — has to ask
+/// at this scale rather than at the reader's, or it is measuring a title
+/// nobody is ever shown.
+TextScaler appBarTitleScaler(BuildContext context) {
+  return MediaQuery.textScalerOf(context)
+      .clamp(maxScaleFactor: _appBarClampsItsTitleAt);
+}
+
 /// How tall an app bar has to be to hold what is in it, at the text size this
 /// phone is set to — never less than Material's 56.
 ///
@@ -85,7 +97,7 @@ double appBarHighEnoughFor(
   List<TextStyle> actions = const <TextStyle>[],
 }) {
   final scaler = MediaQuery.textScalerOf(context);
-  final titleScaler = scaler.clamp(maxScaleFactor: _appBarClampsItsTitleAt);
+  final titleScaler = appBarTitleScaler(context);
   // The 8 below and the 16 below that are the air the Takes bar has kept
   // since it was the only bar that measured itself: enough that the words are
   // not flush against the edges of the bar they sit in.
@@ -142,14 +154,25 @@ TextStyle appBarTitleStyle(BuildContext context) {
 /// on the scale factor: "bigger than 1.3x" is a guess about a font, a phone
 /// width and a word length all at once, and it is wrong for at least one of
 /// them.
-double textWidthOf(BuildContext context, String text, TextStyle style) {
+///
+/// [scaler] is for a caller asking about a text size other than the one this
+/// phone is set to — the same reason [linesOfTextHigh] takes one: an app
+/// bar's title is drawn at a scale of Flutter's choosing, so measuring its
+/// width at the reader's full scale reports a wider title than is ever
+/// painted. See [appBarTitleScaler].
+double textWidthOf(
+  BuildContext context,
+  String text,
+  TextStyle style, {
+  TextScaler? scaler,
+}) {
   final merged = style.inherit
       ? DefaultTextStyle.of(context).style.merge(style)
       : style;
   final painter = TextPainter(
     text: TextSpan(text: text, style: merged),
     textDirection: Directionality.maybeOf(context) ?? TextDirection.ltr,
-    textScaler: MediaQuery.textScalerOf(context),
+    textScaler: scaler ?? MediaQuery.textScalerOf(context),
     maxLines: 1,
   )..layout();
   final width = painter.width;
