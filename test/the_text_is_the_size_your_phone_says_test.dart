@@ -3,6 +3,7 @@ import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/features/auth/supabase_auth_screen.dart';
+import 'package:colabroom/features/openmic/musician_profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -195,6 +196,35 @@ void main() {
 
       await _popToRoot(tester);
     }
+  });
+
+  testWidgets('a profile page holds at the largest text size', (tester) async {
+    _complaints.clear();
+    final previous = FlutterError.onError;
+    FlutterError.onError = (FlutterErrorDetails details) {
+      _complaints.add(details);
+      previous?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = previous);
+
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+    // Somebody else's, which is the version most people see, and the one
+    // carrying the most: a face, what they play, where they are, and the
+    // three sections under it.
+    await tester.pumpWidget(MaterialApp(
+      theme: CoLabRoomTheme.dark(),
+      home: MusicianProfileScreen(
+        profileId: 'preview-mara',
+        repository: InMemoryMusicRepository.seeded(),
+      ),
+    ));
+    await _frames(tester);
+    expect(tester.takeException(), isNull, reason: _why('a profile'));
   });
 
   testWidgets('the sign-in screen holds at the largest text size',

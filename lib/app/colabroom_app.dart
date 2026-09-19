@@ -30,6 +30,22 @@ class CoLabRoomApp extends StatefulWidget {
   State<CoLabRoomApp> createState() => _CoLabRoomAppState();
 }
 
+/// The app, and no `builder`.
+///
+/// **The text is the size the phone says it is.** There used to be a `builder`
+/// here clamping the system text scale to 0.8-1.3, so somebody who had set the
+/// largest size on their phone — which is the whole of how a partially sighted
+/// musician reads anything — got a *smaller* one here than their phone
+/// promised. Every Musician, Same Song, 17 September 2026: the phone's own text
+/// size is honoured, never clamped, and it is the first thing ADA Title II and
+/// WCAG 2.1 AA §1.4.4 ask of anything a school or a university would run.
+///
+/// The clamp was there to stop fixed heights overflowing. The fix for a fixed
+/// height is an intrinsic height, not shrinking the reader's text, and nothing
+/// replaces the builder: MaterialApp makes its own MediaQuery from the view, so
+/// with none here the scaler is exactly what the platform reports. `test_render`
+/// renders the whole app at 2.0 and fails a walk on any overflow, which is what
+/// keeps that true.
 class _CoLabRoomAppState extends State<CoLabRoomApp> {
   // Made once, not per build: a new delegate would be a new navigator, and
   // everything open on it would close.
@@ -55,22 +71,6 @@ class _CoLabRoomAppState extends State<CoLabRoomApp> {
     routerDelegate: _OneHome(home: _home, observers: _observers),
     backButtonDispatcher: RootBackButtonDispatcher(),
   );
-
-  // The text is the size the phone says it is.
-  //
-  // Every Musician, Same Song, 17 September 2026: the phone's own text size is
-  // honoured, never clamped. This used to clamp the system scale to 0.8-1.3,
-  // so somebody who had set the largest size on their phone — which is the
-  // whole of how a partially sighted musician reads anything — got a *smaller*
-  // one here than their phone promised. The clamp was there to stop fixed
-  // heights overflowing; the fix for a fixed height is an intrinsic height,
-  // not shrinking the reader's text, and it is also what ADA Title II and
-  // WCAG 2.1 AA require of every school and university that would run this.
-  //
-  // Nothing replaces it: MaterialApp builds its own MediaQuery from the view,
-  // so with no builder here the scaler is exactly what the platform reports.
-  // test_render/ renders the whole app at 2.0 and fails on any RenderFlex
-  // overflow, which is what keeps that true.
 
   @override
   Widget build(BuildContext context) {

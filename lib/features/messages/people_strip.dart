@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -34,11 +35,15 @@ class PeopleStrip extends StatefulWidget {
 }
 
 class _PeopleStripState extends State<PeopleStrip> {
-  /// The three numbers the row's height is made of. Named because the height
-  /// is now worked out from them rather than written down once as 74.
+  /// What the row's height is made of, and the height it rests at.
+  ///
+  /// 74 stays the floor so the row looks exactly as it always has on a phone
+  /// at its usual text size — the slack above the face and the name is part
+  /// of the drawing. Above the floor the height follows the name.
   static const double _faceSize = 46;
   static const double _faceToName = 4;
   static const double _nameSize = 11;
+  static const double _restingHeight = 74;
 
   static TextStyle _nameStyle(bool here) => TextStyle(
         color: here ? AppColors.text : AppColors.muted,
@@ -187,7 +192,10 @@ class _PeopleStripState extends State<PeopleStrip> {
             // by 7. A horizontal list is the one thing Flutter will not size
             // for itself, so the line is measured instead. The list stays
             // lazy: nobody knows how many people somebody knows.
-            height: _faceSize + _faceToName + linesOfTextHigh(context, _nameStyle(true)),
+            height: math.max(
+              _restingHeight,
+              _faceSize + _faceToName + linesOfTextHigh(context, _nameStyle(true)),
+            ),
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.only(right: 10),

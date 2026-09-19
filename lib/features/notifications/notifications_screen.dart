@@ -982,48 +982,75 @@ class _AskCard extends StatelessWidget {
             style: TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.4),
           ),
           const SizedBox(height: 10),
-          // Side by side while they fit, under each other when they do not.
-          //
-          // These three were a Row with "I'm in" in an Expanded. At the
-          // largest text size the two words beside it wanted more than a
-          // phone is wide, so the Expanded was left about thirty pixels and
-          // drew "I'm in" one letter per line. Every Musician, Same Song,
-          // 17 September 2026: the phone's own text size is honoured, which
-          // means answers to an ask have to be readable at it. OverflowBar
-          // measures first and stacks rather than squeezing; the accept
-          // button is the filled one either way, which is what says it is
-          // the answer this card is expecting.
-          OverflowBar(
-            spacing: 8,
-            overflowSpacing: 4,
-            overflowAlignment: OverflowBarAlignment.start,
-            children: <Widget>[
-              FilledButton(
-                onPressed: busy ? null : onAccept,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.cyan,
-                  foregroundColor: AppColors.ink,
-                ),
-                child: const Text("I'm in"),
+          _Answers(
+            accept: FilledButton(
+              onPressed: busy ? null : onAccept,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.cyan,
+                foregroundColor: AppColors.ink,
               ),
-              TextButton(
-                key: const Key('ask_card_reply'),
-                onPressed: busy ? null : onReply,
-                style: TextButton.styleFrom(foregroundColor: AppColors.cyan),
-                child: const Text('Reply'),
-              ),
-              // A real answer, not a dismissal. Somebody who asked deserves
-              // to hear no rather than nothing, and an ask that can only be
-              // answered with silence is one nobody sends twice.
-              TextButton(
-                onPressed: busy ? null : onDecline,
-                style: TextButton.styleFrom(foregroundColor: AppColors.muted),
-                child: const Text('Not this one'),
-              ),
-            ],
+              child: const Text("I'm in"),
+            ),
+            reply: TextButton(
+              key: const Key('ask_card_reply'),
+              onPressed: busy ? null : onReply,
+              style: TextButton.styleFrom(foregroundColor: AppColors.cyan),
+              child: const Text('Reply'),
+            ),
+            // A real answer, not a dismissal. Somebody who asked deserves to
+            // hear no rather than nothing, and an ask that can only be
+            // answered with silence is one nobody sends twice.
+            decline: TextButton(
+              onPressed: busy ? null : onDecline,
+              style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+              child: const Text('Not this one'),
+            ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The three ways to answer an ask: side by side, or under each other.
+///
+/// They were a Row with "I'm in" in an Expanded. Every Musician, Same Song,
+/// 17 September 2026: the phone's own text size is honoured, never clamped —
+/// and at the largest size the two words beside it wanted more than a phone is
+/// wide, so the Expanded was left about thirty pixels and drew "I'm in" one
+/// letter per line. Somebody who cannot read small text was handed the one
+/// card in this app another musician is waiting on, with the yes unreadable.
+///
+/// Stacked above 1.5 rather than at the first pixel of trouble: below it the
+/// card is exactly what it has always been, which is most phones, and answers
+/// that rearrange themselves because somebody nudged their text size one step
+/// are worse than either layout.
+class _Answers extends StatelessWidget {
+  const _Answers({
+    required this.accept,
+    required this.reply,
+    required this.decline,
+  });
+
+  final Widget accept;
+  final Widget reply;
+  final Widget decline;
+
+  @override
+  Widget build(BuildContext context) {
+    if (textGrowth(context, 14) >= 1.5) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[accept, reply, decline],
+      );
+    }
+    return Row(
+      children: <Widget>[
+        Expanded(child: accept),
+        const SizedBox(width: 8),
+        reply,
+        decline,
+      ],
     );
   }
 }
