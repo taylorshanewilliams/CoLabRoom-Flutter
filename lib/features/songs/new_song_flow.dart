@@ -132,6 +132,9 @@ Future<SongProject?> showLearnASongFlow(
           SongOrigin.cover;
   try {
     await controller.repository.setSongOrigin(project.id, answer);
+    // Back into the song the caller is about to open, so the answer is on the
+    // song rather than only in the database until the next full reload.
+    await controller.refreshProject(project.id);
   } catch (error) {
     if (context.mounted) _showError(context, error);
   }

@@ -75,17 +75,57 @@ class _ChartOnTheSheetState extends State<ChartOnTheSheet> {
     unawaited(SimplerShapesStore.warm());
     unawaited(ShapeReadingStore.warm());
     unawaited(LeftHandedStore.warm());
+    // Warmed so that [SongTransposeStore.held] answers for this song and not
+    // only for songs somebody has already changed in this session — see
+    // [_readingChangedElsewhere], which has to read it without waiting.
+    unawaited(SongTransposeStore.warm());
+    unawaited(SongReadingStore.warm());
     ShapeReadingStore.changes.addListener(_shapesChanged);
+    // A song that has a recording as well as a chart draws two pages on one
+    // screen, each with its own controls — and both read this person's one
+    // kept key. Without these the chart would go on saying "Original key"
+    // after the sheet above it had been taken down two, which is the same
+    // song printed two ways on one screen.
+    SongTransposeStore.changes.addListener(_readingChangedElsewhere);
+    SongReadingStore.changes.addListener(_readingChangedElsewhere);
   }
 
   @override
   void dispose() {
     ShapeReadingStore.changes.removeListener(_shapesChanged);
+    SongTransposeStore.changes.removeListener(_readingChangedElsewhere);
+    SongReadingStore.changes.removeListener(_readingChangedElsewhere);
     super.dispose();
   }
 
   void _shapesChanged() {
     if (mounted) setState(() {});
+  }
+
+  /// Something changed how this song is read, here or on the sheet above.
+  ///
+  /// Taken from the store's own held value rather than re-read from the disk.
+  /// Both stores tick *before* they write, on purpose — so that the screen
+  /// agrees with the choice even when the disk refuses it — and a disk read
+  /// started here would race that write and put the old answer back.
+  ///
+  /// The capo and the numbers are read again the slow way, which is safe
+  /// because neither of them ticks: whatever is on the disk for them was
+  /// written before this tick, not during it.
+  void _readingChangedElsewhere() {
+    if (!mounted) return;
+    final transpose = SongTransposeStore.held(widget.project.id);
+    final reading = SongReadingStore.held(widget.project.id);
+    if (transpose != _transpose || reading != _reading) {
+      setState(() {
+        _transpose = transpose;
+        _reading = reading;
+      });
+    }
+    _capoTouched = false;
+    _numbersTouched = false;
+    unawaited(_loadCapo());
+    unawaited(_loadNumbers());
   }
 
   Future<void> _load() async {
