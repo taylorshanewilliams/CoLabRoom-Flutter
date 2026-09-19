@@ -2866,6 +2866,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
               // nobody has.
               if (_noteTargets.isNotEmpty)
                 Row(
+                  // Half the row each, and the space neither of them needs
+                  // between them rather than trailing off the right end: a
+                  // flexible child keeps whatever its share leaves over, so
+                  // at ordinary text sizes the pill would otherwise have sat
+                  // short of the margin everything else lines up with.
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: <Widget>[
                     Expanded(
                       child: TextButton.icon(
@@ -2876,6 +2882,16 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                         icon: const Icon(Icons.push_pin_outlined, size: 17),
                         label: Text(
                           'Note at ${_clock(_position)}',
+                          // Two lines at most. Every Musician, Same Song,
+                          // 17 September 2026: the phone's own text size is
+                          // honoured, never clamped — and at 1.3 on a
+                          // 360-wide phone this label was handed eighteen
+                          // pixels and wrapped to one character per line,
+                          // 230 tall, overflowing the button by six. Two
+                          // lines keep the time, which is the whole of what
+                          // the label says, and bound how tall it can get.
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w700,
@@ -2892,13 +2908,20 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                     // Or say it (0152). Beside the pin, because it is the
                     // same note said a different way: a teacher with a
                     // guitar in their hands holds this instead of typing.
-                    SayItButton(
-                      key: const Key('say_moment_note'),
-                      saying: _saying,
-                      elapsed: _said,
-                      enabled: !_busy && !_recording && !_savingSaid,
-                      onDown: () => unawaited(_startSaying()),
-                      onUp: _letGo,
+                    //
+                    // Its own half of the row rather than all the width it
+                    // wants. Sized to its label it took 280 of the 328 a
+                    // 360-wide phone has at 1.3, which is what left the pin
+                    // button beside it eighteen pixels wide.
+                    Flexible(
+                      child: SayItButton(
+                        key: const Key('say_moment_note'),
+                        saying: _saying,
+                        elapsed: _said,
+                        enabled: !_busy && !_recording && !_savingSaid,
+                        onDown: () => unawaited(_startSaying()),
+                        onUp: _letGo,
+                      ),
                     ),
                   ],
                 ),

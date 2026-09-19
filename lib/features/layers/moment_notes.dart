@@ -1,9 +1,12 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../domain/moment_note.dart';
 import '../../widgets/send_on_enter.dart';
+import '../../widgets/text_measures.dart';
 
 /// Pinning words to a moment of a recording, and reading the ones already
 /// there.
@@ -499,6 +502,12 @@ class SayItButton extends StatelessWidget {
 
   final bool enabled;
 
+  /// What the pill has to be tall enough for.
+  static const TextStyle labelStyle = TextStyle(
+    fontSize: 12.5,
+    fontWeight: FontWeight.w700,
+  );
+
   @override
   Widget build(BuildContext context) {
     const red = Color(0xFFFF718B);
@@ -515,7 +524,15 @@ class SayItButton extends StatelessWidget {
         onPointerUp: (_) => onUp(),
         onPointerCancel: (_) => onUp(),
         child: Container(
-          height: 36,
+          // Measured, with 36 as a floor. A Row does not complain when its
+          // child is taller than it is — overflow is only ever reported
+          // along the main axis — so a fixed 36 here cut the top and bottom
+          // off the label at the sizes an iOS accessibility setting asks
+          // for, and did it silently. Every Musician, Same Song,
+          // 17 September 2026: the phone's own text size is honoured, never
+          // clamped. The 10 is the pill's own room above and below its
+          // label.
+          height: math.max(36, linesOfTextHigh(context, labelStyle) + 10),
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             color: saying ? red.withValues(alpha: 0.16) : Colors.transparent,
@@ -529,14 +546,21 @@ class SayItButton extends StatelessWidget {
             children: <Widget>[
               Icon(Icons.mic_rounded, size: 17, color: ink),
               const SizedBox(width: 6),
-              Text(
-                saying
-                    ? 'Saying it  ${MomentNote.clockOf(elapsed.inMilliseconds)}'
-                    : 'Hold to say it',
-                style: TextStyle(
-                  color: ink,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
+              // Flexible, and one line. Every Musician, Same Song,
+              // 17 September 2026: the phone's own text size is honoured,
+              // never clamped, so this label is as wide as the reader's text
+              // makes it. Left to size itself it took the whole of the row
+              // it shares with the pin button on a 360-wide phone; given a
+              // share of that row instead, a label that cannot shrink
+              // overflows it rather than fitting in it.
+              Flexible(
+                child: Text(
+                  saying
+                      ? 'Saying it  ${MomentNote.clockOf(elapsed.inMilliseconds)}'
+                      : 'Hold to say it',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: labelStyle.copyWith(color: ink),
                 ),
               ),
             ],

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'dart:typed_data';
 
@@ -1460,8 +1461,22 @@ class _SongsScreenState extends State<SongsScreen> {
             // is off-screen and a ListView never builds it at all — so it is
             // not merely out of view, it does not exist to a screen reader or
             // to anything looking for it.
+            //
+            // A row that runs sideways has to be given a height, and 34 is
+            // the height somebody measured on their own phone. Every
+            // Musician, Same Song, 17 September 2026: the phone's own text
+            // size is honoured, never clamped, so at the sizes an iOS
+            // accessibility setting asks for these three words were sliced
+            // top and bottom — silently, because a fixed box clips rather
+            // than overflows and nothing in a render walk throws. Measured
+            // with the style the chips are drawn in, with 34 kept as a floor
+            // so nothing moves for anybody who has not turned their text up.
+            // The 12 is the chip's own room above and below its label.
             child: SizedBox(
-              height: 34,
+              height: math.max(
+                34,
+                linesOfTextHigh(context, _RoomChip.labelStyle) + 12,
+              ),
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -1633,8 +1648,13 @@ class _SongsScreenState extends State<SongsScreen> {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
             sliver: SliverToBoxAdapter(
+              // Measured, and 34 kept as a floor — the same fixed box as the
+              // selector above, and a room's name is longer than "Songs".
               child: SizedBox(
-                height: 34,
+                height: math.max(
+                  34,
+                  linesOfTextHigh(context, _RoomChip.labelStyle) + 12,
+                ),
                 child: ListView(
                   scrollDirection: Axis.horizontal,
                   children: <Widget>[
@@ -2068,6 +2088,13 @@ class _RoomTile extends StatelessWidget {
 class _RoomChip extends StatelessWidget {
   const _RoomChip({required this.label, required this.selected, required this.onTap});
 
+  /// What the rows these sit in have to be tall enough for. Public to the
+  /// file so a row measures the same style the chip draws.
+  static const TextStyle labelStyle = TextStyle(
+    fontSize: 12.5,
+    fontWeight: FontWeight.w700,
+  );
+
   final String label;
   final bool selected;
   final VoidCallback onTap;
@@ -2089,10 +2116,8 @@ class _RoomChip extends StatelessWidget {
           ),
           child: Text(
             label,
-            style: TextStyle(
+            style: labelStyle.copyWith(
               color: selected ? AppColors.cyan : AppColors.muted,
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
             ),
           ),
         ),

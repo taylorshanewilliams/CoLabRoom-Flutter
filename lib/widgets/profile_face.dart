@@ -88,6 +88,19 @@ class ProfileFace extends StatelessWidget {
                 child: Center(
                   child: Text(
                     _initials(name),
+                    // At the size of the circle, not the size of the reader's
+                    // text. Every Musician, Same Song, 17 September 2026: the
+                    // phone's own text size is honoured, never clamped — but
+                    // these two letters are a drawing of a person standing in
+                    // for a photograph, and the circle around them is a fixed
+                    // size. Left scaling, they simply grew past it and were
+                    // cut off, which is neither a face nor a name. The name
+                    // itself is written beside this face on every screen that
+                    // uses it, and that is the text that grows.
+                    //
+                    // player_face.dart:112 holds the same line for the same
+                    // reason; this circle is the one on the profile page.
+                    textScaler: TextScaler.noScaling,
                     style: TextStyle(
                       color: colour,
                       fontSize: size * 0.34,
