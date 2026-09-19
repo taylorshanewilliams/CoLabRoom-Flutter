@@ -7,6 +7,7 @@ import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/lesson_link.dart';
 import '../../services/invite_link.dart';
+import '../../services/share_origin.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/qr_code.dart';
 import 'lesson_poster.dart';
@@ -194,13 +195,16 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
   Future<void> _copy(LessonLink link) =>
       copyAndSay(context, lessonLink(link.code), 'Link copied. Paste it into an email or a text.');
 
-  Future<void> _share(LessonLink link) async {
+  /// [origin] is the button that was tapped, which an iPad hangs the share
+  /// sheet off. See services/share_origin.dart.
+  Future<void> _share(LessonLink link, Rect origin) async {
     final what = link.isClass
         ? 'open this to join the class on CoLabRoom, and get your own lesson room with me.'
         : 'open this to get your own lesson room with me on CoLabRoom.';
     await SharePlus.instance.share(ShareParams(
       subject: link.title,
       text: '${link.title}: $what\n${lessonLink(link.code)}',
+      sharePositionOrigin: origin,
     ));
   }
 
@@ -500,12 +504,18 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
         spacing: 10,
         runSpacing: 10,
         children: <Widget>[
-          FilledButton.icon(
-            key: const Key('lesson_share'),
-            onPressed: () => unawaited(_share(link)),
-            icon: const Icon(Icons.ios_share_rounded, size: 18),
-            label: const Text('Share the link'),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.gold, foregroundColor: AppColors.ink),
+          // Built under a Builder so the share knows which control was
+          // tapped: an iPad hangs the share sheet off that rectangle and the
+          // screen's context would hand it the whole screen. See
+          // services/share_origin.dart.
+          Builder(
+            builder: (button) => FilledButton.icon(
+              key: const Key('lesson_share'),
+              onPressed: () => unawaited(_share(link, shareOrigin(button))),
+              icon: const Icon(Icons.ios_share_rounded, size: 18),
+              label: const Text('Share the link'),
+              style: FilledButton.styleFrom(backgroundColor: AppColors.gold, foregroundColor: AppColors.ink),
+            ),
           ),
           OutlinedButton.icon(
             key: const Key('lesson_copy'),

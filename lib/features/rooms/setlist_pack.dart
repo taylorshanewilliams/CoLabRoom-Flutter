@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui' show Rect;
 
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -339,9 +340,19 @@ abstract final class SetlistPack {
     );
   }
 
-  static Future<void> shareText(Setlist setlist, List<SetlistPackSong> songs) async {
+  /// [origin] is where on screen the share was asked for; an iPad hangs the
+  /// share sheet off it. See services/share_origin.dart.
+  static Future<void> shareText(
+    Setlist setlist,
+    List<SetlistPackSong> songs, {
+    Rect? origin,
+  }) async {
     await SharePlus.instance.share(
-      ShareParams(subject: setlist.name, text: text(setlist, songs)),
+      ShareParams(
+        subject: setlist.name,
+        text: text(setlist, songs),
+        sharePositionOrigin: origin,
+      ),
     );
   }
 }

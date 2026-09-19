@@ -1,3 +1,5 @@
+import 'dart:ui' show Rect;
+
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -63,12 +65,20 @@ class ProjectExportService {
   // song. The title-only list this file used to write is what a stand-in
   // could not play from (Every Musician, Same Song, 17 September 2026).
 
-  static Future<void> shareSong(SongProject project) {
-    return _share(project.title, songText(project));
+  /// [origin] is where on screen the share was asked for, which an iPad hangs
+  /// the share sheet off. It comes from the caller because this file has no
+  /// context to measure and a global one would be a guess; see
+  /// services/share_origin.dart.
+  static Future<void> shareSong(SongProject project, {Rect? origin}) {
+    return _share(project.title, songText(project), origin);
   }
 
-  static Future<void> _share(String subject, String text) async {
-    await SharePlus.instance.share(ShareParams(subject: subject, text: text));
+  static Future<void> _share(String subject, String text, Rect? origin) async {
+    await SharePlus.instance.share(ShareParams(
+      subject: subject,
+      text: text,
+      sharePositionOrigin: origin,
+    ));
   }
 
   static Future<void> printSong(SongProject project) {

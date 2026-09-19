@@ -14,6 +14,7 @@ import '../../widgets/on_this_phone_mark.dart';
 import '../workspace/song_workspace_screen.dart';
 import '../../services/user_facing_error.dart';
 import '../../services/kept_songs.dart';
+import '../../services/share_origin.dart';
 import '../../services/song_search.dart';
 import '../songs/a_set_for_a_day.dart';
 import 'setlist_pack.dart';
@@ -68,6 +69,12 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
   /// True from the tap on "Keep this set on this phone" until the last song
   /// is here or the keep has stopped.
   bool _keepingSet = false;
+
+  /// The options menu, so a share chosen from it can say where on screen it
+  /// was asked for: an iPad hangs the share sheet off the control that was
+  /// tapped, and the menu is still there when the choice comes back. See
+  /// services/share_origin.dart.
+  final GlobalKey _optionsMenu = GlobalKey();
 
   @override
   void initState() {
@@ -418,7 +425,11 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
             await SetlistPack.share(setlist, songs);
             break;
           case _SetlistMenuAction.share:
-            await SetlistPack.shareText(setlist, songs);
+            await SetlistPack.shareText(
+              setlist,
+              songs,
+              origin: shareOriginOf(_optionsMenu),
+            );
             break;
           case _SetlistMenuAction.rename:
           case _SetlistMenuAction.delete:
@@ -464,6 +475,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
             icon: const Icon(Icons.playlist_add_rounded),
           ),
           PopupMenuButton<_SetlistMenuAction>(
+            key: _optionsMenu,
             tooltip: 'Setlist options',
             onSelected: export,
             itemBuilder: (_) => <PopupMenuEntry<_SetlistMenuAction>>[

@@ -24,6 +24,7 @@ import '../../services/copy_text.dart';
 import '../../services/drone_player.dart';
 import '../../services/follow_me.dart';
 import '../../services/moment_link.dart';
+import '../../services/share_origin.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/beta_scope.dart';
@@ -2686,7 +2687,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   ///
   /// Nothing is written back to the room and nothing is kept: the files go
   /// into a directory of their own that the next cut empties.
-  Future<void> _saveCut() async {
+  /// [origin] is the chip that was tapped, which an iPad hangs the share
+  /// sheet off. See services/share_origin.dart. Read at the tap rather than
+  /// here: the controls hide themselves while the cut is being written, and a
+  /// hidden chip has no rectangle.
+  Future<void> _saveCut(Rect origin) async {
     // A mix being built is the one thing that can pull the file out from
     // under this: _defaultPartMixer deletes the mix it replaces the moment
     // the new one exists, and a cut reading that file gets no samples and no
@@ -2767,6 +2772,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       await SharePlus.instance.share(ShareParams(
         subject: widget.project.title,
         files: <XFile>[for (final file in files) XFile(file.path)],
+        sharePositionOrigin: origin,
       ));
     } catch (error) {
       if (mounted) {
@@ -3627,7 +3633,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         // is: there is no directory to write four files into
                         // there, and a button that reports a limit of the
                         // browser as a fault is worse than no button.
-                        onSaveCut: kIsWeb ? null : () => unawaited(_saveCut()),
+                        onSaveCut: kIsWeb
+                            ? null
+                            : (origin) => unawaited(_saveCut(origin)),
                         saving: _savingCut,
                       ),
                     ),
@@ -4635,7 +4643,10 @@ class _LiveControls extends StatelessWidget {
   /// bar lines, its words and its chords. Every Musician, Same Song, 17
   /// September 2026, creators item 2. Null where there is nothing to cut --
   /// in a browser, which has no directory to write into.
-  final VoidCallback? onSaveCut;
+  ///
+  /// Carries the chip's own rectangle, because an iPad hangs the share sheet
+  /// off the control that was tapped and only this row knows where that is.
+  final ValueChanged<Rect>? onSaveCut;
 
   /// Whether a cut is being made right now. It takes a second or two on a
   /// long song, because the whole recording is decoded to find the passage
@@ -5039,12 +5050,18 @@ class _LiveControls extends StatelessWidget {
                       // export already hands over (Every Musician, Same
                       // Song, 17 September 2026).
                       if (loop != null && onSaveCut != null)
-                        _ModeChip(
-                          key: const Key('live_save_cut'),
-                          label: saving ? 'Cutting…' : 'Save this bit',
-                          icon: Icons.content_cut_rounded,
-                          selected: false,
-                          onTap: onSaveCut!,
+                        // Built under a Builder so the share knows which
+                        // control was tapped: an iPad hangs the share sheet
+                        // off that rectangle and the screen's context would
+                        // hand it the whole screen. See share_origin.dart.
+                        Builder(
+                          builder: (chip) => _ModeChip(
+                            key: const Key('live_save_cut'),
+                            label: saving ? 'Cutting…' : 'Save this bit',
+                            icon: Icons.content_cut_rounded,
+                            selected: false,
+                            onTap: () => onSaveCut!(shareOrigin(chip)),
+                          ),
                         ),
                     ],
                     // Where the song is now, as an address. Last in the row
