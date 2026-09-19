@@ -13026,6 +13026,26 @@ begin
 end $$;
 
 -- A block closes the gallery with everything else.
+--
+-- One of the eight is let through first and the passer-by is shown it,
+-- because every picture left on this profile is unchecked -- and a block
+-- tested against a gallery that is already empty would pass whether or not
+-- the block did anything at all.
+reset role;
+update public.profile_pictures set passed_at = now()
+where storage_path = '1a4e0171-0000-0000-0000-000000000001/gallery/2.png';
+
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+begin
+  if not exists (select 1 from public.gallery_for(
+                   '1a4e0171-0000-0000-0000-000000000001')) then
+    raise exception 'the passer-by could not see the one picture that passed';
+  end if;
+end $$;
+
 reset role;
 insert into public.user_blocks (blocker_id, blocked_id) values
   ('1a4e0171-0000-0000-0000-000000000001',
@@ -13039,6 +13059,13 @@ begin
   if exists (select 1 from public.gallery_for(
                '1a4e0171-0000-0000-0000-000000000001')) then
     raise exception 'a blocked person could still see the gallery';
+  end if;
+  -- And not straight from the table either. The read policy asks the same
+  -- predicate the function does, or a block would close one door and leave
+  -- the other open.
+  if exists (select 1 from public.profile_pictures
+               where profile_id = '1a4e0171-0000-0000-0000-000000000001') then
+    raise exception 'a blocked person could still read the pictures table';
   end if;
 end $$;
 
