@@ -15,6 +15,7 @@ import '../../domain/song_analysis_models.dart';
 import '../../domain/song_cycle.dart';
 import '../../services/song_analysis_service.dart';
 import '../../widgets/analysis_depth_sheet.dart';
+import 'chart_on_the_sheet.dart';
 import 'instrument_chips.dart';
 import 'making_the_sheet.dart';
 import 'structure_timeline.dart';
@@ -960,6 +961,34 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                       ),
                     ),
                   ],
+                  // The chart, where a chart goes — above the sheet the
+                  // recording made, and there whether or not there is a
+                  // recording at all.
+                  //
+                  // A song with no recording had nowhere to hold a chord:
+                  // every chord in this app is timed against an analysis, so
+                  // somebody who owns the sheet music for a song they are
+                  // learning could take chords *out* of this app (#360) and
+                  // could not put any in (Taylor, 19 September 2026). This is
+                  // the other half of that door, and the empty state is the
+                  // door — a control that only appears once a chart already
+                  // exists is a control nobody finds.
+                  const SizedBox(height: 22),
+                  Builder(builder: (context) {
+                    // Owner or editor, the same two 0168 lets write. Anybody
+                    // else reads the chart and is not offered a button the
+                    // room would refuse.
+                    final scope = BetaScope.maybeOf(context);
+                    final canEditTheSong = scope
+                            ?.roomById(_project.roomId)
+                            ?.canEditSongs(scope.meOrNobody) ??
+                        false;
+                    return ChartOnTheSheet(
+                      key: ValueKey<String>('chart-${_project.id}'),
+                      project: _project,
+                      canEdit: canEditTheSong,
+                    );
+                  }),
                   if (ready) ...<Widget>[
                     const SizedBox(height: 12),
                     Row(

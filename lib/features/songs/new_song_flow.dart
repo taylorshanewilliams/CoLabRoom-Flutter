@@ -4,9 +4,12 @@ import '../../app/colabroom_theme.dart';
 import '../../app/music_beta_controller.dart';
 import '../../domain/music_models.dart';
 import '../../domain/name_policy.dart';
+import '../../services/brought_chart.dart';
 import '../../widgets/app_surface.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/note_that_fits.dart';
+import '../workspace/bring_a_chart_flow.dart';
+import '../workspace/whose_song_sheet.dart';
 
 /// Asks for a name and makes a room with it.
 ///
@@ -40,20 +43,114 @@ Future<SongProject?> showNewSongFlow(
   MusicBetaController controller, {
   MusicRoom? initialRoom,
 }) async {
-  var room = initialRoom;
-  if (room == null) {
-    final choice = await showModalBottomSheet<_RoomChoice>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      backgroundColor: AppColors.deepNavy,
-      builder: (_) => _RoomPickerSheet(controller: controller),
-    );
-    if (choice == null || !context.mounted) return null;
-    room = choice.createNew ? await showCreateRoomDialog(context, controller) : choice.room;
-  }
+  final room = initialRoom ?? await chooseRoomForNewSong(context, controller);
   if (room == null || !context.mounted) return null;
   return _askForSongTitle(context, controller, room);
+}
+
+/// Where a new song should live: a room somebody picks, or one they make
+/// without leaving.
+///
+/// Its own function because two flows need it now — a song started from
+/// nothing, and a song started from a chart somebody brought — and a second
+/// copy of "pick a room or make one" would be a second set of words for one
+/// question.
+Future<MusicRoom?> chooseRoomForNewSong(
+  BuildContext context,
+  MusicBetaController controller,
+) async {
+  final choice = await showModalBottomSheet<_RoomChoice>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    backgroundColor: AppColors.deepNavy,
+    builder: (_) => _RoomPickerSheet(controller: controller),
+  );
+  if (choice == null || !context.mounted) return null;
+  if (!choice.createNew) return choice.room;
+  return showCreateRoomDialog(context, controller);
+}
+
+/// A song made out of a chart somebody already has.
+///
+/// Taylor, 19 September 2026: can people practise any song they want in here?
+/// This is the way in — a room, a name, the chart, a look at what was
+/// understood, and whose song it is.
+///
+/// **Whose song, asked here rather than later.** Every other song in this app
+/// is asked that question the first time its audience moves beyond "Only
+/// you", and left unanswered until then (0142). A song made by bringing a
+/// chart is different in one way that matters: it is almost always somebody
+/// else's, because that is what bringing a chart means. So it is asked once,
+/// in the same three words it is asked in everywhere else, and an unanswered
+/// one is kept as somebody else's — the answer that keeps it in the room, off
+/// both public surfaces, and exporting its chords without its words.
+Future<SongProject?> showLearnASongFlow(
+  BuildContext context,
+  MusicBetaController controller, {
+  MusicRoom? initialRoom,
+}) async {
+  final room = initialRoom ?? await chooseRoomForNewSong(context, controller);
+  if (room == null || !context.mounted) return null;
+
+  final named = await showDialog<_SongAndArtist>(
+    context: context,
+    builder: (_) => _LearnASongDialog(roomName: room.name),
+  );
+  if (named == null || !context.mounted) return null;
+
+  // The chart is read before the song exists, so that cancelling at the
+  // preview leaves nothing behind. A half-made song with no chart in it is
+  // exactly the litter the Studio's old holding pen used to leave.
+  final chart = await readAChart(context, songTitle: named.title);
+  if (chart == null || !context.mounted) return null;
+
+  final SongProject project;
+  try {
+    project = await controller.createSong(room, named.title);
+  } catch (error) {
+    if (context.mounted) _showError(context, error);
+    return null;
+  }
+
+  try {
+    await controller.repository.bringChart(
+      project.id,
+      // The artist goes into the chart rather than into a column of its own:
+      // it is a fact the chart states about itself, and ChordPro already has
+      // a place for it that every other reader of the format understands.
+      _withArtist(chart, named.artist).chordPro,
+    );
+  } catch (error) {
+    if (context.mounted) _showError(context, error);
+    return project;
+  }
+
+  if (!context.mounted) return project;
+  final answer =
+      await showWhoseSongSheet(context, songTitle: named.title) ??
+          SongOrigin.cover;
+  try {
+    await controller.repository.setSongOrigin(project.id, answer);
+  } catch (error) {
+    if (context.mounted) _showError(context, error);
+  }
+  return project;
+}
+
+/// The chart with the artist somebody typed written into it, when the chart
+/// did not already name one.
+BroughtChart _withArtist(BroughtChart chart, String artist) {
+  final said = artist.trim();
+  if (said.isEmpty || chart.artist != null) return chart;
+  return BroughtChart(
+    title: chart.title,
+    artist: said,
+    key: chart.key,
+    capo: chart.capo,
+    tuning: chart.tuning,
+    lines: chart.lines,
+  );
 }
 
 Future<SongProject?> _askForSongTitle(
@@ -200,6 +297,96 @@ class _SongTitleDialogState extends State<_SongTitleDialog> {
           builder: (context, _) => FilledButton(
             onPressed: _title.text.trim().isEmpty ? null : () => Navigator.pop(context, _title.text),
             child: const Text('Create Song'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SongAndArtist {
+  const _SongAndArtist(this.title, this.artist);
+
+  final String title;
+  final String artist;
+}
+
+/// What the song is called, and who wrote it.
+///
+/// The artist is optional and says so, because plenty of the songs people
+/// bring a chart for are traditional, and plenty more they simply do not
+/// know. It is not a form: two boxes, one of which can stay empty.
+class _LearnASongDialog extends StatefulWidget {
+  const _LearnASongDialog({required this.roomName});
+
+  final String roomName;
+
+  @override
+  State<_LearnASongDialog> createState() => _LearnASongDialogState();
+}
+
+class _LearnASongDialogState extends State<_LearnASongDialog> {
+  final _title = TextEditingController();
+  final _artist = TextEditingController();
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _artist.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('What are you learning?'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              TextField(
+                key: const Key('learn_a_song_title'),
+                controller: _title,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
+                decoration: InputDecoration(
+                  labelText: 'Song name',
+                  helperText: 'Saving to ${widget.roomName}',
+                  helperMaxLines: 3,
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                key: const Key('learn_a_song_artist'),
+                controller: _artist,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  labelText: 'Who wrote it',
+                  helperText: 'Optional',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        // Waits for words, like every other name in this app.
+        ListenableBuilder(
+          listenable: _title,
+          builder: (context, _) => FilledButton(
+            key: const Key('learn_a_song_next'),
+            onPressed: _title.text.trim().isEmpty
+                ? null
+                : () => Navigator.pop(
+                    context, _SongAndArtist(_title.text, _artist.text)),
+            child: const Text('Next'),
           ),
         ),
       ],
