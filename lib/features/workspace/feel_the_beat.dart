@@ -119,9 +119,16 @@ const double _theOneWindow = 0.25;
 /// The next beat to be felt after [afterMs], or null when there is no more of
 /// this song to feel.
 ///
-/// Strictly after: the beat the song is sitting on has already gone by, and a
-/// tap the instant somebody presses play or drags the seek bar is felt as the
-/// press rather than as the 1.
+/// Strictly after by default: a finger moved the song, so the beat it is
+/// sitting on has already gone by, and a tap the instant somebody presses
+/// play or drags the seek bar is felt as the press rather than as the 1.
+///
+/// [onTheBeat] is for the times the song arrives on a beat by itself and
+/// nobody touched anything — a passage on repeat turning round onto its own
+/// first downbeat, a count-in handing over onto the 1 it counted to. There
+/// the beat it lands on is not a beat that has gone by: it is the beat, the
+/// one the whole loop is being felt for, so it counts (review, 19 September
+/// 2026).
 ///
 /// [untilMs] is where a loop turns round, when one is on. A tap is never
 /// scheduled past it — the song will be back at the top of the passage before
@@ -137,12 +144,15 @@ FeltBeat? nextFeltBeat(
   int barOne = 1,
   FeelTheBeat feel = FeelTheBeat.everyBeat,
   int? untilMs,
+  bool onTheBeat = false,
 }) {
   if (feel == FeelTheBeat.off) return null;
   final grid = feltGrid(beatsMs: beatsMs, downbeatsMs: downbeatsMs);
   if (grid.isEmpty) return null;
   final window = math.max(1, (medianBeatIntervalMs(grid) * _theOneWindow).round());
-  for (var i = _firstAfter(afterMs, grid); i < grid.length; i += 1) {
+  for (var i = _firstFrom(afterMs, grid, onTheBeat: onTheBeat);
+      i < grid.length;
+      i += 1) {
     final at = grid[i];
     if (untilMs != null && at >= untilMs) return null;
     final one = _isTheOne(at, downbeatsMs, barOne, window);
@@ -167,13 +177,15 @@ Duration untilFelt(FeltBeat beat, {required int fromMs, double rate = 1}) {
   return Duration(microseconds: (ahead * 1000 / rate).round());
 }
 
-/// Where in [grid] the first entry strictly after [ms] sits.
-int _firstAfter(int ms, List<int> grid) {
+/// Where in [grid] to start looking: the first entry strictly after [ms], or
+/// the first at or after it when the song landed on a beat of its own.
+int _firstFrom(int ms, List<int> grid, {required bool onTheBeat}) {
   var low = 0;
   var high = grid.length;
   while (low < high) {
     final mid = (low + high) >> 1;
-    if (grid[mid] <= ms) {
+    final gone = onTheBeat ? grid[mid] < ms : grid[mid] <= ms;
+    if (gone) {
       low = mid + 1;
     } else {
       high = mid;

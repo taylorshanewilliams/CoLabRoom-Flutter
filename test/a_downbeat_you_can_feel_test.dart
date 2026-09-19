@@ -1,12 +1,33 @@
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/domain/music_models.dart';
+import 'package:colabroom/domain/practice_mark.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/feel_the_beat.dart';
 import 'package:colabroom/features/workspace/live_performance_screen.dart';
+import 'package:colabroom/services/click_player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// A count-in with no sound in it, so a test can count the taps rather than
+/// wait for a file to be written.
+class _SilentClick implements ClickPlayer {
+  @override
+  Future<void> play({
+    required double bpm,
+    required int beatsPerBar,
+    int bars = 8,
+    bool loop = true,
+    List<int> accents = const <int>[],
+  }) async {}
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> dispose() async {}
+}
 
 /// A downbeat you can feel.
 ///
@@ -150,6 +171,42 @@ void main() {
       expect(at(1000, untilMs: 2000), const FeltBeat(atMs: 1500, weight: BeatWeight.light));
       expect(at(1500, untilMs: 2000), isNull);
     });
+
+    test('a beat the song lands on by itself is the beat', () {
+      // A finger moved the song, so the beat under it has gone by.
+      expect(at(2000), const FeltBeat(atMs: 2500, weight: BeatWeight.light));
+      // Nobody moved it: the passage on repeat came back round onto its own
+      // first downbeat. That is the 1 the whole lap is being felt for.
+      expect(
+        nextFeltBeat(2000,
+            beatsMs: beats, downbeatsMs: downbeats, onTheBeat: true),
+        const FeltBeat(atMs: 2000, weight: BeatWeight.heavy),
+      );
+      // One bar on repeat, asking for the 1 only: the downbeat it turns onto
+      // is the single tap of the lap, and the one at the far end belongs to
+      // the lap after it. Strictly after, this bar is felt as nothing at all
+      // (review, 19 September 2026).
+      expect(
+        nextFeltBeat(2000,
+            beatsMs: beats,
+            downbeatsMs: downbeats,
+            feel: FeelTheBeat.theOne,
+            untilMs: 4000,
+            onTheBeat: true),
+        const FeltBeat(atMs: 2000, weight: BeatWeight.heavy),
+      );
+      expect(
+        at(2000, feel: FeelTheBeat.theOne, untilMs: 4000),
+        isNull,
+        reason: 'which is what it was worth fixing',
+      );
+      // Landing between beats is landing between beats, however it happened.
+      expect(
+        nextFeltBeat(2200,
+            beatsMs: beats, downbeatsMs: downbeats, onTheBeat: true),
+        const FeltBeat(atMs: 2500, weight: BeatWeight.light),
+      );
+    });
   });
 
   group('the taps follow the speed', () {
@@ -260,17 +317,30 @@ void main() {
     Future<void> sized(
       WidgetTester tester, {
       FeelTheBeat feel = FeelTheBeat.off,
+      bool countIn = false,
     }) async {
       SharedPreferences.setMockInitialValues(<String, Object>{
         // The count-in is the other thing in this sheet, and a bar of clicks
-        // ahead of the song would move every tap below by two seconds.
-        'live_countdown_enabled': false,
+        // ahead of the song would move every tap below by two seconds. On
+        // where it is wanted, it is the point of the test.
+        'live_countdown_enabled': countIn,
         if (feel != FeelTheBeat.off) 'live_feel_the_beat': feel.stored,
       });
       tester.view.physicalSize = const Size(400, 800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
     }
+
+    /// The clock the song is kept by, handed to the screen so it is the one
+    /// the test moves.
+    ///
+    /// Without this the timers run on the test's clock and the song runs on
+    /// the wall clock, which does not move during a test: the song would sit
+    /// at 0:00 however far the test pumped, and a tap worked out from where
+    /// the song is could not be told from one chained off a metronome. The
+    /// same trick the take's count-in is measured with.
+    DateTime Function() clockOf(WidgetTester tester) =>
+        () => tester.binding.clock.now();
 
     /// Every tap the phone was asked for, so the beat can be felt with the
     /// phone in a pocket and both eyes on the instrument.
@@ -294,7 +364,11 @@ void main() {
       final felt = tapsFelt(tester);
       await tester.pumpWidget(MaterialApp(
         theme: CoLabRoomTheme.dark(),
-        home: LivePerformanceScreen(project: project, analysis: onTheBeat),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: onTheBeat,
+          now: clockOf(tester),
+        ),
       ));
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -329,7 +403,11 @@ void main() {
       final felt = tapsFelt(tester);
       await tester.pumpWidget(MaterialApp(
         theme: CoLabRoomTheme.dark(),
-        home: LivePerformanceScreen(project: project, analysis: onTheBeat),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: onTheBeat,
+          now: clockOf(tester),
+        ),
       ));
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -349,6 +427,138 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1));
       expect(felt, <Object?>['HapticFeedbackType.selectionClick']);
 
+      // And still on the song's beats a dozen beats later. Six seconds of
+      // room time is three and a half seconds of song, which is seven beats
+      // of it and one bar line: a tap worked out from the last tap instead of
+      // from where the song is would have run away by now.
+      await tester.pump(const Duration(milliseconds: 5166));
+      expect(felt, hasLength(7));
+      expect(felt[3], 'HapticFeedbackType.heavyImpact');
+      expect(felt.where((f) => f == 'HapticFeedbackType.heavyImpact'), hasLength(1));
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a bar on repeat taps the 1 it comes back to, every lap',
+        (tester) async {
+      await sized(tester, feel: FeelTheBeat.theOne);
+      final felt = tapsFelt(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: onTheBeat,
+          now: clockOf(tester),
+          // One bar, held down and drilled: the second bar of the song, from
+          // its downbeat to the next one.
+          practise: const PracticePart(
+            label: 'Bar 2',
+            rate: 1,
+            seconds: 60,
+            startMs: 2000,
+            endMs: 4000,
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('live_play_pause')));
+      await tester.pump();
+      // The press is not a beat, and the bar holds only one 1.
+      expect(felt, isEmpty);
+
+      // Three times round the bar, and the hand feels the 1 each time. The
+      // bar's own downbeat is the only beat in it that counts, so treating it
+      // as one that had gone by left this phone completely still (review,
+      // 19 September 2026).
+      await tester.pump(const Duration(milliseconds: 6100));
+      expect(felt, <Object?>[
+        'HapticFeedbackType.heavyImpact',
+        'HapticFeedbackType.heavyImpact',
+        'HapticFeedbackType.heavyImpact',
+      ]);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the 1 a count-in hands the song over on is felt',
+        (tester) async {
+      await sized(tester, feel: FeelTheBeat.theOne, countIn: true);
+      final felt = tapsFelt(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: onTheBeat,
+          now: clockOf(tester),
+          click: _SilentClick(),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('live_play_pause')));
+      await tester.pump();
+      // Four beats of the song's own tempo, counted and felt: light ticks,
+      // the count-in's own, and the song not moving yet.
+      await tester.pump(const Duration(milliseconds: 1500));
+      expect(find.byKey(const Key('live_count_in')), findsOneWidget);
+      expect(felt, hasLength(4));
+      expect(felt.every((f) => f == 'HapticFeedbackType.selectionClick'), isTrue);
+
+      // The beat after the fourth is the song's own 1. Nobody pressed
+      // anything: the count put the song on that downbeat and walked it up to
+      // it, so it is felt rather than treated as a beat already gone.
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byKey(const Key('live_count_in')), findsNothing);
+      expect(felt.last, 'HapticFeedbackType.heavyImpact');
+      expect(felt, hasLength(5));
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a long pause leaves the song where it was', (tester) async {
+      await sized(tester, feel: FeelTheBeat.everyBeat);
+      final felt = tapsFelt(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: onTheBeat,
+          now: clockOf(tester),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('live_play_pause')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 750));
+      expect(felt, hasLength(1));
+
+      // Put down for half a minute, the way a rehearsal stops.
+      await tester.tap(find.byKey(const Key('live_play_pause')));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 30));
+      expect(felt, hasLength(1));
+
+      // Picked up again: the song is still three quarters of a second in, so
+      // the next tap is the beat after that one and not one half a minute
+      // further down the recording. Where the song is is where it was
+      // stopped, never that plus however long the break was (review,
+      // 19 September 2026).
+      await tester.tap(find.byKey(const Key('live_play_pause')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 251));
+      expect(felt, hasLength(2));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(felt, hasLength(3));
+      expect(felt.last, 'HapticFeedbackType.selectionClick');
+
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
       expect(tester.takeException(), isNull);
@@ -359,7 +569,11 @@ void main() {
       final felt = tapsFelt(tester);
       await tester.pumpWidget(MaterialApp(
         theme: CoLabRoomTheme.dark(),
-        home: LivePerformanceScreen(project: project, analysis: onTheBeat),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: onTheBeat,
+          now: clockOf(tester),
+        ),
       ));
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -378,9 +592,23 @@ void main() {
       await sized(tester);
       await tester.pumpWidget(MaterialApp(
         theme: CoLabRoomTheme.dark(),
-        home: LivePerformanceScreen(project: project, analysis: onTheBeat),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: onTheBeat,
+          now: clockOf(tester),
+        ),
       ));
       await tester.pump(const Duration(milliseconds: 100));
+
+      // And the button that leads to it says so, which is also what a screen
+      // reader reads out: a hard-of-hearing player is not going to go looking
+      // for the beat underneath a count-in.
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(const Key('live_countdown_settings')))
+            .tooltip,
+        'Count-in, beat and drone',
+      );
 
       await tester.tap(find.byKey(const Key('live_countdown_settings')));
       await tester.pumpAndSettle();
@@ -394,9 +622,20 @@ void main() {
 
       await tester.pumpWidget(MaterialApp(
         theme: CoLabRoomTheme.dark(),
-        home: LivePerformanceScreen(project: project, analysis: noBeat),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: noBeat,
+          now: clockOf(tester),
+        ),
       ));
       await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(const Key('live_countdown_settings')))
+            .tooltip,
+        'Count-in and drone',
+        reason: 'a song with no beat in it is offered none',
+      );
       await tester.tap(find.byKey(const Key('live_countdown_settings')));
       await tester.pumpAndSettle();
       expect(find.text('Feel the beat'), findsNothing);
@@ -412,7 +651,11 @@ void main() {
       final felt = tapsFelt(tester);
       await tester.pumpWidget(MaterialApp(
         theme: CoLabRoomTheme.dark(),
-        home: LivePerformanceScreen(project: project, analysis: onTheBeat),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: onTheBeat,
+          now: clockOf(tester),
+        ),
       ));
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -420,6 +663,18 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('live_feel_theOne')));
       await tester.pumpAndSettle();
+      // The chip they tapped is the one that is lit. The sheet is its own
+      // route, so it has to keep the answer itself: nothing is playing while
+      // it is open and there is no preview tap, which makes the chip the only
+      // answer a player gets (review, 19 September 2026).
+      expect(
+        tester.widget<ChoiceChip>(find.byKey(const Key('live_feel_theOne'))).selected,
+        isTrue,
+      );
+      expect(
+        tester.widget<ChoiceChip>(find.byKey(const Key('live_feel_off'))).selected,
+        isFalse,
+      );
       await tester.tapAt(const Offset(200, 20));
       await tester.pumpAndSettle();
 
