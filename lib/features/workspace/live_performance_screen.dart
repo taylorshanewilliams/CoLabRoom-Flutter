@@ -18,6 +18,7 @@ import '../../services/chord_beat_grid.dart'
         longestCycle,
         medianBeatIntervalMs,
         numberedBarCount;
+import '../../services/chord_voice.dart';
 import '../../services/click_player.dart';
 import '../../services/copy_text.dart';
 import '../../services/drone_player.dart';
@@ -44,6 +45,7 @@ import '../../services/play_along.dart';
 import '../../services/rehearsal_letters.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/song_layer_service.dart';
+import '../../services/spoken_chords.dart';
 import '../../services/take_naming.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
@@ -55,6 +57,7 @@ import 'count_in.dart';
 import 'drone_controls.dart';
 import 'feel_the_beat.dart';
 import 'follow_me_bar.dart';
+import 'hear_the_chords.dart';
 import 'live_countdown_store.dart';
 import 'loop_this_change.dart';
 import 'musician_sheet_line.dart';
@@ -147,6 +150,26 @@ double scrollToPutLineAtAnchor({
   return target.clamp(0.0, limit).toDouble();
 }
 
+/// What the sound button says is behind it: "Count-in and drone" on a song
+/// that offers neither of the other two, up to "Count-in, beat, chords and
+/// drone" on one that offers both.
+///
+/// It is the tooltip and it is what a screen reader reads out, which is the
+/// whole reason it is built rather than written once: the two players these
+/// settings are for are reading this button with their ears and their hands,
+/// and neither will go looking underneath a word that only says count-in.
+String soundSheetTooltip({
+  required bool canFeelTheBeat,
+  required bool canHearTheChords,
+}) {
+  final parts = <String>[
+    'Count-in',
+    if (canFeelTheBeat) 'beat',
+    if (canHearTheChords) 'chords',
+  ];
+  return '${parts.join(', ')} and drone';
+}
+
 class LivePerformanceScreen extends StatefulWidget {
   const LivePerformanceScreen({
     required this.project,
@@ -162,6 +185,7 @@ class LivePerformanceScreen extends StatefulWidget {
     this.ownMarkId,
     this.practise,
     this.click,
+    this.chordVoice,
     this.drone,
     this.now,
     this.missing,
@@ -216,6 +240,11 @@ class LivePerformanceScreen extends StatefulWidget {
   /// What counts the band in on the song's own bar. Production leaves this
   /// null and uses the metronome's click; a test hands in a silent one.
   final ClickPlayer? click;
+
+  /// What calls the next chord out loud. Production leaves this null and uses
+  /// the platform's own voice; a test hands in one that keeps what it was
+  /// told instead of saying it.
+  final ChordVoice? chordVoice;
 
   /// What holds the drone and sounds the starting pitch. Production leaves
   /// this null and makes one; a test hands in a silent one.
@@ -345,6 +374,21 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// see [_armFeltBeat].
   FeelTheBeat _feel = FeelTheBeat.off;
   Timer? _feelTimer;
+
+  /// Whether this phone calls the next chord out loud, and the call that is
+  /// waiting to be made.
+  ///
+  /// Off until this device says otherwise, and armed exactly the way the beat
+  /// taps are — one timer holding one call, worked out from where the song is
+  /// this instant: see [_armChordCall].
+  HearTheChords _hearChords = HearTheChords.off;
+  Timer? _callTimer;
+
+  /// The voice, made only if somebody ever turns the calls on. Most people
+  /// never will, and a text-to-speech engine is not a thing to start up for
+  /// a song nobody asked it to read.
+  ChordVoice? _chordVoice;
+  ChordVoice get _voice => _chordVoice ??= widget.chordVoice ?? TtsChordVoice();
 
   /// What this person's tuner calls A, read back from this device so the drone
   /// and the starting pitch sound at the pitch they tuned to (#364).
@@ -639,6 +683,66 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   bool get _canFeelTheBeat =>
       !kIsWeb && canFeelTheBeat(beatsMs: _beatsMs, downbeatsMs: _downbeats);
 
+  /// Every chord this song can be called through, worked out once per
+  /// analysis.
+  ///
+  /// Memoised because it walks the whole chord map against the beat grid and
+  /// the arming reads it on every call, the same way the cycle grid beside it
+  /// is. What it was built from is kept and compared rather than assumed
+  /// fixed: this screen is normally pushed with one copy of the analysis and
+  /// never handed another, but a screen handed a second one and still calling
+  /// the first one's chords would be naming chords that are not in the song.
+  List<ChordCall>? _calls;
+  List<ChordCue>? _calledCues;
+  List<int>? _calledBeats;
+
+  List<ChordCall> get _chordCalls {
+    final cues = widget.analysis?.chordCues ?? const <ChordCue>[];
+    final beats = _beatsMs;
+    if (_calls == null ||
+        !identical(_calledCues, cues) ||
+        !identical(_calledBeats, beats)) {
+      _calledCues = cues;
+      _calledBeats = beats;
+      _calls = chordCalls(cues: cues, beatsMs: beats);
+    }
+    return _calls!;
+  }
+
+  /// Whether this song has chords to call: a beat grid to be a beat ahead of,
+  /// and a chord map to read off it.
+  ///
+  /// A song with neither is offered nothing at all, rather than a setting
+  /// that turns on and stays silent — the same refusal Feel the beat makes
+  /// above it.
+  bool get _canHearTheChords => _chordCalls.isNotEmpty;
+
+  /// The song's own key, or null when nothing has said what it is. What the
+  /// chords and the sung notes are both spelled by.
+  String? get _spellingKey {
+    final key = widget.project.songKey(widget.analysis?.reference?.musicalKey);
+    return key == null || key.isEmpty ? null : key;
+  }
+
+  /// Which fret the capo is on, for this person's instrument.
+  ///
+  /// A capo is a fretting hand's answer about the key the band is in, so it
+  /// is only ever in play in concert pitch, and only for an instrument that
+  /// can wear one: a pianist and a bass player read the chords as they sound
+  /// (Every Musician, Same Song, 17 September 2026). The song sheet and the
+  /// key sheet follow the same two rules, and this page has to agree with
+  /// them about the same song for the same person.
+  int get _capoHere =>
+      _reading == HornReading.concert && ShapeReadingStore.held.takesACapo
+          ? _capo
+          : 0;
+
+  /// This person's key with their instrument's transposition on top, which is
+  /// what every note name under a word is written in. The chords come down by
+  /// the capo on top of that; the notes do not, because a capo moves the hand
+  /// and not the voice.
+  int get _readTranspose => _transpose + _reading.semitones;
+
   /// Which downbeat the band counts as bar 1 (0161), and whether that is the
   /// analysis's own answer or one somebody gave.
   ///
@@ -811,6 +915,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     unawaited(_loadTakes());
     unawaited(_loadCountdownPrefs());
     unawaited(_loadFeelTheBeat());
+    unawaited(_loadHearTheChords());
     unawaited(_loadTunerReference());
     unawaited(_loadTranspose());
     unawaited(_loadReading());
@@ -1006,7 +1111,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     // heartbeat, for the same reason the controls are not: a re-arm off a
     // position the player reported a moment ago can ask for a beat already
     // felt.
-    if (started || rateMoved || loopMoved) _armFeltBeat();
+    if (started || rateMoved || loopMoved) {
+      _armFeltBeat();
+      _armChordCall();
+    }
     if (!_playing && moved) {
       // Paused, the words still go to where the leader is looking.
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1028,6 +1136,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     }
     _loop = null;
     if (_mode == LiveScrollMode.synced) _mode = LiveScrollMode.off;
+    _stopCalling();
     setState(() {});
     final key = state.lineKey;
     if (key == null) return;
@@ -1194,6 +1303,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _armFeltBeat();
   }
 
+  Future<void> _loadHearTheChords() async {
+    final hear = await HearTheChordsStore.load();
+    if (!mounted || hear == _hearChords) return;
+    setState(() => _hearChords = hear);
+    // Read back after Start on a phone that was slow to open its
+    // preferences: the song is already going, so the calls join it.
+    _armChordCall();
+  }
+
   Future<void> _loadTranspose() async {
     // A song opened from a set for a day opens in the key the set does it in
     // (0164), and this phone's kept key is left where it is: the set is for
@@ -1356,6 +1474,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _elapsed = Duration.zero;
       _activeLineKey = null;
     });
+    _stopCalling();
     _lastTick = null;
     if (_scroll.hasClients) _scroll.jumpTo(0);
     _markOffsetsDirty();
@@ -1397,11 +1516,18 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _hideControls?.cancel();
     _countdownTimer?.cancel();
     _feelTimer?.cancel();
+    _callTimer?.cancel();
     // Only if a song ever needed counting in: the click makes an audio player
     // the first time it is asked for, and most songs never ask.
     final click = _clickPlayer;
     if (click != null) {
       unawaited(click.stop().then((_) => click.dispose()));
+    }
+    // Leaving Perform stops the voice mid-word. Only if somebody ever turned
+    // the chord calls on, for the same reason the click is conditional.
+    final voice = _chordVoice;
+    if (voice != null) {
+      unawaited(voice.stop().then((_) => voice.dispose()));
     }
     // Leaving Perform stops the drone. Its own dispose does the stopping, and
     // it is only here at all if somebody opened the sound sheet.
@@ -1591,6 +1717,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final lines = _lines;
     if (lines.isEmpty) {
       setState(() => _playing = false);
+      _stopCalling();
       _lastTick = null;
       return;
     }
@@ -1610,6 +1737,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         _playing = false;
         _activeLineKey = nextActiveKey;
       });
+      _stopCalling();
       _lastTick = null;
     } else if (mounted) {
       setState(() => _activeLineKey = nextActiveKey);
@@ -1937,6 +2065,135 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _armFeltBeat();
   }
 
+  /// Arms the next chord call, when somebody has asked to hear them.
+  ///
+  /// The same shape as [_armFeltBeat] and for the same reasons: one timer
+  /// holding exactly one call, worked out from where the song is this instant
+  /// and armed again the moment it fires, so a recording that drifts or a
+  /// passage slowed to 70% carries the voice with it instead of leaving a
+  /// metronome of its own talking over a song that is not there.
+  ///
+  /// Synced mode only, again: in the manual scroll modes the scroll is the
+  /// clock and the recording's chord map is not what the words are keeping
+  /// time with.
+  ///
+  /// Nothing is said over a count-in, because a count-in runs with the song
+  /// paused — the bar of clicks and the seconds countdown both happen before
+  /// [_playing] is ever true — so the guard below is the whole of that rule.
+  ///
+  /// [called] is the call that just went out. Like [_armFeltBeat]'s `felt` it
+  /// only moves the search forward and is never the clock, so a call made a
+  /// hair early is followed by a longer wait rather than by a voice that
+  /// drifts further ahead of the song every bar.
+  ///
+  /// Anything else armed this — a seek, a speed, a loop turning round, a
+  /// leader being caught up with — means the song is somewhere it was not, so
+  /// whatever was being said is cut off. The chord it was naming may not be
+  /// the one that is coming any more.
+  void _armChordCall({int? called, bool onTheBeat = false}) {
+    _callTimer?.cancel();
+    _callTimer = null;
+    if (called == null) _hushChords();
+    if (_hearChords == HearTheChords.off || !_playing) return;
+    if (_mode != LiveScrollMode.synced) return;
+    final nowMs = _elapsedNow.inMilliseconds;
+    final from = math.max(nowMs, called ?? 0);
+    final loop = _loop;
+    var next = nextChordCall(
+      from,
+      calls: _chordCalls,
+      // Nothing is called past where the passage turns round, and nothing is
+      // called for a chord on the far side of the turn: while a run of bars
+      // is on repeat, the chord after its last one is not coming.
+      untilMs: loop?.endMs,
+      onTheBeat: onTheBeat,
+    );
+    // What is coming at the turn is the chord the passage starts on, and its
+    // own call sits outside the passage where no lap reaches it. See
+    // [loopTurnCall].
+    if (next == null && loop != null) {
+      final turn = loopTurnCall(
+        cues: widget.analysis?.chordCues ?? const <ChordCue>[],
+        beatsMs: _beatsMs,
+        calls: _chordCalls,
+        startMs: loop.startMs,
+        endMs: loop.endMs,
+      );
+      // Forward only, the same rule the calls themselves follow, so the one
+      // that has just gone out is not made again for the rest of the lap.
+      if (turn != null && (onTheBeat ? turn.atMs >= from : turn.atMs > from)) {
+        next = turn;
+      }
+    }
+    final call = next;
+    if (call == null) return;
+    _callTimer = Timer(untilCalled(call, fromMs: nowMs, rate: _rate), () {
+      // Paused, stopped, turned off, or put on a scroll speed while the call
+      // was waiting. The same guard as above, because the song can leave the
+      // state this call was worked out in without arming anything.
+      if (!mounted ||
+          !_playing ||
+          _mode != LiveScrollMode.synced ||
+          _hearChords == HearTheChords.off) {
+        return;
+      }
+      _sayChord(call.chord);
+      _armChordCall(called: call.atMs);
+    });
+  }
+
+  /// One chord, in the reading this person is on.
+  ///
+  /// Through the same call the chords over the words go through, so what is
+  /// heard and what is printed cannot be two different chords: a B♭ player
+  /// hears the C they are about to finger and a Nashville reader hears "four"
+  /// (Every Musician, Same Song, 17 September 2026).
+  ///
+  /// Wrapped the way the count-in's click is: a device with no voice on it,
+  /// or a platform that has never heard of one, must not be able to stop the
+  /// song.
+  void _sayChord(String chord) {
+    final words = speakableChord(chordAsRead(
+      chord,
+      // The capo comes off the chords and not off the notes, exactly as the
+      // line over the words does it.
+      transpose: _readTranspose - _capoHere,
+      key: _spellingKey,
+      numbers: _numbers,
+    ));
+    if (words.isEmpty) return;
+    unawaited(_voice.say(words).catchError((Object _) {}));
+  }
+
+  /// The song stopped somewhere that is not the Start button: a restart, a
+  /// different set of words, a leader who took their hand off the clock, a
+  /// scroll speed chosen, the end of the song.
+  ///
+  /// The timer's own guard already stops a new call going out with the song
+  /// stopped, which is why the beat taps need nothing here — a tap has no
+  /// tail. A name does: a chord half said over a song that has jumped back to
+  /// the top is naming a bar nobody is in any more, so it is cut off (review,
+  /// 19 September 2026).
+  void _stopCalling() {
+    _callTimer?.cancel();
+    _callTimer = null;
+    _hushChords();
+  }
+
+  /// Stops mid-word, if anything was being said. Never makes a voice that was
+  /// not already needed.
+  void _hushChords() {
+    final voice = _chordVoice;
+    if (voice != null) unawaited(voice.stop().catchError((Object _) {}));
+  }
+
+  void _setHearTheChords(HearTheChords hear) {
+    if (hear == _hearChords) return;
+    setState(() => _hearChords = hear);
+    unawaited(HearTheChordsStore.save(hear));
+    _armChordCall();
+  }
+
   void _startCountdown() {
     _countdownTimer?.cancel();
     setState(() => _countdownRemaining = _countdownSeconds);
@@ -2002,6 +2259,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       unawaited(_playing ? audio.resume() : audio.pause());
     }
     _armFeltBeat(onTheBeat: onABeat);
+    _armChordCall(onTheBeat: onABeat);
     _armControlHide();
   }
 
@@ -2021,6 +2279,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _controlsVisible = true;
       _activeLineKey = null;
     });
+    _stopCalling();
     _lastTick = null;
   }
 
@@ -2044,6 +2303,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _mode = LiveScrollMode.timed;
       _playing = false;
     });
+    _stopCalling();
     if (_scroll.hasClients) _scroll.jumpTo(0);
   }
 
@@ -2078,6 +2338,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     // that does not go through a seek or a press, so nothing else would arm
     // the taps until the next pause (review, 19 September 2026).
     _armFeltBeat();
+    _armChordCall();
   }
 
   /// Moves the song, and the recording with it.
@@ -2102,10 +2363,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final audio = _audioPlayer;
     if (audio != null) unawaited(audio.seek(where));
     // The song is somewhere else now, so whatever tap was waiting was for a
-    // beat that is no longer next. Every move goes through here -- the seek
+    // beat that is no longer next, and whatever chord was being called was
+    // the one coming somewhere else. Every move goes through here -- the seek
     // bar, a rehearsal letter, a loop turning round, catching up with a
-    // leader -- which is why the taps are armed here rather than at each.
+    // leader -- which is why both are armed here rather than at each.
     _armFeltBeat(onTheBeat: onTheBeat);
+    _armChordCall(onTheBeat: onTheBeat);
   }
 
   /// The recording reached its own end.
@@ -2127,6 +2390,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       return;
     }
     setState(() => _playing = false);
+    _stopCalling();
   }
 
   void _onSeek(Duration where) {
@@ -2147,9 +2411,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     });
     final audio = _audioPlayer;
     if (audio != null) unawaited(audio.setPlaybackRate(rate));
-    // The waiting tap was timed at the old speed; the beat it is for has not
-    // moved in the song, but it has in the room.
+    // The waiting tap and the waiting call were both timed at the old speed;
+    // what they are for has not moved in the song, but it has in the room.
     _armFeltBeat();
+    _armChordCall();
     _armControlHide();
   }
 
@@ -2730,9 +2995,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       }
     }
     // Taking the passage off repeat seeks nowhere, so nothing above armed
-    // anything: the waiting tap was held short of a turn that is no longer
-    // coming. Only in that case, so this does not undo the seek's own arm.
-    if (same) _armFeltBeat();
+    // anything: the waiting tap and the waiting call were both held short of
+    // a turn that is no longer coming. Only in that case, so this does not
+    // undo the seek's own arm.
+    if (same) {
+      _armFeltBeat();
+      _armChordCall();
+    }
     _lastTick = null;
     _armControlHide();
   }
@@ -3085,16 +3354,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final songKey = widget.project.songKey(
       widget.analysis?.reference?.musicalKey,
     );
-    // A capo is a fretting hand's answer about the key the band is in, so it
-    // is only ever in play in concert pitch, and only for an instrument that
-    // can wear one: a pianist and a bass player read the chords as they sound
-    // (Every Musician, Same Song, 17 September 2026). The song sheet and the
-    // key sheet follow the same two rules, and this page has to agree with
-    // them about the same song for the same person.
-    final capo = _reading == HornReading.concert &&
-            ShapeReadingStore.held.takesACapo
-        ? _capo
-        : 0;
+    // Where the capo is, for an instrument that can wear one. See [_capoHere],
+    // which the spoken chord calls read as well: what is said out loud and
+    // what is printed over the word have to be the same chord.
+    final capo = _capoHere;
     // The typed words have no chords over them, so no key to be in either.
     // Nor does a sheet with its chords turned off: somebody reading only the
     // words has said they do not want the harmony, and a key over bare
@@ -3122,17 +3385,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                 // and everybody else are in.
                 ? capoLine(songKey, capo: capo, transpose: _transpose)
                 : 'Key of ${keyAsPlayed(songKey, _transpose)}';
-    // The person's key with their instrument's transposition on top, which
-    // is what every note name under a word is written in. The chords come
-    // down by the capo on top of that; the notes do not, because a capo
-    // moves the hand and not the voice.
-    final readTranspose = _transpose + _reading.semitones;
+    // This person's key with their instrument's part on top. See
+    // [_readTranspose], which the spoken chord calls read as well.
+    final readTranspose = _readTranspose;
     // The key the chords and the note names are spelled by: the song's own
     // key before the move, which is what chordAsPlayed and noteAsPlayed both
     // take. Not playedKey above -- that one is the badge under the title, and
     // it is absent when there is no chord row to label, while a note under a
     // word is still spelled by the key the singer is in.
-    final spellingKey = songKey == null || songKey.isEmpty ? null : songKey;
+    final spellingKey = _spellingKey;
     // How this person reads the notes under the words: null for letters,
     // which is what Perform has always drawn. Counted from the song's own
     // key, or from the Sa they picked on the sheet.
@@ -3290,6 +3551,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         countdownEnabled: _countdownEnabled,
                         onOpenCountdownSettings: _openCountdownSettings,
                         canFeelTheBeat: _canFeelTheBeat,
+                        canHearTheChords: _canHearTheChords,
                         droneOn: _droneOn,
                       ),
                     ),
@@ -3395,17 +3657,17 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   }
 
   /// What a player sets up for themselves before they start: the bar they are
-  /// counted in over, whether they feel the beat in their hand, and the note
-  /// they come in on.
+  /// counted in over, whether they feel the beat in their hand, whether the
+  /// next chord is said out loud, and the note they come in on.
   ///
-  /// All three in one sheet because they are wanted at the same moment, and
+  /// All of them in one sheet because they are wanted at the same moment, and
   /// because the bar across the top already carries seven controls — an eighth
   /// would push one of them off a phone held upright. Nothing in here belongs
   /// to the room: the drone is this phone's, at this phone's reference pitch,
-  /// a leader cannot put a tone in anybody else's ears, and the taps are the
-  /// same — two people following the same leader can feel the song
-  /// differently, or not at all (Every Musician, Same Song, 17 September
-  /// 2026).
+  /// a leader cannot put a tone in anybody else's ears, and the taps and the
+  /// chord calls are the same — two people following the same leader can feel
+  /// and hear the song differently, or not at all (Every Musician, Same Song,
+  /// 17 September 2026).
   void _openCountdownSettings() {
     _showControls();
     final voice = _drone;
@@ -3452,6 +3714,19 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(22, 12, 22, 4),
                 child: _FeelTheBeatChoice(feel: _feel, onChanged: _setFeel),
+              ),
+            ],
+            // The other half of the same sentence, so it sits under it.
+            // Absent on a song with no chord map or no beat grid: there is
+            // nothing to call, and nothing to call it a beat ahead of.
+            if (_canHearTheChords) ...<Widget>[
+              const Divider(height: 1, color: AppColors.line),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 12, 22, 4),
+                child: _HearTheChordsChoice(
+                  hear: _hearChords,
+                  onChanged: _setHearTheChords,
+                ),
               ),
             ],
             const Divider(height: 1, color: AppColors.line),
@@ -3539,6 +3814,85 @@ class _FeelTheBeatChoiceState extends State<_FeelTheBeatChoice> {
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
                   color: feel == choice ? AppColors.ink : AppColors.muted,
+                ),
+                visualDensity: VisualDensity.compact,
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Whether this phone says the next chord out loud while the song plays.
+///
+/// A blind player cannot read the chart at all, and a player whose eyes are
+/// on their hands can only read it by looking up at the worst moment. Both
+/// get what a bandleader gives a room by calling the next chord over the bar
+/// before it. Off until it is asked for, because a phone that suddenly
+/// started talking would be this reaching people who never wanted it (Every
+/// Musician, Same Song, 17 September 2026).
+class _HearTheChordsChoice extends StatefulWidget {
+  const _HearTheChordsChoice({required this.hear, required this.onChanged});
+
+  final HearTheChords hear;
+  final ValueChanged<HearTheChords> onChanged;
+
+  @override
+  State<_HearTheChordsChoice> createState() => _HearTheChordsChoiceState();
+}
+
+/// Keeps its own copy of the choice, for the reason the one above it does:
+/// the sheet is its own route, so setState on the screen underneath does not
+/// rebuild it and the chip somebody tapped would stay grey.
+class _HearTheChordsChoiceState extends State<_HearTheChordsChoice> {
+  late HearTheChords _hear = widget.hear;
+
+  void _choose(HearTheChords choice) {
+    if (choice == _hear) return;
+    setState(() => _hear = choice);
+    widget.onChanged(choice);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hear = _hear;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const Text(
+          'Hear the chords coming',
+          style: TextStyle(
+            color: AppColors.text,
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 4),
+        // What it says and in whose language, in one line. No promise about
+        // how well: the chords are the ones already over the words.
+        const Text(
+          'The next chord said a beat before it lands, in the reading you '
+          'are on. This phone only.',
+          style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.4),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: <Widget>[
+            for (final choice in HearTheChords.values)
+              ChoiceChip(
+                key: Key('live_hear_chords_${choice.name}'),
+                label: Text(choice.label),
+                selected: hear == choice,
+                onSelected: (_) => _choose(choice),
+                selectedColor: AppColors.gold,
+                labelStyle: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: hear == choice ? AppColors.ink : AppColors.muted,
                 ),
                 visualDensity: VisualDensity.compact,
               ),
@@ -3710,6 +4064,7 @@ class _TopLiveBar extends StatelessWidget {
     required this.countdownEnabled,
     required this.onOpenCountdownSettings,
     required this.canFeelTheBeat,
+    required this.canHearTheChords,
     required this.droneOn,
   });
 
@@ -3736,6 +4091,11 @@ class _TopLiveBar extends StatelessWidget {
   /// player will not go looking for the beat under a count-in (review,
   /// 19 September 2026).
   final bool canFeelTheBeat;
+
+  /// Whether this song offers its chords to be called out loud, for the same
+  /// reason and doubly so: the person this is for is reading the button with
+  /// their ears.
+  final bool canHearTheChords;
 
   /// Whether a note is being held, so the button says so without a word.
   final bool droneOn;
@@ -3835,13 +4195,16 @@ class _TopLiveBar extends StatelessWidget {
         key: const Key('live_countdown_settings'),
         onPressed: onOpenCountdownSettings,
         // What a player sets up for themselves: a bar to come in over, a note
-        // to come in on, and — on a song with a beat to tap on — whether that
-        // beat is felt in the hand. One button for all of it, because the bar
+        // to come in on, and — on a song the analysis heard a beat and chords
+        // in — whether that beat is felt in the hand and whether the next
+        // chord is said out loud. One button for all of it, because the bar
         // already carries seven and an eighth would push one of them off a
         // phone held upright. The tooltip names whatever is actually behind
         // it, because it is also what a screen reader reads out.
-        tooltip:
-            canFeelTheBeat ? 'Count-in, beat and drone' : 'Count-in and drone',
+        tooltip: soundSheetTooltip(
+          canFeelTheBeat: canFeelTheBeat,
+          canHearTheChords: canHearTheChords,
+        ),
         icon: Icon(
           Icons.timer_outlined,
           size: 19,

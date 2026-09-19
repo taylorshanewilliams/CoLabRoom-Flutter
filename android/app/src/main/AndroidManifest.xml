@@ -105,5 +105,14 @@
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https"/>
         </intent>
+        <!-- The phone's own voice, which Perform uses to call the next chord
+             a beat before it lands. Android 11 and later hide the
+             text-to-speech engine from an app that has not asked to see it,
+             and then the voice binds to nothing and says nothing at all: no
+             error, no log, just a setting somebody turned on and never heard
+             (see ChordVoice, and flutter_tts's own README). -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
+        </intent>
     </queries>
 </manifest>
