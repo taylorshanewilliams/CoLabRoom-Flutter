@@ -313,6 +313,42 @@ void main() {
       expect(original.title, 'Caro mio ben');
     });
 
+    test('the language the teacher said it is sung in goes with the copy', () async {
+      // 0165. What a song is sung in decides which way every line on the
+      // sheet runs and what each chord sits over (0163), so a copy arriving
+      // without it lays an Arabic song out left to right on the student's
+      // stand while the teacher's own page runs the other way — and the two
+      // of them are then reading different pages of the same song, which is
+      // the one thing a shared fact exists to prevent.
+      final teacher = await _aTeacher();
+      final repository = teacher.repository;
+      await repository.setSongLanguage(teacher.songId, 'ar');
+
+      await repository.sendSongToStudents(
+        projectId: teacher.songId,
+        roomIds: <String>[teacher.lessons[0]],
+      );
+      final copy = (await _copiesIn(repository, teacher.lessons[0])).single;
+      expect(copy.language, 'ar', reason: 'the student reads it the way the teacher does');
+      // And the original is untouched by the send.
+      expect((await _song(repository, teacher.songId)).language, 'ar');
+    });
+
+    test('a song nobody has answered for travels without a language', () async {
+      // Null copies as null. Nobody has said, so the copy is laid out
+      // exactly as this app laid out every song before anybody could say —
+      // never guessed at from the words on the way past.
+      final teacher = await _aTeacher();
+      final repository = teacher.repository;
+      expect((await _song(repository, teacher.songId)).language, isNull);
+
+      await repository.sendSongToStudents(
+        projectId: teacher.songId,
+        roomIds: <String>[teacher.lessons[0]],
+      );
+      expect((await _copiesIn(repository, teacher.lessons[0])).single.language, isNull);
+    });
+
     test('sending again sends nothing new', () async {
       final teacher = await _aTeacher();
       final repository = teacher.repository;
