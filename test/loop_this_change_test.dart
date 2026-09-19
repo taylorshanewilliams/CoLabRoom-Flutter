@@ -3,6 +3,8 @@ import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/practice_mark.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/live_performance_screen.dart';
+import 'package:colabroom/features/workspace/musician_sheet_line.dart';
+import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/practice_rules.dart';
 import 'package:colabroom/features/workspace/song_reading_store.dart';
 import 'package:colabroom/features/workspace/song_sheet_panel.dart';
@@ -60,6 +62,31 @@ void main() {
       expect(loop.endMs, 6200);
     });
 
+    test('a change a breath before the bar is that bar\'s change', () {
+      // A chord somebody put on a word is timed from where the word falls in
+      // the line, not from the grid, so it can land a few milliseconds ahead
+      // of the downbeat it is plainly meant for. Counting it into the bar
+      // before would turn the loop round exactly where the change happens,
+      // and the one change they asked to drill would never be heard.
+      const wide = <int>[0, 2000, 4000, 6000];
+      final loop = changeLoop(
+        changeMs: 3960,
+        downbeatsMs: wide,
+        songEndMs: 8000,
+      )!;
+      expect(loop.label, 'Bars 2–3');
+      expect(loop.startMs, 2000);
+      expect(loop.endMs, 6000);
+      // A chord that genuinely takes the last beat of the bar is still in
+      // that bar: half a beat ahead is a push, a whole beat is a chord.
+      final onTheBeat = changeLoop(
+        changeMs: 3500,
+        downbeatsMs: wide,
+        songEndMs: 8000,
+      )!;
+      expect(onTheBeat.label, 'Bars 1–2');
+    });
+
     test('a change in the pickup, or no grid at all, is not two bars', () {
       // The band has said bar 1 is the third downbeat, so a change before it
       // is in the pickup — which has no bar numbers and is asked for by name.
@@ -83,6 +110,60 @@ void main() {
       expect(rateStep(changeLoopRate, faster: true), 0.7);
       expect(rateStep(changeLoopRate, faster: false), 0.5);
     });
+  });
+
+  testWidgets('a tap in Perform still reaches the screen under the chord',
+      (tester) async {
+    // The hold is the only thing a chord does in live mode, and the screen
+    // under it is listening for the tap that brings the controls back.
+    // Chords sit over most of the words, so a chord that quietly swallowed
+    // taps would make that gesture fail wherever somebody's thumb happened
+    // to land.
+    var taps = 0;
+    var held = 0;
+    await tester.pumpWidget(MaterialApp(
+      theme: CoLabRoomTheme.dark(),
+      home: Scaffold(
+        body: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => taps += 1,
+          child: MusicianChordLyricLine(
+            line: const MusicianSheetLine(
+              contributionId: 'line-1',
+              body: 'Turning in the wind',
+              section: false,
+              startMs: 0,
+              endMs: 2000,
+              chords: <ChordCue>[
+                ChordCue(
+                    id: 2,
+                    startMs: 0,
+                    endMs: 2000,
+                    chord: 'C',
+                    confidence: 0.9),
+              ],
+              approximateTiming: false,
+            ),
+            transpose: 0,
+            fontScale: 1,
+            showChords: true,
+            liveMode: true,
+            onLoopChange: (_) => held += 1,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('edit_chord_2')));
+    await tester.pump();
+    expect(taps, 1, reason: 'the tap belongs to the screen, not the chord');
+    expect(held, 0);
+
+    await tester.longPress(find.byKey(const Key('edit_chord_2')));
+    await tester.pump();
+    expect(held, 1);
+    expect(taps, 1, reason: 'a hold is not also a tap');
   });
 
   testWidgets('a chord held down in Perform puts its change on repeat',

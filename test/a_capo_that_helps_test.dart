@@ -78,9 +78,11 @@ void main() {
   });
 
   group('when there is nothing to say, nothing is said', () {
-    test('a song of barre chords with no helpful capo offers nothing', () {
+    test('a song of chords no fret opens offers nothing', () {
       // A half-diminished, a thirteenth and a ninth have no open shape at
-      // any fret, so moving the capo moves nothing.
+      // any fret, so moving the capo moves nothing. The realistic
+      // barre-chord song — one whose chords all have shapes but which a capo
+      // cannot improve on — is the G, C, D and Bm below.
       expect(capoThatHelps(const <String>['Bm7b5', 'E13', 'A9']), isNull);
       expect(capoThatHelps(const <String>['C°', 'F#°', 'A+']), isNull);
     });

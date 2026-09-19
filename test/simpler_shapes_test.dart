@@ -102,6 +102,29 @@ void main() {
       expect(simplerShapeFor('Em'), isNull);
     });
 
+    test('never a harder hand than the chord already written', () {
+      // Fmaj7 is the shape a teacher gives a beginner precisely so they can
+      // leave the F barre alone, and an open B7 is a chord a beginner can
+      // play where B is not. Swapping the triad in there would take a note
+      // away and hand back a harder hand for it, so nothing is offered and
+      // the chord keeps its own diagram.
+      expect(simplerShapeFor('Fmaj7'), isNull);
+      expect(simplerShapeFor('B7'), isNull);
+      expect(chordReference('Fmaj7')!.shapes.first.hint, 'Open position');
+    });
+
+    test('the fifth, when the triad is a second barre', () {
+      // Bm7 and Bm are both barres, so the triad buys the hand nothing and
+      // the line would be a changed sound for no gain. The two notes of the
+      // fifth are three frets and no barre, and both of them are in the
+      // chord written.
+      final bm7 = simplerShapeFor('Bm7')!;
+      expect(bm7.display, 'B5');
+      expect(bm7.shapes.first.hint, contains('Root and fifth'));
+      expect(simplerShapeFor('F#m7')!.display, 'F#5');
+      expect(simplerShapeFor('Bbmaj7')!.display, 'Bb5');
+    });
+
     test('the fifths at the nut are drawn at the nut', () {
       // E5 seven frets up is the one place somebody offered a simpler shape
       // should never be sent.

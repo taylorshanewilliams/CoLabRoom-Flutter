@@ -536,6 +536,14 @@ ChordReference? chordReference(String label) {
   );
 }
 
+/// The three things a shape can ask of the hand, said the same way every
+/// time. They are hints a person reads, and they are also what
+/// [simplerShapeFor] weighs one shape against another with, so they are
+/// written once rather than twice.
+const String _openHint = 'Open position';
+const String _fifthHint = 'Root and fifth at fret ';
+const String _barreHint = 'Barre at fret ';
+
 List<ChordShape> _shapesFor(String rootText, int rootPitch, _Quality quality) {
   final shapes = <ChordShape>[];
   final short = _shortForms[quality.id] ?? '';
@@ -544,7 +552,7 @@ List<ChordShape> _shapesFor(String rootText, int rootPitch, _Quality quality) {
   final open = _openShapes[openName] ??
       _openShapes['${noteName(rootPitch, flats: false)}$short'];
   if (open != null) {
-    shapes.add(ChordShape(name: openName, frets: open, hint: 'Open position'));
+    shapes.add(ChordShape(name: openName, frets: open, hint: _openHint));
   }
 
   final family = quality.shapeFamily;
@@ -567,8 +575,8 @@ List<ChordShape> _shapesFor(String rootText, int rootPitch, _Quality quality) {
         // A fifth is three strings and two fingers wherever it is put, so
         // saying "barre" over one would describe a hand nobody makes.
         hint: family == '5'
-            ? 'Root and fifth at fret $fret, root on the $rootString'
-            : 'Barre at fret $fret, root on the $rootString',
+            ? '$_fifthHint$fret, root on the $rootString'
+            : '$_barreHint$fret, root on the $rootString',
       ));
     }
   }
@@ -629,28 +637,70 @@ String? simplerChord(String label) {
   return '${parts.root}${_shortForms[plain] ?? ''}';
 }
 
+/// How much the easiest shape of a chord asks of the hand: an open shape,
+/// then the root and fifth (two fingers on three strings), then a barre, and
+/// last of all a chord with no shape stored at all.
+///
+/// This is a coarse order on purpose. It is not a claim about which of two
+/// open shapes has more fingers in it; it is the one line a beginner's hand
+/// actually stops at, which is the barre.
+const int _openRank = 0;
+const int _fifthRank = 1;
+const int _barreRank = 2;
+const int _noShapeRank = 3;
+
+int _handRank(ChordReference? reference) {
+  var best = _noShapeRank;
+  for (final shape in reference?.shapes ?? const <ChordShape>[]) {
+    final hint = shape.hint ?? '';
+    final rank = hint == _openHint
+        ? _openRank
+        : hint.startsWith(_fifthHint)
+            ? _fifthRank
+            : _barreRank;
+    if (rank < best) best = rank;
+  }
+  return best;
+}
+
 /// What to draw instead of [label]'s own shape for somebody reading with
 /// Simpler shapes on, or null when there is nothing plainer to draw.
 ///
-/// The triad first. Where the triad is one no shape is stored for — a
-/// diminished or an augmented one, or a sus chord rooted away from D, A and
-/// E — the fifth is offered instead, but only when the chord really has a
-/// plain fifth in it: a power chord over an F♯m7♭5 would put a note in the
-/// room that the chord does not contain, and describing a chord is the whole
-/// job (Every Musician, Same Song, 17 September 2026).
+/// The triad first, and the fifth where it asks less of the hand than the
+/// triad does — but only when the chord really has a plain fifth in it: a
+/// power chord over an F♯m7♭5 would put a note in the room that the chord
+/// does not contain, and describing a chord is the whole job (Every
+/// Musician, Same Song, 17 September 2026).
+///
+/// Then the one rule that decides whether anything is offered at all:
+/// whatever is drawn instead must ask no more of the hand than the chord as
+/// written. A seventh is very often the *easier* chord — Fmaj7 is the shape
+/// teachers give a beginner precisely so they can leave the F barre alone,
+/// and an open B7 is a chord a beginner can play where B is not — so
+/// swapping in the triad there would take a sound away and hand back a
+/// harder shape for it. When nothing is easier, the chord keeps its own
+/// diagram and nothing is said.
 ChordReference? simplerShapeFor(String label) {
   final plain = simplerChord(label);
   if (plain == null) return null;
-  final triad = chordReference(plain);
-  if (triad != null && triad.shapes.isNotEmpty) return triad;
 
   final parts = _chordParts(label);
   final quality = parts == null ? null : _qualities[parts.quality];
-  if (parts == null || quality == null) return null;
-  if (!quality.intervals.contains(7)) return null;
-  final fifth = chordReference('${parts.root}5');
-  if (fifth == null || fifth.shapes.isEmpty) return null;
-  return fifth;
+  final triad = chordReference(plain);
+  final fifth = quality != null && quality.intervals.contains(7)
+      ? chordReference('${parts!.root}5')
+      : null;
+
+  final triadRank = _handRank(triad);
+  final fifthRank = _handRank(fifth);
+  // A tie goes to the triad, because it keeps the third: the fifth is only
+  // reached for when it is genuinely the kinder hand — a Bm7 whose triad is
+  // a second barre, or a sus chord no diagram exists for.
+  final simpler = fifthRank < triadRank ? fifth : triad;
+  final simplerRank = fifthRank < triadRank ? fifthRank : triadRank;
+  if (simplerRank == _noShapeRank) return null;
+  if (simplerRank > _handRank(chordReference(label))) return null;
+  return simpler;
 }
 
 /// A capo worth putting on for this song, and the open shapes it makes.
