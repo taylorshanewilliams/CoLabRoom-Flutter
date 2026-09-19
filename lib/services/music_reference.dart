@@ -1376,7 +1376,6 @@ class KeyReference {
     required this.diatonic,
     required this.pentatonic,
     required this.relative,
-    required this.capo,
   });
 
   final String display;
@@ -1396,10 +1395,6 @@ class KeyReference {
 
   /// The relative minor of a major key, or the relative major of a minor one.
   final String relative;
-
-  /// (fret, the key you play in) — the capo chart's arithmetic, already done
-  /// for this key.
-  final List<(int, String)> capo;
 }
 
 const List<int> _majorSteps = <int>[0, 2, 4, 5, 7, 9, 11];
@@ -1410,12 +1405,6 @@ const List<String> _majorQualities = <String>['', 'm', 'm', '', '', 'm', 'dim'];
 const List<String> _minorQualities = <String>['m', 'dim', '', 'm', 'm', '', ''];
 const List<int> _majorPentatonic = <int>[0, 2, 4, 7, 9];
 const List<int> _minorPentatonic = <int>[0, 3, 5, 7, 10];
-
-/// Open-chord keys a capo is used to reach, and the pitch they sound at.
-const Map<String, int> _capoMajorShapes = <String, int>{
-  'G': 7, 'C': 0, 'D': 2, 'A': 9, 'E': 4,
-};
-const Map<String, int> _capoMinorShapes = <String, int>{'Em': 4, 'Am': 9, 'Dm': 2};
 
 /// The key as the analyzer reports it — `A minor`, `C# major`, or a bare root
 /// when key detection fell back to "which chord lasted longest".
@@ -1441,14 +1430,6 @@ KeyReference? keyReference(String label) {
     for (final step in steps) noteName(tonicPitch + step, flats: flats),
   ];
 
-  final shapes = minor ? _capoMinorShapes : _capoMajorShapes;
-  final capo = <(int, String)>[];
-  for (final entry in shapes.entries) {
-    final fret = ((tonicPitch - entry.value) % 12 + 12) % 12;
-    if (fret >= 1 && fret <= 7) capo.add((fret, entry.key));
-  }
-  capo.sort((a, b) => a.$1.compareTo(b.$1));
-
   return KeyReference(
     display: '$tonic ${minor ? 'minor' : 'major'}',
     tonic: tonic,
@@ -1465,6 +1446,52 @@ KeyReference? keyReference(String label) {
     relative: minor
         ? '${noteName(tonicPitch + 3, flats: flats)} major'
         : '${noteName(tonicPitch + 9, flats: flats)} minor',
-    capo: capo,
   );
+}
+
+/// The capo chart for [key] on the instrument in this person's hands, as
+/// (the fret, the key whose shapes are then under the fingers).
+///
+/// A chart is not a fact about a key, which is why this is no longer one of
+/// [KeyReference]'s fields: it is a fact about a key in somebody's hands, and
+/// whose hands was the one thing it never asked. Its rows were five major
+/// shapes and three minor ones, written down once, and they were the guitar's
+/// — G, C, D, A and E. Nothing on that chart is false for a ukulele, because
+/// all eight of those ring open on a uke as well, but it is short: a uke has
+/// an open F too, and a uke player in B♭ was never shown the fret that puts
+/// the song on F shapes, which is the row that would matter most to them
+/// (#405, 19 September 2026).
+///
+/// The keys are derived rather than listed a second time, and from the very
+/// table [_openShapeName] scores the "makes these open shapes" row against,
+/// so the chart and the offer standing in it cannot come to disagree about
+/// what an open shape is. A key earns a row when its own tonic chord is one:
+/// on a guitar that is exactly the C, D, E, G, A and Dm, Em, Am the chart has
+/// always printed, so a guitarist's chart is unchanged to the row; on a
+/// ukulele it is C, D, E, F, G, A and Cm, C♯m, Dm, Em, Fm, F♯m, Gm, Am.
+///
+/// Empty for a piano or a bass — the decision [ShapeReading.takesACapo]
+/// already makes on the sheet, made here too so the arithmetic is never done
+/// for an instrument that has no capo on it.
+List<(int, String)> capoChart(
+  KeyReference key, {
+  required ShapeReading reading,
+}) {
+  if (!reading.takesACapo) return const <(int, String)>[];
+  final tonicPitch = _pitchValues[key.tonic];
+  if (tonicPitch == null) return const <(int, String)>[];
+  final quality = key.minor ? 'min' : 'maj';
+  final rows = <(int, String)>[];
+  for (var pitch = 0; pitch < 12; pitch += 1) {
+    final shape = _openShapeName(pitch, quality, reading);
+    if (shape == null) continue;
+    final fret = ((tonicPitch - pitch) % 12 + 12) % 12;
+    // Fret 0 is the key itself: a key that already sits on an open shape
+    // needs no capo and gets no row.
+    if (fret >= 1 && fret <= reading.highestCapoOnTheChart) {
+      rows.add((fret, shape));
+    }
+  }
+  rows.sort((a, b) => a.$1.compareTo(b.$1));
+  return rows;
 }

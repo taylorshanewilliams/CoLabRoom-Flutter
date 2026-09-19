@@ -40,12 +40,12 @@ enum ShapeReading {
 
   /// How far up the neck a capo is still worth suggesting.
   ///
-  /// Seven on a guitar, the same as the capo chart beside it — past that a
-  /// guitar is a mandolin. A ukulele is a shorter instrument and the number
-  /// cannot be the guitar's: a soprano meets its body at the twelfth fret
-  /// where a guitar runs to nineteen or twenty, so seven leaves a guitarist
-  /// about two thirds of the neck and a ukulele player is left with five
-  /// frets and a suggestion nobody would take. Four leaves the same two
+  /// Seven on a guitar, the same as [highestCapoOnTheChart] beside it — past
+  /// that a guitar is a mandolin. A ukulele is a shorter instrument and the
+  /// number cannot be the guitar's: a soprano meets its body at the twelfth
+  /// fret where a guitar runs to nineteen or twenty, so seven leaves a
+  /// guitarist about two thirds of the neck and a ukulele player is left with
+  /// five frets and a suggestion nobody would take. Four leaves the same two
   /// thirds of the shorter neck.
   ///
   /// Scored against the guitar's seven a ukulele was sent to the 7th fret for
@@ -55,6 +55,26 @@ enum ShapeReading {
   int get highestCapo => switch (this) {
         guitar => 7,
         ukulele => 4,
+        bass || piano => 0,
+      };
+
+  /// How far up the neck the capo chart's rows are still worth printing.
+  ///
+  /// One fret higher than [highestCapo] on a ukulele, because the two are
+  /// different acts. [highestCapo] is where an offer stops: the app reads
+  /// this song's own chords and puts a fret forward as advice, and past the
+  /// 4th fret of a soprano that is advice nobody would take. The chart
+  /// advises nothing — it is the arithmetic laid out for somebody to pick
+  /// from — and the 5th fret is the one that puts a song in B♭ on F shapes,
+  /// which is the chord a ukulele player has when the band is in the key they
+  /// dread. Stopped at four, the chart would carry an F row it could never
+  /// show from the one key that wants it most (#405, 19 September 2026).
+  ///
+  /// Seven on a guitar, which is what the chart has printed since the Toolbox
+  /// shipped, and zero for the two instruments [takesACapo] turns away.
+  int get highestCapoOnTheChart => switch (this) {
+        guitar => 7,
+        ukulele => 5,
         bass || piano => 0,
       };
 

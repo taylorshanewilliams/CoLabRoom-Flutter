@@ -448,8 +448,12 @@ void main() {
 
     await tester.tap(find.byKey(const Key('song_sheet_key_badge')));
     await tester.pumpAndSettle();
-    // Opened as a guitarist.
+    // Opened as a guitarist: the offer on 3, and the chart's own rows on
+    // either side of it.
     expect(find.text('makes these open shapes: G, C, D, Em'), findsOneWidget);
+    expect(find.text('play the A shapes'), findsOneWidget);
+    expect(find.text('play the E shapes'), findsOneWidget);
+    expect(find.text('play the F shapes'), findsNothing);
 
     await tester.ensureVisible(find.byKey(const Key('read_shapes_ukulele')));
     await tester.pumpAndSettle();
@@ -457,6 +461,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('makes these open shapes: A, D, E, F#m'), findsOneWidget);
     expect(find.text('makes these open shapes: G, C, D, Em'), findsNothing);
+    // The chart under it is the ukulele's now: the F row a uke player in B♭
+    // wants, and no E, which is five frets further up a shorter neck than
+    // this chart goes (#405, 19 September 2026).
+    expect(find.text('play the G shapes'), findsOneWidget);
+    expect(find.text('play the F shapes'), findsOneWidget);
+    expect(find.text('play the E shapes'), findsNothing);
+    expect(find.text('play the A shapes'), findsNothing);
 
     // And a pianist is offered no capo at all, row and chart together.
     await tester.ensureVisible(find.byKey(const Key('read_shapes_piano')));
@@ -464,6 +475,7 @@ void main() {
     await tester.tap(find.byKey(const Key('read_shapes_piano')));
     await tester.pumpAndSettle();
     expect(find.textContaining('makes these open shapes'), findsNothing);
+    expect(find.textContaining('play the'), findsNothing);
     expect(find.text('WITH A CAPO'), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());

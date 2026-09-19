@@ -1,4 +1,5 @@
 import 'package:colabroom/services/music_reference.dart';
+import 'package:colabroom/services/shape_reading.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -167,17 +168,28 @@ void main() {
     });
 
     test('capo options land on the key, and stay inside seven frets', () {
-      final reference = keyReference('F major')!;
+      final capo = capoChart(
+        keyReference('F major')!,
+        reading: ShapeReading.guitar,
+      );
       // F is five frets above C and one above E: both are playable, and the
       // shorter reach is offered first.
-      expect(reference.capo.first, (1, 'E'));
-      expect(reference.capo.map((option) => option.$1), everyElement(lessThanOrEqualTo(7)));
-      expect(reference.capo.map((option) => option.$1), everyElement(greaterThanOrEqualTo(1)));
+      expect(capo.first, (1, 'E'));
+      expect(capo.map((option) => option.$1), everyElement(lessThanOrEqualTo(7)));
+      expect(capo.map((option) => option.$1), everyElement(greaterThanOrEqualTo(1)));
     });
 
     test('a key that is already an open shape asks for no capo', () {
-      expect(keyReference('C major')!.capo.any((option) => option.$2 == 'C'), isFalse);
-      expect(keyReference('A minor')!.capo.any((option) => option.$2 == 'Am'), isFalse);
+      expect(
+        capoChart(keyReference('C major')!, reading: ShapeReading.guitar)
+            .any((option) => option.$2 == 'C'),
+        isFalse,
+      );
+      expect(
+        capoChart(keyReference('A minor')!, reading: ShapeReading.guitar)
+            .any((option) => option.$2 == 'Am'),
+        isFalse,
+      );
     });
 
     test('the pentatonic is five notes of the same scale', () {
