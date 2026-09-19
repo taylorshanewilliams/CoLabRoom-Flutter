@@ -1,6 +1,7 @@
 import 'package:colabroom/app/deep_link.dart';
 import 'package:colabroom/app/routes.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
+import 'package:colabroom/features/layers/a_moment_from_a_link.dart';
 import 'package:colabroom/features/openmic/musician_profile_screen.dart';
 import 'package:colabroom/features/openmic/open_mic_song_screen.dart';
 import 'package:colabroom/features/rooms/room_detail_screen.dart';
@@ -72,6 +73,11 @@ void main() {
       AppRoutes.heard('a'): OpenMicSongScreen,
       AppRoutes.musician('a'): MusicianProfileScreen,
       AppRoutes.room('a'): RoomDetailScreen,
+      // A link to a moment of a recording. Whether it opens is decided by
+      // the screen, which can see whose rooms these are; the table only has
+      // to build it, query and all.
+      AppRoutes.moment(roomId: 'r', projectId: 'a', atMs: 108000):
+          MomentFromALink,
     };
 
     for (final entry in cases.entries) {

@@ -11,7 +11,8 @@
           { "/": "/room/*" },
           { "/": "/musician/*" },
           { "/": "/heard/*" },
-          { "/": "/set/*" }
+          { "/": "/set/*" },
+          { "/": "/r/*", "comment": "A moment of a recording, inside a room" }
         ]
       }
     ]

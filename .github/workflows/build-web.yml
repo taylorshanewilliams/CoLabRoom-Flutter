@@ -60,6 +60,16 @@ jobs:
             --dart-define=AUTH_REDIRECT_URL=https://app.colabroom.com/ \
             --dart-define=BUILD_REF=${GITHUB_SHA::7}
 
+      # Every address in this app is a path -- /invite/<code>, /song/<id>,
+      # /r/<room>/s/<song>?take=&at= -- and a static host has no file at any
+      # of them. GitHub Pages serves 404.html for a path it cannot find, so
+      # a copy of the app there is what makes a pasted link open the app
+      # instead of a not-found page. `base href="/"` is already in
+      # index.html, so the copy loads the same assets from wherever it is
+      # served. Deep links on the web do not work without this.
+      - name: Serve the app for addresses that are not files
+        run: cp build/web/index.html build/web/404.html
+
       # iPhones read this file (through Apple's CDN) before they will open
       # app.colabroom.com links in the app, and it has to name the app as
       # <Team ID>.<bundle id>. The Team ID is already a secret for the

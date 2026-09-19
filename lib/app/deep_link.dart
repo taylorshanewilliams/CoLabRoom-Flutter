@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -7,6 +8,7 @@ import '../features/account/blocked_people_screen.dart';
 import '../features/account/what_you_get.dart';
 import '../features/dev/latency_probe_screen.dart';
 import '../features/help/help_screen.dart';
+import '../features/layers/a_moment_from_a_link.dart';
 import '../features/meeting/add_person_screen.dart';
 import '../features/meeting/your_code_screen.dart';
 import '../features/notifications/notification_settings_screen.dart';
@@ -36,13 +38,67 @@ import 'routes.dart';
 abstract final class DeepLink {
   /// Where the app was opened, as the engine reports it.
   ///
-  /// On the web this is the path in the address bar. On a phone it is `/`
-  /// unless a link opened the app, and then it is the whole link, which
-  /// [AppRoutes.match] reads the path from. A link that arrived while nothing
-  /// could open it — tapped while the sign-in screen was up — goes first:
-  /// it is the more recent of the two. See IncomingAddresses.
-  static String initialRoute(WidgetsBinding binding) =>
-      IncomingAddresses.waiting?.toString() ?? binding.platformDispatcher.defaultRouteName;
+  /// On a phone this is `/` unless a link opened the app, and then it is the
+  /// whole link, which [AppRoutes.match] reads the path from. A link that
+  /// arrived while nothing could open it — tapped while the sign-in screen
+  /// was up — goes first: it is the more recent of the two. See
+  /// IncomingAddresses.
+  ///
+  /// **The web has to be asked twice.** This build uses Flutter's default
+  /// hash URL strategy, so what the engine reports is whatever follows `#`.
+  /// A link somebody was sent has no `#` in it — it is
+  /// `app.colabroom.com/r/<room>/s/<song>?take=&at=`, written by momentLink
+  /// — and the engine answers `/` for it, which is Home. So on the web a `/`
+  /// is put to the address bar itself, and a path this app recognises wins.
+  /// Without this, "on the web it is a real URL" is only true of the `#/…`
+  /// form the app writes for itself, and every link pasted into a class page
+  /// opened Home.
+  ///
+  /// [onWeb] and [browserAddress] exist so this can be tested at all: the
+  /// test VM is not a browser and has no address bar. Production passes
+  /// neither, the way BrowserHistory takes its own `onWeb`.
+  static String initialRoute(
+    WidgetsBinding binding, {
+    bool onWeb = kIsWeb,
+    Uri? browserAddress,
+  }) {
+    final waiting = IncomingAddresses.waiting;
+    if (waiting != null) return waiting.toString();
+    final named = binding.platformDispatcher.defaultRouteName;
+    if (!onWeb || named != '/') return named;
+    final here = browserAddress ?? Uri.base;
+    // The root is the app opening normally, and it carries the things that
+    // must not be read as a place: the sign-in callback and `?deleteAccount`
+    // both land on `/` with a query.
+    if (here.path.isEmpty || here.path == '/') return named;
+    final path = here.hasQuery ? '${here.path}?${here.query}' : here.path;
+    return AppRoutes.match(path) == null ? named : path;
+  }
+
+  /// Whether a moment that arrives now may start playing.
+  ///
+  /// A link to a moment plays when it lands — somebody who was sent "listen
+  /// to bar 33" asked to hear bar 33. Two things say no.
+  ///
+  /// A browser will not start audio on a page that has had no gesture on it,
+  /// and a page opened from a link pasted into a class list has had none:
+  /// `play()` comes back refused, and the screen would show "could not play"
+  /// to somebody who did nothing wrong. The playhead still lands on the
+  /// moment, and Play is theirs to press.
+  ///
+  /// And a screen already open is not stopped by one pushed on top of it, so
+  /// a link tapped while a song was playing would start a second recording
+  /// over the first. Two at once is not a bug anybody has to be told about
+  /// (see NowPlaying), and a Play button is the smaller cost.
+  ///
+  /// [onWeb] is a parameter so this can be tested at all: the test VM is not
+  /// a browser. Production passes neither, the way BrowserHistory takes its
+  /// own `onWeb`.
+  static bool playsOnArrival({
+    bool nothingUnderneath = true,
+    bool onWeb = kIsWeb,
+  }) =>
+      nothingUnderneath && !onWeb;
 
   /// The stack an address should open as.
   ///
@@ -55,6 +111,7 @@ abstract final class DeepLink {
     required MusicRepository repository,
     SupabaseClient? supabase,
     bool devTools = BetaConfig.devTools,
+    bool onWeb = kIsWeb,
   }) {
     final target = AppRoutes.match(path);
     final tab = target?.place == RoutePlace.openMic ||
@@ -69,7 +126,11 @@ abstract final class DeepLink {
     ];
 
     final on = _routeFor(target,
-        repository: repository, supabase: supabase, devTools: devTools);
+        repository: repository,
+        supabase: supabase,
+        devTools: devTools,
+        // Nothing underneath: this *is* the stack the app opens with.
+        plays: playsOnArrival(onWeb: onWeb));
     if (on != null) routes.add(on);
     return routes;
   }
@@ -78,14 +139,23 @@ abstract final class DeepLink {
   /// is already open — the browser's forward button, a link pasted into the
   /// bar. Null when it names nothing that opens cold, which includes the two
   /// tabs: those are a place to *return* to, and the caller pops for them.
+  ///
+  /// [nothingUnderneath] is for the one place that makes a sound: see
+  /// [playsOnArrival].
   static Route<dynamic>? routeFor(
     String path, {
     required MusicRepository repository,
     SupabaseClient? supabase,
     bool devTools = BetaConfig.devTools,
+    bool nothingUnderneath = true,
+    bool onWeb = kIsWeb,
   }) =>
       _routeFor(AppRoutes.match(path),
-          repository: repository, supabase: supabase, devTools: devTools);
+          repository: repository,
+          supabase: supabase,
+          devTools: devTools,
+          plays: playsOnArrival(
+              nothingUnderneath: nothingUnderneath, onWeb: onWeb));
 
   /// Whether an address is one of the two tabs rather than a screen on top.
   static bool isATab(String path) {
@@ -107,6 +177,7 @@ abstract final class DeepLink {
     required MusicRepository repository,
     SupabaseClient? supabase,
     required bool devTools,
+    bool plays = true,
   }) {
     if (target == null) return null;
     final id = target.id;
@@ -130,6 +201,13 @@ abstract final class DeepLink {
         id == null
             ? null
             : page(AppRoutes.song(id), SongWorkspaceScreen(projectId: id)),
+      // A link to a moment of a recording, which opens for a member and
+      // refuses everybody else. The screen decides which, because deciding
+      // needs the library and a route table has none.
+      RoutePlace.moment => target.at == null
+          ? null
+          : page(target.at!.path,
+              MomentFromALink(at: target.at!, plays: plays)),
       RoutePlace.heard => id == null
           ? null
           : page(

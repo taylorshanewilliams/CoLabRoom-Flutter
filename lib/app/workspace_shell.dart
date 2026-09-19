@@ -10,6 +10,7 @@ import 'beta_scope.dart';
 import 'deep_link.dart';
 import '../features/shell/join_from_address.dart';
 import '../services/incoming_addresses.dart';
+import '../services/now_playing.dart';
 import 'music_beta_controller.dart';
 
 /// Keeps every workspace route and dialog below [BetaScope].
@@ -34,8 +35,38 @@ class WorkspaceShell extends StatefulWidget {
   State<WorkspaceShell> createState() => _WorkspaceShellState();
 }
 
+/// How many screens are open above the shell.
+///
+/// Not [NavigatorState.canPop], which is a different question: it answers
+/// true for a lone route that handles Back itself, and the shell's does. What
+/// an arriving link needs to know is whether there is a screen under it —
+/// one that may be playing, and that nothing stops when a route is pushed on
+/// top of it. Dialogs and sheets count, which is the cautious way round.
+class _PagesAboveTheShell extends NavigatorObserver {
+  int count = 0;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    // The first route *is* the shell, and it has nothing before it.
+    if (previousRoute != null) count += 1;
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (count > 0) count -= 1;
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (count > 0) count -= 1;
+  }
+}
+
 class _WorkspaceShellState extends State<WorkspaceShell> {
   final _navigatorKey = GlobalKey<NavigatorState>();
+
+  /// Made once, not per build: the count is the thing being kept.
+  final _above = _PagesAboveTheShell();
 
   @override
   void initState() {
@@ -70,15 +101,25 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       unawaited(joinFromAddress(address, context: navigator.context, navigator: navigator));
       return;
     }
-    final path = address.path;
+    // The query is part of the address, not decoration on it: a link to a
+    // moment says which take and where in it there (`?take=&at=`), and
+    // `Uri.path` drops the lot. A link tapped while the app was already open
+    // landed at the top of the song rather than at the bar it named.
+    final path = address.hasQuery ? '${address.path}?${address.query}' : address.path;
     if (DeepLink.isATab(path)) {
       navigator.popUntil((route) => route.isFirst);
       return;
     }
+    // Whether there is a screen open under this one, which decides whether a
+    // moment plays as it lands: see DeepLink.playsOnArrival. What the shell
+    // itself is playing *can* be stopped, so it is.
+    final alone = _above.count == 0;
+    if (alone) unawaited(NowPlaying.instance.pause());
     final route = DeepLink.routeFor(
       path,
       repository: widget.controller.repository,
       supabase: widget.supabase,
+      nothingUnderneath: alone,
     );
     if (route != null) navigator.push(route);
   }
@@ -117,7 +158,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           // builds. This is a different one — every push inside the app goes
           // to it — so a history observer up there sees none of them, and
           // the browser back button stays broken while looking fixed.
-          observers: <NavigatorObserver>[RouteTracker(), BrowserHistory()],
+          observers: <NavigatorObserver>[RouteTracker(), BrowserHistory(), _above],
           onGenerateRoute: (settings) => MaterialPageRoute<void>(
             settings: settings,
             builder: (_) => AppShell(

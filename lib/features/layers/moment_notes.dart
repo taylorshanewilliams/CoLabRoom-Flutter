@@ -246,6 +246,7 @@ class MomentNoteList extends StatelessWidget {
     this.focusedId,
     this.onDelete,
     this.onListen,
+    this.onCopyLink,
     this.listeningTo,
     super.key,
   });
@@ -261,6 +262,12 @@ class MomentNoteList extends StatelessWidget {
 
   /// The spoken note playing now, so its row offers Stop rather than Listen.
   final String? listeningTo;
+
+  /// Copies the address of this note's moment, for sending to somebody in
+  /// the room. Every Musician, Same Song, 17 September 2026 -- schools item
+  /// 1: the note says the thing, and the link is how it reaches a person who
+  /// is not looking at this screen.
+  final ValueChanged<MomentNote>? onCopyLink;
 
   /// Which recording the note is on, or null to leave it unsaid — which is
   /// right when the song has only one.
@@ -297,6 +304,8 @@ class MomentNoteList extends StatelessWidget {
             onOpen: () => onOpen(note),
             onDelete: onDelete == null ? null : () => onDelete!(note),
             onListen: onListen == null ? null : () => onListen!(note),
+            onCopyLink:
+                onCopyLink == null ? null : () => onCopyLink!(note),
           ),
           const SizedBox(height: 8),
         ],
@@ -315,6 +324,7 @@ class _NoteRow extends StatelessWidget {
     this.on,
     this.onDelete,
     this.onListen,
+    this.onCopyLink,
   });
 
   final MomentNote note;
@@ -325,6 +335,7 @@ class _NoteRow extends StatelessWidget {
   final VoidCallback onOpen;
   final VoidCallback? onDelete;
   final VoidCallback? onListen;
+  final VoidCallback? onCopyLink;
 
   @override
   Widget build(BuildContext context) {
@@ -426,6 +437,18 @@ class _NoteRow extends StatelessWidget {
                 ],
               ),
             ),
+            // The way to send somebody here. On every note rather than only
+            // your own: the reason to send a moment is usually that
+            // somebody else marked it.
+            if (onCopyLink != null)
+              IconButton(
+                key: Key('copy_link_to_note_${note.id}'),
+                onPressed: onCopyLink,
+                tooltip: 'Copy link to here',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.link_rounded,
+                    size: 15, color: AppColors.muted),
+              ),
             if (mine && onDelete != null)
               IconButton(
                 onPressed: onDelete,

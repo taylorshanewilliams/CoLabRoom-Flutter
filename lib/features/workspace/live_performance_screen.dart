@@ -10,7 +10,9 @@ import '../../services/audio_source_for.dart';
 import '../../services/chord_beat_grid.dart'
     show barNumberAt, downbeatIndexOfBar, numberedBarCount;
 import '../../services/click_player.dart';
+import '../../services/copy_text.dart';
 import '../../services/follow_me.dart';
+import '../../services/moment_link.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/beta_scope.dart';
@@ -1851,6 +1853,25 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     return MyPartMix.apply(takes, choice);
   }
 
+  /// The address of where the song is now, copied for sending.
+  ///
+  /// Every Musician, Same Song, 17 September 2026 -- schools item 1. It
+  /// names no take: what plays here is the song, the recording everybody in
+  /// the room hears, and the moment is a moment of it. Whoever opens the
+  /// link lands on the takes at the same bar, which is where the recording
+  /// and anything anybody has said about it are.
+  Future<void> _copyLinkToHere() async {
+    await copyAndSay(
+      context,
+      momentLink(
+        roomId: widget.project.roomId,
+        projectId: widget.project.id,
+        atMs: _elapsed.inMilliseconds,
+      ),
+      'Link copied. It opens for people in this room.',
+    );
+  }
+
   /// Your part forward, or everyone but you -- or, tapped again, the whole
   /// recording.
   ///
@@ -2476,6 +2497,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         parts: _partTakes,
                         myPart: _myPart,
                         onMyPart: _setMyPart,
+                        onCopyMoment: _copyLinkToHere,
                       ),
                     ),
                   ),
@@ -3037,7 +3059,14 @@ class _LiveControls extends StatelessWidget {
     this.parts = const <Take>[],
     this.myPart,
     this.onMyPart,
+    this.onCopyMoment,
   });
+
+  /// Copies the address of where the song is now, for sending to somebody in
+  /// the room. Every Musician, Same Song, 17 September 2026 -- schools item
+  /// 1: "listen to bar 33", in writing, from the screen where somebody is
+  /// listening to bar 33.
+  final VoidCallback? onCopyMoment;
 
   /// Follow me's line, when the song is open on more than one phone.
   final Widget? together;
@@ -3408,6 +3437,22 @@ class _LiveControls extends StatelessWidget {
                           selected: loop == loops[i],
                           onTap: () => onLoop(loops[i]),
                         ),
+                    ],
+                    // Where the song is now, as an address. Last in the row
+                    // because it is the only thing here that is not about
+                    // how the song plays -- and in this row at all because
+                    // the moment only means anything while the words are
+                    // following the recording, which is exactly when this
+                    // row is shown.
+                    if (onCopyMoment != null) ...<Widget>[
+                      const SizedBox(width: 6),
+                      _ModeChip(
+                        key: const Key('live_copy_moment'),
+                        label: 'Copy link to here',
+                        icon: Icons.link_rounded,
+                        selected: false,
+                        onTap: onCopyMoment!,
+                      ),
                     ],
                   ],
                 ),
