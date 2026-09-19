@@ -26,6 +26,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// exception in a widget test, so `takeException` catches the yellow stripes
 /// as well as the crashes.
 ///
+/// Everything inside a song — Perform, the song sheet and its panels, Takes,
+/// a set, the Open Mic song page, the moment notes and the lesson link — is
+/// the same question asked of the other half of the app, and it has its own
+/// file: the_phones_text_size_in_the_song_test.dart.
+///
 /// 2.0 rather than 1.3, and 2.0 rather than some number nobody can name: it
 /// is roughly where iOS's accessibility sizes land, and it is what
 /// `test_render/` now renders the whole app at.
@@ -239,18 +244,17 @@ void main() {
     }
   });
 
-  testWidgets('the song sheet is held at 1.3 until the next slice',
+  testWidgets('the song sheet reads at the size the phone asked for',
       (tester) async {
-    // The one place in the app that still clamps, and the only screen this
-    // slice deliberately did not finish: at 2x its header overflows by 32
-    // pixels, and it is where people spend most of their time. 1.3 is what
-    // the whole app got until today, so nothing there ships worse than it
-    // was.
+    // The last screen in the app to clamp, and the one people spend most of
+    // their time on. It was held at 1.3 for one slice while its header was
+    // still overflowing by 32 pixels; the header holds now, so the clamp is
+    // gone and the reader's own size reaches the song.
     //
-    // Asserted rather than left as a comment. Without this, the day somebody
-    // deletes that MediaQuery — or the next slice takes it out before the
-    // header is fixed — every test still passes and the overflow ships.
-    // **This test goes when that MediaQuery goes.**
+    // What the song *holds* at that size is the subject of its own file,
+    // the_phones_text_size_in_the_song_test.dart. This one asserts the thing
+    // that would quietly put every reader back to 1.3: a MediaQuery in the
+    // workspace.
     await _boot(tester, textScale: 2.0);
 
     // At twice normal text the shelf is taller than the phone, so the song is
@@ -288,11 +292,11 @@ void main() {
         .textScaler;
     expect(
       inside.scale(10),
-      13,
-      reason: 'the song sheet is no longer held at 1.3 — if that is on '
-          'purpose, this test and the MediaQuery in song_workspace_screen '
-          'both go, and the header there has to hold at the largest size',
+      20,
+      reason: 'something inside the song workspace is clamping the text size '
+          'the phone asked for',
     );
+    expect(tester.takeException(), isNull, reason: _why('the song workspace'));
   });
 
   testWidgets('a profile page holds at the largest text size', (tester) async {

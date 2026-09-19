@@ -71,49 +71,61 @@ abstract final class MicrophoneAccess {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Before the microphone turns on'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text('CoLabRoom needs the microphone $purpose.'),
-            const SizedBox(height: 14),
-            ...switch (use) {
-              MicrophoneUse.record => const <Widget>[
-                  _Point(
-                    icon: Icons.fiber_manual_record_rounded,
-                    text: 'It records only while you hold the app on a recording '
-                        'screen and have started a take. Never in the background.',
-                  ),
-                  _Point(
-                    icon: Icons.cloud_upload_rounded,
-                    text: 'What you record is uploaded to this song, so the people '
-                        'in the room can hear it.',
-                  ),
-                  _Point(
-                    icon: Icons.graphic_eq_rounded,
-                    text: 'If you analyse it, the audio is sent to our processing '
-                        'service to work out key, tempo, chords and lyrics.',
-                  ),
-                  _Point(
-                    icon: Icons.delete_outline_rounded,
-                    text: 'You can delete a recording at any time, and deleting it '
-                        'removes the file too.',
-                  ),
-                ],
-              MicrophoneUse.listen => const <Widget>[
-                  _Point(
-                    icon: Icons.hearing_rounded,
-                    text: 'It listens only while the tuner or Sing is open. '
-                        'Never in the background.',
-                  ),
-                  _Point(
-                    icon: Icons.phone_android_rounded,
-                    text: 'Nothing is recorded and nothing leaves your phone. '
-                        'The note is worked out here and forgotten.',
-                  ),
-                ],
-            },
-          ],
+        // Scrolls, because an AlertDialog gives its content a fixed share of
+        // the screen and this is four paragraphs about a microphone. At twice
+        // normal text they are 975 pixels past that share, and a Column
+        // simply cut them off — so the promise that nothing leaves the phone
+        // was the part nobody could read, on the one dialog in the app where
+        // reading it is the whole point. Every Musician, Same Song, 17
+        // September 2026: the phone's own text size is honoured, never
+        // clamped.
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text('CoLabRoom needs the microphone $purpose.'),
+              const SizedBox(height: 14),
+              ...switch (use) {
+                MicrophoneUse.record => const <Widget>[
+                    _Point(
+                      icon: Icons.fiber_manual_record_rounded,
+                      text: 'It records only while you hold the app on a '
+                          'recording screen and have started a take. Never in '
+                          'the background.',
+                    ),
+                    _Point(
+                      icon: Icons.cloud_upload_rounded,
+                      text: 'What you record is uploaded to this song, so the '
+                          'people in the room can hear it.',
+                    ),
+                    _Point(
+                      icon: Icons.graphic_eq_rounded,
+                      text: 'If you analyse it, the audio is sent to our '
+                          'processing service to work out key, tempo, chords '
+                          'and lyrics.',
+                    ),
+                    _Point(
+                      icon: Icons.delete_outline_rounded,
+                      text: 'You can delete a recording at any time, and '
+                          'deleting it removes the file too.',
+                    ),
+                  ],
+                MicrophoneUse.listen => const <Widget>[
+                    _Point(
+                      icon: Icons.hearing_rounded,
+                      text: 'It listens only while the tuner or Sing is open. '
+                          'Never in the background.',
+                    ),
+                    _Point(
+                      icon: Icons.phone_android_rounded,
+                      text: 'Nothing is recorded and nothing leaves your '
+                          'phone. The note is worked out here and forgotten.',
+                    ),
+                  ],
+              },
+            ],
+          ),
         ),
         actions: <Widget>[
           TextButton(
