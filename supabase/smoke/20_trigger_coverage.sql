@@ -116,7 +116,16 @@ insert into smoke_covered (name) values
   -- retention clock and its warning started over. seal_take and unseal_take
   -- do none of that themselves, so with this dead the block fails rather
   -- than passing quietly.
-  ('song_layers_a_seal_has_a_day');
+  ('song_layers_a_seal_has_a_day'),
+  -- 0166. The scenario has somebody in two bands leave one and asserts that
+  -- band's songs left their set while the other band's stayed, that the
+  -- other member's set was untouched, that the card stopped offering them,
+  -- and that rejoining brought nothing back. Then the room's owner removes
+  -- somebody, which is the other way out and the same trigger.
+  ('room_members_leaving_takes_the_songs'),
+  -- 0166. The scenario moves a song into a room one set's owner is in and
+  -- another's is not, and asserts it left exactly one of the two sets.
+  ('projects_a_moved_song_leaves_sets');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario
