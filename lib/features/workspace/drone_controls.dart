@@ -46,8 +46,25 @@ class DroneVoice extends ChangeNotifier {
   /// before preferences have opened.
   bool _touched = false;
 
+  /// Let go of. Every await below re-checks it: the screens fire [load]
+  /// without waiting for it, and a sheet dismissed before preferences have
+  /// opened would otherwise come back to a notifier that has been disposed.
+  bool _disposed = false;
+
+  /// The two seconds of a starting pitch, which nothing on screen counts.
+  Timer? _pitchTimer;
+  bool _pitchSounding = false;
+
   DroneSettings get settings => _settings;
   bool get on => _on;
+
+  /// Whether anything this voice makes is coming out of the loudspeaker now:
+  /// the held drone, or a starting pitch still ringing.
+  ///
+  /// The tuner asks. Its microphone is a couple of centimetres from that
+  /// loudspeaker, so while this is true the needle would be reading the drone
+  /// back rather than the string in somebody's hands.
+  bool get sounding => _on || _pitchSounding;
 
   /// The pitch class the song counts from, or null when nothing says.
   int? get tonic => keyRootPitch(_songKey);
@@ -83,22 +100,33 @@ class DroneVoice extends ChangeNotifier {
   /// reads racing each other would let a slow one undo a press.
   Future<void> load() async {
     final kept = await DroneStore.load();
-    if (_touched || kept == _settings) return;
+    if (_disposed || _touched || kept == _settings) return;
+    final was = _settings;
     _settings = kept;
     notifyListeners();
-    if (_on) unawaited(_sound());
+    if (!_on) return;
+    // Only how loud it is changed, so the drone moves rather than starting
+    // again. A preference arriving late is not a reason to re-attack a note
+    // somebody is already tuning to, and rebuilding the loop for it would be
+    // half a minute of tone built for nothing.
+    if (kept.fifth == was.fifth) {
+      unawaited(player.setLevel(kept.volume));
+    } else {
+      unawaited(_sound());
+    }
   }
 
   /// What the tuner calls A, when a screen that has the drone also has the
   /// tuner's reference on it and moves it.
   void setReference(int a4) {
-    if (a4 == _a4) return;
+    if (_disposed || a4 == _a4) return;
     _a4 = a4;
     notifyListeners();
     if (_on) unawaited(_sound());
   }
 
   Future<void> setOn(bool on) async {
+    if (_disposed) return;
     if (on && !canSound) return;
     if (on == _on) return;
     _on = on;
@@ -112,14 +140,14 @@ class DroneVoice extends ChangeNotifier {
 
   /// Picks a note, or hands the drone back to the song's 1 with a null.
   Future<void> choose(int? pitchClass) async {
-    if (pitchClass == _chosen) return;
+    if (_disposed || pitchClass == _chosen) return;
     _chosen = pitchClass;
     notifyListeners();
     if (_on) await _sound();
   }
 
   Future<void> setFifth(bool fifth) async {
-    if (fifth == _settings.fifth) return;
+    if (_disposed || fifth == _settings.fifth) return;
     _touched = true;
     _settings = _settings.copyWith(fifth: fifth);
     notifyListeners();
@@ -131,6 +159,7 @@ class DroneVoice extends ChangeNotifier {
   /// not restarted: a drone that re-attacked on every step would be a row of
   /// notes, not a level.
   Future<void> setLevel(int level) async {
+    if (_disposed) return;
     final within = level.clamp(0, 100);
     if (within == _settings.level) return;
     _touched = true;
@@ -145,7 +174,19 @@ class DroneVoice extends ChangeNotifier {
   /// Sounds the note once, for about two seconds.
   Future<void> startingPitch() async {
     final at = hz;
-    if (at == null) return;
+    if (_disposed || at == null) return;
+    // How long it will be ringing for, so the tuner knows to stop believing
+    // its own microphone. Nothing shows this and nothing counts it down.
+    _pitchTimer?.cancel();
+    _pitchSounding = true;
+    notifyListeners();
+    _pitchTimer = Timer(
+      Duration(milliseconds: (startingPitchSeconds * 1000).round()),
+      () {
+        _pitchSounding = false;
+        if (!_disposed) notifyListeners();
+      },
+    );
     await player.sound(
       hz: at,
       fifth: _settings.fifth,
@@ -155,7 +196,7 @@ class DroneVoice extends ChangeNotifier {
 
   Future<void> _sound() async {
     final at = hz;
-    if (at == null) return;
+    if (_disposed || at == null) return;
     await player.hold(
       hz: at,
       fifth: _settings.fifth,
@@ -165,6 +206,9 @@ class DroneVoice extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _pitchTimer?.cancel();
+    _pitchSounding = false;
     // Stopped before it is let go of, the way Perform's click is: a drone left
     // sounding after the screen has gone is a tone nobody has a button for.
     final held = player;

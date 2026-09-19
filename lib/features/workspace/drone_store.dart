@@ -21,7 +21,11 @@ abstract final class DroneStore {
 
   /// Levels are kept as whole steps out of a hundred, which is what the slider
   /// moves in and what a preference can hold without a decimal point.
-  static const int defaultLevel = 55;
+  ///
+  /// Sixty and not fifty-five, because the slider moves in tens: a default
+  /// between two of its stops is one a finger can never put back, and a screen
+  /// reader would have called it six out of ten anyway.
+  static const int defaultLevel = 60;
 
   static Future<DroneSettings> load() async {
     try {

@@ -26,9 +26,26 @@ import 'latency_probe.dart';
 /// somewhere else — which is what people do with a pitch pipe anyway.
 const int droneOctave = 3;
 
+/// The rate a drone is built at.
+///
+/// Half the rate the rest of the app records at, and plenty: the highest
+/// partial in here is the sixth harmonic of B3, about 1.5 kHz, against a
+/// ceiling of 11 kHz. Halving it halves what has to be built and held, which
+/// is what makes the long loop below affordable on a phone.
+const int droneSampleRate = 22050;
+
 /// How long a drone loop is, near enough. The real length is rounded to a
 /// whole number of cycles, which is what makes the seam silent.
-const double droneLoopSeconds = 2;
+///
+/// Thirty seconds rather than two, and the reason is the *player* rather than
+/// the samples. The buffer closes on itself exactly — see [droneTone] — but no
+/// platform audioplayers runs on promises a gapless loop. iOS is the clear
+/// case: audioplayers_darwin loops in its sound-complete handler, seeking back
+/// to zero and resuming, so every time round costs a short dropout. At two
+/// seconds that is a pulse every two seconds, which is the one thing a drone
+/// cannot be. At thirty it is a blink somebody tuning will not meet, and the
+/// file is still only about 1.3 MB.
+const double droneLoopSeconds = 30;
 
 /// How long a starting pitch sounds. About two seconds: long enough to find
 /// with a voice, short enough that nobody has to stop it.
@@ -66,7 +83,7 @@ int droneCycles({required double hz, double seconds = droneLoopSeconds}) {
 /// twice a second, forever.
 int droneLoopSamples({
   required double hz,
-  int rate = LatencyProbe.sampleRate,
+  int rate = droneSampleRate,
   double seconds = droneLoopSeconds,
 }) =>
     math.max(
@@ -79,7 +96,7 @@ int droneLoopSamples({
 /// looping, and exactly periodic, which [hz] itself would not be.
 double droneSoundingHz({
   required double hz,
-  int rate = LatencyProbe.sampleRate,
+  int rate = droneSampleRate,
   double seconds = droneLoopSeconds,
 }) =>
     droneCycles(hz: hz, seconds: seconds) *
@@ -91,22 +108,35 @@ double droneSoundingHz({
 ///
 /// A handful of harmonics rather than a bare sine, because a sine is a test
 /// tone and nobody can hear whether they are singing in unison with one. The
-/// fifth, when it is asked for, is added as a note of its own with two
-/// harmonics of its own — a tanpura's Pa, and the second note of a pitch pipe.
+/// fifth, when it is asked for, is added as a note of its own with harmonics
+/// of its own — a tanpura's Pa, and the second note of a pitch pipe.
 ///
 /// The fifth is just (three halves) and not equal-tempered. An equal-tempered
 /// fifth beats against the note under it about twice a second, which is
 /// exactly the wobble a drone exists to let somebody hear their own voice
 /// against.
+///
+/// Six harmonics and a gentle roll-off rather than four and a steep one,
+/// because of the loudspeaker this will mostly be heard through. A phone
+/// reproduces very little below about 300 Hz, and this octave runs from 131 Hz
+/// to 247 Hz: for the lower keys the fundamental is simply not there, and a
+/// drone whose energy was nearly all in the first two partials came out thin
+/// and quiet. Strengthening the upper partials puts the sound back in the band
+/// a phone can actually move air in, and it is the right tone anyway — a
+/// tanpura is rich, not pure. Every multiple is still a whole number of turns
+/// across the loop.
 List<(double, double)> dronePartials({bool fifth = false}) => <(double, double)>[
       (1, 1),
-      (2, 0.5),
-      (3, 0.26),
-      (4, 0.13),
+      (2, 0.62),
+      (3, 0.42),
+      (4, 0.28),
+      (5, 0.19),
+      (6, 0.13),
       if (fifth) ...<(double, double)>[
         (1.5, 0.55),
-        (3, 0.2),
-        (4.5, 0.1),
+        (3, 0.34),
+        (4.5, 0.23),
+        (6, 0.15),
       ],
     ];
 
@@ -114,16 +144,22 @@ List<(double, double)> dronePartials({bool fifth = false}) => <(double, double)>
 ///
 /// Every partial is written as a whole number of cycles across the buffer
 /// rather than at its own frequency, so the sample after the last one is the
-/// first one again, exactly. That is the whole trick: the file can be handed
-/// to a looping player and held for an hour without a tick.
+/// first one again, exactly. There is nothing at the seam to hear.
+///
+/// That is as far as the samples can get it. Handing this to a looping player
+/// does not make the loop gapless, because the seam a listener hears belongs
+/// to the player and not to the buffer: audioplayers loops on iOS by seeking
+/// back to the start and resuming, which costs a short dropout every time
+/// round. [droneLoopSeconds] is long for that reason — the seam is made rare
+/// rather than made silent, and that is the honest description of it.
 ///
 /// No attack. An envelope on the front of a loop is not an attack, it is a
-/// tremolo twice a second — the drone is faded in by the player that holds it
-/// instead. See DronePlayer.
+/// tremolo once every time round — the drone is faded in by the player that
+/// holds it instead. See DronePlayer.
 Float64List droneTone({
   required double hz,
   bool fifth = false,
-  int rate = LatencyProbe.sampleRate,
+  int rate = droneSampleRate,
   double seconds = droneLoopSeconds,
 }) {
   final length = droneLoopSamples(hz: hz, rate: rate, seconds: seconds);
@@ -140,7 +176,7 @@ Float64List droneTone({
 Float64List startingPitchTone({
   required double hz,
   bool fifth = false,
-  int rate = LatencyProbe.sampleRate,
+  int rate = droneSampleRate,
   double seconds = startingPitchSeconds,
 }) {
   final length = droneLoopSamples(hz: hz, rate: rate, seconds: seconds);
@@ -200,10 +236,14 @@ Float64List _partialSum({
 }
 
 /// The bytes a player can be handed: one drone loop as a 16-bit mono WAV.
+///
+/// Half a minute of tone is a few million sine calls, which is long enough to
+/// drop frames if it happens between a finger and a switch. [WavDronePlayer]
+/// builds it off the main thread — see [droneWavFor].
 Uint8List droneWav({
   required double hz,
   bool fifth = false,
-  int rate = LatencyProbe.sampleRate,
+  int rate = droneSampleRate,
 }) =>
     LatencyProbe.toWav(droneTone(hz: hz, fifth: fifth, rate: rate), rate: rate);
 
@@ -211,9 +251,23 @@ Uint8List droneWav({
 Uint8List startingPitchWav({
   required double hz,
   bool fifth = false,
-  int rate = LatencyProbe.sampleRate,
+  int rate = droneSampleRate,
 }) =>
     LatencyProbe.toWav(
       startingPitchTone(hz: hz, fifth: fifth, rate: rate),
       rate: rate,
     );
+
+/// What a drone is asked for, in one argument.
+///
+/// A record rather than two arguments because this is what crosses into the
+/// isolate that builds the tone, and `compute` passes one message.
+typedef DroneRequest = ({double hz, bool fifth});
+
+/// [droneWav], in the shape `compute` wants. Top level so it can be sent.
+Uint8List droneWavFor(DroneRequest request) =>
+    droneWav(hz: request.hz, fifth: request.fifth);
+
+/// [startingPitchWav], in the same shape and for the same reason.
+Uint8List startingPitchWavFor(DroneRequest request) =>
+    startingPitchWav(hz: request.hz, fifth: request.fifth);

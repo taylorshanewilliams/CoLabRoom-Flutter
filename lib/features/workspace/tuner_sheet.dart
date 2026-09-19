@@ -115,6 +115,9 @@ class _TunerSheetState extends State<TunerSheet> {
     super.initState();
     _ear.reading.addListener(_changed);
     _ear.listening.addListener(_changed);
+    // The hint above the needle depends on whether the drone is sounding, and
+    // that is not something the ear can tell this sheet.
+    _drone.addListener(_changed);
     unawaited(_loadReference());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_listen());
@@ -156,6 +159,7 @@ class _TunerSheetState extends State<TunerSheet> {
     _ear.dispose();
     // Closing the tuner stops the drone, so it can never still be sounding
     // when the sheet behind it starts recording.
+    _drone.removeListener(_changed);
     _drone.dispose();
     super.dispose();
   }
@@ -191,7 +195,20 @@ class _TunerSheetState extends State<TunerSheet> {
     // rather than inside the listener Perform shares. 440 is a convention,
     // not a fact: a player sitting in with an orchestra at 442, or with a
     // baroque group at 415, should not be told they are sharp all evening.
-    final reading = readPitch(_ear.reading.value?.hz, a4: _a4.toDouble());
+    // While this sheet is making a sound, it stops believing its own ear.
+    //
+    // The microphone here is a raw stream with no echo cancellation, a couple
+    // of centimetres from the loudspeaker the drone comes out of, so the
+    // needle would lock onto the drone and sit in the middle saying "In tune."
+    // — about itself. A tuner that reads its own tone back is worse than one
+    // that says nothing, because it looks like an answer. So while the drone
+    // is held, or a starting pitch is still ringing, the needle rests and the
+    // hint says what to do instead. Nothing is announced and nothing is
+    // switched off: the ear comes back the moment the tone stops (Every
+    // Musician, Same Song, 17 September 2026).
+    final ownSound = _drone.sounding;
+    final reading =
+        ownSound ? null : readPitch(_ear.reading.value?.hz, a4: _a4.toDouble());
     final listening = _ear.listening.value;
     final inTune = reading?.inTune ?? false;
     final accent = inTune ? AppColors.green : AppColors.gold;
@@ -233,7 +250,9 @@ class _TunerSheetState extends State<TunerSheet> {
               const SizedBox(height: 6),
               Text(
                 _error ??
-                    (reading == null
+                    (ownSound
+                        ? 'Tune to the drone by ear.'
+                        : reading == null
                         ? (listening ? 'Play one string, or sing one note.' : 'Opening the microphone…')
                         : inTune
                             ? 'In tune.'
