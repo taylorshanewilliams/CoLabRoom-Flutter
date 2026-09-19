@@ -3,6 +3,7 @@ import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/features/openmic/musician_profile_screen.dart';
 import 'package:colabroom/features/openmic/open_mic_screen.dart';
+import 'package:colabroom/features/openmic/out_there.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -200,6 +201,56 @@ void main() {
       lessThan(844),
       reason: 'the first person in the room is off the bottom of the screen '
           'before anybody has scrolled',
+    );
+
+    // The four parts of the chrome, in the order they have always been in.
+    // That they exist is not enough to say nothing moved: a later change
+    // could grow _chrome by a couple of hundred pixels, or drop the strip of
+    // your own songs out of the sliver, and every other assertion in this
+    // file would still pass. So what is pinned is where each part sits
+    // relative to the next.
+    expect(find.byType(OutThere), findsOneWidget,
+        reason: 'the strip of your own songs left the top of the room');
+    expect(
+      tester.getBottomLeft(find.byType(OutThere)).dy,
+      lessThanOrEqualTo(tester.getTopLeft(find.text('Open Mic')).dy),
+      reason: 'your own songs are no longer above the title',
+    );
+    expect(
+      tester.getBottomLeft(find.text('Open Mic')).dy,
+      lessThanOrEqualTo(
+          tester.getTopLeft(find.text('Everybody who is here')).dy),
+      reason: 'the sentence saying what you are looking at rose above the '
+          'title it belongs under',
+    );
+
+    // The room starts immediately under the sentence: the cap #391 put here
+    // is gone, so there is no reserved strip between the chrome and the
+    // first person. The list is simply the next sliver.
+    final chromeEnds =
+        tester.getBottomLeft(find.byKey(const Key('open_mic_statement'))).dy;
+    final firstPerson = tester.getTopLeft(find.text('Mara Ellison')).dy;
+    expect(firstPerson, greaterThan(chromeEnds),
+        reason: 'the first person in the room is above the sentence');
+    expect(
+      firstPerson - chromeEnds,
+      lessThan(40),
+      reason: 'a gap opened between the sentence and the first person, which '
+          'is where the capped list used to live',
+    );
+
+    // Four people on the screen before anybody scrolls, which is what the
+    // room looked like before this change and what a chrome growing by a
+    // couple of hundred pixels would cost. Every Musician, Same Song, 17
+    // September 2026: the phone's own text size is honoured, and the reader
+    // at the ordinary one loses nothing to the reader at twice it.
+    expect(
+      <String>['Mara Ellison', 'Somebody 2', 'Somebody 3', 'Somebody 4']
+          .where((name) => tester.getTopLeft(find.text(name)).dy < 844)
+          .length,
+      4,
+      reason: 'the room opens with less of itself on the screen than it used '
+          'to, so the chrome above it grew',
     );
   });
 }
