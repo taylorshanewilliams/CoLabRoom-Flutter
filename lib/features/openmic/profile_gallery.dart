@@ -246,8 +246,8 @@ class _ProfileGalleryState extends State<ProfileGallery> {
           if (waiting) ...<Widget>[
             const SizedBox(height: 7),
             const Text(
-              'A picture is looked at before anybody else can see it. The '
-              'dimmed one is still waiting.',
+              'A picture is looked at before anybody else can see it. Anything '
+              'dimmed is still waiting.',
               key: Key('gallery_waiting_note'),
               style: TextStyle(
                   color: AppColors.muted, fontSize: 12, height: 1.45),
