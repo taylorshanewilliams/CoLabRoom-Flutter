@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import '../../services/horn_reading.dart';
+import '../../services/phone_audio.dart';
 import '../../widgets/microphone_disclosure.dart';
 import '../../widgets/problem_report.dart';
 import 'metronome_sheet.dart';
@@ -39,6 +40,12 @@ class ReferenceRecorderSheet extends StatefulWidget {
 
 class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
   final AudioRecorder _recorder = AudioRecorder();
+
+  /// The phone's audio while the microphone is open. Everything that records
+  /// asks for this, so that a call on this phone stands down rather than
+  /// echo cancelling what is being recorded -- see PhoneAudio.
+  late final AudioHolding _audioHold =
+      AudioHolding(phoneAudio, AudioNeed.recording);
   Timer? _timer;
   DateTime? _startedAt;
   String? _path;
@@ -70,6 +77,7 @@ class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
   void dispose() {
     _timer?.cancel();
     unawaited(_recorder.dispose());
+    unawaited(_audioHold.letGo());
     super.dispose();
   }
 
@@ -92,11 +100,18 @@ class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
           .replaceAll(RegExp(r'_+'), '_');
       final path =
           '${directory.path}/${title}_${DateTime.now().millisecondsSinceEpoch}.wav';
+      // Before the microphone opens, not after.
+      await _audioHold.take();
+      // Through the owner, which tells the record plugin to leave the
+      // session alone while a call holds it. See recordingOn.
       await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.wav,
-          sampleRate: 44100,
-          numChannels: 1,
+        await recordingOn(
+          _recorder,
+          const RecordConfig(
+            encoder: AudioEncoder.wav,
+            sampleRate: 44100,
+            numChannels: 1,
+          ),
         ),
         path: path,
       );
@@ -111,6 +126,7 @@ class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
       });
       if (mounted) setState(() => _recording = true);
     } catch (error) {
+      await _audioHold.letGo();
       if (mounted) setState(() => _error = _plainError(error));
     }
   }
@@ -121,6 +137,7 @@ class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
     _timer?.cancel();
     try {
       final stopped = await _recorder.stop();
+      await _audioHold.letGo();
       final path = stopped ?? _path;
       if (path == null || !await File(path).exists()) {
         throw StateError('The recording could not be saved.');
@@ -132,6 +149,7 @@ class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
       }
       if (mounted) Navigator.pop(context, path);
     } catch (error) {
+      await _audioHold.letGo();
       if (!mounted) return;
       setState(() {
         _recording = false;
@@ -145,6 +163,7 @@ class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
     if (_saving) return;
     _timer?.cancel();
     if (_recording) await _recorder.stop();
+    await _audioHold.letGo();
     final path = _path;
     if (path != null && await File(path).exists()) await File(path).delete();
     if (mounted) Navigator.pop(context);

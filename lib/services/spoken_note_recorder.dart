@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
+import 'phone_audio.dart';
+
 /// The microphone, for a note that is said rather than typed (0152).
 ///
 /// Every Musician, Same Song, 17 September 2026. A teacher with a guitar in
@@ -19,9 +21,17 @@ import 'package:record/record.dart';
 /// go and the one-minute cap are worth a test, and the real recorder
 /// throws without a platform behind it.
 class SpokenNoteRecorder {
-  SpokenNoteRecorder({AudioRecorder? recorder}) : _recorder = recorder;
+  SpokenNoteRecorder({AudioRecorder? recorder, PhoneAudio? audio})
+      : _recorder = recorder,
+        _audio = audio ?? AudioSessionOwner.instance;
 
   AudioRecorder? _recorder;
+
+  /// The phone's audio, asked before the microphone opens. A note said
+  /// during a call is a recording pass like any other, and the call has to
+  /// stand down for it.
+  final PhoneAudio _audio;
+  late final AudioHolding _hold = AudioHolding(_audio, AudioNeed.recording);
 
   /// Resolved on use, not in the constructor, so making the screen costs
   /// nothing until somebody actually holds the button.
@@ -36,19 +46,38 @@ class SpokenNoteRecorder {
   Future<bool> hasPermission() => _mic.hasPermission();
 
   Future<void> start() async {
-    await _mic.start(
-      const RecordConfig(
-        encoder: AudioEncoder.wav,
-        sampleRate: 44100,
-        numChannels: 1,
-      ),
-      path: await _path(),
-    );
+    final path = await _path();
+    final mic = _mic;
+    await _hold.take();
+    try {
+      // Through the owner, which tells the record plugin to leave the
+      // session alone while a call holds it. See recordingOn.
+      await mic.start(
+        await recordingOn(
+          mic,
+          const RecordConfig(
+            encoder: AudioEncoder.wav,
+            sampleRate: 44100,
+            numChannels: 1,
+          ),
+          audio: _audio,
+        ),
+        path: path,
+      );
+    } catch (_) {
+      await _hold.letGo();
+      rethrow;
+    }
   }
 
   /// What was said, or null when the recorder had nothing to give back.
   Future<Uint8List?> stop() async {
-    final path = await _mic.stop();
+    final String? path;
+    try {
+      path = await _mic.stop();
+    } finally {
+      await _hold.letGo();
+    }
     if (path == null) return null;
     final bytes = await XFile(path).readAsBytes();
     if (!kIsWeb) {
@@ -61,9 +90,16 @@ class SpokenNoteRecorder {
   }
 
   /// Stops and throws the recording away.
-  Future<void> cancel() => _mic.cancel();
+  Future<void> cancel() async {
+    try {
+      await _mic.cancel();
+    } finally {
+      await _hold.letGo();
+    }
+  }
 
   Future<void> dispose() async {
+    await _hold.letGo();
     await _recorder?.dispose();
     _recorder = null;
   }

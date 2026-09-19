@@ -40,6 +40,7 @@ import '../../services/melody_reading.dart';
 import '../../services/multitrack.dart';
 import '../../services/music_reference.dart' show noteInKey;
 import '../../services/number_reading.dart';
+import '../../services/phone_audio.dart';
 import '../../services/pitch.dart';
 import '../../services/pitch_listener.dart';
 import '../../services/play_along.dart';
@@ -500,6 +501,17 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   StreamSubscription<Duration>? _audioPositionSub;
   StreamSubscription<void>? _audioCompleteSub;
   bool _audioReady = false;
+
+  /// Perform's hold on the phone's audio, from the moment there is a song
+  /// under the words until the screen goes.
+  ///
+  /// Held for the whole screen rather than only while the playhead is
+  /// moving: a song paused mid-bar is still a song on this phone, and a
+  /// session that moved between music-grade and voice-grade on every tap of
+  /// Play would be an audible route change every time — the opposite of what
+  /// this is for. See PhoneAudio.
+  late final AudioHolding _audioHold =
+      AudioHolding(phoneAudio, AudioNeed.playing);
 
   /// When [_elapsed] was last read off the player. The player reports its
   /// position a few times a second; two phones comparing those reports
@@ -1419,6 +1431,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       // start building now rather than after the player below is ready.
       if (!_referenceReady.isCompleted) _referenceReady.complete();
       final player = AudioPlayer();
+      // Before the source and the seek below, not after. On Android a player
+      // given a context that differs from the one it was prepared with is
+      // stopped and prepared again, and the position is not kept -- so the
+      // recording would start from the top under words that are at 1:10.
+      await _thePhoneIsPlaying(player);
       await player.setSource(audioSourceFor(path));
       if (_rate != 1) await player.setPlaybackRate(_rate);
       // The song may already be somewhere: Start pressed while this loaded,
@@ -1546,6 +1563,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     unawaited(_audioPositionSub?.cancel());
     unawaited(_audioCompleteSub?.cancel());
     unawaited(_audioPlayer?.dispose());
+    unawaited(_audioHold.letGo());
     // The part mix under the words, if there was one: a whole song as WAV
     // that nothing will play again. The stems' mix stays -- PlayAlong keeps
     // that one on purpose, under a name it finds again next time.
@@ -2895,6 +2913,24 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     }
   }
 
+  /// Tells the phone's audio that Perform now has a song under the words,
+  /// and puts the session on the player that is going to sound.
+  ///
+  /// Both matter in a call: the hold is what moves the phone from a talking
+  /// call to a call with music in it, and the session is what stops the
+  /// player asking Android for the audio focus the call is holding.
+  Future<void> _thePhoneIsPlaying(AudioPlayer player) async {
+    await _audioHold.take();
+    if (!mounted) {
+      // The screen went away while the hold was being taken. Nothing is
+      // going to sound, and a hold nobody releases makes every later call on
+      // this phone a call with music in it.
+      await _audioHold.letGo();
+      return;
+    }
+    await phoneAudio.useOn(player);
+  }
+
   /// Puts [path] under the player at the current moment, keeping the speed
   /// and whether it was playing.
   Future<void> _swapAudio(String path) async {
@@ -2910,6 +2946,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       });
       _audioCompleteSub = player.onPlayerComplete.listen((_) => _audioEnded());
       _audioPlayer = player;
+      await _thePhoneIsPlaying(player);
     } else {
       await player.pause();
     }

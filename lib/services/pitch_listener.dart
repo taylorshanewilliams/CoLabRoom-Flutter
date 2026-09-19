@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 
+import 'phone_audio.dart';
 import 'pitch.dart';
 
 /// The phone's ear, as a value you can listen to.
@@ -23,7 +24,14 @@ class PitchListener {
     this.sampleRate = 44100,
     this.frame = 4096,
     this.hop = 2048,
-  });
+    PhoneAudio? audio,
+  }) : _audio = audio ?? AudioSessionOwner.instance;
+
+  /// The phone's audio. The ear is a recording pass like any other: it opens
+  /// the microphone, so a call on this phone has to stand down for it, and
+  /// the session has to be record-capable before the stream is asked for.
+  final PhoneAudio _audio;
+  late final AudioHolding _hold = AudioHolding(_audio, AudioNeed.recording);
 
   /// Where the samples come from. Production leaves this null and uses the
   /// microphone; a test hands in a sine wave.
@@ -70,11 +78,23 @@ class PitchListener {
         throw StateError('The microphone is needed to hear you.');
       }
       final recorder = _recorder ??= AudioRecorder();
-      stream = await recorder.startStream(RecordConfig(
-        encoder: AudioEncoder.pcm16bits,
-        sampleRate: sampleRate,
-        numChannels: 1,
-      ));
+      await _hold.take();
+      try {
+        // Through the owner, which tells the record plugin to leave the
+        // session alone while a call holds it. See recordingOn.
+        stream = await recorder.startStream(await recordingOn(
+          recorder,
+          RecordConfig(
+            encoder: AudioEncoder.pcm16bits,
+            sampleRate: sampleRate,
+            numChannels: 1,
+          ),
+          audio: _audio,
+        ));
+      } catch (_) {
+        await _hold.letGo();
+        rethrow;
+      }
     }
     if (_disposed) return;
     listening.value = true;
@@ -99,6 +119,7 @@ class PitchListener {
     // the microphone back, and that is awaited.
     unawaited(samples?.cancel());
     await _recorder?.stop().catchError((_) => null);
+    await _hold.letGo();
     _buffer.clear();
     _recent.clear();
     _heardAt = null;
@@ -115,6 +136,7 @@ class PitchListener {
     _samples = null;
     unawaited(_recorder?.stop().catchError((_) => null));
     unawaited(_recorder?.dispose());
+    unawaited(_hold.letGo());
     reading.dispose();
     listening.dispose();
   }

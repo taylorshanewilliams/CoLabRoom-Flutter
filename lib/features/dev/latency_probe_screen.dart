@@ -11,6 +11,7 @@ import 'package:record/record.dart';
 import '../../app/colabroom_theme.dart';
 import '../../services/latency_probe.dart';
 import '../../services/onset_align.dart';
+import '../../services/phone_audio.dart';
 import '../../widgets/microphone_disclosure.dart';
 import '../../services/user_facing_error.dart';
 
@@ -72,7 +73,14 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
       _failures.clear();
     });
 
+    // Held across the whole run rather than per trial, so the session is not
+    // rebuilt between trials -- and so that what is measured is a take's
+    // session. A probe run while a call holds the phone's audio measures the
+    // call, not the take, which is why asking for this stands the call's
+    // microphone down for the duration.
+    final audio = await phoneAudio.need(AudioNeed.recording);
     try {
+      await phoneAudio.useOn(_player);
       final directory = await getTemporaryDirectory();
       final signalPath = '${directory.path}/latency_signal.wav';
       await File(signalPath).writeAsBytes(
@@ -99,6 +107,7 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
     } catch (error) {
       if (mounted) setState(() => _error = reportAndDescribe(error, service: 'app', route: 'Latency probe'));
     } finally {
+      await audio.release();
       if (mounted) setState(() {
         _running = false;
         _stage = '';
@@ -110,24 +119,29 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
     final directory = await getTemporaryDirectory();
     final capturePath = '${directory.path}/latency_capture_$trial.wav';
 
+    // Through the owner, which tells the record plugin to leave the session
+    // alone while a call holds it. See recordingOn.
     await _recorder.start(
-      const RecordConfig(
-        encoder: AudioEncoder.wav,
-        sampleRate: LatencyProbe.sampleRate,
-        numChannels: 1,
-        // All three off, deliberately, and echo cancellation above all.
-        //
-        // Acoustic echo cancellation exists to remove from the microphone
-        // whatever the speaker is playing — which is precisely the signal
-        // this is trying to hear. Left on, the probe would report that no
-        // marker was found, on a device where the measurement was fine.
-        //
-        // The same applies to the real feature: automatic gain and noise
-        // suppression are tuned for speech on calls and audibly wreck music,
-        // pumping on sustained notes and gating quiet passages.
-        echoCancel: false,
-        noiseSuppress: false,
-        autoGain: false,
+      await recordingOn(
+        _recorder,
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: LatencyProbe.sampleRate,
+          numChannels: 1,
+          // All three off, deliberately, and echo cancellation above all.
+          //
+          // Acoustic echo cancellation exists to remove from the microphone
+          // whatever the speaker is playing — which is precisely the signal
+          // this is trying to hear. Left on, the probe would report that no
+          // marker was found, on a device where the measurement was fine.
+          //
+          // The same applies to the real feature: automatic gain and noise
+          // suppression are tuned for speech on calls and audibly wreck
+          // music, pumping on sustained notes and gating quiet passages.
+          echoCancel: false,
+          noiseSuppress: false,
+          autoGain: false,
+        ),
       ),
       path: capturePath,
     );
@@ -180,7 +194,10 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
       _stage = 'Play along with the click';
     });
 
+    // As in _run: one session for the whole pass, and a call stands down.
+    final audio = await phoneAudio.need(AudioNeed.recording);
     try {
+      await phoneAudio.useOn(_player);
       final directory = await getTemporaryDirectory();
       final signalPath = '${directory.path}/latency_click.wav';
       await File(signalPath).writeAsBytes(
@@ -190,13 +207,16 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
       final capturePath = '${directory.path}/latency_playalong.wav';
 
       await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.wav,
-          sampleRate: LatencyProbe.sampleRate,
-          numChannels: 1,
-          echoCancel: false,
-          noiseSuppress: false,
-          autoGain: false,
+        await recordingOn(
+          _recorder,
+          const RecordConfig(
+            encoder: AudioEncoder.wav,
+            sampleRate: LatencyProbe.sampleRate,
+            numChannels: 1,
+            echoCancel: false,
+            noiseSuppress: false,
+            autoGain: false,
+          ),
         ),
         path: capturePath,
       );
@@ -213,6 +233,7 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
     } catch (error) {
       if (mounted) setState(() => _error = reportAndDescribe(error, service: 'app', route: 'Latency probe'));
     } finally {
+      await audio.release();
       if (mounted) setState(() {
         _running = false;
         _stage = '';

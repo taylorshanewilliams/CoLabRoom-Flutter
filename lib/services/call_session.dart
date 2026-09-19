@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 
 import '../domain/calls.dart';
+import 'phone_audio.dart';
 
 /// One phone in one call, as the call screen sees it.
 ///
@@ -71,6 +72,11 @@ final String callDevice = List<String>.generate(
 /// room, noise suppression gates the quiet end of a phrase, and automatic gain
 /// flattens dynamics. Music mode turns all of it off and relies on headphones
 /// to keep the other person's sound out of the microphone.
+///
+/// This is only half of Music mode, and until 19 September 2026 it was the
+/// only half there was. It configures WebRTC's own capture; Apple's voice
+/// processing is selected by the *platform session's mode*, which WebRTC's
+/// capture options say nothing about. [PhoneAudio] applies the other half.
 lk.AudioCaptureOptions captureFor({required bool music}) => music
     ? const lk.AudioCaptureOptions(
         echoCancellation: false,
@@ -111,7 +117,7 @@ String deviceProblem(Object error, {required String device}) {
 /// Who a LiveKit identity belongs to: call-token writes `<user id>:<device>`.
 String personOfIdentity(String identity) => identity.split(':').first;
 
-class LiveKitCallSession extends CallSession {
+class LiveKitCallSession extends CallSession implements CallMicrophone {
   LiveKitCallSession._(this._room, this._musicMode);
 
   final lk.Room _room;
@@ -122,9 +128,22 @@ class LiveKitCallSession extends CallSession {
   List<CallPerson> _people = const <CallPerson>[];
   lk.EventsListener<lk.RoomEvent>? _events;
 
+  /// This call's hold on the phone's audio, taken before connecting and let
+  /// go of after disconnecting.
+  CallHold? _audio;
+
+  /// Whether a recording pass on this phone currently has the microphone,
+  /// and whether the call's microphone was on when it was handed over.
+  bool _takeHasTheMicrophone = false;
+  bool _micWasOn = false;
+
   /// Connects with the ticket, then turns on the microphone and camera. A
   /// camera that will not start leaves a voice call rather than no call.
-  static Future<LiveKitCallSession> join(CallTicket ticket, {bool music = false}) async {
+  static Future<LiveKitCallSession> join(
+    CallTicket ticket, {
+    bool music = false,
+    PhoneAudio? audio,
+  }) async {
     final room = lk.Room(
       roomOptions: const lk.RoomOptions(
         adaptiveStream: true,
@@ -134,6 +153,12 @@ class LiveKitCallSession extends CallSession {
     );
     final session = LiveKitCallSession._(room, music);
     session._events = room.createListener()..listen((event) => session._eventArrived(event));
+    // Before connecting, not after. Taking the session over puts LiveKit
+    // into manual mode, and LiveKit reapplies its own configuration on
+    // connect while it is still managing itself -- so a hold taken
+    // afterwards would be applied on top of a session that had already been
+    // set up twice, with an audible route change in the middle of the join.
+    session._audio = await (audio ?? AudioSessionOwner.instance).callIsUp(session, music: music);
     try {
       await room.connect(ticket.url, ticket.token);
     } catch (_) {
@@ -224,7 +249,39 @@ class LiveKitCallSession extends CallSession {
   @override
   Future<void> setMic(bool on) async {
     if (_microphoneProblem != null) return;
+    if (_takeHasTheMicrophone) {
+      // A take is being recorded on this phone, so the call's microphone is
+      // already let go of. Remember what was asked for rather than opening
+      // it underneath the recorder: the take would be the person's own
+      // playing with the call's processing on top of it.
+      _micWasOn = on;
+      return;
+    }
     await _room.localParticipant?.setMicrophoneEnabled(on);
+    _refresh();
+  }
+
+  /// Hands the microphone to a recording pass on this phone.
+  ///
+  /// Muting is enough to release the input: `stopAudioCaptureOnMute` is on
+  /// by default in livekit_client, so muting a published local audio track
+  /// stops the capture rather than merely silencing it. Unpublishing would
+  /// renegotiate the whole track for the few seconds of a take.
+  @override
+  Future<void> letGo() async {
+    if (_takeHasTheMicrophone) return;
+    _takeHasTheMicrophone = true;
+    final local = _room.localParticipant;
+    _micWasOn = local?.isMicrophoneEnabled() ?? false;
+    if (local != null && _micWasOn) await local.setMicrophoneEnabled(false);
+    _refresh();
+  }
+
+  @override
+  Future<void> takeBack() async {
+    if (!_takeHasTheMicrophone) return;
+    _takeHasTheMicrophone = false;
+    if (_micWasOn) await _room.localParticipant?.setMicrophoneEnabled(true);
     _refresh();
   }
 
@@ -257,6 +314,10 @@ class LiveKitCallSession extends CallSession {
   Future<void> setMusicMode(bool on) async {
     if (on == _musicMode) return;
     _musicMode = on;
+    // The platform half, and the one that makes the switch truthful: the
+    // capture options below only reach WebRTC. Applied even when there is no
+    // microphone, because what this phone *plays* is the other half of it.
+    await _audio?.music(on);
     if (_microphoneProblem != null) {
       notifyListeners();
       return;
@@ -265,21 +326,44 @@ class LiveKitCallSession extends CallSession {
     _refresh();
   }
 
+  /// A call ended twice is a call ended once.
+  ///
+  /// Found while wiring the phone's audio owner in, and fixed here because
+  /// it is what stops the owner working: [leave] used to return early when
+  /// the state was already `ended`, which is exactly what a
+  /// `RoomDisconnectedEvent` makes it. So when the *other* person hung up,
+  /// the screen popped, dispose called leave, leave returned early, and
+  /// nothing was ever closed -- the events listener, the room and (from
+  /// today) the phone's audio all stayed held, leaving the phone configured
+  /// for a call that had ended.
+  bool _closed = false;
+
   @override
   Future<void> leave() async {
-    if (_state == CallState.ended) return;
+    final alreadyEnded = _state == CallState.ended;
     _state = CallState.ended;
     await _close();
-    notifyListeners();
+    // The listeners were told when the event arrived.
+    if (!alreadyEnded) notifyListeners();
   }
 
   Future<void> _close() async {
+    if (_closed) return;
+    _closed = true;
     await _events?.dispose();
     _events = null;
     try {
       await _room.disconnect();
     } finally {
       unawaited(_room.dispose());
+      // After the room has gone, so the session is handed back to ordinary
+      // playback once and stays handed back. Let go of even when the
+      // disconnect throws, or a failed join would leave the phone in a call
+      // configuration with no call in it.
+      final audio = _audio;
+      _audio = null;
+      _takeHasTheMicrophone = false;
+      unawaited(audio?.release());
     }
   }
 }

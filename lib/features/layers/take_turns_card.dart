@@ -8,6 +8,7 @@ import '../../domain/loop_round.dart';
 import '../../domain/music_models.dart' show RoomMember;
 import '../../domain/song_analysis_models.dart' show StructureSection;
 import '../../services/audio_source_for.dart';
+import '../../services/phone_audio.dart';
 import '../../services/song_layer_service.dart' show SharedLayer;
 import '../workspace/practice_rules.dart';
 import 'take_turns.dart';
@@ -106,6 +107,12 @@ class _TakeTurnsCardState extends State<TakeTurnsCard> {
   StreamSubscription<void>? _done;
   StreamSubscription<Duration>? _moved;
 
+  /// The phone's audio while the band's turns are sounding. A screen being
+  /// open and a sound coming out of the phone are different things to a
+  /// call, so this is taken when the file starts and let go of on every way
+  /// out of it.
+  late final AudioHolding _sounds = AudioHolding(phoneAudio, AudioNeed.playing);
+
   /// The conversation while it plays, and whose turn is sounding.
   TurnsTrack? _track;
   LoopSeat? _sounding;
@@ -144,6 +151,7 @@ class _TakeTurnsCardState extends State<TakeTurnsCard> {
     widget.hush?.removeListener(_hushed);
     unawaited(_done?.cancel());
     unawaited(_moved?.cancel());
+    unawaited(_sounds.letGo());
     unawaited(_player?.dispose());
     super.dispose();
   }
@@ -171,7 +179,12 @@ class _TakeTurnsCardState extends State<TakeTurnsCard> {
         return;
       }
       final player = _player ??= AudioPlayer();
+      // The phone's session, from the one place that decides it: this card
+      // sits on the takes screen, where the microphone may be open.
+      await _sounds.take();
+      if (_done == null) await phoneAudio.useOn(player, amongOthers: true);
       _done ??= player.onPlayerComplete.listen((_) {
+        unawaited(_sounds.letGo());
         if (mounted) {
           setState(() {
             _track = null;
@@ -193,6 +206,7 @@ class _TakeTurnsCardState extends State<TakeTurnsCard> {
       await player.setReleaseMode(ReleaseMode.release);
       await player.play(audioSourceFor(track.path));
     } catch (_) {
+      await _sounds.letGo();
       if (!mounted) return;
       setState(() {
         _track = null;
@@ -209,6 +223,7 @@ class _TakeTurnsCardState extends State<TakeTurnsCard> {
     } catch (_) {
       // Already stopped, or never started. Either way it is over.
     }
+    await _sounds.letGo();
     if (!mounted) return;
     setState(() {
       _track = null;

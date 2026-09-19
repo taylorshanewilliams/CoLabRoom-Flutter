@@ -34,6 +34,9 @@ class _Click implements ClickPlayer {
   final List<String> log = <String>[];
 
   @override
+  Future<void> prepare() async => log.add('prepare');
+
+  @override
   Future<void> play({
     required double bpm,
     required int beatsPerBar,
