@@ -281,6 +281,9 @@ List<Finding> auditTapTargets(WidgetTester tester) {
 /// needs a name that can be programmatically determined. In Flutter the
 /// commonest way to fail this is an `IconButton` with no tooltip and an
 /// `InkWell` wrapping an `Icon` — both of which look completely finished.
+///
+/// "Nothing at all" means no label, no tooltip, no value and no hint, the
+/// same four [_namedAbove] counts for a painting.
 List<Finding> auditLabels(WidgetTester tester) {
   final findings = <Finding>[];
   final seen = <String>{};
@@ -304,8 +307,21 @@ List<Finding> auditLabels(WidgetTester tester) {
     // wrong, about the most prominent control in the app, in a report whose
     // whole value is that people believe it.
     if (node.isMergedIntoParent) return;
+    // Label, tooltip, value and hint, exactly as [_namedAbove] counts them
+    // for a painting. A slider announced as "82 beats per minute" and a
+    // control whose only words are the hint saying what pressing it does are
+    // both heard; calling either of them "announces nothing" is false, and
+    // two rules in the same report disagreeing about what counts as speech
+    // is how a report stops being believed.
+    //
+    // WCAG 2.2 SC 4.1.2 does ask for a name as well as a value, so a field
+    // that only announces what is typed in it is still worth fixing — the
+    // lyric editor was the live example, and is named now. But that is a
+    // different sentence from this one, and this rule prints this one.
     if (data.label.trim().isNotEmpty) return;
     if (data.tooltip.trim().isNotEmpty) return;
+    if (data.value.trim().isNotEmpty) return;
+    if (data.hint.trim().isNotEmpty) return;
     // A node whose children carry the text — a card wrapping a Text — is
     // announced through them, so it is not silent.
     var childHasLabel = false;

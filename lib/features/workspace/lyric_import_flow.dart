@@ -309,13 +309,23 @@ class _PasteLyricsDialogState extends State<_PasteLyricsDialog> {
       title: const Text('Paste lyrics'),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 620),
-        child: TextField(
-          controller: _lyrics,
-          autofocus: true,
-          minLines: 8,
-          maxLines: 14,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(hintText: 'Verse 1\nFirst lyric line…'),
+        // The dialog's title names the dialog, not the field inside it, and
+        // the hint here stops being built the moment anything is pasted — so
+        // this had the same silence the song's own editor had (#403's
+        // report, 18 September 2026).
+        child: MergeSemantics(
+          child: Semantics(
+            textField: true,
+            label: 'Lyrics',
+            child: TextField(
+              controller: _lyrics,
+              autofocus: true,
+              minLines: 8,
+              maxLines: 14,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(hintText: 'Verse 1\nFirst lyric line…'),
+            ),
+          ),
         ),
       ),
       actions: <Widget>[
@@ -398,13 +408,26 @@ class _ReviewImportDialogState extends State<_ReviewImportDialog> {
               ),
               const SizedBox(height: 10),
               Expanded(
-                child: TextField(
-                  controller: widget.controller,
-                  expands: true,
-                  minLines: null,
-                  maxLines: null,
-                  textAlignVertical: TextAlignVertical.top,
-                  decoration: const InputDecoration(alignLabelWithHint: true),
+                // Named for the same reason the song's own editor is: the
+                // words in this field are the whole import, and with no
+                // label, no hint and no tooltip a screen reader read them
+                // out as the value of something it could not name (#403's
+                // report, 18 September 2026). Merged so the name, the words
+                // and the editing actions arrive as one thing.
+                child: MergeSemantics(
+                  child: Semantics(
+                    textField: true,
+                    label: 'Lyrics',
+                    child: TextField(
+                      controller: widget.controller,
+                      expands: true,
+                      minLines: null,
+                      maxLines: null,
+                      textAlignVertical: TextAlignVertical.top,
+                      decoration:
+                          const InputDecoration(alignLabelWithHint: true),
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
