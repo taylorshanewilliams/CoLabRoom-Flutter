@@ -303,10 +303,14 @@ void main() {
     final silent = await writeSilentPaint(_silent, path: 'build/eyes/SILENT.md');
     // ignore: avoid_print
     print('\neyes: ${_findings.length} findings → ${report.path}');
-    // Printed rather than asserted. The list is not empty today and a walk
-    // that failed on it would be a walk nobody runs; the gate against it
-    // growing is test/nothing_new_says_nothing_test.dart, which holds the
-    // same list and is run by the full suite.
+    // Printed rather than asserted, even though the list is empty today.
+    // This walk is a survey run deliberately, and a gate belongs where it
+    // runs on every change: that is
+    // test/nothing_new_says_nothing_test.dart, which holds the same list and
+    // fails when something is added to it. What this print is for is the
+    // other direction: that gate walks six screens and this walks thirteen,
+    // so a silent painter on Perform, Analyze, Sets or Messages shows up
+    // here first.
     // ignore: avoid_print
     print('eyes: ${silentPaintLines(_silent).length} painted things say '
         'nothing → ${silent.path}');
