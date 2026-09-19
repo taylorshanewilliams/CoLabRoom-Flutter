@@ -17,6 +17,7 @@ class ReferenceRecorderSheet extends StatefulWidget {
   const ReferenceRecorderSheet({
     required this.songTitle,
     this.projectId,
+    this.songKey,
     super.key,
   });
 
@@ -26,6 +27,11 @@ class ReferenceRecorderSheet extends StatefulWidget {
   /// name notes the way this person reads that song. Null where no song is
   /// known, which leaves the tuner in concert pitch.
   final String? projectId;
+
+  /// What key the song is in, if anybody has said, so the tuner's drone can
+  /// offer the song's own 1 before it offers a list of notes. Null leaves the
+  /// drone asking which note to hold.
+  final String? songKey;
 
   @override
   State<ReferenceRecorderSheet> createState() => _ReferenceRecorderSheetState();
@@ -242,8 +248,11 @@ class _ReferenceRecorderSheetState extends State<ReferenceRecorderSheet> {
                     children: <Widget>[
                       TextButton.icon(
                         key: const Key('open_tuner'),
-                        onPressed: () =>
-                            TunerSheet.show(context, reading: _reading),
+                        onPressed: () => TunerSheet.show(
+                          context,
+                          reading: _reading,
+                          songKey: widget.songKey,
+                        ),
                         icon: const Icon(Icons.tune_rounded, size: 18),
                         label: const Text('Tuner'),
                         style: TextButton.styleFrom(

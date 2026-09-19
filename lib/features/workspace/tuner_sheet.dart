@@ -4,11 +4,13 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
+import '../../services/drone_player.dart';
 import '../../services/horn_reading.dart';
 import '../../services/pitch.dart';
 import '../../services/pitch_listener.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
+import 'drone_controls.dart';
 import 'tuner_reference_store.dart';
 
 /// A tuner, on the sheet you record from.
@@ -25,6 +27,8 @@ class TunerSheet extends StatefulWidget {
   const TunerSheet({
     this.openStream,
     this.reading = HornReading.concert,
+    this.songKey,
+    this.drone,
     super.key,
   });
 
@@ -37,6 +41,20 @@ class TunerSheet extends StatefulWidget {
   /// that is sounding; the microphone hears concert pitch either way.
   final HornReading reading;
 
+  /// The key of the song the tuner was opened from, when there is one: what
+  /// the band said, or what the analysis heard. The drone below offers its 1
+  /// first. Null leaves the drone asking which note to hold, which is the
+  /// honest answer for a song nobody has named a key for.
+  ///
+  /// The sounding key, never a reading of it. A capo, a transpose and a horn's
+  /// written part are each person's own and none of them moves the note the
+  /// room is tuning to (Every Musician, Same Song, 17 September 2026).
+  final String? songKey;
+
+  /// What holds the drone. Production leaves this null and makes one; a test
+  /// hands in a silent one.
+  final DronePlayer? drone;
+
   static const int sampleRate = 44100;
   static const int frame = 4096;
   static const int hop = 2048;
@@ -44,12 +62,13 @@ class TunerSheet extends StatefulWidget {
   static Future<void> show(
     BuildContext context, {
     HornReading reading = HornReading.concert,
+    String? songKey,
   }) =>
       showModalBottomSheet<void>(
         context: context,
         backgroundColor: AppColors.deepNavy,
         isScrollControlled: true,
-        builder: (_) => TunerSheet(reading: reading),
+        builder: (_) => TunerSheet(reading: reading, songKey: songKey),
       );
 
   @override
@@ -81,11 +100,24 @@ class _TunerSheetState extends State<TunerSheet> {
   /// the written name is the convenience on top of it.
   bool _written = false;
 
+  /// The note this tuner can hold, at the reference above it. Made here and
+  /// stopped in [dispose], so leaving the tuner stops the drone — which is
+  /// also what keeps it off a take, since the sheet that records is the one
+  /// this opens from and it closes before the red button.
+  late final DroneVoice _drone = DroneVoice(
+    player: widget.drone,
+    songKey: widget.songKey,
+    a4: _a4,
+  );
+
   @override
   void initState() {
     super.initState();
     _ear.reading.addListener(_changed);
     _ear.listening.addListener(_changed);
+    // The hint above the needle depends on whether the drone is sounding, and
+    // that is not something the ear can tell this sheet.
+    _drone.addListener(_changed);
     unawaited(_loadReference());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_listen());
@@ -94,8 +126,11 @@ class _TunerSheetState extends State<TunerSheet> {
 
   Future<void> _loadReference() async {
     final kept = await TunerReferenceStore.load();
+    // The level and the fifth this device keeps for its drone.
+    unawaited(_drone.load());
     if (!mounted || _referenceTouched || kept == _a4) return;
     setState(() => _a4 = kept);
+    _drone.setReference(kept);
   }
 
   void _shiftReference(int delta) {
@@ -107,6 +142,9 @@ class _TunerSheetState extends State<TunerSheet> {
       _referenceTouched = true;
       _a4 = next;
     });
+    // A drone that stayed at 440 while the tuner moved to 442 would be the one
+    // thing in the room out of tune with everything else.
+    _drone.setReference(next);
     unawaited(TunerReferenceStore.save(next));
   }
 
@@ -119,6 +157,10 @@ class _TunerSheetState extends State<TunerSheet> {
     _ear.reading.removeListener(_changed);
     _ear.listening.removeListener(_changed);
     _ear.dispose();
+    // Closing the tuner stops the drone, so it can never still be sounding
+    // when the sheet behind it starts recording.
+    _drone.removeListener(_changed);
+    _drone.dispose();
     super.dispose();
   }
 
@@ -153,7 +195,20 @@ class _TunerSheetState extends State<TunerSheet> {
     // rather than inside the listener Perform shares. 440 is a convention,
     // not a fact: a player sitting in with an orchestra at 442, or with a
     // baroque group at 415, should not be told they are sharp all evening.
-    final reading = readPitch(_ear.reading.value?.hz, a4: _a4.toDouble());
+    // While this sheet is making a sound, it stops believing its own ear.
+    //
+    // The microphone here is a raw stream with no echo cancellation, a couple
+    // of centimetres from the loudspeaker the drone comes out of, so the
+    // needle would lock onto the drone and sit in the middle saying "In tune."
+    // — about itself. A tuner that reads its own tone back is worse than one
+    // that says nothing, because it looks like an answer. So while the drone
+    // is held, or a starting pitch is still ringing, the needle rests and the
+    // hint says what to do instead. Nothing is announced and nothing is
+    // switched off: the ear comes back the moment the tone stops (Every
+    // Musician, Same Song, 17 September 2026).
+    final ownSound = _drone.sounding;
+    final reading =
+        ownSound ? null : readPitch(_ear.reading.value?.hz, a4: _a4.toDouble());
     final listening = _ear.listening.value;
     final inTune = reading?.inTune ?? false;
     final accent = inTune ? AppColors.green : AppColors.gold;
@@ -166,152 +221,168 @@ class _TunerSheetState extends State<TunerSheet> {
             ? writtenNote(widget.reading, reading.midi)
             : (reading.name, reading.octave);
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Container(
-              width: 42,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(99),
+      // Scrollable since the drone joined the needle: the sheet is already
+      // most of a short phone's height, and the phone's own text size is
+      // honoured rather than clamped, so at the largest of them the Done
+      // button has to be reachable rather than cut off.
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(99),
+                ),
               ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'Tuner',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: AppColors.text,
-                    fontWeight: FontWeight.w900,
-                  ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              _error ??
-                  (reading == null
-                      ? (listening ? 'Play one string, or sing one note.' : 'Opening the microphone…')
-                      : inTune
-                          ? 'In tune.'
-                          : reading.cents < 0
-                              ? 'A little flat — tighten.'
-                              : 'A little sharp — loosen.'),
-              key: const Key('tuner_hint'),
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _error != null ? const Color(0xFFFF9CAA) : AppColors.muted,
-                fontSize: 12,
-                height: 1.4,
+              const SizedBox(height: 18),
+              Text(
+                'Tuner',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: AppColors.text,
+                      fontWeight: FontWeight.w900,
+                    ),
               ),
-            ),
-            const SizedBox(height: 26),
-            // The note, large enough to read from where the guitar is.
-            SizedBox(
-              height: 96,
-              child: Center(
-                child: reading == null
-                    ? Icon(Icons.hearing_rounded,
-                        size: 44, color: AppColors.muted.withValues(alpha: 0.6))
-                    : RichText(
-                        key: const Key('tuner_note'),
-                        text: TextSpan(
-                          children: <InlineSpan>[
-                            TextSpan(
-                              text: name,
-                              style: TextStyle(
-                                color: accent,
-                                fontSize: 78,
-                                fontWeight: FontWeight.w900,
-                                height: 1,
+              const SizedBox(height: 6),
+              Text(
+                _error ??
+                    (ownSound
+                        ? 'Tune to the drone by ear.'
+                        : reading == null
+                        ? (listening ? 'Play one string, or sing one note.' : 'Opening the microphone…')
+                        : inTune
+                            ? 'In tune.'
+                            : reading.cents < 0
+                                ? 'A little flat — tighten.'
+                                : 'A little sharp — loosen.'),
+                key: const Key('tuner_hint'),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _error != null ? const Color(0xFFFF9CAA) : AppColors.muted,
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 26),
+              // The note, large enough to read from where the guitar is.
+              SizedBox(
+                height: 96,
+                child: Center(
+                  child: reading == null
+                      ? Icon(Icons.hearing_rounded,
+                          size: 44, color: AppColors.muted.withValues(alpha: 0.6))
+                      : RichText(
+                          key: const Key('tuner_note'),
+                          text: TextSpan(
+                            children: <InlineSpan>[
+                              TextSpan(
+                                text: name,
+                                style: TextStyle(
+                                  color: accent,
+                                  fontSize: 78,
+                                  fontWeight: FontWeight.w900,
+                                  height: 1,
+                                ),
                               ),
-                            ),
-                            TextSpan(
-                              text: '$octave',
-                              style: const TextStyle(
-                                color: AppColors.muted,
-                                fontSize: 26,
-                                fontWeight: FontWeight.w700,
+                              TextSpan(
+                                text: '$octave',
+                                style: const TextStyle(
+                                  color: AppColors.muted,
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            _Needle(cents: reading?.cents, accent: accent),
-            const SizedBox(height: 8),
-            Text(
-              reading == null
-                  ? ' '
-                  : '${reading.cents >= 0 ? '+' : ''}${reading.cents.round()} cents  ·  ${reading.hz.toStringAsFixed(1)} Hz',
-              key: const Key('tuner_cents'),
-              style: const TextStyle(
-                color: AppColors.muted,
-                fontSize: 12,
-                fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
-              ),
-            ),
-            const SizedBox(height: 10),
-            // What A is, one hertz at a time. The same shape as the sheet's
-            // transpose control, because it is the same kind of thing: a
-            // personal setting on the thing in front of you, not a mode.
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                IconButton(
-                  tooltip: 'Lower reference',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _a4 <= TunerReferenceStore.lowest
-                      ? null
-                      : () => _shiftReference(-1),
-                  icon: const Icon(Icons.remove_rounded, size: 18),
                 ),
-                Text(
-                  'A = $_a4 Hz',
-                  key: const Key('tuner_reference'),
-                  style: const TextStyle(
-                    color: AppColors.text,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+              ),
+              const SizedBox(height: 14),
+              _Needle(cents: reading?.cents, accent: accent),
+              const SizedBox(height: 8),
+              Text(
+                reading == null
+                    ? ' '
+                    : '${reading.cents >= 0 ? '+' : ''}${reading.cents.round()} cents  ·  ${reading.hz.toStringAsFixed(1)} Hz',
+                key: const Key('tuner_cents'),
+                style: const TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 12,
+                  fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(height: 10),
+              // What A is, one hertz at a time. The same shape as the sheet's
+              // transpose control, because it is the same kind of thing: a
+              // personal setting on the thing in front of you, not a mode.
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  IconButton(
+                    tooltip: 'Lower reference',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: _a4 <= TunerReferenceStore.lowest
+                        ? null
+                        : () => _shiftReference(-1),
+                    icon: const Icon(Icons.remove_rounded, size: 18),
+                  ),
+                  Text(
+                    'A = $_a4 Hz',
+                    key: const Key('tuner_reference'),
+                    style: const TextStyle(
+                      color: AppColors.text,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Raise reference',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: _a4 >= TunerReferenceStore.highest
+                        ? null
+                        : () => _shiftReference(1),
+                    icon: const Icon(Icons.add_rounded, size: 18),
+                  ),
+                ],
+              ),
+              // Only offered to somebody who has already said they read for a
+              // horn, on the song they said it on. Everybody else has one way
+              // of naming a note and does not need to be asked about it.
+              if (widget.reading != HornReading.concert)
+                TextButton(
+                  key: const Key('tuner_written_names'),
+                  onPressed: () => setState(() => _written = !_written),
+                  style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+                  child: Text(
+                    _written
+                        ? 'Written for ${widget.reading.label}'
+                        : 'Concert names',
+                    style: const TextStyle(fontSize: 11),
                   ),
                 ),
-                IconButton(
-                  tooltip: 'Raise reference',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _a4 >= TunerReferenceStore.highest
-                      ? null
-                      : () => _shiftReference(1),
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                ),
-              ],
-            ),
-            // Only offered to somebody who has already said they read for a
-            // horn, on the song they said it on. Everybody else has one way
-            // of naming a note and does not need to be asked about it.
-            if (widget.reading != HornReading.concert)
-              TextButton(
-                key: const Key('tuner_written_names'),
-                onPressed: () => setState(() => _written = !_written),
-                style: TextButton.styleFrom(foregroundColor: AppColors.muted),
-                child: Text(
-                  _written
-                      ? 'Written for ${widget.reading.label}'
-                      : 'Concert names',
-                  style: const TextStyle(fontSize: 11),
+              const SizedBox(height: 4),
+              // A note to tune against rather than a needle to watch: a tanpura
+              // under a raga, a pitch pipe in front of a quartet, the note a
+              // choir is given before anybody counts. At the reference above,
+              // because a drone at 440 under an orchestra at 442 is the thing
+              // that is out of tune (Every Musician, Same Song, 17 September
+              // 2026).
+              DroneControls(voice: _drone),
+              const SizedBox(height: 4),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  child: const Text('Done'),
                 ),
               ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton(
-                onPressed: () => Navigator.of(context).maybePop(),
-                child: const Text('Done'),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
