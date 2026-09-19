@@ -58,6 +58,23 @@ void main() {
       expect(at(15500), isNull);
     });
 
+    test('a downbeat a hair off a beat is still the 1', () {
+      // The two lists come from the same tracker and normally agree to the
+      // millisecond. A rounding hair must not cost a song every heavy tap it
+      // has, which would be the whole feature gone and nothing to see.
+      const off = <int>[0, 2012, 4000, 6000];
+      expect(
+        nextFeltBeat(1500, beatsMs: beats, downbeatsMs: off),
+        const FeltBeat(atMs: 2000, weight: BeatWeight.heavy),
+      );
+      // And not so wide that the beat before the bar turns heavy as well:
+      // two heavy taps half a beat apart is not a 1, it is a stutter.
+      expect(
+        nextFeltBeat(1000, beatsMs: beats, downbeatsMs: off),
+        const FeltBeat(atMs: 1500, weight: BeatWeight.light),
+      );
+    });
+
     test('the 1 only fires on the 1', () {
       expect(
         at(0, feel: FeelTheBeat.theOne),

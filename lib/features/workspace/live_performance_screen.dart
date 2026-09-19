@@ -1857,8 +1857,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     );
     if (next == null) return;
     _feelTimer = Timer(untilFelt(next, fromMs: fromMs, rate: _rate), () {
-      // Paused, stopped or turned off while the tap was waiting.
-      if (!mounted || !_playing || _feel == FeelTheBeat.off) return;
+      // Paused, stopped, turned off, or put on a scroll speed while the tap
+      // was waiting. The same guard as above, because the song can leave the
+      // state this beat was worked out in without arming anything.
+      if (!mounted ||
+          !_playing ||
+          _mode != LiveScrollMode.synced ||
+          _feel == FeelTheBeat.off) {
+        return;
+      }
       _feelIt(next.weight);
       _armFeltBeat(felt: next.atMs);
     });
