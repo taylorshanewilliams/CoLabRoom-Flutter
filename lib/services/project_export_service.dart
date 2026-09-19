@@ -69,11 +69,17 @@ class ProjectExportService {
   /// the share sheet off. It comes from the caller because this file has no
   /// context to measure and a global one would be a guess; see
   /// services/share_origin.dart.
-  static Future<void> shareSong(SongProject project, {Rect? origin}) {
+  ///
+  /// Required, and not nullable, so that a caller who has not thought about
+  /// where the sheet points does not compile. `shareOrigin(context)` always
+  /// answers something usable, so there is no caller that has nothing to
+  /// pass -- and a share that quietly went back to the middle of the screen
+  /// is exactly the failure nothing here can see.
+  static Future<void> shareSong(SongProject project, {required Rect origin}) {
     return _share(project.title, songText(project), origin);
   }
 
-  static Future<void> _share(String subject, String text, Rect? origin) async {
+  static Future<void> _share(String subject, String text, Rect origin) async {
     await SharePlus.instance.share(ShareParams(
       subject: subject,
       text: text,

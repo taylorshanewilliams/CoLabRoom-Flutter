@@ -12,6 +12,7 @@ import 'package:colabroom/features/rooms/setlist_detail_screen.dart';
 import 'package:colabroom/features/rooms/setlist_pack.dart';
 import 'package:colabroom/features/workspace/chord_sheet_export.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
+import 'package:colabroom/features/workspace/song_workspace_screen.dart';
 import 'package:colabroom/services/project_export_service.dart';
 import 'package:colabroom/services/share_origin.dart';
 import 'package:flutter/material.dart';
@@ -257,7 +258,63 @@ void main() {
       expect(origin.expandToInclude(icon), origin);
       expect(origin.width, lessThan(56));
     });
+
+    testWidgets('and a song, all the way through the export service',
+        (tester) async {
+      // The one site where the rectangle crosses a service boundary and a
+      // menu: the workspace hands it to ProjectExportService, which has no
+      // context of its own. The source scan two groups up only proves the
+      // service passes on whatever it was given, so this is the half that
+      // proves it was given the button.
+      final shares = _recordShares();
+      await _openASong(tester);
+
+      final menu = find.byKey(const Key('song_options_menu'));
+      await tester.tap(menu);
+      await _pumpAWhile(tester);
+      await tester.tap(find.text('Share by text or email'));
+      await _pumpAWhile(tester);
+
+      final origin = shares.lastOrigin!;
+      expect(origin.isEmpty, isFalse);
+      expect(origin, tester.getRect(menu));
+    });
   });
+}
+
+/// Pumped rather than settled: the workspace joins a cowork stream when it
+/// opens and never goes quiet, so `pumpAndSettle` would time out. Every
+/// other test on this screen pumps for the same reason.
+Future<void> _pumpAWhile(WidgetTester tester) async {
+  for (var i = 0; i < 8; i += 1) {
+    await tester.pump(const Duration(milliseconds: 150));
+  }
+}
+
+/// A song open on its workspace, portrait, which is the layout whose options
+/// menu the tests below tap.
+Future<void> _openASong(WidgetTester tester) async {
+  tester.view.physicalSize = const Size(390, 900);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
+
+  final repository = InMemoryMusicRepository.seeded();
+  final room = (await repository.loadRooms()).first;
+  final song = await repository.createSong(room: room, title: 'Caro mio ben');
+  await repository.addContribution(project: song, body: 'a line to export');
+
+  final controller = MusicBetaController(repository);
+  await controller.load();
+  addTearDown(controller.dispose);
+
+  await tester.pumpWidget(BetaScope(
+    controller: controller,
+    child: MaterialApp(
+      theme: CoLabRoomTheme.dark(),
+      home: SongWorkspaceScreen(projectId: song.id),
+    ),
+  ));
+  await _pumpAWhile(tester);
 }
 
 /// A rectangle with nothing special about it, to follow from one end to the

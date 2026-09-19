@@ -585,14 +585,16 @@ abstract final class ChordSheetExport {
   /// and says so in a sentence instead.
   ///
   /// [origin] is where on screen the share was asked for; an iPad hangs the
-  /// share sheet off it. See services/share_origin.dart.
+  /// share sheet off it. Required, so that a new caller has to say where
+  /// from rather than silently passing nothing. See
+  /// services/share_origin.dart.
   static Future<void> shareChordPro({
     required SongProject project,
     required List<MusicianSheetLine> lines,
     required int transpose,
+    required Rect origin,
     String? musicalKey,
     double? bpm,
-    Rect? origin,
   }) async {
     final text = chordPro(
       project: project,
