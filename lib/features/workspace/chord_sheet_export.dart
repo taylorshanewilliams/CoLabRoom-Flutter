@@ -391,6 +391,7 @@ abstract final class ChordSheetExport {
   /// glue two documents together after the fact. The page is exactly what
   /// the song's own print produces, so a chart in a pack cannot differ from
   /// the same chart printed from the song.
+  ///
   /// [arrangement] is the song's whole form on one line — "I A A B A C B B O"
   /// — printed under the facts. Empty for a song whose sections are not
   /// known, and then the line is not printed at all.

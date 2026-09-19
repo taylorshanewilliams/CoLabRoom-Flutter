@@ -3112,9 +3112,10 @@ class _LiveControls extends StatelessWidget {
             if (together != null) ...<Widget>[together!, const SizedBox(height: 2)],
             // The form, above the transport, where a band's eyes already
             // are. One tap is "from B" — the sentence rehearsals are run on
-            // (Every Musician, Same Song, 17 September 2026). The name of
-            // the part is on the letter's label underneath it, so nothing
-            // has to be explained: the row teaches itself by being used.
+            // (Every Musician, Same Song, 17 September 2026). Nothing
+            // explains it: the letter the song is in lights up as it plays,
+            // and the parts are named on the loop chips in the same bar, so
+            // the row teaches itself by being used.
             if (_showLetters) ...<Widget>[
               SizedBox(
                 // The row is as tall as the letters actually are on this

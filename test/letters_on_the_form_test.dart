@@ -9,6 +9,7 @@ import 'package:colabroom/features/workspace/chord_chart_view.dart';
 import 'package:colabroom/features/workspace/chord_sheet_export.dart';
 import 'package:colabroom/features/workspace/live_performance_screen.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
+import 'package:colabroom/features/workspace/song_sheet_panel.dart';
 import 'package:colabroom/services/chord_chart.dart';
 import 'package:colabroom/services/follow_me.dart';
 import 'package:colabroom/services/rehearsal_letters.dart';
@@ -455,6 +456,78 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.byKey(const Key('live_letters')), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('the song sheet and the chart under it', () {
+    testWidgets('the sheet marks its parts, and the chart says the shape',
+        (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      tester.view.physicalSize = const Size(520, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: SongSheetPanel(
+              project: SongProject(
+                id: 'song-letters',
+                roomId: 'room',
+                accountId: 'account',
+                title: 'Weathervane',
+                createdAt: day,
+                updatedAt: day,
+              ),
+              bundle: const SongAnalysisBundle(
+                reference: ReferenceTrack(
+                  projectId: 'song-letters',
+                  fileId: 'file',
+                  storagePath: 'room/song-letters/reference.m4a',
+                  displayName: 'Weathervane.m4a',
+                  state: SongAnalysisState.ready,
+                  durationMs: 6000,
+                  musicalKey: 'G',
+                  downbeatsMs: downbeats,
+                  transcriptText: 'turning in the wind again',
+                  transcriptWords: <TranscriptWord>[
+                    TranscriptWord(word: 'turning', startMs: 1000, endMs: 1800),
+                    TranscriptWord(word: 'wind', startMs: 2600, endMs: 3200),
+                    TranscriptWord(word: 'again', startMs: 4100, endMs: 4800),
+                  ],
+                  structureSections: sections,
+                ),
+                lyricCues: <LyricSyncCue>[],
+                chordCues: <ChordCue>[
+                  ChordCue(id: 1, chord: 'G', startMs: 0, endMs: 1000, confidence: 0.9),
+                  ChordCue(id: 2, chord: 'C', startMs: 1000, endMs: 2000, confidence: 0.9),
+                ],
+              ),
+              onReviewLyrics: null,
+              onOpenLive: null,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      await tester.pump();
+
+      // The page on screen is the page that prints: the parts are marked,
+      // and each heading says which letter it is.
+      expect(find.text('A  VERSE'), findsOneWidget);
+      expect(find.text('B  CHORUS'), findsOneWidget);
+
+      await tester.tap(find.text('Chart'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<Text>(find.byKey(const Key('chart_arrangement'))).data,
+        'I A B A O',
+      );
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
