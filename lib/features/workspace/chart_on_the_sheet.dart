@@ -349,7 +349,7 @@ class _NoChartYet extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              const Icon(Icons.queue_music_rounded,
+              const Icon(Icons.menu_book_rounded,
                   color: AppColors.cyan, size: 22),
               const SizedBox(width: 13),
               Expanded(

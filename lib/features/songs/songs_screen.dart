@@ -1435,7 +1435,7 @@ class _SongsScreenState extends State<SongsScreen> {
         // the file format it reads.
         MenuItemButton(
           key: const Key('songs_new_learn'),
-          leadingIcon: const Icon(Icons.library_music_rounded, size: 19),
+          leadingIcon: const Icon(Icons.menu_book_rounded, size: 19),
           onPressed: () => unawaited(_learnASong()),
           child: const Text('A song to learn'),
         ),
@@ -2403,7 +2403,7 @@ class _TheDoors extends StatelessWidget {
         // else in the world signed up.
         _Door(
           key: const Key('door_learn'),
-          icon: Icons.library_music_rounded,
+          icon: Icons.menu_book_rounded,
           tint: AppColors.orange,
           title: 'Learn a song',
           // The promise, not the mechanism. Nobody arrives looking for a
