@@ -331,12 +331,28 @@ abstract final class SetlistPack {
   /// dep can open in the van. Through the printing package rather than
   /// share_plus, because it knows what to do with a PDF on the web as well
   /// (it downloads), where share_plus has no share sheet to hand a file to.
-  static Future<void> share(Setlist setlist, List<SetlistPackSong> songs) async {
+  ///
+  /// [origin] is where on screen the share was asked for, the same answer
+  /// [shareText] beside it takes and for the same reason: an iPad shows the
+  /// share sheet as a popover and hangs it off that rectangle. Printing goes
+  /// its own way about the name — `bounds` — and, left out, fills in
+  /// `Rect.fromCircle(center: Offset.zero, radius: 10)`, which PrintJob.swift
+  /// assigns straight to the popover's `sourceRect`. So a pack shared with
+  /// nothing passed hung off the top-left corner of the window, off screen.
+  /// Optional rather than required, unlike [shareText], because printing
+  /// itself takes a nullable `bounds` and there is nothing here to guard.
+  /// See services/share_origin.dart.
+  static Future<void> share(
+    Setlist setlist,
+    List<SetlistPackSong> songs, {
+    Rect? origin,
+  }) async {
     final Uint8List bytes = await SetlistPack.document(setlist, songs).save();
     await Printing.sharePdf(
       bytes: bytes,
       filename: '${ProjectExportService.fileName(setlist.name)}.pdf',
       subject: setlist.name,
+      bounds: origin,
     );
   }
 

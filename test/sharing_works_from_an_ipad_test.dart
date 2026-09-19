@@ -37,6 +37,13 @@ import 'package:flutter_test/flutter_test.dart';
 /// The device check is a person with an iPad: share a lesson link, a set, a
 /// chart and a cut, and see the sheet arrive out of the button each time
 /// rather than out of the middle of the screen.
+///
+/// The set's PDF is held here too, though it is not a share_plus call. It
+/// goes out through the printing package, which calls the same rectangle
+/// `bounds` and, when it is left out, fills in a ten-pixel circle at the
+/// origin -- which PrintJob.swift hands straight to the popover, so that one
+/// hung off the top-left corner of the window. The same fault with a
+/// different spelling, and the same fix.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -131,6 +138,44 @@ void main() {
             'shareOrigin(context) for a control, or a Rect handed down by '
             'the caller where the code has no context:\n  '
             '${offenders.join('\n  ')}',
+      );
+    });
+
+    test('and no PDF share leaves its bounds out', () async {
+      // The printing package's own spelling of the same rectangle. Its
+      // default is Rect.fromCircle(center: Offset.zero, radius: 10), which
+      // goes straight to the popover's sourceRect, so a PDF shared without
+      // one hangs off the corner of the window rather than the middle of it
+      // -- worse than the share_plus sites, not better.
+      final offenders = <String>[];
+      var calls = 0;
+
+      for (final entity in Directory('lib').listSync(recursive: true)) {
+        if (entity is! File || !entity.path.endsWith('.dart')) continue;
+        final path = entity.path.replaceAll(r'\', '/');
+        for (final args
+            in _argumentsOf('Printing.sharePdf(', entity.readAsStringSync())) {
+          calls += 1;
+          // `bounds: null` is the bug spelled out longhand -- printing fills
+          // the same ten-pixel circle in either way -- so naming the
+          // parameter is not enough to pass.
+          if (!args.contains('bounds:') ||
+              RegExp(r'bounds:\s*null').hasMatch(args)) {
+            offenders.add(path);
+          }
+        }
+      }
+
+      // One today, the set's pack. Printing.layoutPdf is deliberately not
+      // scanned: it has no bounds parameter at all, so the five print sites
+      // have nothing to pass.
+      expect(calls, greaterThanOrEqualTo(1));
+      expect(
+        offenders,
+        isEmpty,
+        reason: 'These share a PDF without saying where from, so on an iPad '
+            'the sheet hangs off the top-left corner of the window. Pass '
+            'bounds:\n  ${offenders.join('\n  ')}',
       );
     });
   });
@@ -257,6 +302,46 @@ void main() {
       expect(origin.isEmpty, isFalse);
       expect(origin.expandToInclude(icon), origin);
       expect(origin.width, lessThan(56));
+    });
+
+    testWidgets('and the same set as a PDF, which goes out through printing',
+        (tester) async {
+      // The menu entry directly above the one above, and the one share in
+      // the app that does not go through share_plus. Printing's default
+      // bounds is a ten-pixel circle at the origin, so what this is really
+      // checking is that the rectangle is the menu rather than the corner of
+      // the window.
+      final prints = _recordPdfShares();
+      final controller = MusicBetaController(InMemoryMusicRepository.seeded());
+      await controller.load();
+      addTearDown(controller.dispose);
+      final set = await controller.createSetlist('Friday practice');
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(BetaScope(
+        controller: controller,
+        child: MaterialApp(
+          theme: CoLabRoomTheme.dark(),
+          home: SetlistDetailScreen(setlistId: set.id),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final menu = find.byTooltip('Setlist options');
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('share_set_pdf')));
+      await tester.pumpAndSettle();
+
+      final icon = tester.getRect(menu);
+      final bounds = prints.lastBounds!;
+      expect(bounds.isEmpty, isFalse);
+      expect(bounds.expandToInclude(icon), bounds);
+      expect(bounds.width, lessThan(56));
+      // The default it used to send, spelled out: a circle of radius 10 at
+      // the origin, which is nowhere near the menu.
+      expect(bounds, isNot(Rect.fromCircle(center: Offset.zero, radius: 10)));
     });
 
     testWidgets('and a song, all the way through the export service',
@@ -397,6 +482,48 @@ _Shares _recordShares() {
   });
   addTearDown(() => messenger.setMockMethodCallHandler(_shareChannel, null));
   return shares;
+}
+
+/// The PDF share sheet, written down instead of shown.
+class _Prints {
+  final List<Map<Object?, Object?>> calls = <Map<Object?, Object?>>[];
+
+  /// The rectangle the last PDF share handed the platform. Printing spells
+  /// the four numbers x/y/w/h, where share_plus spells them originX and the
+  /// rest, and fills in a ten-pixel circle at the origin for a caller who
+  /// passes none -- so null here means the call never happened, not that it
+  /// went out unanchored.
+  Rect? get lastBounds {
+    if (calls.isEmpty) return null;
+    final arguments = calls.last;
+    final left = arguments['x'] as double?;
+    final top = arguments['y'] as double?;
+    final width = arguments['w'] as double?;
+    final height = arguments['h'] as double?;
+    if (left == null || top == null || width == null || height == null) {
+      return null;
+    }
+    return Rect.fromLTWH(left, top, width, height);
+  }
+}
+
+const MethodChannel _printingChannel = MethodChannel('net.nfet.printing');
+
+/// Stands in for the printing plugin, which has no Dart-side platform class
+/// to swap out: `PrintingPlatform` is not exported, so the channel it talks
+/// over is the seam.
+_Prints _recordPdfShares() {
+  final prints = _Prints();
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  messenger.setMockMethodCallHandler(_printingChannel, (MethodCall call) async {
+    if (call.method != 'sharePdf') return null;
+    prints.calls.add(call.arguments as Map<Object?, Object?>);
+    // Non-zero, which is what the Dart side reads as "it was shared".
+    return 1;
+  });
+  addTearDown(() => messenger.setMockMethodCallHandler(_printingChannel, null));
+  return prints;
 }
 
 const MethodChannel _pathProvider =
