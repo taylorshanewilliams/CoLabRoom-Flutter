@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../services/audio_source_for.dart';
 import '../../services/chord_beat_grid.dart'
@@ -47,6 +48,7 @@ import 'live_countdown_store.dart';
 import 'loop_this_change.dart';
 import 'musician_sheet_line.dart';
 import 'musician_sheet_logic.dart';
+import 'passage_export.dart';
 import 'practice_marks.dart';
 import 'practice_rules.dart';
 import 'song_reading_store.dart';
@@ -473,6 +475,19 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// build is a new file because audioplayers keys its cache on the path:
   /// one name rewritten would play the first mix ever built under it.
   String? _lastPartMixPath;
+
+  /// Whatever is under the player right now: the recording, a part mix, or
+  /// the band without a part. All three start where the song starts.
+  ///
+  /// What a cut is taken from, because it is what the person is listening to
+  /// when they decide a passage is worth keeping. Cutting the recording while
+  /// "Bass forward" was playing would hand somebody a file that is not the
+  /// thing they just heard, and say nothing about it.
+  String? _playingPath;
+
+  /// Whether a cut is being written. Guards a second tap: the decode behind
+  /// it takes a second or two on a long song.
+  bool _savingCut = false;
 
   SongAnalysisService get _analysis => widget.analysisService ?? SongAnalysisService();
   SongLayerService get _layerService => widget.layerService ?? SongLayerService();
@@ -1000,6 +1015,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     try {
       if (!mounted) return;
       _referencePath = path;
+      _playingPath = path;
       // The path is all a part mix needs, so a part kept from last time can
       // start building now rather than after the player below is ready.
       if (!_referenceReady.isCompleted) _referenceReady.complete();
@@ -1934,6 +1950,79 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     );
   }
 
+  /// The passage on repeat, as files to keep.
+  ///
+  /// Every Musician, Same Song, 17 September 2026, creators item 2: the room
+  /// behind the post. The bars or the part already chosen are cut from what
+  /// is playing, on the bar lines either side of them, and handed to the
+  /// share sheet with the words and the chords of the same passage beside
+  /// them -- see passage_export.dart, which also keeps whose-song's side of
+  /// this.
+  ///
+  /// Nothing is written back to the room and nothing is kept: the files go
+  /// into a directory of their own that the next cut empties.
+  Future<void> _saveCut() async {
+    if (_savingCut) return;
+    final loop = _loop;
+    if (loop == null) return;
+    final cut = PassageExport.cutFor(
+      startMs: loop.startMs,
+      endMs: loop.endMs,
+      label: loop.label,
+      downbeatsMs: _downbeats,
+    );
+    if (cut == null) return;
+    // Read while this context is certainly still here, before the first
+    // await, the way the takes export reads the key before it starts.
+    final reference = widget.analysis?.reference;
+    final songKey = widget.project.songKey(reference?.musicalKey);
+    final playing = _playingPath;
+    setState(() {
+      _savingCut = true;
+      _controlsVisible = true;
+    });
+    try {
+      final directory =
+          Directory('${(await getTemporaryDirectory()).path}/colabroom_cut');
+      // The one before it, gone. Each of these is a few seconds of wav and
+      // nothing plays them again once they have been handed over, so keeping
+      // them would fill the phone a passage at a time -- the same lesson the
+      // part mixes taught.
+      if (await directory.exists()) await directory.delete(recursive: true);
+      await directory.create(recursive: true);
+      final files = await PassageExport.write(
+        directory: directory,
+        project: widget.project,
+        cut: cut,
+        lines: _sheetLines,
+        transcriptWords:
+            reference?.transcriptWords ?? const <TranscriptWord>[],
+        // The band's key. See PassageExport.chordPro: a file going out beside
+        // a clip is in the key the clip is in, never this phone's reading.
+        musicalKey: songKey,
+        bpm: reference?.bpm,
+        // A browser hands back a signed URL rather than a file, and there is
+        // nothing to decode in one. The chip is off there anyway; this is the
+        // floor under that.
+        audioPath:
+            playing == null || isRemoteAudio(playing) ? null : playing,
+      );
+      if (files.isEmpty || !mounted) return;
+      await SharePlus.instance.share(ShareParams(
+        subject: widget.project.title,
+        files: <XFile>[for (final file in files) XFile(file.path)],
+      ));
+    } catch (error) {
+      if (mounted) {
+        setState(() => _mixNote = reportAndDescribe(error,
+            service: 'app', stage: 'cut.save', route: 'Perform'));
+      }
+    } finally {
+      if (mounted) setState(() => _savingCut = false);
+      _armControlHide();
+    }
+  }
+
   /// Your part forward, or everyone but you -- or, tapped again, the whole
   /// recording.
   ///
@@ -2064,6 +2153,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     await player.setSource(audioSourceFor(path));
     await player.seek(_elapsed);
     if (_rate != 1) await player.setPlaybackRate(_rate);
+    _playingPath = path;
     if (mounted) setState(() => _audioReady = true);
     if (wasPlaying) await player.resume();
   }
@@ -2601,6 +2691,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         myPart: _myPart,
                         onMyPart: _setMyPart,
                         onCopyMoment: _copyLinkToHere,
+                        // Off in a browser for the reason the takes export
+                        // is: there is no directory to write four files into
+                        // there, and a button that reports a limit of the
+                        // browser as a fault is worse than no button.
+                        onSaveCut: kIsWeb ? null : () => unawaited(_saveCut()),
+                        saving: _savingCut,
                       ),
                     ),
                   ),
@@ -3215,6 +3311,8 @@ class _LiveControls extends StatelessWidget {
     this.myPart,
     this.onMyPart,
     this.onCopyMoment,
+    this.onSaveCut,
+    this.saving = false,
   });
 
   /// Copies the address of where the song is now, for sending to somebody in
@@ -3222,6 +3320,17 @@ class _LiveControls extends StatelessWidget {
   /// 1: "listen to bar 33", in writing, from the screen where somebody is
   /// listening to bar 33.
   final VoidCallback? onCopyMoment;
+
+  /// Hands the passage on repeat over as files to keep: the audio cut on the
+  /// bar lines, its words and its chords. Every Musician, Same Song, 17
+  /// September 2026, creators item 2. Null where there is nothing to cut --
+  /// in a browser, which has no directory to write into.
+  final VoidCallback? onSaveCut;
+
+  /// Whether a cut is being made right now. It takes a second or two on a
+  /// long song, because the whole recording is decoded to find the passage
+  /// in it.
+  final bool saving;
 
   /// Follow me's line, when the song is open on more than one phone.
   final Widget? together;
@@ -3591,6 +3700,21 @@ class _LiveControls extends StatelessWidget {
                           icon: loop == loops[i] ? Icons.repeat_rounded : null,
                           selected: loop == loops[i],
                           onTap: () => onLoop(loops[i]),
+                        ),
+                      // The passage on repeat, as files to keep. Beside the
+                      // loop chips because it is about the passage those
+                      // chose, and only once something is on repeat: a cut
+                      // is always of a particular run of bars or a named
+                      // part, never of the whole song, which the takes
+                      // export already hands over (Every Musician, Same
+                      // Song, 17 September 2026).
+                      if (loop != null && onSaveCut != null)
+                        _ModeChip(
+                          key: const Key('live_save_cut'),
+                          label: saving ? 'Cutting…' : 'Save this bit',
+                          icon: Icons.content_cut_rounded,
+                          selected: false,
+                          onTap: onSaveCut!,
                         ),
                     ],
                     // Where the song is now, as an address. Last in the row
