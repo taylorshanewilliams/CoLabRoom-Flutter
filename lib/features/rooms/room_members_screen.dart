@@ -11,6 +11,7 @@ import '../../services/user_facing_error.dart';
 import '../../widgets/player_face.dart';
 import '../../app/routes.dart';
 import '../openmic/musician_profile_screen.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Who is actually in this room.
 ///
@@ -45,19 +46,19 @@ class _RoomMembersScreenState extends State<RoomMembersScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(said)));
+        ..showNote(said);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(reportAndDescribe(
+        ..showNote(
+          reportAndDescribe(
             error,
             service: 'app',
             stage: 'room_membership',
             route: 'Room members',
-          )),
-        ));
+          ),
+        );
     } finally {
       if (mounted) setState(() => _busy = false);
     }

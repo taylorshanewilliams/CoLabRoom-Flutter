@@ -8,6 +8,7 @@ import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/song_language.dart';
 import '../../widgets/text_measures.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Lets the user proofread and correct the transcript before it becomes the
 /// project's actual lyrics — the direct "Replace project lyrics with this"
@@ -122,7 +123,7 @@ class _LyricReviewScreenState extends State<LyricReviewScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text('Could not save: $error')));
+          ..showNote('Could not save: $error');
       }
     } finally {
       if (mounted) setState(() => _saving = false);

@@ -7,6 +7,7 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../domain/musical_roles.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Ask the app about this song.
 ///
@@ -141,17 +142,17 @@ class _AskTheSongSheetState extends State<AskTheSongSheet> {
     try {
       await widget.repository.askFor(projectId: widget.projectId, part: part);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(part == null
+      ScaffoldMessenger.of(context).showNote(
+        part == null
             ? 'Asked the room what it needs.'
-            : 'Asked the room for ${MusicalRole.labelFor(part).toLowerCase()}.'),
-      ));
+            : 'Asked the room for ${MusicalRole.labelFor(part).toLowerCase()}.',
+      );
       Navigator.of(context).pop();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(error, service: 'app', stage: 'ask')),
-      ));
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(error, service: 'app', stage: 'ask'),
+      );
     } finally {
       if (mounted) setState(() => _asking = false);
     }

@@ -29,6 +29,7 @@ import 'stem_player_panel.dart';
 import '../../services/user_facing_error.dart';
 import '../../services/idea_naming.dart';
 import '../../services/song_language.dart';
+import '../../widgets/note_that_fits.dart';
 
 enum _ReferenceSource { record, file }
 
@@ -593,7 +594,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text('Could not rename that part: $error')));
+        ..showNote('Could not rename that part: $error');
     }
   }
 
@@ -614,8 +615,8 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     if (saved == true && mounted) {
       await _refresh();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Transcript updated — the Song Sheet and Live Performance now use these corrections.')),
+      ScaffoldMessenger.of(context).showNote(
+        'Transcript updated — the Song Sheet and Live Performance now use these corrections.',
       );
     }
   }
@@ -657,8 +658,8 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
         lines.map((body) => ContributionDraft(body: body)).toList(growable: false),
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Project lyrics replaced with this recording\'s transcript.')),
+        ScaffoldMessenger.of(context).showNote(
+          'Project lyrics replaced with this recording\'s transcript.',
         );
       }
     } catch (error) {
@@ -734,9 +735,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
       final updated = await _service.updateTranscript(projectId: widget.project.id, words: words);
       if (!mounted) return;
       setState(() => _bundle = updated);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Song Sheet updated with the manual lyrics.')),
-      );
+      ScaffoldMessenger.of(context).showNote('Song Sheet updated with the manual lyrics.');
     } catch (error) {
       if (mounted) setState(() => _error = reportAndDescribe(error, service: 'analysis', route: 'Analyze'));
     } finally {

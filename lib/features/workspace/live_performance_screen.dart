@@ -994,12 +994,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     // stopped leading. Chorus at ¾ is on your Home").
     ScaffoldMessenger.maybeOf(context)
       ?..clearSnackBars()
-      // NoteThatFits rather than a bare Text: at the largest iOS text size
-      // these sentences are taller than the room a floating snackbar has, and
-      // the box was being positioned off the top of the screen.
-      ..showSnackBar(SnackBar(
-          content: NoteThatFits(note),
-          duration: const Duration(seconds: 4)));
+      ..showNote(note, duration: const Duration(seconds: 4));
   }
 
   /// What this screen tells its followers: where the song is, and nothing
@@ -3300,15 +3295,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         _cycleSaid = before;
         _loop = _loopFor(_loop?.startMs, _loop?.endMs);
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: NoteThatFits(reportAndDescribe(
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(
           error,
           service: 'app',
           stage: 'set_song_cycle',
           route: 'Perform',
           projectId: widget.project.id,
-        )),
-      ));
+        ),
+      );
     }
   }
 
@@ -3336,15 +3331,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         _barOneSaid = before;
         _loop = _loopFor(_loop?.startMs, _loop?.endMs);
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: NoteThatFits(reportAndDescribe(
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(
           error,
           service: 'app',
           stage: 'set_bar_one',
           route: 'Perform',
           projectId: widget.project.id,
-        )),
-      ));
+        ),
+      );
     }
   }
 

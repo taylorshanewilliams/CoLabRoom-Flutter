@@ -11,6 +11,7 @@ import '../../services/user_facing_error.dart';
 import '../../widgets/profile_face.dart';
 import '../../widgets/text_measures.dart';
 import '../openmic/report_sheet.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// How a call screen gets into a call. [LiveKitCallSession.join] in the app;
 /// a fake in tests.
@@ -130,7 +131,7 @@ class _CallScreenState extends State<CallScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showNote(message);
   }
 
   Future<void> _musicMode(CallSession session) async {
@@ -139,12 +140,10 @@ class _CallScreenState extends State<CallScreen> {
     if (!mounted || !turningOn) return;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
-      ..showSnackBar(const SnackBar(
-        content: Text(
-          'Music mode: your instrument goes through as it is, with no echo cancelling '
-          'or noise gate. Wear headphones, or the others will hear themselves.',
-        ),
-      ));
+      ..showNote(
+        'Music mode: your instrument goes through as it is, with no echo cancelling '
+        'or noise gate. Wear headphones, or the others will hear themselves.',
+      );
   }
 
   Future<void> _aboutPerson(CallPerson person) async {
@@ -212,9 +211,9 @@ class _CallScreenState extends State<CallScreen> {
       await _leave();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(error, service: 'app', stage: 'calls.block', route: 'Call')),
-      ));
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(error, service: 'app', stage: 'calls.block', route: 'Call'),
+      );
     }
   }
 

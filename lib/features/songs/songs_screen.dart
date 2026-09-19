@@ -53,6 +53,7 @@ import '../workspace/song_reading_store.dart';
 import '../workspace/song_transpose_store.dart';
 import 'song_sheet_queue.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Songs, or the sets they're grouped into for a specific occasion.
 /// What the library is filtered to.
@@ -863,11 +864,7 @@ class _SongsScreenState extends State<SongsScreen> {
     // is still sealed, and saying it was back in the song would send them
     // looking for something that is not there.
     final ended = await ending;
-    messenger?.showSnackBar(SnackBar(
-      content: Text(
-        ended ? sealedTakeIsBackWords(take) : sealedTakeWillBeOfferedAgainWords,
-      ),
-    ));
+    messenger?.showNote(ended ? sealedTakeIsBackWords(take) : sealedTakeWillBeOfferedAgainWords);
   }
 
   /// The app's one player, and whether the take is the thing it now has.
@@ -1201,7 +1198,9 @@ class _SongsScreenState extends State<SongsScreen> {
       if (mounted) _openSet(setlist);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Songs'))));
+        ScaffoldMessenger.of(context).showNote(
+          reportAndDescribe(error, service: 'app', route: 'Songs'),
+        );
       }
     }
   }

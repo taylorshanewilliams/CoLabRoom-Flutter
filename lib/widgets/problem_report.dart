@@ -11,6 +11,7 @@ import '../services/current_route.dart';
 import '../services/recent_trouble.dart';
 import '../services/telemetry_health.dart';
 import '../services/user_facing_error.dart';
+import 'note_that_fits.dart';
 
 /// Says that something failed, records it, and offers to hear about it.
 ///
@@ -47,26 +48,22 @@ void showProblem(
   // "Tell us" beside "That is your own lesson link" reads as the app
   // thinking it broke -- found on the emulator, 16 September 2026.
   if (isRefusal(error)) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(described), duration: const Duration(seconds: 4)),
-    );
+    ScaffoldMessenger.of(context).showNote(described, duration: const Duration(seconds: 4));
     return;
   }
 
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(described),
-      duration: const Duration(seconds: 6),
-      action: SnackBarAction(
-        label: 'Tell us',
-        onPressed: () => unawaited(showProblemReport(
-          context,
-          route: where,
-          // Carried into the report so nobody has to describe an error
-          // message they have already been shown and dismissed.
-          detail: error.toString(),
-        )),
-      ),
+  ScaffoldMessenger.of(context).showNote(
+    described,
+    duration: const Duration(seconds: 6),
+    action: SnackBarAction(
+      label: 'Tell us',
+      onPressed: () => unawaited(showProblemReport(
+        context,
+        route: where,
+        // Carried into the report so nobody has to describe an error
+        // message they have already been shown and dismissed.
+        detail: error.toString(),
+      )),
     ),
   );
 }
@@ -171,22 +168,20 @@ class _ProblemReportSheetState extends State<_ProblemReportSheet> {
         appVersion: BetaConfig.appVersion,
       ));
       if (mounted) Navigator.of(context).pop();
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Sent. Thank you — that genuinely helps.')),
-      );
+      messenger.showNote('Sent. Thank you — that genuinely helps.');
     } catch (error) {
       if (!mounted) return;
       setState(() => _sending = false);
       // Reported but not offered a "Tell us" of its own, which would be a
       // loop somebody could not get out of.
-      messenger.showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(
+      messenger.showNote(
+        reportAndDescribe(
           error,
           service: 'app',
           stage: 'feedback',
           route: widget.route,
-        )),
-      ));
+        ),
+      );
     }
   }
 

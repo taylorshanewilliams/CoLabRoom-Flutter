@@ -7,6 +7,7 @@ import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../services/song_language.dart';
 import 'line_reconciliation.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// What an intentionally-blank line is actually stored as: contributions'
 /// body has a non-empty check constraint, so a genuinely empty line (e.g. a
@@ -413,10 +414,7 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
     if (message == null) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text(message),
-        duration: const Duration(seconds: 8),
-      ));
+      ..showNote(message, duration: const Duration(seconds: 8));
   }
 
   /// What a screen reader says about one bullet on the rail.

@@ -46,3 +46,43 @@ class NoteThatFits extends StatelessWidget {
     );
   }
 }
+
+/// Flutter's own default for how long a snackbar stays up.
+///
+/// [SnackBar.duration] defaults to this and is not nullable, so saying nothing
+/// in [SayIt.showNote] has to mean the same four seconds it meant when every
+/// call site wrote `SnackBar(content: ...)` by hand.
+const Duration _aWhileToRead = Duration(milliseconds: 4000);
+
+/// How the app says something in passing.
+///
+/// Every snackbar in CoLabRoom goes through here, and the reason is the one in
+/// [NoteThatFits]: a floating snackbar is as tall as its words, and at a large
+/// text size a long sentence is drawn off the top of the screen — silently in
+/// release, as a layout throw in debug. Wrapping the words at 116 call sites
+/// would fix the 116 and not the 117th. One door means the ceiling is decided
+/// in one place, and a note written next year arrives already fitting.
+///
+/// Nothing else changes: the same words, the same action, the same duration
+/// Flutter would have used. `test/every_note_lands_on_the_screen_test.dart`
+/// reads `lib/` and fails if a snackbar is shown any other way.
+extension SayIt on ScaffoldMessengerState {
+  /// Shows [note], bounded so it lands on the screen at any text size.
+  ///
+  /// [action] is the one button somebody has a few seconds to find; [persist]
+  /// and [duration] mean what they mean on [SnackBar], including its rule that
+  /// a snackbar with an action persists unless it is told otherwise.
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason> showNote(
+    String note, {
+    SnackBarAction? action,
+    Duration? duration,
+    bool? persist,
+  }) {
+    return showSnackBar(SnackBar(
+      content: NoteThatFits(note),
+      action: action,
+      persist: persist,
+      duration: duration ?? _aWhileToRead,
+    ));
+  }
+}

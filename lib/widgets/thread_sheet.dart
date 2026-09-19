@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../app/colabroom_theme.dart';
 import '../services/user_facing_error.dart';
 import 'send_on_enter.dart';
+import 'note_that_fits.dart';
 
 /// One line in a conversation, whoever said it and wherever it is kept.
 class ThreadLine {
@@ -246,10 +247,10 @@ class _ThreadSheetState extends State<ThreadSheet> {
       _scrollToNewest();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(error,
-            service: 'app', stage: '${widget.stage}_send')),
-      ));
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(error,
+            service: 'app', stage: '${widget.stage}_send'),
+      );
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -267,10 +268,10 @@ class _ThreadSheetState extends State<ThreadSheet> {
       });
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(error,
-            service: 'app', stage: '${widget.stage}_delete')),
-      ));
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(error,
+            service: 'app', stage: '${widget.stage}_delete'),
+      );
     }
   }
 

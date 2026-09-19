@@ -8,6 +8,7 @@ import '../../domain/calls.dart';
 import '../../services/user_facing_error.dart';
 import 'birth_month_sheet.dart';
 import 'call_screen.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Into a room's call, from wherever the button is.
 ///
@@ -26,9 +27,9 @@ Future<void> openRoomCall(
     standing = await repository.myCallStanding();
   } catch (error) {
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(reportAndDescribe(error, service: 'app', stage: 'calls.standing', route: 'Room')),
-    ));
+    ScaffoldMessenger.of(context).showNote(
+      reportAndDescribe(error, service: 'app', stage: 'calls.standing', route: 'Room'),
+    );
     return;
   }
   if (!context.mounted) return;

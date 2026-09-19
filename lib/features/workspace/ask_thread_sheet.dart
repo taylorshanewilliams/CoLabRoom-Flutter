@@ -7,6 +7,7 @@ import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/thread_sheet.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// The thread on one ask: what people have said back, and a place to say
 /// something.
@@ -133,10 +134,10 @@ class _AskThreadSheetState extends State<AskThreadSheet> {
       _reads.value++;
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(error,
-            service: 'app', stage: 'ask_thread_ready')),
-      ));
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(error,
+            service: 'app', stage: 'ask_thread_ready'),
+      );
     } finally {
       if (mounted) setState(() => _opening = false);
     }

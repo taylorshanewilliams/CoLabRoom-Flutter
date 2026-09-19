@@ -10,6 +10,7 @@ import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import 'help_answers.dart';
 import '../../widgets/send_on_enter.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Somewhere to ask.
 ///
@@ -131,14 +132,14 @@ class _HelpScreenState extends State<HelpScreen> {
       setState(() => _sending = false);
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(reportAndDescribe(
+        ..showNote(
+          reportAndDescribe(
             error,
             service: 'app',
             stage: 'ask_for_help',
             route: 'Help',
-          )),
-        ));
+          ),
+        );
     }
   }
 
@@ -162,9 +163,7 @@ class _HelpScreenState extends State<HelpScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('No mail app to open. Write to support@colabroom.com.'),
-        ));
+        ..showNote('No mail app to open. Write to support@colabroom.com.');
     }
   }
 

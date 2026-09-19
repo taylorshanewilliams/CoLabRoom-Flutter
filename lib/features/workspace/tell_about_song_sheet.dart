@@ -7,6 +7,7 @@ import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../widgets/player_face.dart';
 import '../../widgets/problem_report.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Telling somebody, on purpose.
 ///
@@ -101,13 +102,13 @@ class _TellSheetState extends State<_TellSheet> {
       navigator.pop();
       // How many, not "sent". A room where everybody has blocked you tells
       // nobody, and the button must not claim otherwise.
-      messenger.showSnackBar(SnackBar(
-        content: Text(told == 0
+      messenger.showNote(
+        told == 0
             ? 'Nobody to tell.'
             : told == 1
                 ? 'Told them.'
-                : 'Told $told people.'),
-      ));
+                : 'Told $told people.',
+      );
     } catch (error) {
       if (!mounted) return;
       setState(() => _sending = false);

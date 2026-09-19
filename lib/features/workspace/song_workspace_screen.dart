@@ -52,6 +52,7 @@ import '../layers/song_layers_screen.dart';
 import 'song_analysis_screen.dart';
 import 'tell_about_song_sheet.dart';
 import 'whose_song_sheet.dart';
+import '../../widgets/note_that_fits.dart';
 
 enum _VoiceNoteAction { play, rerecord, delete }
 
@@ -473,19 +474,15 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         note: left.note,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(practiceLeftSaid(student.name, left))),
-      );
+      ScaffoldMessenger.of(context).showNote(practiceLeftSaid(student.name, left));
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(reportAndDescribe(
-            error,
-            service: 'app',
-            stage: 'leave_practice_mark',
-            route: 'Song',
-          )),
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(
+          error,
+          service: 'app',
+          stage: 'leave_practice_mark',
+          route: 'Song',
         ),
       );
     }
@@ -688,15 +685,15 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(reportAndDescribe(
+        ..showNote(
+          reportAndDescribe(
             error,
             service: 'app',
             stage: 'delete_song',
             projectId: project.id,
             route: 'Song',
-          )),
-        ));
+          ),
+        );
     }
   }
 
@@ -749,24 +746,24 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           audience.waitingOn.isNotEmpty;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(waiting
+        ..showNote(
+          waiting
               ? waitingOnSentence(audience)
-              : '${project.title} is on the showcase.'),
-        ));
+              : '${project.title} is on the showcase.',
+        );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(reportAndDescribe(
+        ..showNote(
+          reportAndDescribe(
             error,
             service: 'app',
             stage: 'show_song',
             projectId: project.id,
             route: 'Song',
-          )),
-        ));
+          ),
+        );
     }
   }
 
@@ -784,26 +781,24 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(
-            '${project.title} is marked finished. Nobody else can see that — '
-            'show it from the bar above when you want to.',
-          ),
-        ));
+        ..showNote(
+          '${project.title} is marked finished. Nobody else can see that — '
+          'show it from the bar above when you want to.',
+        );
       await _loadAudience();
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(reportAndDescribe(
+        ..showNote(
+          reportAndDescribe(
             error,
             service: 'app',
             stage: 'finish_song',
             projectId: project.id,
             route: 'Song',
-          )),
-        ));
+          ),
+        );
     }
   }
 
@@ -819,22 +814,20 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text('${project.title} is off the showcase.'),
-        ));
+        ..showNote('${project.title} is off the showcase.');
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(reportAndDescribe(
+        ..showNote(
+          reportAndDescribe(
             error,
             service: 'app',
             stage: 'unshow_song',
             projectId: project.id,
             route: 'Song',
-          )),
-        ));
+          ),
+        );
     }
   }
 
@@ -851,22 +844,20 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text('${project.title} is off the Open Mic.'),
-        ));
+        ..showNote('${project.title} is off the Open Mic.');
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(reportAndDescribe(
+        ..showNote(
+          reportAndDescribe(
             error,
             service: 'app',
             stage: 'take_off_open_mic',
             projectId: project.id,
             route: 'Song',
-          )),
-        ));
+          ),
+        );
     }
   }
 
@@ -952,10 +943,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     void say(String message, {bool staying = false}) {
       messenger
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(message),
+        ..showNote(
+          message,
           duration: staying ? const Duration(minutes: 30) : const Duration(seconds: 4),
-        ));
+        );
     }
 
     if (_keptHere == true) {
@@ -1685,14 +1676,12 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           audience.waitingOn.isNotEmpty) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(waitingOnSentence(audience))));
+          ..showNote(waitingOnSentence(audience));
         return;
       }
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text('${project.title} is on the Open Mic.'),
-        ));
+        ..showNote('${project.title} is on the Open Mic.');
       // The moment somebody starts waiting on other people. Offered here
       // rather than in settings, because nobody goes looking in settings for
       // a thing they have not missed yet.
@@ -1707,15 +1696,15 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(reportAndDescribe(
+        ..showNote(
+          reportAndDescribe(
             error,
             service: 'app',
             stage: 'put_on_open_mic',
             projectId: project.id,
             route: 'Song',
-          )),
-        ));
+          ),
+        );
     }
   }
 
@@ -2153,7 +2142,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   void _showMessage(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showNote(message);
   }
 
   @override

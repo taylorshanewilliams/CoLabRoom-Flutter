@@ -13,6 +13,7 @@ import '../../app/beta_config.dart';
 import '../../app/colabroom_theme.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/brand_mark.dart';
+import '../../widgets/note_that_fits.dart';
 
 class SupabaseAuthScreen extends StatefulWidget {
   const SupabaseAuthScreen({required this.client, super.key});
@@ -68,11 +69,7 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     if (_createAccount && !_agreed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please confirm your age and agree to the terms.'),
-        ),
-      );
+      ScaffoldMessenger.of(context).showNote('Please confirm your age and agree to the terms.');
       return;
     }
     setState(() => _busy = true);
@@ -96,8 +93,8 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
           emailRedirectTo: BetaConfig.authRedirectUrl.isEmpty ? null : BetaConfig.authRedirectUrl,
         );
         if (response.session == null && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Check your email to confirm the account, then sign in.')),
+          ScaffoldMessenger.of(context).showNote(
+            'Check your email to confirm the account, then sign in.',
           );
           setState(() => _createAccount = false);
         }
@@ -110,12 +107,12 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
       await _claimArrival();
     } on AuthException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+        ScaffoldMessenger.of(context).showNote(error.message);
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Something went wrong. Check your connection and try again.')),
+        ScaffoldMessenger.of(context).showNote(
+          'Something went wrong. Check your connection and try again.',
         );
       }
     } finally {
@@ -155,9 +152,7 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
   Future<void> _forgotPassword() async {
     final email = _email.text.trim();
     if (!email.contains('@')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter your email first.')),
-      );
+      ScaffoldMessenger.of(context).showNote('Enter your email first.');
       return;
     }
     setState(() => _busy = true);
@@ -167,13 +162,11 @@ class _SupabaseAuthScreenState extends State<SupabaseAuthScreen> {
         redirectTo: BetaConfig.authRedirectUrl.isEmpty ? null : BetaConfig.authRedirectUrl,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Password reset email sent.')),
-        );
+        ScaffoldMessenger.of(context).showNote('Password reset email sent.');
       }
     } on AuthException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+        ScaffoldMessenger.of(context).showNote(error.message);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -405,15 +398,11 @@ class _SupabasePasswordRecoveryScreenState extends State<SupabasePasswordRecover
 
   Future<void> _save() async {
     if (_password.text.length < 8) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Use at least 8 characters.')),
-      );
+      ScaffoldMessenger.of(context).showNote('Use at least 8 characters.');
       return;
     }
     if (_password.text != _confirm.text) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('The passwords do not match.')),
-      );
+      ScaffoldMessenger.of(context).showNote('The passwords do not match.');
       return;
     }
     setState(() => _busy = true);
@@ -422,7 +411,7 @@ class _SupabasePasswordRecoveryScreenState extends State<SupabasePasswordRecover
       widget.onComplete();
     } on AuthException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+        ScaffoldMessenger.of(context).showNote(error.message);
       }
     } finally {
       if (mounted) setState(() => _busy = false);

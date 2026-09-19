@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/colabroom_theme.dart';
 import '../../services/cowork_service.dart';
 import '../../widgets/send_on_enter.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// The song's stream: what people said and what the app did, in one place.
 ///
@@ -86,7 +87,7 @@ class _CoworkPanelState extends State<CoworkPanel> {
         _composer.text = text;
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text('Could not send that: $error')));
+          ..showNote('Could not send that: $error');
       }
     } finally {
       if (mounted) setState(() => _sending = false);

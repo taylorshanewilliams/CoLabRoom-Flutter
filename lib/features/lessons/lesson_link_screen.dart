@@ -14,6 +14,7 @@ import 'lesson_poster.dart';
 import 'what_came_in.dart';
 import 'with_birth_month.dart';
 import '../../services/copy_text.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// A teacher's lesson links: a QR code each, and a room of their own with
 /// the teacher for every student who opens one.
@@ -225,7 +226,7 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showNote(message);
   }
 
   /// Whether the screen is showing something other than the list, which
