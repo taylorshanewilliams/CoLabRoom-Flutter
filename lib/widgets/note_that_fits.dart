@@ -47,13 +47,6 @@ class NoteThatFits extends StatelessWidget {
   }
 }
 
-/// Flutter's own default for how long a snackbar stays up.
-///
-/// [SnackBar.duration] defaults to this and is not nullable, so saying nothing
-/// in [SayIt.showNote] has to mean the same four seconds it meant when every
-/// call site wrote `SnackBar(content: ...)` by hand.
-const Duration _aWhileToRead = Duration(milliseconds: 4000);
-
 /// How the app says something in passing.
 ///
 /// Every snackbar in CoLabRoom goes through here, and the reason is the one in
@@ -78,11 +71,20 @@ extension SayIt on ScaffoldMessengerState {
     Duration? duration,
     bool? persist,
   }) {
-    return showSnackBar(SnackBar(
-      content: NoteThatFits(note),
-      action: action,
-      persist: persist,
-      duration: duration ?? _aWhileToRead,
-    ));
+    final NoteThatFits words = NoteThatFits(note);
+    // Built two ways rather than writing four seconds down here. Saying
+    // nothing about the duration has to keep meaning whatever [SnackBar]'s
+    // own default is, and a second copy of that number in this file would
+    // go quietly out of date the day the first one moved.
+    return showSnackBar(
+      duration == null
+          ? SnackBar(content: words, action: action, persist: persist)
+          : SnackBar(
+              content: words,
+              action: action,
+              persist: persist,
+              duration: duration,
+            ),
+    );
   }
 }

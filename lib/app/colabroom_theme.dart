@@ -144,6 +144,11 @@ abstract final class CoLabRoomTheme {
         // 2.67:1 on the raised navy (web preview, 17 September 2026). The
         // action is the one thing somebody has a few seconds to find.
         actionTextColor: AppColors.cyan,
+        // Floating, which is why the app says things through showNote rather
+        // than building a SnackBar: a floating bar is positioned upwards from
+        // the record button and is as tall as its words, so at a large text
+        // size a long sentence is drawn off the top of the screen. The
+        // ceiling that stops that is in widgets/note_that_fits.dart.
         behavior: SnackBarBehavior.floating,
       ),
       navigationBarTheme: const NavigationBarThemeData(

@@ -26,11 +26,11 @@ import 'package:colabroom/services/share_origin.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:colabroom/services/song_language.dart';
 import 'package:colabroom/services/user_facing_error.dart';
+import 'package:colabroom/widgets/note_that_fits.dart';
 import 'package:colabroom/widgets/text_measures.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../widgets/note_that_fits.dart';
 
 /// Two ways of reading the same song. The sheet is what you sing from; the
 /// chart is what you play from.
