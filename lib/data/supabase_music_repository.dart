@@ -301,6 +301,21 @@ class SupabaseMusicRepository implements MusicRepository {
         .isFilter('read_at', null);
   }
 
+  /// Your own sets, the ones the app calls "your sets".
+  ///
+  /// The owner filter is asked for here rather than left to row-level
+  /// security. 0005's read policy on `setlists` is owner-only, so today this
+  /// hands back exactly what it handed back before; but 0164 had to reach for
+  /// a security-definer function instead of a read policy partly to keep this
+  /// list narrow, because a policy wide enough for the people playing a set
+  /// would have quietly filled the Sets tab with other people's sets. That
+  /// left the meaning of this screen resting on a policy in another file. It
+  /// rests on the query now, so the next widening is a decision about that
+  /// policy rather than a silent change here.
+  ///
+  /// The set-for-a-day card does not come through this list. It asks
+  /// `sets_for_the_day` (0164), which is the one thing a member may learn
+  /// about somebody else's set.
   @override
   Future<List<Setlist>> loadSetlists() async {
     final rows = await client
@@ -309,6 +324,7 @@ class SupabaseMusicRepository implements MusicRepository {
           'id, owner_id, name, created_at, updated_at, for_day, '
           'setlist_projects(project_id, position, played_key, bpm, count_in, form, ending, note)',
         )
+        .eq('owner_id', _userId)
         .order('updated_at', ascending: false);
     return (rows as List<dynamic>).map((value) {
       final row = Map<String, dynamic>.from(value as Map);

@@ -184,8 +184,17 @@ class InMemoryMusicRepository implements MusicRepository {
     }
   }
 
+  /// Your own sets, the way the query asks for them.
+  ///
+  /// Somebody else's set can reach this phone -- the leader's set for Sunday
+  /// is on everybody's Home for the week (0164) -- and being handed a set is
+  /// not being given it. So the fake holds every set the way the table does
+  /// and hands back the caller's, which is what the Supabase repository's
+  /// `owner_id` filter asks for.
   @override
-  Future<List<Setlist>> loadSetlists() async => List<Setlist>.unmodifiable(_setlists);
+  Future<List<Setlist>> loadSetlists() async => List<Setlist>.unmodifiable(
+        _setlists.where((setlist) => setlist.ownerId == currentUserId),
+      );
 
   @override
   Future<MusicRoom> createRoom({required String name, required String icon}) async {

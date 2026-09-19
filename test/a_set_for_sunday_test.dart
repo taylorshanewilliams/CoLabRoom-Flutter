@@ -85,9 +85,31 @@ Future<(InMemoryMusicRepository, Setlist, SongProject)> _theSetForSunday({
   await repository.saveSetlistSong(
       set, const SetlistSong(projectId: 'song-1', key: 'A'));
   if (day != null) await repository.setSetlistDay(set, day);
+  // Read back while the leader is still the one asking: loadSetlists hands
+  // back the caller's own sets, and this one is not the player's.
+  set = (await repository.loadSetlists()).first;
   repository.currentUserId = _player;
 
-  return (repository, (await repository.loadSetlists()).first, second);
+  return (repository, set, second);
+}
+
+/// The leader's set as the database holds it.
+///
+/// A set is only in its owner's list, so reading the leader's row means
+/// standing in the leader's shoes for the length of the read and then giving
+/// the phone back to whoever was holding it.
+Future<Setlist> _theLeadersSet(
+  InMemoryMusicRepository repository, {
+  String? id,
+}) async {
+  final was = repository.currentUserId;
+  repository.currentUserId = _leader;
+  try {
+    final held = await repository.loadSetlists();
+    return id == null ? held.first : held.firstWhere((set) => set.id == id);
+  } finally {
+    repository.currentUserId = was;
+  }
 }
 
 /// Home, with the card row on it.
@@ -242,7 +264,7 @@ void main() {
         throwsA(isA<StateError>().having((error) => error.message, 'message',
             MusicRepository.notYourSet)),
       );
-      expect((await repository.loadSetlists()).first.forDay, _sunday);
+      expect((await _theLeadersSet(repository)).forDay, _sunday);
     });
 
     test('only a dated set is handed to the people playing it', () async {
@@ -283,9 +305,7 @@ void main() {
       expect(await repository.setsForTheDay(), isEmpty);
       // The set itself is untouched. It is theirs and it still says Sunday;
       // it is simply no longer anything to do with that room.
-      expect((await repository.loadSetlists())
-          .firstWhere((held) => held.id == set.id)
-          .forDay, _sunday);
+      expect((await _theLeadersSet(repository, id: set.id)).forDay, _sunday);
     });
 
     test('and neither does somebody you have blocked', () async {
@@ -375,6 +395,31 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(controller.setlistById(set.id)?.forDay, _inDays(-60));
+    });
+  });
+
+  group('and your sets are still your own', () {
+    test('a set you are only playing is not one of yours', () async {
+      final (repository, set, _) =
+          await _theSetForSunday(day: _sunday, now: _theMondayBefore);
+
+      // The leader's set does reach the player: it is on their Home for the
+      // week, which is the one thing 0164 lets a member learn about somebody
+      // else's set. Being handed it is not being given it, so it is not in
+      // the list the Sets tab shows as theirs.
+      expect((await repository.setsForTheDay()).single.id, set.id);
+      expect(await repository.loadSetlists(), isEmpty);
+
+      // Their own set is, and only theirs.
+      final mine = await repository.createSetlist('Thursday practice');
+      expect((await repository.loadSetlists()).map((held) => held.id),
+          <String>[mine.id]);
+
+      // And the leader's list is the other way round: their own set, not the
+      // one the player just made.
+      repository.currentUserId = _leader;
+      expect((await repository.loadSetlists()).map((held) => held.id),
+          <String>[set.id]);
     });
   });
 
@@ -498,7 +543,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // The set is exactly what it was, on this phone and on the server.
-      final after = (await repository.loadSetlists()).first;
+      final after = await _theLeadersSet(repository);
       expect(after.forDay, _inDays(3));
       expect(after.updatedAt, set.updatedAt);
       expect((await repository.setsForTheDay()).single.projectIds,
