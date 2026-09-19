@@ -12134,7 +12134,7 @@ reset role;
 insert into auth.users (id, email, raw_user_meta_data) values
   ('1a4e0167-0000-0000-0000-000000000170', 'heardit@smoke.test',
    '{"display_name": "Heard It"}'),
-  ('1a4e0167-0000-0000-0000-000000000171', 'justlistening@smoke.test',
+  ('1a4e0167-0000-0000-0000-000000000171', 'listeningin0167@smoke.test',
    '{"display_name": "Just Listening"}');
 
 insert into public.rooms (id, account_id, name)
