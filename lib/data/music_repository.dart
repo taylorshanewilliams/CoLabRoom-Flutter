@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import '../domain/activity.dart';
 import '../domain/calls.dart';
 import '../domain/lesson_link.dart';
+import '../domain/loop_round.dart';
 import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
@@ -946,6 +947,45 @@ abstract interface class MusicRepository {
   /// is back among the song's takes, still yours alone, and is not offered
   /// again. Quiet when there is no seal to end.
   Future<void> unsealTake(String layerId);
+
+  /// The rounds on a song, newest first: a passage going round the room in
+  /// turns (0159). Every Musician, Same Song, 17 September 2026.
+  ///
+  /// For somebody in the song's room; empty for anybody else. Each round
+  /// carries the order as names and words, with the seats that have gone
+  /// quiet -- a skip, a turn that passed, a take pulled -- left out of
+  /// everybody's list but the caller's own.
+  Future<List<LoopRound>> loadLoopRounds(String projectId);
+
+  /// Starts a round on [projectId] over the passage [startMs] to [endMs],
+  /// with [order] as whoever wants in, first to last. An empty order is the
+  /// person starting it; everybody else joins themselves.
+  ///
+  /// Anybody who can record in the room. Refused while the song has a round
+  /// somebody is still waiting on, and when anybody in the order is not in
+  /// the room or cannot record in it.
+  Future<String> startLoopRound({
+    required String projectId,
+    required int startMs,
+    required int endMs,
+    List<String> order = const <String>[],
+  });
+
+  /// "I'm in", and "count me back in": the end of the order either way.
+  Future<void> joinLoopRound(String roundId);
+
+  /// Skip me. Free, any time, and silent: the next person is told it is
+  /// their turn in the words they would have been told anyway, and nobody
+  /// is told anything else.
+  Future<void> skipMyTurn(String roundId);
+
+  /// Hands [layerId] in as your turn, which shares it with the room. Your
+  /// own take, starting on the passage, and only when the turn is yours.
+  Future<void> handInMyTurn({required String roundId, required String layerId});
+
+  /// Ends a round: whoever started it, or the room's owner. The turns stay
+  /// on the song and the round can still be heard.
+  Future<void> endLoopRound(String roundId);
 
   /// Who is looking for what you play, as counts per part.
   Future<List<WantAround>> wantsAround();

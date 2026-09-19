@@ -9,6 +9,7 @@ import '../app/beta_config.dart';
 import '../domain/activity.dart';
 import '../domain/calls.dart';
 import '../domain/lesson_link.dart';
+import '../domain/loop_round.dart';
 import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
@@ -3147,6 +3148,83 @@ class SupabaseMusicRepository implements MusicRepository {
         sealedAt: DateTime.tryParse('${row['sealed_at']}')?.toLocal() ?? now,
         opensAt: DateTime.tryParse('${row['sealed_until']}')?.toLocal() ?? now,
       );
+
+  // Take turns on the loop (0159). Every one of these is a function on the
+  // server: whose turn it is, who may sit in a round and what a skip tells
+  // anybody are rules, and rules kept in the app are rules a second client
+  // does not have.
+
+  @override
+  Future<List<LoopRound>> loadLoopRounds(String projectId) async {
+    final rows = await client.rpc<dynamic>(
+      'loop_rounds_for',
+      params: <String, dynamic>{'target_project': projectId},
+    );
+    return <LoopRound>[
+      for (final row in (rows as List<dynamic>? ?? const <dynamic>[]))
+        LoopRound.fromRow(
+          Map<String, dynamic>.from(row as Map),
+          projectId: projectId,
+        ),
+    ];
+  }
+
+  @override
+  Future<String> startLoopRound({
+    required String projectId,
+    required int startMs,
+    required int endMs,
+    List<String> order = const <String>[],
+  }) async {
+    final id = await client.rpc<dynamic>(
+      'start_loop_round',
+      params: <String, dynamic>{
+        'target_project': projectId,
+        'in_start_ms': startMs,
+        'in_end_ms': endMs,
+        'in_order': order,
+      },
+    );
+    return '$id';
+  }
+
+  @override
+  Future<void> joinLoopRound(String roundId) async {
+    await client.rpc<dynamic>(
+      'join_loop_round',
+      params: <String, dynamic>{'target_round': roundId},
+    );
+  }
+
+  @override
+  Future<void> skipMyTurn(String roundId) async {
+    await client.rpc<dynamic>(
+      'skip_my_turn',
+      params: <String, dynamic>{'target_round': roundId},
+    );
+  }
+
+  @override
+  Future<void> handInMyTurn({
+    required String roundId,
+    required String layerId,
+  }) async {
+    await client.rpc<dynamic>(
+      'hand_in_my_turn',
+      params: <String, dynamic>{
+        'target_round': roundId,
+        'target_layer': layerId,
+      },
+    );
+  }
+
+  @override
+  Future<void> endLoopRound(String roundId) async {
+    await client.rpc<dynamic>(
+      'end_loop_round',
+      params: <String, dynamic>{'target_round': roundId},
+    );
+  }
 
   MomentNote _momentNote(Map<String, dynamic> row) {
     final author = row['author'];

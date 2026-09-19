@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import '../domain/activity.dart';
 import '../domain/calls.dart';
 import '../domain/lesson_link.dart';
+import '../domain/loop_round.dart';
 import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
@@ -1095,6 +1096,23 @@ class InMemoryMusicRepository implements MusicRepository {
   final List<({String to, AppNotification notification})> told =
       <({String to, AppNotification notification})>[];
 
+  /// Puts somebody in a room, or changes how they are in it. For a test that
+  /// needs more people than the seed has -- an order of two cannot show that
+  /// a skip passes to the next person rather than back to the first, and
+  /// nobody seeded is a viewer -- or that needs somebody's part in a room to
+  /// change while a round is going.
+  void addToRoom(String roomId, RoomMember member) {
+    final room = _rooms.firstWhere((room) => room.id == roomId);
+    final members = <RoomMember>[...room.members];
+    final at = members.indexWhere((who) => who.userId == member.userId);
+    if (at < 0) {
+      members.add(member);
+    } else {
+      members[at] = member;
+    }
+    _replaceRoom(room.copyWith(members: members));
+  }
+
   /// Adds a take to a song. For a test that needs a shape the seed does not
   /// have -- a song whose only part is somebody else's, say. Shared unless
   /// said otherwise, because a draft is never anybody's business.
@@ -1103,6 +1121,7 @@ class InMemoryMusicRepository implements MusicRepository {
     required String part,
     String? by,
     bool shared = true,
+    int startMs = 0,
   }) {
     final id = _id('take');
     final who = by ?? currentUserId;
@@ -1112,6 +1131,7 @@ class InMemoryMusicRepository implements MusicRepository {
       recordedBy: who,
       part: part,
       shared: shared,
+      startMs: startMs,
     ));
     // A take shared onto a song that is already out there asks its own
     // player, whoever they are, the way the trigger in 0155 does.
@@ -1151,6 +1171,347 @@ class InMemoryMusicRepository implements MusicRepository {
     );
     told.add((to: to, notification: notification));
     if (to == currentUserId) _notifications.insert(0, notification);
+  }
+
+  // ---------------------------------------------------------------------
+  // Take turns on the loop (0159)
+  // ---------------------------------------------------------------------
+
+  /// The rounds, as 0159's `loop_rounds` and `loop_seats`. The rules below
+  /// are the functions in that migration, sentence for sentence, so a screen
+  /// tested against this fake is tested against the refusals it will meet.
+  final List<_Round> _rounds = <_Round>[];
+
+  /// How long a turn sits before it passes on its own. Never shown to
+  /// anybody, here or in the app.
+  static const Duration _turnPatience = Duration(days: 3);
+
+  /// Lets [howLong] go by with nobody taking the turn. For a test of the
+  /// quiet pass, which otherwise needs three days.
+  void letTheTurnSit(String roundId, Duration howLong) {
+    final round = _rounds.firstWhere((round) => round.id == roundId);
+    round.turnSince = round.turnSince.subtract(howLong);
+  }
+
+  RoomMember? _memberOf(MusicRoom? room, String userId) {
+    for (final member in room?.members ?? const <RoomMember>[]) {
+      if (member.userId == userId) return member;
+    }
+    return null;
+  }
+
+  static bool _canRecord(RoomMember? member) =>
+      member != null &&
+      (member.role == RoomRole.owner || member.role == RoomRole.editor);
+
+  /// `private.loop_seat_state`: played means the room can hear the turn.
+  String _seatReadsAs(_Seat seat) {
+    if (seat.state == 'waiting') return 'waiting';
+    if (seat.state == 'played' &&
+        _takes.any((take) => take.id == seat.layerId && take.shared)) {
+      return 'played';
+    }
+    return 'out';
+  }
+
+  /// `private.loop_round_up`: the first person still waiting who can still
+  /// record in the room.
+  String? _upOn(_Round round) {
+    if (round.ended) return null;
+    final room = _roomOf(round.projectId);
+    final waiting = round.seats.where((seat) => seat.state == 'waiting').toList()
+      ..sort((a, b) => a.place.compareTo(b.place));
+    for (final seat in waiting) {
+      if (_canRecord(_memberOf(room, seat.userId))) return seat.userId;
+    }
+    return null;
+  }
+
+  /// `private.tell_whose_turn`: the same two lines however the turn got
+  /// there, with no actor on them, and never to the person looking.
+  void _tellWhoseTurn(_Round round) {
+    final up = _upOn(round);
+    // Whoever is up has been told: by this, or by being the person looking
+    // at the card they just changed.
+    round.toldUp = up;
+    if (up == null || up == currentUserId) return;
+    _tell(
+      up,
+      type: NotificationType.projectUpdate,
+      title: 'Your turn on ${_projectTitle(round.projectId)}',
+      body: 'The loop has come round to you. Skipping is free, and nobody is '
+          'told.',
+      projectId: round.projectId,
+    );
+  }
+
+  /// `private.settle_loop_round`: one turn at most, and never the caller's.
+  void _settle(_Round round) {
+    if (round.ended) return;
+    final holding = _upOn(round);
+    if (holding == null) return;
+    // The turn reached them because somebody left the room or was made a
+    // viewer, not because anybody moved it. Their three days start now and
+    // they are told, rather than being passed over for a turn nobody ever
+    // said was theirs.
+    if (round.toldUp != holding) {
+      round.turnSince = DateTime.now();
+      _tellWhoseTurn(round);
+      return;
+    }
+    if (holding == currentUserId) return;
+    if (DateTime.now().difference(round.turnSince) < _turnPatience) return;
+    round.seats.firstWhere((seat) => seat.userId == holding).state = 'out';
+    round.turnSince = DateTime.now();
+    _tellWhoseTurn(round);
+  }
+
+  /// The round, for somebody in its room; the refusal a stranger gets is the
+  /// one they would get for a round that does not exist.
+  _Round _roundForMember(String roundId) {
+    final round = _rounds.where((round) => round.id == roundId).firstOrNull;
+    if (round == null ||
+        _memberOf(_roomOf(round.projectId), currentUserId) == null) {
+      throw PostgrestException(message: 'No such round.', code: '22023');
+    }
+    return round;
+  }
+
+  @override
+  Future<List<LoopRound>> loadLoopRounds(String projectId) async {
+    final room = _roomOf(projectId);
+    if (_memberOf(room, currentUserId) == null) return const <LoopRound>[];
+    final rounds = _rounds.where((round) => round.projectId == projectId).toList()
+      ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
+    for (final round in rounds) {
+      _settle(round);
+    }
+    return <LoopRound>[
+      for (final round in rounds)
+        LoopRound(
+          id: round.id,
+          projectId: round.projectId,
+          startMs: round.startMs,
+          endMs: round.endMs,
+          startedAt: round.startedAt,
+          startedBy: round.startedBy,
+          startedByName: _nameOf(round.startedBy),
+          ended: round.ended,
+          upId: _upOn(round),
+          seats: <LoopSeat>[
+            for (final seat in round.seats.toList()
+              ..sort((a, b) => a.place.compareTo(b.place)))
+              if (seat.userId == currentUserId || _seatReadsAs(seat) != 'out')
+                LoopSeat(
+                  userId: seat.userId,
+                  name: _nameOf(seat.userId),
+                  state: SeatState.parse(_seatReadsAs(seat)),
+                  layerId: _seatReadsAs(seat) == 'played' ? seat.layerId : null,
+                ),
+          ],
+        ),
+    ];
+  }
+
+  @override
+  Future<String> startLoopRound({
+    required String projectId,
+    required int startMs,
+    required int endMs,
+    List<String> order = const <String>[],
+  }) async {
+    final room = _roomOf(projectId);
+    final me = _memberOf(room, currentUserId);
+    if (room == null || me == null) {
+      throw PostgrestException(message: 'No such song.', code: '22023');
+    }
+    if (!_canRecord(me)) {
+      throw PostgrestException(
+        message: 'Only somebody who can record here can start a round.',
+        code: '42501',
+      );
+    }
+    if (startMs < 0 || endMs <= startMs) {
+      throw PostgrestException(message: 'Choose the bars first.', code: '22023');
+    }
+    final going = _rounds
+        .where((round) => round.projectId == projectId && !round.ended)
+        .firstOrNull;
+    if (going != null) {
+      if (_upOn(going) != null) {
+        throw PostgrestException(
+          message: 'This song already has a round going.',
+          code: '22023',
+        );
+      }
+      going.ended = true;
+    }
+    // Each person once, the first time they are named.
+    final wanted = <String>[];
+    for (final id in order) {
+      if (!wanted.contains(id)) wanted.add(id);
+    }
+    if (wanted.isEmpty) wanted.add(currentUserId);
+    if (wanted.any((id) => !_canRecord(_memberOf(room, id)))) {
+      throw PostgrestException(
+        message: 'Everybody in the order has to be able to record in this '
+            'room.',
+        code: '22023',
+      );
+    }
+    final now = DateTime.now();
+    final round = _Round(
+      id: _id('round'),
+      projectId: projectId,
+      startMs: startMs,
+      endMs: endMs,
+      startedBy: currentUserId,
+      startedAt: now,
+      turnSince: now,
+      seats: <_Seat>[
+        for (var i = 0; i < wanted.length; i += 1)
+          _Seat(userId: wanted[i], place: i + 1),
+      ],
+    );
+    _rounds.add(round);
+
+    final firstUp = _upOn(round);
+    final title = _projectTitle(projectId);
+    for (final id in wanted) {
+      if (id == firstUp) continue;
+      _tell(
+        id,
+        type: NotificationType.projectUpdate,
+        title: '${_nameOf(currentUserId)} started taking turns on $title',
+        body: 'You are in the order. Skipping is free, and nobody is told.',
+        projectId: projectId,
+        actorId: currentUserId,
+      );
+    }
+    _tellWhoseTurn(round);
+    return round.id;
+  }
+
+  @override
+  Future<void> joinLoopRound(String roundId) async {
+    final round = _roundForMember(roundId);
+    if (!_canRecord(_memberOf(_roomOf(round.projectId), currentUserId))) {
+      throw PostgrestException(
+        message: 'Only somebody who can record here can take a turn.',
+        code: '42501',
+      );
+    }
+    if (round.ended) {
+      throw PostgrestException(message: 'That round is over.', code: '22023');
+    }
+    _settle(round);
+    final wasUp = _upOn(round);
+    final mine =
+        round.seats.where((seat) => seat.userId == currentUserId).firstOrNull;
+    if (mine != null && _seatReadsAs(mine) != 'out') return;
+    // The end of the order, whether this is a first seat or a way back in.
+    var last = 0;
+    for (final seat in round.seats) {
+      if (seat.place > last) last = seat.place;
+    }
+    if (mine == null) {
+      round.seats.add(_Seat(userId: currentUserId, place: last + 1));
+    } else {
+      mine
+        ..place = last + 1
+        ..state = 'waiting'
+        ..layerId = null;
+    }
+    if (wasUp == null) {
+      round.turnSince = DateTime.now();
+      // Says nothing to the person who just pressed it; it records that
+      // they know, so the quiet pass does not read this as a turn that
+      // arrived with nobody told.
+      _tellWhoseTurn(round);
+    }
+  }
+
+  @override
+  Future<void> skipMyTurn(String roundId) async {
+    final round = _roundForMember(roundId);
+    if (round.ended) return;
+    _settle(round);
+    final wasUp = _upOn(round);
+    final mine = round.seats
+        .where((seat) => seat.userId == currentUserId && seat.state == 'waiting')
+        .firstOrNull;
+    if (mine == null) return;
+    mine.state = 'out';
+    if (wasUp == currentUserId) {
+      round.turnSince = DateTime.now();
+      _tellWhoseTurn(round);
+    }
+  }
+
+  @override
+  Future<void> handInMyTurn({
+    required String roundId,
+    required String layerId,
+  }) async {
+    final round = _roundForMember(roundId);
+    if (round.ended) {
+      throw PostgrestException(message: 'That round is over.', code: '22023');
+    }
+    _settle(round);
+    if (_upOn(round) != currentUserId) {
+      // 22023, as 0159 raises it: the one refusal here somebody can walk
+      // into honestly, so the one whose sentence the app reads out.
+      throw PostgrestException(
+        message: 'It is not your turn yet.',
+        code: '22023',
+      );
+    }
+    final at = _takes.indexWhere((take) =>
+        take.id == layerId &&
+        take.projectId == round.projectId &&
+        take.recordedBy == currentUserId);
+    if (at < 0) {
+      throw PostgrestException(
+        message: 'That take is not yours to hand in.',
+        code: '42501',
+      );
+    }
+    final take = _takes[at];
+    if (take.startMs < round.startMs || take.startMs >= round.endMs) {
+      throw PostgrestException(
+        message: 'That take is not on these bars.',
+        code: '22023',
+      );
+    }
+    if (_rounds.any(
+        (other) => other.seats.any((seat) => seat.layerId == layerId))) {
+      throw PostgrestException(
+        message: 'That take has already been a turn.',
+        code: '22023',
+      );
+    }
+    // Handing it in shares it (0057), which is what lets the next person
+    // hear it and what makes 0155's gate count it.
+    _takes[at] = take.sharedNow();
+    round.seats.firstWhere((seat) => seat.userId == currentUserId)
+      ..state = 'played'
+      ..layerId = layerId;
+    round.turnSince = DateTime.now();
+    _tellWhoseTurn(round);
+  }
+
+  @override
+  Future<void> endLoopRound(String roundId) async {
+    final round = _roundForMember(roundId);
+    final me = _memberOf(_roomOf(round.projectId), currentUserId);
+    if (round.startedBy != currentUserId && me?.role != RoomRole.owner) {
+      throw PostgrestException(
+        message: "Only whoever started the round, or the room's owner, can "
+            'end it.',
+        code: '42501',
+      );
+    }
+    round.ended = true;
   }
 
   MusicRoom? _roomOf(String projectId) {
@@ -3629,6 +3990,7 @@ class _TakeOnSong {
     required this.recordedBy,
     required this.part,
     this.shared = true,
+    this.startMs = 0,
   });
 
   final String id;
@@ -3636,6 +3998,63 @@ class _TakeOnSong {
   final String recordedBy;
   final String part;
   final bool shared;
+
+  /// Where on the song it begins (0045). Only a round reads it: a turn
+  /// starts on the round's passage.
+  final int startMs;
+
+  /// The same take once the room can hear it, which is what handing a turn
+  /// in does to a draft.
+  _TakeOnSong sharedNow() => _TakeOnSong(
+        id: id,
+        projectId: projectId,
+        recordedBy: recordedBy,
+        part: part,
+        startMs: startMs,
+      );
+}
+
+/// One row of 0159's `loop_rounds`, with its seats.
+class _Round {
+  _Round({
+    required this.id,
+    required this.projectId,
+    required this.startMs,
+    required this.endMs,
+    required this.startedBy,
+    required this.startedAt,
+    required this.turnSince,
+    required this.seats,
+  });
+
+  final String id;
+  final String projectId;
+  final int startMs;
+  final int endMs;
+  final String startedBy;
+  final DateTime startedAt;
+  final List<_Seat> seats;
+
+  /// When the turn last moved. Read by the quiet pass and nothing else.
+  DateTime turnSince;
+
+  /// Who was last told it was their turn, or was looking when it reached
+  /// them. The turn can move with nobody moving it -- somebody who was up
+  /// leaves the room or is made a viewer -- and this is how the quiet pass
+  /// tells that from a turn that has been sitting.
+  String? toldUp;
+  bool ended = false;
+}
+
+/// One row of 0159's `loop_seats`. [state] is the column as stored:
+/// 'waiting', 'played' or 'out'.
+class _Seat {
+  _Seat({required this.userId, required this.place});
+
+  final String userId;
+  int place;
+  String state = 'waiting';
+  String? layerId;
 }
 
 /// One row of 0155's `take_consents`. [agreed] null is waiting.
