@@ -2474,17 +2474,31 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         children: <Widget>[
           SafeArea(
             child: layers == null
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        const CircularProgressIndicator(color: AppColors.gold),
-                        if (_status != null) ...<Widget>[
-                          const SizedBox(height: 14),
-                          Text(_status!,
-                              style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
+                // Scrolls and wraps. Every Musician, Same Song, 17 September
+                // 2026: the phone's own text size is honoured, never clamped,
+                // and the sentence under the spinner is a whole sentence —
+                // at the largest size it is 74 pixels taller than a small
+                // phone, and a "what is happening" line that runs off the
+                // bottom of the screen is worse than none.
+                ? SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 20),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          const CircularProgressIndicator(color: AppColors.gold),
+                          if (_status != null) ...<Widget>[
+                            const SizedBox(height: 14),
+                            Text(
+                              _status!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  color: AppColors.muted, fontSize: 12.5),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   )
                 : console && _takes.isNotEmpty

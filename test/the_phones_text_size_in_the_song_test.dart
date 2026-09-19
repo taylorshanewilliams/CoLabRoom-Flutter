@@ -13,6 +13,7 @@ import 'package:colabroom/features/rooms/setlist_detail_screen.dart';
 import 'package:colabroom/features/workspace/live_performance_screen.dart';
 import 'package:colabroom/features/workspace/song_sheet_panel.dart';
 import 'package:colabroom/features/workspace/tuner_sheet.dart';
+import 'package:colabroom/services/click_player.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -181,7 +182,10 @@ SongAnalysisBundle _analysis(String id) {
             endMs: 5000 + i * 400 + 350,
           ),
       ],
-      // A real beat grid, so the bar picker and the loop have bars to count.
+      // A real beat grid, so the bar picker, the loop and the count-in all
+      // have bars to count.
+      bpm: 150,
+      beatsPerBar: 4,
       downbeatsMs: <int>[for (var i = 0; i < 24; i += 1) i * 1600],
     ),
     lyricCues: const <LyricSyncCue>[],
@@ -196,6 +200,23 @@ SongAnalysisBundle _analysis(String id) {
         ),
     ],
   );
+}
+
+/// A count-in that makes no sound, because there is no audio here.
+class _SilentClick implements ClickPlayer {
+  @override
+  Future<void> play({
+    required double bpm,
+    required int beatsPerBar,
+    int bars = 8,
+    bool loop = true,
+  }) async {}
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> dispose() async {}
 }
 
 void main() {
@@ -303,6 +324,41 @@ void main() {
     await _close(tester);
   });
 
+  for (final phone in const <String, Size>{
+    'upright': Size(390, 844),
+    'on its side': Size(844, 390),
+  }.entries) {
+    testWidgets('the count-in holds at the largest text size, ${phone.key}',
+        (tester) async {
+      // A number drawn at 118 pixels over the whole screen, with a row of
+      // dots and a line of words under it. On its side, which is how Perform
+      // is held on a stand, that number and the two rows under it are taller
+      // than the phone once the text is turned up.
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'live_countdown_enabled': true,
+        'live_countdown_seconds': 5,
+      });
+      _phone(tester, textScale: 3.12, size: phone.value);
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: _project('count-in'),
+          analysis: _analysis('count-in'),
+          click: _SilentClick(),
+        ),
+      ));
+      await _frames(tester);
+
+      await tester.tap(find.byKey(const Key('live_play_pause')));
+      await tester.pump();
+      expect(find.byKey(const Key('live_count_in')), findsOneWidget,
+          reason: 'pressing play did not count the band in');
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(tester.takeException(), isNull, reason: _why('the count-in'));
+      await _close(tester);
+    });
+  }
+
   testWidgets('the song sheet and its panels hold at the largest text size',
       (tester) async {
     // In a scroll view, which is where the workspace puts it: the sheet is a
@@ -347,6 +403,74 @@ void main() {
     expect(tester.takeException(), isNull, reason: _why('a chord reference'));
     await _close(tester);
   });
+
+  // The three screens a song is read from, on the two shapes of phone the
+  // rest of this file does not use, at the largest text iOS can ask for.
+  //
+  // 3.12 rather than 2.0 because iOS's five accessibility sizes reach Flutter
+  // as 1.64, 1.94, 2.35, 2.76 and 3.12, and the last of them is a real
+  // setting a real person uses. On its side because that is how Perform is
+  // held on a music stand, and small because 360 wide is the narrowest phone
+  // still in use. Each of the three found something the 390-wide portrait
+  // cases did not.
+  for (final phone in const <String, Size>{
+    'a small phone': Size(360, 690),
+    'a phone on its side': Size(844, 390),
+  }.entries) {
+    testWidgets('the song holds at the largest iOS text size on ${phone.key}',
+        (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      _phone(tester, textScale: 3.12, size: phone.value);
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: _project('largest'),
+          analysis: _analysis('largest'),
+        ),
+      ));
+      await _frames(tester);
+      expect(tester.takeException(), isNull, reason: _why('Perform'));
+      await _close(tester);
+
+      _phone(tester, textScale: 3.12, size: phone.value);
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: SongSheetPanel(
+              project: _project('largest'),
+              bundle: _analysis('largest'),
+              onReviewLyrics: null,
+              onOpenLive: null,
+            ),
+          ),
+        ),
+      ));
+      await _frames(tester);
+      expect(tester.takeException(), isNull, reason: _why('the song sheet'));
+      await _close(tester);
+
+      final controller = MusicBetaController(InMemoryMusicRepository.seeded());
+      await controller.load();
+      addTearDown(controller.dispose);
+      final room = controller.rooms.first;
+      _phone(tester, textScale: 3.12, size: phone.value);
+      await tester.pumpWidget(BetaScope(
+        controller: controller,
+        child: MaterialApp(
+          theme: CoLabRoomTheme.dark(),
+          home: SongLayersScreen(
+            roomId: room.id,
+            projectId: room.projects.first.id,
+            songTitle: room.projects.first.title,
+          ),
+        ),
+      ));
+      await _frames(tester);
+      expect(tester.takeException(), isNull, reason: _why('Takes'));
+      await _close(tester);
+    }, timeout: const Timeout(Duration(minutes: 2)));
+  }
 
   testWidgets('Takes holds at the largest text size', (tester) async {
     final controller = MusicBetaController(InMemoryMusicRepository.seeded());

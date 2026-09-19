@@ -1769,8 +1769,12 @@ class _ViewToggle extends StatelessWidget {
         color: Colors.white.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(9),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      // A Wrap, so the two words sit one above the other rather than running
+      // off the side. Every Musician, Same Song, 17 September 2026: the
+      // phone's own text size is honoured, never clamped, and at the largest
+      // iOS size "Sheet Chart" is wider than a small phone. Neither word is
+      // shrunk to fit; the pill simply grows a row.
+      child: Wrap(
         children: <Widget>[
           _segment(SongSheetView.sheet, 'Sheet'),
           _segment(SongSheetView.chart, 'Chart'),

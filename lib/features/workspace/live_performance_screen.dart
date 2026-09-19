@@ -47,6 +47,7 @@ import '../../services/song_layer_service.dart';
 import '../../services/take_naming.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
+import '../../widgets/text_measures.dart';
 import '../layers/my_part.dart';
 import '../layers/song_level_store.dart';
 import '../layers/take_turns.dart';
@@ -3558,28 +3559,33 @@ class _CountdownOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final beats = beatsInBar;
+    const numberStyle = TextStyle(
+      color: AppColors.gold,
+      fontSize: 118,
+      fontWeight: FontWeight.w900,
+      height: 1,
+    );
     // The empty box keeps the bar's height before the first beat, so the dots
     // do not jump down the screen when the number arrives.
+    //
+    // Measured rather than written down as 118. Every Musician, Same Song, 17
+    // September 2026: the phone's own text size is honoured, never clamped,
+    // so the number is 236 pixels tall for somebody reading at twice normal
+    // and the placeholder was still 118 — the jump it exists to prevent, on
+    // the phones where it matters most.
     final number = count < 1
-        ? const SizedBox(key: ValueKey<int>(0), height: 118)
-        : Text(
-            '$count',
-            key: ValueKey<int>(count),
-            style: const TextStyle(
-              color: AppColors.gold,
-              fontSize: 118,
-              fontWeight: FontWeight.w900,
-              height: 1,
-            ),
-          );
+        ? SizedBox(
+            key: const ValueKey<int>(0),
+            height: linesOfTextHigh(context, numberStyle),
+          )
+        : Text('$count', key: ValueKey<int>(count), style: numberStyle);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onCancel,
       child: Container(
         color: const Color(0xFF01050C).withValues(alpha: 0.82),
         alignment: Alignment.center,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: _CountdownBody(
           children: <Widget>[
             if (beats == null)
               AnimatedSwitcher(
@@ -3638,9 +3644,41 @@ class _CountdownOverlay extends StatelessWidget {
             const SizedBox(height: 14),
             Text(
               beats == null ? 'Get ready — tap to skip' : 'Counting you in — tap to skip',
+              textAlign: TextAlign.center,
               style: const TextStyle(color: AppColors.muted, fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The count, centred while it fits and scrolled once it does not.
+///
+/// Every Musician, Same Song, 17 September 2026: the phone's own text size is
+/// honoured, never clamped. The number is 118 pixels before the reader's own
+/// size is applied, so at the largest iOS setting it is 368 — and the whole
+/// count ran 141 pixels off the bottom of a phone on its side, which is how
+/// Perform is held on a stand. Nothing here is shrunk to fit: a musician who
+/// has asked for the largest text has asked for the largest count-in too.
+class _CountdownBody extends StatelessWidget {
+  const _CountdownBody({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minHeight: constraints.hasBoundedHeight ? constraints.maxHeight : 0,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: children,
+          ),
         ),
       ),
     );
