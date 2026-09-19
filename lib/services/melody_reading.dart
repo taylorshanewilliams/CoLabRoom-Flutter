@@ -190,24 +190,31 @@ class MelodySpelling {
     );
   }
 
-  /// The 1 of the middle octave: the highest one at or below the lowest note
-  /// the singer really sang.
+  /// The 1 of the middle octave: the highest one at or below the middle of
+  /// where this voice lives.
   ///
   /// Jianpu's dots are counted from somewhere, and that somewhere has to be
   /// the singer rather than middle C — a bass and a soprano singing the same
-  /// tune should read the same page. Melody.lowMidi is already the bottom of
-  /// where the voice lives with the tracker's octave errors trimmed off it,
-  /// so starting there puts nearly all of a normal tune in the middle octave
-  /// with no dots at all, and marks the notes that really do sit outside it.
+  /// tune should read the same page. Melody.lowMidi and highMidi are already
+  /// where the voice lives with the tracker's octave errors trimmed off, so
+  /// the 1 under the middle of them leaves most of a normal tune undotted
+  /// and marks what really does sit outside it. Counting from the lowest
+  /// note instead pushed the top half of every tune an octave up.
   static int _middleOctaveFrom(Melody melody, int tonic) {
     var low = melody.lowMidi;
-    if (low == null) {
+    var high = melody.highMidi;
+    if (low == null || high == null) {
+      int? lowest;
+      int? highest;
       for (final note in melody.notes) {
-        if (low == null || note.midi < low) low = note.midi;
+        if (lowest == null || note.midi < lowest) lowest = note.midi;
+        if (highest == null || note.midi > highest) highest = note.midi;
       }
+      low ??= lowest;
+      high ??= highest;
     }
-    final lowest = low ?? tonic;
-    return lowest - ((((lowest - tonic) % 12) + 12) % 12);
+    final middle = ((low ?? tonic) + (high ?? low ?? tonic)) ~/ 2;
+    return middle - ((((middle - tonic) % 12) + 12) % 12);
   }
 
   final MelodyReading reading;
