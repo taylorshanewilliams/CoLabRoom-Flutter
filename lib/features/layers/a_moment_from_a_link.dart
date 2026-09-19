@@ -25,9 +25,14 @@ import 'song_layers_screen.dart';
 /// IncomingAddresses while the sign-in screen is up and opens once there is
 /// a shell to open it, so they sign in and land.
 class MomentFromALink extends StatelessWidget {
-  const MomentFromALink({required this.at, super.key});
+  const MomentFromALink({required this.at, this.plays = true, super.key});
 
   final MomentAddress at;
+
+  /// Whether landing here starts the recording, which is what a link to a
+  /// moment is for. False when something that may be playing already is
+  /// underneath: see DeepLink.routeFor.
+  final bool plays;
 
   @override
   Widget build(BuildContext context) {
@@ -43,6 +48,7 @@ class MomentFromALink extends StatelessWidget {
         projectId: project.id,
         songTitle: project.title,
         openAt: at,
+        openAtPlays: plays,
       );
     }
     // The library is still arriving. A refusal drawn for the half-second

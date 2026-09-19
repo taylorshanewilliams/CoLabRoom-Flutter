@@ -11,6 +11,7 @@ import 'package:colabroom/features/rooms/room_detail_screen.dart';
 import 'package:colabroom/features/shell/join_from_address.dart';
 import 'package:colabroom/services/incoming_addresses.dart';
 import 'package:colabroom/services/invite_link.dart';
+import 'package:colabroom/services/moment_link.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -130,10 +131,18 @@ void main() {
       }
     });
 
+    // One real address under each prefix. Most prefixes take a code or an id
+    // and nothing else; a moment names a room, a song and a place in it, so
+    // it is written by the same function the app writes it with.
+    String addressUnder(String prefix) => switch (prefix) {
+          '/r/' => momentLink(roomId: '0123456789ab', projectId: 'p1', atMs: 108000),
+          _ => 'https://${IncomingAddresses.host}${prefix}0123456789ab',
+        };
+
     test('every path it claims is one the app opens', () {
       final repository = InMemoryMusicRepository.seeded();
       for (final prefix in prefixes) {
-        final address = Uri.parse('https://${IncomingAddresses.host}${prefix}0123456789ab');
+        final address = Uri.parse(addressUnder(prefix));
         final opens = opensARoom(address) ||
             DeepLink.routeFor(address.toString(), repository: repository) != null;
         expect(opens, isTrue, reason: '$prefix is claimed, so a link there leaves the browser for the app');
@@ -141,7 +150,15 @@ void main() {
     });
 
     test('every link the app makes is claimed', () {
-      for (final link in <String>[lessonLink('0123456789ab'), inviteLink('AB12-CD34'), meetingLink('k7m29xqp')]) {
+      for (final link in <String>[
+        lessonLink('0123456789ab'),
+        inviteLink('AB12-CD34'),
+        meetingLink('k7m29xqp'),
+        // Every Musician, Same Song, 17 September 2026 (schools, item 1).
+        // The first link the app writes with a query on it, and the one that
+        // would most quietly have gone to a browser instead of the app.
+        momentLink(roomId: 'r1', projectId: 'p1', takeId: 't1', atMs: 108000),
+      ]) {
         final address = Uri.parse(link);
         expect(address.host, IncomingAddresses.host);
         expect(prefixes.any((prefix) => address.path.startsWith(prefix)), isTrue,

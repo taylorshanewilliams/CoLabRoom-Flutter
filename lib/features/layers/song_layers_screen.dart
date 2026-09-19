@@ -80,6 +80,7 @@ class SongLayersScreen extends StatefulWidget {
     this.onClose,
     this.openNote,
     this.openAt,
+    this.openAtPlays = true,
     super.key,
   });
 
@@ -92,6 +93,14 @@ class SongLayersScreen extends StatefulWidget {
   /// way tapping a note asks to hear the bar it is about, where somebody
   /// opening a card from their inbox asked only to read it.
   final MomentAddress? openAt;
+
+  /// Whether [openAt] starts the recording, or only places the playhead.
+  ///
+  /// Decided by whoever opened the address, because the two reasons to say
+  /// no are both outside this screen: a browser that will not start audio
+  /// without a gesture, and a screen underneath that may be playing already.
+  /// See DeepLink.playsOnArrival.
+  final bool openAtPlays;
 
   /// The note to open on, for arriving from a notification (0141).
   ///
@@ -3405,8 +3414,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       }
       if (!mounted) return;
     }
+    // Playing, or placed and waiting: DeepLink.playsOnArrival said which,
+    // and both answers land somebody on the moment.
     await _goTo(Duration(milliseconds: MomentNote.playFromOf(at.atMs)),
-        play: true, stage: 'takes.link');
+        play: widget.openAtPlays, stage: 'takes.link');
   }
 
   /// The address of a moment of this song, as somebody can paste it.

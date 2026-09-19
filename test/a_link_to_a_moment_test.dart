@@ -554,4 +554,158 @@ void main() {
       ], reason: 'the note\'s own moment, not the playhead\'s');
     });
   });
+
+  // The half that is not Dart talking to Dart: what has to be true before an
+  // address the app writes ever reaches the app at all.
+  group('reaching the app', () {
+    setUp(IncomingAddresses.reset);
+    tearDown(IncomingAddresses.reset);
+
+    const at = MomentAddress(
+      roomId: 'room-1',
+      projectId: 'song-1',
+      takeId: 'layer-sent',
+      atMs: 108000,
+    );
+
+    test('in a browser, read off the address bar and not the hash', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      // The web build uses Flutter's default hash URL strategy, so the
+      // engine reports whatever follows `#` -- and a link somebody was sent
+      // has no `#` in it. Asked only the engine, the app opened Home.
+      expect(
+        DeepLink.initialRoute(
+          WidgetsBinding.instance,
+          onWeb: true,
+          browserAddress: Uri.parse('https://app.colabroom.com${at.path}'),
+        ),
+        at.path,
+      );
+    });
+
+    test('and the root is still the root, query and all', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      // Where a password reset, a confirmed account and ?deleteAccount=1 all
+      // land. None of them is a place, and reading one as a path would open
+      // a screen instead of doing the thing.
+      for (final address in <String>[
+        'https://app.colabroom.com/',
+        'https://app.colabroom.com/?deleteAccount=1',
+        'https://app.colabroom.com/?code=abc123',
+      ]) {
+        expect(
+          DeepLink.initialRoute(WidgetsBinding.instance,
+              onWeb: true, browserAddress: Uri.parse(address)),
+          '/',
+        );
+      }
+    });
+
+    test('and a link that was waiting still goes first', () async {
+      final waiting = Uri.parse('https://app.colabroom.com${at.path}');
+      await IncomingAddresses()
+          .didPushRouteInformation(RouteInformation(uri: waiting));
+
+      expect(
+        DeepLink.initialRoute(
+          WidgetsBinding.instance,
+          onWeb: true,
+          browserAddress: Uri.parse('https://app.colabroom.com/song/other'),
+        ),
+        waiting.toString(),
+        reason: 'the address somebody just tapped is newer than the page they '
+            'happened to be on',
+      );
+    });
+
+    testWidgets('and the whole stack is built from it', (tester) async {
+      final stack = DeepLink.stackFor(
+        path: at.path,
+        shell: (tab) => const SizedBox(),
+        repository: InMemoryMusicRepository.seeded(),
+        onWeb: true,
+      );
+      expect(stack.length, 2, reason: 'the moment on top of the shell');
+    });
+
+    test('a browser is never asked to start the audio itself', () {
+      // No gesture on a page opened from a pasted link, so every browser
+      // refuses play() -- and the refusal would reach somebody as "could not
+      // play" when they did nothing wrong.
+      expect(DeepLink.playsOnArrival(onWeb: true), isFalse);
+      expect(DeepLink.playsOnArrival(onWeb: false), isTrue);
+      expect(
+        DeepLink.playsOnArrival(nothingUnderneath: false, onWeb: false),
+        isFalse,
+        reason: 'something already open may be playing, and nothing here '
+            'stops it',
+      );
+    });
+
+    testWidgets('one that lands on top of an open screen does not play',
+        (tester) async {
+      // Somebody who has used the app before, so the welcome is not sitting
+      // over the shell: what is being measured here is whether *this* link
+      // put a screen underneath, and any other page would do as well.
+      SharedPreferences.setMockInitialValues(
+          <String, Object>{'welcome_flow_seen_v2': true});
+      tester.view.physicalSize = const Size(390, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final controller = MusicBetaController(InMemoryMusicRepository.seeded());
+      await controller.load();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+          MaterialApp(home: WorkspaceShell(controller: controller)));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      final link = Uri.parse('https://app.colabroom.com${at.path}');
+      Future<void> tap() async {
+        await IncomingAddresses()
+            .didPushRouteInformation(RouteInformation(uri: link));
+        for (var i = 0; i < 10; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      // Nothing but the shell underneath, so it plays: that is what a link
+      // to a moment is for.
+      await tap();
+      expect(
+        tester
+            .widget<SongLayersScreen>(find.byType(SongLayersScreen))
+            .openAtPlays,
+        isTrue,
+      );
+
+      // And now there is a screen under it, which nothing here stops.
+      await tap();
+      expect(
+          tester.widgetList<SongLayersScreen>(
+              find.byType(SongLayersScreen, skipOffstage: false)),
+          hasLength(2));
+      expect(
+        tester
+            .widget<SongLayersScreen>(find.byType(SongLayersScreen))
+            .openAtPlays,
+        isFalse,
+        reason: 'a second player over the first is two recordings at once',
+      );
+    });
+
+    test('the phone claims the address, or none of this runs on a phone', () {
+      // What the manifest and the Universal Links file have to say is
+      // checked in a_link_opens_the_app_test.dart, against every prefix and
+      // every link the app writes. This is the sentence that connects them:
+      // the address written here is under a claimed prefix.
+      expect(
+        momentLink(
+            roomId: at.roomId,
+            projectId: at.projectId,
+            takeId: at.takeId,
+            atMs: at.atMs),
+        startsWith('https://${IncomingAddresses.host}/r/'),
+      );
+    });
+  });
 }

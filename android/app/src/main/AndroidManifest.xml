@@ -67,6 +67,12 @@
                 <data android:pathPrefix="/musician/"/>
                 <data android:pathPrefix="/heard/"/>
                 <data android:pathPrefix="/set/"/>
+                <!-- A moment of a recording inside a room:
+                     /r/<room>/s/<song>?take=&amp;at=. Without this a link a
+                     bandmate texts opens Chrome on a phone that has the app,
+                     and nothing in the app ever sees it. Android reads this
+                     file at install, so it takes a new build. -->
+                <data android:pathPrefix="/r/"/>
             </intent-filter>
         </activity>
         <!-- Must name a channel the app has actually created; see
