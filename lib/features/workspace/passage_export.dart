@@ -128,6 +128,16 @@ abstract final class PassageExport {
     return out;
   }
 
+  /// Where a take's own sample zero sits in song time.
+  ///
+  /// The same two numbers the mixer and the DAW pack line a take up by (see
+  /// TakeExport.alignedWav): the latency correction comes off the front
+  /// because the phone recorded that much behind what it played, and the
+  /// start goes on the front because that is where the take begins in the
+  /// song. Pass the result as `sourceZeroMs` and a cut of a take lands on the
+  /// same bar lines as a cut of the recording.
+  static int songZeroOf(Take take) => take.startMs - take.offsetMs;
+
   /// The passage as a wav, ready to be written or shared.
   static Uint8List wavFor({
     required Float64List source,
@@ -257,9 +267,12 @@ abstract final class PassageExport {
       transpose: 0,
       musicalKey: musicalKey,
       bpm: bpm,
+      // The reason first, so it reads as one paragraph under the sentence
+      // ChordPro already writes about the words, and the passage's own name
+      // under it where a chart puts a heading.
       notes: <String>[
-        cut.label,
         if (!ProjectExportService.wordsTravel(project)) recordingStaysHome,
+        cut.label,
       ],
     );
   }

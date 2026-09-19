@@ -197,6 +197,31 @@ void main() {
       expect(samples[(2000 * Multitrack.rate / 1000).round()], -0.75);
     });
 
+    test('a take is cut at the same moment of the song as the recording', () {
+      // A take punched in at four seconds, recorded 120 ms behind what it
+      // played. Sample zero of its file is therefore 3.88 s into the song.
+      final take = Take(
+        id: 'take-1',
+        path: 'take.m4a',
+        label: 'Harmony',
+        recordedAt: _when,
+        startMs: 4000,
+        offsetMs: 120,
+      );
+      expect(PassageExport.songZeroOf(take), 3880);
+
+      final cut = PassageCut(startMs: 6000, endMs: 8000, label: 'Bars 4–5');
+      final samples = PassageExport.samplesFor(
+        // Marked where the take's own recording is at the moment the song is
+        // at six seconds: 6000 - 3880 = 2120 ms into the file.
+        source: _source(durationMs: 8000, markAtMs: 3000),
+        cut: cut,
+        sourceZeroMs: PassageExport.songZeroOf(take),
+      );
+      // Song time 3000 + 3880 = 6880, which is 880 ms into the cut.
+      expect(samples[(880 * Multitrack.rate / 1000).round()], -0.75);
+    });
+
     test('a passage shorter than its bar is still cut where it was asked',
         () {
       final cut = PassageExport.cutFor(
@@ -306,6 +331,13 @@ void main() {
       expect(text, isNot(contains('Kestrel')));
       expect(text, contains(ProjectExportService.wordsStayHome));
       expect(text, contains(PassageExport.recordingStaysHome));
+      // The two reasons read as one paragraph, and the passage is named under
+      // them the way a chart names the part it is.
+      expect(
+        text.indexOf(ProjectExportService.wordsStayHome),
+        lessThan(text.indexOf(PassageExport.recordingStaysHome)),
+      );
+      expect(text, contains('{comment: Bars 2–3}'));
       expect(
         directory
             .listSync()

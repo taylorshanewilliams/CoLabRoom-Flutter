@@ -1980,6 +1980,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     setState(() {
       _savingCut = true;
       _controlsVisible = true;
+      // Whatever the last thing to go wrong here said. Leaving it up while a
+      // new cut is being made would read as this one having failed too.
+      _mixNote = null;
     });
     try {
       final directory =
