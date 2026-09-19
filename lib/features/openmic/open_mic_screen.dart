@@ -402,45 +402,38 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     // three filters on one library, and the freed one goes to the part of the
     // app that is supposed to grow.
     //
-    // The LayoutBuilder is for the chrome above the list; see _chromeScrolls.
-    return LayoutBuilder(builder: (context, constraints) {
-      return Column(
-        children: <Widget>[
-          _chromeScrolls(
-            constraints,
-            children: <Widget>[_topBar(), _yourOwnSongs(), _header(), _statement()],
-          ),
-          if (_query.isFinished)
-            Expanded(
-              child: _FinishedList(
-                songs: _finished,
-                error: _error,
-                onOpen: (song) => unawaited(_openSong(OpenMicSong(
-                  id: song.id,
-                  title: song.title,
-                  ownerId: song.ownerId,
-                  ownerName: song.ownerName,
-                  putUpAt: song.shownAt,
-                  storagePath: song.storagePath,
-                  durationMs: song.durationMs,
-                  musicalKey: song.musicalKey,
-                ))),
-              ),
-            )
-          else if (_query.isSongs)
-            Expanded(child: _SongList(
-              songs: _songs,
-              error: _error,
-              onOpen: _openSong,
-            ))
-          else
-            Expanded(child: _peopleList(found)),
-        ],
-      );
-    });
+    // One page rather than a header and a list: see the note on _chrome.
+    return CustomScrollView(
+      slivers: <Widget>[
+        SliverToBoxAdapter(child: _chrome()),
+        if (_query.isFinished)
+          _FinishedList(
+            songs: _finished,
+            error: _error,
+            onOpen: (song) => unawaited(_openSong(OpenMicSong(
+              id: song.id,
+              title: song.title,
+              ownerId: song.ownerId,
+              ownerName: song.ownerName,
+              putUpAt: song.shownAt,
+              storagePath: song.storagePath,
+              durationMs: song.durationMs,
+              musicalKey: song.musicalKey,
+            ))),
+          )
+        else if (_query.isSongs)
+          _SongList(
+            songs: _songs,
+            error: _error,
+            onOpen: _openSong,
+          )
+        else
+          _peopleList(found),
+      ],
+    );
   }
 
-  /// The four things above the list, and the room they are allowed to take.
+  /// The four things above the list, scrolling with it rather than beside it.
   ///
   /// Every Musician, Same Song, 17 September 2026: the phone's own text size
   /// is honoured, never clamped. This tab stacks a top bar, the strip of your
@@ -449,26 +442,19 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
   /// largest, on a screen 743 tall. So the list was given nothing and the
   /// column ran off the bottom by six pixels.
   ///
-  /// Nothing is shrunk and nothing is cut off: above the cap the chrome
-  /// scrolls. The cap leaves [_roomForOneResult], because a room whose whole
-  /// screen is chrome is not a room — one person, one song, something to
-  /// scroll from. At ordinary text sizes the chrome is well under the cap and
-  /// this changes nothing about the screen.
-  static const double _roomForOneResult = 140;
-
-  Widget _chromeScrolls(
-    BoxConstraints constraints, {
-    required List<Widget> children,
-  }) {
-    final column = Column(mainAxisSize: MainAxisSize.min, children: children);
-    // Nothing to cap it against, and a scroll view with no bound throws. The
-    // shell always gives this tab a bounded height; a caller that does not
-    // gets the plain stack.
-    if (!constraints.hasBoundedHeight) return column;
-    final cap = constraints.maxHeight - _roomForOneResult;
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: cap > 0 ? cap : 0),
-      child: SingleChildScrollView(child: column),
+  /// #391 held that by capping the chrome and letting it scroll on its own,
+  /// which stopped the overflow and cost the thing a page is: at large text
+  /// the tab became two regions that scrolled independently, so a drag
+  /// starting on the title moved the chrome and left the list exactly where
+  /// it was, and the list itself could be left with about 140 pixels to live
+  /// in. One CustomScrollView instead — the chrome is the first sliver and
+  /// the list is the rest of it, so one drag anywhere moves the whole room
+  /// and the list has the entire screen once the chrome has scrolled by. At
+  /// ordinary text sizes everything is where it has always been.
+  Widget _chrome() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[_topBar(), _yourOwnSongs(), _header(), _statement()],
     );
   }
 
@@ -618,43 +604,53 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     );
   }
 
+  /// Who is in the room, as a sliver under the chrome.
+  ///
+  /// Waiting fills what is left of the screen rather than sitting under the
+  /// sentence: a spinner is the answer to the whole page, not an item in a
+  /// list.
   Widget _peopleList(List<Musician>? found) {
     if (found == null) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppColors.gold),
+      return const SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(
+          child: CircularProgressIndicator(color: AppColors.gold),
+        ),
       );
     }
-    return ListView(
+    return SliverPadding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-      children: <Widget>[
-        if (_error != null) ...<Widget>[
-          ProblemNote(_error!, fontSize: 13),
-          const SizedBox(height: 14),
+      sliver: SliverList.list(
+        children: <Widget>[
+          if (_error != null) ...<Widget>[
+            ProblemNote(_error!, fontSize: 13),
+            const SizedBox(height: 14),
+          ],
+          if (found.isEmpty)
+            _Empty(
+              listed: _me?.discoverable,
+              narrowed: _query.isNarrowed,
+              onListMe: _listMe,
+              onAskSomebody: _askSomebodyNotHere,
+              onLeaveWant: _query.parts.length == 1 ? _leaveWant : null,
+              lookingFor: _query.parts.length == 1
+                  ? someoneWhoPlays(_query.parts.first)
+                  : null,
+              wantsAround: _wantsAround,
+            )
+          else ...<Widget>[
+            if (_aloneInTheRoom(found))
+              _OnlyYou(onAskSomebody: _askSomebodyNotHere),
+            for (final musician in found)
+              _MusicianCard(
+                musician: musician,
+                isYou: musician.id == widget.repository.currentUserId,
+                filter: null,
+                onTap: () => _openProfile(musician),
+              ),
+          ],
         ],
-        if (found.isEmpty)
-          _Empty(
-            listed: _me?.discoverable,
-            narrowed: _query.isNarrowed,
-            onListMe: _listMe,
-            onAskSomebody: _askSomebodyNotHere,
-            onLeaveWant: _query.parts.length == 1 ? _leaveWant : null,
-            lookingFor: _query.parts.length == 1
-                ? someoneWhoPlays(_query.parts.first)
-                : null,
-            wantsAround: _wantsAround,
-          )
-        else ...<Widget>[
-          if (_aloneInTheRoom(found))
-            _OnlyYou(onAskSomebody: _askSomebodyNotHere),
-          for (final musician in found)
-            _MusicianCard(
-              musician: musician,
-              isYou: musician.id == widget.repository.currentUserId,
-              filter: null,
-              onTap: () => _openProfile(musician),
-            ),
-        ],
-      ],
+      ),
     );
   }
 }
@@ -666,6 +662,9 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
 /// act on: you cannot tell from "Ladder Of Life" whether it wants a bass
 /// player, and playing all of them to find out is exactly the friction that
 /// makes a pile of audio go unlistened to.
+///
+/// Builds a sliver: the room is one scroll, chrome and list together. See
+/// [_OpenMicScreenState._chrome].
 class _SongList extends StatelessWidget {
   const _SongList({
     required this.songs,
@@ -681,53 +680,60 @@ class _SongList extends StatelessWidget {
   Widget build(BuildContext context) {
     final found = songs;
     if (found == null) {
-      return const Center(child: CircularProgressIndicator(color: AppColors.gold));
+      return const SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(child: CircularProgressIndicator(color: AppColors.gold)),
+      );
     }
-    return ListView(
+    return SliverPadding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-      children: <Widget>[
-        if (error != null) ...<Widget>[
-          Text(error!,
-              style: const TextStyle(color: AppColors.orange, fontSize: 13)),
-          const SizedBox(height: 14),
-        ],
-        if (found.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(top: 40),
-            child: Column(
-              children: <Widget>[
-                Icon(Icons.library_music_outlined,
-                    size: 34, color: AppColors.line),
-                SizedBox(height: 12),
-                Text(
-                  'Nobody needs anything right now',
-                  style: TextStyle(
-                    color: AppColors.text,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
+      sliver: SliverList.list(
+        children: <Widget>[
+          if (error != null) ...<Widget>[
+            Text(error!,
+                style: const TextStyle(color: AppColors.orange, fontSize: 13)),
+            const SizedBox(height: 14),
+          ],
+          if (found.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 40),
+              child: Column(
+                children: <Widget>[
+                  Icon(Icons.library_music_outlined,
+                      size: 34, color: AppColors.line),
+                  SizedBox(height: 12),
+                  Text(
+                    'Nobody needs anything right now',
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                ),
-                SizedBox(height: 6),
-                // Names the action rather than describing the mechanism.
-                // The old copy explained how a song gets here, which is a
-                // sentence about the app; this is one about them.
-                // A noticeboard with nothing on it means everybody is sorted.
-                // A feed with nothing in it is broken. They read completely
-                // differently to a person, and this is the first one.
-                Text(
-                  'This is where songs come to find the part they are '
-                  'missing. Ask for one on a song of yours and it shows up '
-                  'here.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: AppColors.muted, fontSize: 12.5, height: 1.45),
-                ),
-              ],
-            ),
-          )
-        else
-          for (final song in found) _SongCard(song: song, onTap: () => onOpen(song)),
-      ],
+                  SizedBox(height: 6),
+                  // Names the action rather than describing the mechanism.
+                  // The old copy explained how a song gets here, which is a
+                  // sentence about the app; this is one about them.
+                  // A noticeboard with nothing on it means everybody is
+                  // sorted. A feed with nothing in it is broken. They read
+                  // completely differently to a person, and this is the first
+                  // one.
+                  Text(
+                    'This is where songs come to find the part they are '
+                    'missing. Ask for one on a song of yours and it shows up '
+                    'here.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: AppColors.muted, fontSize: 12.5, height: 1.45),
+                  ),
+                ],
+              ),
+            )
+          else
+            for (final song in found)
+              _SongCard(song: song, onTap: () => onOpen(song)),
+        ],
+      ),
     );
   }
 }
@@ -1422,6 +1428,9 @@ class _OnlyYou extends StatelessWidget {
 /// chart, and this app does not rank people — somebody's first finished song
 /// sits above a record with a thousand plays if they finished it this
 /// morning, which is right for a room and wrong for a league.
+///
+/// Builds a sliver: the room is one scroll, chrome and list together. See
+/// [_OpenMicScreenState._chrome].
 class _FinishedList extends StatelessWidget {
   const _FinishedList({
     required this.songs,
@@ -1437,48 +1446,52 @@ class _FinishedList extends StatelessWidget {
   Widget build(BuildContext context) {
     final found = songs;
     if (found == null) {
-      return const Center(
-          child: CircularProgressIndicator(color: AppColors.gold));
+      return const SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(child: CircularProgressIndicator(color: AppColors.gold)),
+      );
     }
-    return ListView(
+    return SliverPadding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-      children: <Widget>[
-        if (error != null) ...<Widget>[
-          Text(error!,
-              style: const TextStyle(color: AppColors.orange, fontSize: 13)),
-          const SizedBox(height: 14),
-        ],
-        if (found.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(top: 40),
-            child: Column(
-              children: <Widget>[
-                Icon(Icons.workspace_premium_outlined,
-                    size: 34, color: AppColors.line),
-                SizedBox(height: 12),
-                Text(
-                  'Nothing finished yet',
-                  style: TextStyle(
-                    color: AppColors.text,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
+      sliver: SliverList.list(
+        children: <Widget>[
+          if (error != null) ...<Widget>[
+            Text(error!,
+                style: const TextStyle(color: AppColors.orange, fontSize: 13)),
+            const SizedBox(height: 14),
+          ],
+          if (found.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 40),
+              child: Column(
+                children: <Widget>[
+                  Icon(Icons.workspace_premium_outlined,
+                      size: 34, color: AppColors.line),
+                  SizedBox(height: 12),
+                  Text(
+                    'Nothing finished yet',
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                ),
-                SizedBox(height: 6),
-                Text(
-                  'This is where songs go when they are done. Finish one of '
-                  'yours and show it, and it will be the first thing here.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: AppColors.muted, fontSize: 12.5, height: 1.45),
-                ),
-              ],
-            ),
-          )
-        else
-          for (final song in found)
-            _FinishedCard(song: song, onTap: () => onOpen(song)),
-      ],
+                  SizedBox(height: 6),
+                  Text(
+                    'This is where songs go when they are done. Finish one of '
+                    'yours and show it, and it will be the first thing here.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: AppColors.muted, fontSize: 12.5, height: 1.45),
+                  ),
+                ],
+              ),
+            )
+          else
+            for (final song in found)
+              _FinishedCard(song: song, onTap: () => onOpen(song)),
+        ],
+      ),
     );
   }
 }
