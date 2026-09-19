@@ -20,6 +20,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'eyes.dart' show isOverflow;
+
 enum Severity {
   /// Fails a published accessibility threshold. Somebody cannot use this.
   fails,
@@ -703,13 +705,40 @@ int countWords(WidgetTester tester, Size viewport) {
 List<Finding> asFindings(List<FlutterErrorDetails> complaints) {
   return <Finding>[
     for (final details in complaints)
-      Finding(
-        rule: 'Threw while drawing',
-        standard: 'an exception is never intended',
-        detail: _oneLine(details),
-        severity: Severity.fails,
-      ),
+      // An overflow reads as its own row rather than as one more exception.
+      // It is the one complaint here that is a gate: the walk fails on it, so
+      // somebody reading the report should not have to pick it out of a
+      // heading that also holds font fetches and absent platform channels.
+      if (isOverflow(details))
+        Finding(
+          rule: 'Overflowed',
+          standard: 'text wraps or the screen scrolls; nothing is cut off '
+              '(WCAG 2.1 AA §1.4.4 Resize text)',
+          detail: '${_oneLine(details)}${_whichWidget(details)}',
+          severity: Severity.fails,
+        )
+      else
+        Finding(
+          rule: 'Threw while drawing',
+          standard: 'an exception is never intended',
+          detail: _oneLine(details),
+          severity: Severity.fails,
+        ),
   ];
+}
+
+/// The file and line of the widget that could not fit, when Flutter knows it.
+///
+/// "A RenderFlex overflowed by 26 pixels on the bottom" costs an investigation
+/// to locate, and a finding that costs an investigation is a finding people
+/// stop chasing — which is the exact complaint test/every_screen_draws_test
+/// already makes about this. Flutter names the widget in the full report, in
+/// the form `Column:file:///…/out_there.dart:127:20`, so the gate quotes it
+/// and somebody can open the line.
+String _whichWidget(FlutterErrorDetails details) {
+  final match =
+      RegExp(r'file:///\S*?/lib/(\S+?\.dart:\d+:\d+)').firstMatch('$details');
+  return match == null ? '' : ' — lib/${match.group(1)}';
 }
 
 String _oneLine(FlutterErrorDetails details) {

@@ -1,7 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
+import '../../widgets/text_measures.dart';
 
 /// What is happening to the things you put up.
 ///
@@ -26,6 +29,10 @@ class OutThere extends StatelessWidget {
     super.key,
   });
 
+  /// The height the strip rests at, and its floor. See the note on the
+  /// SizedBox below.
+  static const double _restingHeight = 92;
+
   final List<OpenMicStatus> mine;
   final ValueChanged<OpenMicStatus> onOpen;
 
@@ -49,10 +56,12 @@ class OutThere extends StatelessWidget {
                   size: 14, color: AppColors.gold),
               const SizedBox(width: 7),
               Expanded(
+                // Wraps. It is the one line that says the whole state of what
+                // you put up, for somebody who is not going to read the cards
+                // — and at the largest text size it read "1 SONG OUT THERE ·
+                // 1 OFFE…", which is the half that does not matter.
                 child: Text(
                   _summary(mine.length, listeners, offers),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: AppColors.gold,
                     fontSize: 11,
@@ -65,7 +74,23 @@ class OutThere extends StatelessWidget {
           ),
           const SizedBox(height: 9),
           SizedBox(
-            height: 92,
+            // Two lines of title, one line under it, and the card's own
+            // padding — worked out at whatever text size this phone is set
+            // to rather than written down as 92. See linesOfTextHigh: a
+            // horizontal list is the one layout Flutter will not size for
+            // itself, and since the reader's own text size stopped being
+            // clamped a flat 92 cut the second line off.
+            //
+            // 92 stays the floor, so the strip is the height it has always
+            // been at the usual text sizes: the card holds its title and its
+            // line apart (spaceBetween), and that air is part of the drawing
+            // rather than slack nobody meant.
+            height: math.max(
+              _restingHeight,
+              _Card.padding.vertical +
+                  linesOfTextHigh(context, _Card.titleStyle, lines: 2) +
+                  linesOfTextHigh(context, _Card.underStyle),
+            ),
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: mine.length,
@@ -102,13 +127,30 @@ class _Card extends StatelessWidget {
   final OpenMicStatus song;
   final VoidCallback onTap;
 
+  /// What the card is made of, named so OutThere can work out how tall the
+  /// strip holding these has to be at the reader's own text size.
+  static const EdgeInsets padding = EdgeInsets.fromLTRB(12, 10, 12, 10);
+
+  static const TextStyle titleStyle = TextStyle(
+    color: AppColors.text,
+    fontSize: 13,
+    fontWeight: FontWeight.w800,
+    height: 1.25,
+  );
+
+  static const TextStyle underStyle =
+      TextStyle(color: AppColors.muted, fontSize: 11.5);
+
   @override
   Widget build(BuildContext context) {
     // An offer is somebody putting their hand up, so it outranks every
     // number on the card and takes the colour.
     final waiting = song.offers > 0;
     return SizedBox(
-      width: 168,
+      // Wider when the text is bigger, for the same reason the strip is
+      // taller: 168 was room for a two-line song title at 13 points, and at
+      // twice that it is room for three words and an ellipsis.
+      width: 168 * textGrowth(context, titleStyle.fontSize!),
       child: Material(
         color: AppColors.raised,
         clipBehavior: Clip.antiAlias,
@@ -123,20 +165,17 @@ class _Card extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            padding: padding,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
-                Text(
-                  song.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.text,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    height: 1.25,
+                Flexible(
+                  child: Text(
+                    song.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: titleStyle,
                   ),
                 ),
                 if (waiting)
@@ -146,9 +185,8 @@ class _Card extends StatelessWidget {
                         : '${song.offers} people offered',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: underStyle.copyWith(
                       color: AppColors.cyan,
-                      fontSize: 11.5,
                       fontWeight: FontWeight.w800,
                     ),
                   )
@@ -157,8 +195,7 @@ class _Card extends StatelessWidget {
                     _heard(song),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: AppColors.muted, fontSize: 11.5),
+                    style: underStyle,
                   ),
               ],
             ),

@@ -30,6 +30,22 @@ class CoLabRoomApp extends StatefulWidget {
   State<CoLabRoomApp> createState() => _CoLabRoomAppState();
 }
 
+/// The app, and no `builder`.
+///
+/// **The text is the size the phone says it is.** There used to be a `builder`
+/// here clamping the system text scale to 0.8-1.3, so somebody who had set the
+/// largest size on their phone — which is the whole of how a partially sighted
+/// musician reads anything — got a *smaller* one here than their phone
+/// promised. Every Musician, Same Song, 17 September 2026: the phone's own text
+/// size is honoured, never clamped, and it is the first thing ADA Title II and
+/// WCAG 2.1 AA §1.4.4 ask of anything a school or a university would run.
+///
+/// The clamp was there to stop fixed heights overflowing. The fix for a fixed
+/// height is an intrinsic height, not shrinking the reader's text, and nothing
+/// replaces the builder: MaterialApp makes its own MediaQuery from the view, so
+/// with none here the scaler is exactly what the platform reports. `test_render`
+/// renders the whole app at 2.0 and fails a walk on any overflow, which is what
+/// keeps that true.
 class _CoLabRoomAppState extends State<CoLabRoomApp> {
   // Made once, not per build: a new delegate would be a new navigator, and
   // everything open on it would close.
@@ -56,17 +72,6 @@ class _CoLabRoomAppState extends State<CoLabRoomApp> {
     backButtonDispatcher: RootBackButtonDispatcher(),
   );
 
-  // Clamp system font scaling so a user's accessibility text-size
-  // setting can't blow past what our fixed-width dialogs/tiles were
-  // laid out for and trigger a RenderFlex overflow.
-  Widget _clampText(BuildContext context, Widget? child) {
-    final clamped = MediaQuery.textScalerOf(context).clamp(minScaleFactor: 0.8, maxScaleFactor: 1.3);
-    return MediaQuery(
-      data: MediaQuery.of(context).copyWith(textScaler: clamped),
-      child: child!,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     // The web build runs under a Router, and this is why.
@@ -91,7 +96,6 @@ class _CoLabRoomAppState extends State<CoLabRoomApp> {
         title: BetaConfig.appName,
         debugShowCheckedModeBanner: false,
         theme: CoLabRoomTheme.dark(),
-        builder: _clampText,
         routerConfig: _webRouter,
       );
     }
@@ -100,7 +104,6 @@ class _CoLabRoomAppState extends State<CoLabRoomApp> {
       debugShowCheckedModeBanner: false,
       navigatorObservers: _observers,
       theme: CoLabRoomTheme.dark(),
-      builder: _clampText,
       home: _home,
     );
   }

@@ -271,39 +271,57 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('at big text nothing overflows', (tester) async {
-    tester.view.physicalSize = const Size(360, 690);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.reset);
+  // Every size iOS can be set to, and one above it.
+  //
+  // The five accessibility sizes reach Flutter as 1.64, 1.94, 2.35, 2.76 and
+  // 3.12, so the strip used to be tested at 1.3 — under the lowest of them.
+  // It capped its own height at 1.45 while the text kept growing, and the
+  // card ran off the bottom by 20 pixels at 2.35 and 88 at 3.12: the part
+  // that went was the row with the verb on it, on the first thing on the
+  // landing tab. A tall screen and a landscape one, because the card drops
+  // its face and its second line on the short one and the two heights are
+  // worked out separately.
+  for (final scale in const <double>[1.3, 2.0, 2.35, 2.76, 3.12, 4.0]) {
+    for (final size in const <Size>[Size(360, 690), Size(690, 360)]) {
+      testWidgets(
+          'at ${scale}x text on a ${size.width.round()}-wide screen nothing '
+          'overflows', (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
 
-    final controller = MusicBetaController(InMemoryMusicRepository.seeded());
-    await controller.load();
-    addTearDown(controller.dispose);
+        final controller =
+            MusicBetaController(InMemoryMusicRepository.seeded());
+        await controller.load();
+        addTearDown(controller.dispose);
 
-    await tester.pumpWidget(BetaScope(
-      controller: controller,
-      child: MaterialApp(
-        theme: CoLabRoomTheme.dark(),
-        home: MediaQuery(
-          // Size carried through, not dropped. A bare `MediaQueryData` with
-          // only a scaler on it reports a zero-size screen, which the strip
-          // reads as a landscape phone and answers with its short card — so
-          // the big-text case would have quietly tested the wrong layout.
-          data: const MediaQueryData(
-            size: Size(360, 690),
-            textScaler: TextScaler.linear(1.3),
-          ),
-          child: Scaffold(
-            body: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[WaitingOnYou(items: _five())],
+        await tester.pumpWidget(BetaScope(
+          controller: controller,
+          child: MaterialApp(
+            theme: CoLabRoomTheme.dark(),
+            home: MediaQuery(
+              // Size carried through, not dropped. A bare `MediaQueryData`
+              // with only a scaler on it reports a zero-size screen, which
+              // the strip reads as a landscape phone and answers with its
+              // short card — so the big-text case would have quietly tested
+              // the wrong layout.
+              data: MediaQueryData(
+                size: size,
+                textScaler: TextScaler.linear(scale),
+              ),
+              child: Scaffold(
+                body: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[WaitingOnYou(items: _five())],
+                ),
+              ),
             ),
           ),
-        ),
-      ),
-    ));
-    await tester.pump();
+        ));
+        await tester.pump();
 
-    expect(tester.takeException(), isNull);
-  });
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
 }

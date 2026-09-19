@@ -14,6 +14,7 @@ import '../../widgets/problem_report.dart';
 import '../../widgets/app_surface.dart';
 import '../../domain/musical_roles.dart';
 import '../../widgets/play_button.dart';
+import '../../widgets/text_measures.dart';
 import '../openmic/report_sheet.dart';
 import '../../app/routes.dart';
 import '../lessons/with_birth_month.dart';
@@ -298,24 +299,73 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         roomInvites.isEmpty &&
         notifications.isEmpty;
 
+    // The two word actions, and whether they still fit beside the title.
+    //
+    // An app bar is one row and Flutter will not fold it: at the largest text
+    // size "Mark all read" and "Clear read" wanted 39 pixels more than a
+    // phone is wide and the bar simply ran off the side. Every Musician, Same
+    // Song, 17 September 2026: the phone's own text size is honoured, so the
+    // words do not shrink — they move into a menu, where they are read at the
+    // size this phone asks for. Measured rather than switched on a scale
+    // factor, because whether two words fit depends on the words, the font
+    // and the phone, and a threshold guesses at all three.
+    final wordActions = <(Key, String, VoidCallback)>[
+      if (notifications.any((n) => !n.isRead))
+        (
+          const Key('inbox_mark_all_read'),
+          'Mark all read',
+          () => controller.markAllNotificationsRead(),
+        ),
+      // Reading something was never the same as being done with it, and
+      // until this existed there was no way to say the second thing at all:
+      // an inbox could only grow.
+      if (notifications.any((n) => n.isRead))
+        (
+          const Key('inbox_clear_read'),
+          'Clear read',
+          () => unawaited(controller.deleteReadNotifications()),
+        ),
+    ];
+    final theme = Theme.of(context);
+    final labelStyle = theme.textTheme.labelLarge ??
+        const TextStyle(fontSize: 14, fontWeight: FontWeight.w500);
+    final titleStyle = theme.appBarTheme.titleTextStyle ??
+        theme.textTheme.titleLarge ??
+        const TextStyle(fontSize: 22);
+    // A back arrow and the key icon are 48 apiece and do not grow with text;
+    // a TextButton pads its label by 16 on each side, and so does the title.
+    final roomForWords = MediaQuery.sizeOf(context).width -
+        96 -
+        textWidthOf(context, 'Inbox', titleStyle) -
+        32;
+    final wordsNeed = wordActions.fold<double>(
+      0,
+      (sum, action) => sum + textWidthOf(context, action.$2, labelStyle) + 32,
+    );
+    final intoTheMenu = wordsNeed > roomForWords;
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         title: const Text('Inbox'),
         actions: <Widget>[
-          if (notifications.any((n) => !n.isRead))
-            TextButton(
-              onPressed: () => controller.markAllNotificationsRead(),
-              child: const Text('Mark all read'),
-            ),
-          // Reading something was never the same as being done with it, and
-          // until now there was no way to say the second thing at all: an
-          // inbox could only grow.
-          if (notifications.any((n) => n.isRead))
-            TextButton(
-              key: const Key('inbox_clear_read'),
-              onPressed: () => unawaited(controller.deleteReadNotifications()),
-              child: const Text('Clear read'),
+          if (!intoTheMenu)
+            for (final (key, label, act) in wordActions)
+              TextButton(key: key, onPressed: act, child: Text(label)),
+          if (intoTheMenu && wordActions.isNotEmpty)
+            PopupMenuButton<VoidCallback>(
+              key: const Key('inbox_more'),
+              tooltip: 'More',
+              icon: const Icon(Icons.more_vert_rounded),
+              onSelected: (act) => act(),
+              itemBuilder: (_) => <PopupMenuEntry<VoidCallback>>[
+                for (final (key, label, act) in wordActions)
+                  PopupMenuItem<VoidCallback>(
+                    key: key,
+                    value: act,
+                    child: Text(label),
+                  ),
+              ],
             ),
           IconButton(
             key: const Key('inbox_use_code'),
@@ -936,37 +986,75 @@ class _AskCard extends StatelessWidget {
             style: TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.4),
           ),
           const SizedBox(height: 10),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: FilledButton(
-                  onPressed: busy ? null : onAccept,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.cyan,
-                    foregroundColor: AppColors.ink,
-                  ),
-                  child: const Text("I'm in"),
-                ),
+          _Answers(
+            accept: FilledButton(
+              onPressed: busy ? null : onAccept,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.cyan,
+                foregroundColor: AppColors.ink,
               ),
-              const SizedBox(width: 8),
-              TextButton(
-                key: const Key('ask_card_reply'),
-                onPressed: busy ? null : onReply,
-                style: TextButton.styleFrom(foregroundColor: AppColors.cyan),
-                child: const Text('Reply'),
-              ),
-              // A real answer, not a dismissal. Somebody who asked deserves
-              // to hear no rather than nothing, and an ask that can only be
-              // answered with silence is one nobody sends twice.
-              TextButton(
-                onPressed: busy ? null : onDecline,
-                style: TextButton.styleFrom(foregroundColor: AppColors.muted),
-                child: const Text('Not this one'),
-              ),
-            ],
+              child: const Text("I'm in"),
+            ),
+            reply: TextButton(
+              key: const Key('ask_card_reply'),
+              onPressed: busy ? null : onReply,
+              style: TextButton.styleFrom(foregroundColor: AppColors.cyan),
+              child: const Text('Reply'),
+            ),
+            // A real answer, not a dismissal. Somebody who asked deserves to
+            // hear no rather than nothing, and an ask that can only be
+            // answered with silence is one nobody sends twice.
+            decline: TextButton(
+              onPressed: busy ? null : onDecline,
+              style: TextButton.styleFrom(foregroundColor: AppColors.muted),
+              child: const Text('Not this one'),
+            ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The three ways to answer an ask: side by side, or under each other.
+///
+/// They were a Row with "I'm in" in an Expanded. Every Musician, Same Song,
+/// 17 September 2026: the phone's own text size is honoured, never clamped —
+/// and at the largest size the two words beside it wanted more than a phone is
+/// wide, so the Expanded was left about thirty pixels and drew "I'm in" one
+/// letter per line. Somebody who cannot read small text was handed the one
+/// card in this app another musician is waiting on, with the yes unreadable.
+///
+/// Stacked above 1.5 rather than at the first pixel of trouble: below it the
+/// card is exactly what it has always been, which is most phones, and answers
+/// that rearrange themselves because somebody nudged their text size one step
+/// are worse than either layout.
+class _Answers extends StatelessWidget {
+  const _Answers({
+    required this.accept,
+    required this.reply,
+    required this.decline,
+  });
+
+  final Widget accept;
+  final Widget reply;
+  final Widget decline;
+
+  @override
+  Widget build(BuildContext context) {
+    if (textGrowth(context, 14) >= 1.5) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[accept, reply, decline],
+      );
+    }
+    return Row(
+      children: <Widget>[
+        Expanded(child: accept),
+        const SizedBox(width: 8),
+        reply,
+        decline,
+      ],
     );
   }
 }

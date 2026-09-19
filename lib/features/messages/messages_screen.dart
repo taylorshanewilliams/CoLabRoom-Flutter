@@ -368,7 +368,15 @@ class _ThreadRow extends StatelessWidget {
                       Expanded(
                         child: Text(
                           thread.name,
-                          maxLines: 1,
+                          // Two lines, for the same reason a room's name gets
+                          // two on the Songs tab: at twice normal text "After
+                          // Hours Studio" is "After Hours S…", and two rooms
+                          // that share a first word are the same thread twice
+                          // on the screen somebody opens to tell them apart.
+                          // The line of the last message underneath stays at
+                          // one — it is a preview, and a preview is allowed
+                          // to trail off.
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: AppColors.text,

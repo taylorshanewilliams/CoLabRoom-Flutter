@@ -401,36 +401,113 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
     // Studio and the Control Room stopped being destinations: three tabs were
     // three filters on one library, and the freed one goes to the part of the
     // app that is supposed to grow.
-    return Column(
-      children: <Widget>[
-        // The same corner as the other tab, in the same place. Home used to
-        // be the only screen carrying the bell and the avatar, so when it
-        // stopped being a tab they had to live somewhere both tabs could
-        // reach — which is here, identically positioned, so it is a place
-        // people learn once.
-        if (widget.showTopBar &&
-            widget.onOpenAccount != null &&
-            widget.onOpenNotifications != null)
-          AppTopBar(
-            displayName: widget.displayName,
-            onOpenAccount: widget.onOpenAccount!,
-            onOpenNotifications: widget.onOpenNotifications!,
+    //
+    // The LayoutBuilder is for the chrome above the list; see _chromeScrolls.
+    return LayoutBuilder(builder: (context, constraints) {
+      return Column(
+        children: <Widget>[
+          _chromeScrolls(
+            constraints,
+            children: <Widget>[_topBar(), _yourOwnSongs(), _header(), _statement()],
           ),
-        // Above the filters, because it is about you rather than about the
-        // room, and somebody opening this tab wants to know what came back
-        // before they start looking outward again.
-        OutThere(
-          mine: _mine,
-          onOpen: (song) => unawaited(_openSong(OpenMicSong(
-            id: song.id,
-            title: song.title,
-            ownerName: '',
-            putUpAt: song.putUpAt,
-            askingFor: song.askingFor,
-            storagePath: song.storagePath,
-          ))),
-        ),
-        Padding(
+          if (_query.isFinished)
+            Expanded(
+              child: _FinishedList(
+                songs: _finished,
+                error: _error,
+                onOpen: (song) => unawaited(_openSong(OpenMicSong(
+                  id: song.id,
+                  title: song.title,
+                  ownerId: song.ownerId,
+                  ownerName: song.ownerName,
+                  putUpAt: song.shownAt,
+                  storagePath: song.storagePath,
+                  durationMs: song.durationMs,
+                  musicalKey: song.musicalKey,
+                ))),
+              ),
+            )
+          else if (_query.isSongs)
+            Expanded(child: _SongList(
+              songs: _songs,
+              error: _error,
+              onOpen: _openSong,
+            ))
+          else
+            Expanded(child: _peopleList(found)),
+        ],
+      );
+    });
+  }
+
+  /// The four things above the list, and the room they are allowed to take.
+  ///
+  /// Every Musician, Same Song, 17 September 2026: the phone's own text size
+  /// is honoured, never clamped. This tab stacks a top bar, the strip of your
+  /// own songs, a title with two buttons and the sentence saying what you are
+  /// looking at — 424 pixels of chrome at the usual text size, and 681 at the
+  /// largest, on a screen 743 tall. So the list was given nothing and the
+  /// column ran off the bottom by six pixels.
+  ///
+  /// Nothing is shrunk and nothing is cut off: above the cap the chrome
+  /// scrolls. The cap leaves [_roomForOneResult], because a room whose whole
+  /// screen is chrome is not a room — one person, one song, something to
+  /// scroll from. At ordinary text sizes the chrome is well under the cap and
+  /// this changes nothing about the screen.
+  static const double _roomForOneResult = 140;
+
+  Widget _chromeScrolls(
+    BoxConstraints constraints, {
+    required List<Widget> children,
+  }) {
+    final column = Column(mainAxisSize: MainAxisSize.min, children: children);
+    // Nothing to cap it against, and a scroll view with no bound throws. The
+    // shell always gives this tab a bounded height; a caller that does not
+    // gets the plain stack.
+    if (!constraints.hasBoundedHeight) return column;
+    final cap = constraints.maxHeight - _roomForOneResult;
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: cap > 0 ? cap : 0),
+      child: SingleChildScrollView(child: column),
+    );
+  }
+
+  /// The same corner as the other tab, in the same place. Home used to be the
+  /// only screen carrying the bell and the avatar, so when it stopped being a
+  /// tab they had to live somewhere both tabs could reach — which is here,
+  /// identically positioned, so it is a place people learn once.
+  Widget _topBar() {
+    if (!widget.showTopBar ||
+        widget.onOpenAccount == null ||
+        widget.onOpenNotifications == null) {
+      return const SizedBox.shrink();
+    }
+    return AppTopBar(
+      displayName: widget.displayName,
+      onOpenAccount: widget.onOpenAccount!,
+      onOpenNotifications: widget.onOpenNotifications!,
+    );
+  }
+
+  /// Above the filters, because it is about you rather than about the room,
+  /// and somebody opening this tab wants to know what came back before they
+  /// start looking outward again.
+  Widget _yourOwnSongs() {
+    return OutThere(
+      mine: _mine,
+      onOpen: (song) => unawaited(_openSong(OpenMicSong(
+        id: song.id,
+        title: song.title,
+        ownerName: '',
+        putUpAt: song.putUpAt,
+        askingFor: song.askingFor,
+        storagePath: song.storagePath,
+      ))),
+    );
+  }
+
+  Widget _header() {
+    return Padding(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 2),
           // A title and two labelled buttons do not fit a 360px phone at
           // 1.3x text, and the header is not the place to find that out: an
@@ -528,78 +605,58 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
               ],
             );
           }),
-        ),
+        );
+  }
+
+  Widget _statement() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
         _Statement(query: _query, onTap: _busy ? null : _narrow),
         const Divider(height: 1),
-        if (_query.isFinished)
-          Expanded(
-            child: _FinishedList(
-              songs: _finished,
-              error: _error,
-              onOpen: (song) => unawaited(_openSong(OpenMicSong(
-                id: song.id,
-                title: song.title,
-                ownerId: song.ownerId,
-                ownerName: song.ownerName,
-                putUpAt: song.shownAt,
-                storagePath: song.storagePath,
-                durationMs: song.durationMs,
-                musicalKey: song.musicalKey,
-              ))),
-            ),
-          )
-        else if (_query.isSongs)
-          Expanded(child: _SongList(
-            songs: _songs,
-            error: _error,
-            onOpen: _openSong,
-          ))
-        else
-        Expanded(
-          child:
-              found == null
-                  ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.gold),
-                  )
-                  : ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-                    children: <Widget>[
-                      if (_error != null) ...<Widget>[
-                        ProblemNote(_error!, fontSize: 13),
-                        const SizedBox(height: 14),
-                      ],
-                      if (found.isEmpty)
-                        _Empty(
-                          listed: _me?.discoverable,
-                          narrowed: _query.isNarrowed,
-                          onListMe: _listMe,
-                          onAskSomebody: _askSomebodyNotHere,
-                          onLeaveWant:
-                              _query.parts.length == 1 ? _leaveWant : null,
-                          lookingFor: _query.parts.length == 1
-                              ? someoneWhoPlays(_query.parts.first)
-                              : null,
-                          wantsAround: _wantsAround,
-                        )
-                      else ...<Widget>[
-                        if (_aloneInTheRoom(found))
-                          _OnlyYou(onAskSomebody: _askSomebodyNotHere),
-                        for (final musician in found)
-                          _MusicianCard(
-                            musician: musician,
-                            isYou:
-                                musician.id == widget.repository.currentUserId,
-                            filter: null,
-                            onTap: () => _openProfile(musician),
-                          ),
-                      ],
-                    ],
-                  ),
-        ),
       ],
     );
   }
 
+  Widget _peopleList(List<Musician>? found) {
+    if (found == null) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.gold),
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+      children: <Widget>[
+        if (_error != null) ...<Widget>[
+          ProblemNote(_error!, fontSize: 13),
+          const SizedBox(height: 14),
+        ],
+        if (found.isEmpty)
+          _Empty(
+            listed: _me?.discoverable,
+            narrowed: _query.isNarrowed,
+            onListMe: _listMe,
+            onAskSomebody: _askSomebodyNotHere,
+            onLeaveWant: _query.parts.length == 1 ? _leaveWant : null,
+            lookingFor: _query.parts.length == 1
+                ? someoneWhoPlays(_query.parts.first)
+                : null,
+            wantsAround: _wantsAround,
+          )
+        else ...<Widget>[
+          if (_aloneInTheRoom(found))
+            _OnlyYou(onAskSomebody: _askSomebodyNotHere),
+          for (final musician in found)
+            _MusicianCard(
+              musician: musician,
+              isYou: musician.id == widget.repository.currentUserId,
+              filter: null,
+              onTap: () => _openProfile(musician),
+            ),
+        ],
+      ],
+    );
+  }
 }
 
 /// The songs half of the Open Mic.

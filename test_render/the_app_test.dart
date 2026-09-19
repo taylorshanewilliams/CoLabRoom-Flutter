@@ -8,14 +8,18 @@
 //   * `_sheet.png` per device — the whole walk on one page
 //   * `REPORT.md` — everything that missed a published threshold
 //
-// Not run by `flutter test`, which walks `test/` only. This is a thing you
-// point at the app when you want to know how it is doing, not a gate.
+// Not run by `flutter test`, which walks `test/` only. This is mostly a thing
+// you point at the app when you want to know how it is doing rather than a
+// gate — with one exception. A screen that overflowed fails its device's walk,
+// because the reader's own text size is no longer clamped and a row that runs
+// off the side at 2x is not a matter of taste. See _overflowed.
 import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:colabroom/app/colabroom_app.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
+import 'package:colabroom/features/workspace/song_workspace_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -25,6 +29,31 @@ import 'rules.dart';
 
 /// Everything measured across every device, collected for one report.
 final List<Finding> _findings = <Finding>[];
+
+/// The one finding this walk is a gate for.
+///
+/// Everything else here is a survey: it is written down, a human weighs it up,
+/// and the walk carries on so the twelve screens after a bad one still get
+/// photographed. A box that could not hold its text is different. Since
+/// ColabRoomApp stopped clamping the reader's own text size — Every Musician,
+/// Same Song, 17 September 2026 — the largest iOS size reaches these screens
+/// for real, and a row that runs off the side at 2x is a musician who cannot
+/// read the app. So overflow is collected per device and asserted at the end
+/// of that device's walk, which keeps the walk complete and still fails.
+final List<Finding> _overflowed = <Finding>[];
+
+String _overflowReport(String device) {
+  final lines = <String>[
+    'the app overflowed on $device, at ${_overflowed.length} place(s):',
+    '',
+    for (final f in _overflowed) '  · ${f.screen}: ${f.detail}',
+    '',
+    'Text wraps or the screen scrolls; nothing is cut off and nothing is '
+        'shrunk to fit. A fixed height becomes an intrinsic one, and a Row '
+        'holding text gets Flexible children.',
+  ];
+  return lines.join(Platform.lineTerminator);
+}
 
 /// How much each screen asks of somebody, on one phone.
 ///
@@ -57,6 +86,38 @@ Future<void> _frames(WidgetTester tester) async {
 Future<bool> _tapText(WidgetTester tester, String label) async {
   final finder = find.text(label);
   if (finder.evaluate().isEmpty) return false;
+  await tester.tap(finder.last, warnIfMissed: false);
+  await _frames(tester);
+  return true;
+}
+
+/// Scrolls something into view and taps it.
+///
+/// "Not on screen" and "on screen but below the fold" are different problems
+/// and a tolerant tap tells them apart by pressing whatever is at those
+/// coordinates — which, near the bottom of a phone, is the tab bar. That is
+/// how this walk spent every 2x run photographing the Open Mic and calling it
+/// the song workspace.
+Future<bool> _revealAndTap(WidgetTester tester, Finder finder) async {
+  if (finder.evaluate().isEmpty) {
+    // Named rather than left to itself: Your music holds two scrollables, the
+    // page and the row of cards that runs sideways across the top of it, and
+    // `scrollUntilVisible` asks for *the* Scrollable and throws on two.
+    final down = find.byWidgetPredicate((widget) =>
+        widget is Scrollable && widget.axisDirection == AxisDirection.down);
+    if (down.evaluate().isEmpty) return false;
+    try {
+      await tester.scrollUntilVisible(finder, 220,
+          maxScrolls: 12, scrollable: down.first);
+    } on StateError {
+      // Not on this screen at all. A survey says so and carries on.
+      return false;
+    }
+    await _frames(tester);
+  }
+  if (finder.evaluate().isEmpty) return false;
+  await tester.ensureVisible(finder.last);
+  await _frames(tester);
   await tester.tap(finder.last, warnIfMissed: false);
   await _frames(tester);
   return true;
@@ -142,11 +203,23 @@ Future<void> _writeDensity() async {
 void main() {
   setUpAll(() async {
     await loadRealFonts();
-    // A real store, empty. Several screens ask preferences a question before
-    // they decide what to draw, and a channel that throws makes those screens
-    // render their error path rather than themselves.
+    // A real store, with the welcome already seen. Several screens ask
+    // preferences a question before they decide what to draw, and a channel
+    // that throws makes those screens render their error path rather than
+    // themselves.
+    //
+    // The welcome has to be marked seen or this walk photographs the tour
+    // instead of the app. WelcomeFlow.offerOnce opens over the first screen,
+    // writes the key, and closes — so the *first* device in the list walked a
+    // modal (its landing shot was "A look around", and neither the bell nor
+    // the account face was reachable behind it) and every later device walked
+    // the real app. That made the findings depend on which device happened to
+    // run first. The welcome has its own harness in the_welcome_test.dart.
     // ignore: invalid_use_of_visible_for_testing_member
-    SharedPreferences.setMockInitialValues(<String, Object>{});
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'welcome_flow_seen_v2': true,
+      'welcome_room_questions_seen_v1': true,
+    });
     // Analyze titles itself in Fraunces, which google_fonts fetches from
     // fonts.gstatic.com at runtime. There is no network here, so it throws
     // whichever way this is set: left alone it fails on the request, turned
@@ -170,6 +243,7 @@ void main() {
       // tearDowns, so an addTearDown here fails the test it just passed.
       stubPlatformChannels();
       final restoreErrors = collectComplaints();
+      _overflowed.clear();
 
       // Shadows on, per test, and put back before the test ends.
       //
@@ -259,6 +333,7 @@ void main() {
           f.device = device.name;
         }
         _findings.addAll(found);
+        _overflowed.addAll(found.where((f) => f.rule == 'Overflowed'));
 
         // One phone only. The point of this table is comparing screens with
         // each other, and six copies of every row at different widths would
@@ -310,9 +385,25 @@ void main() {
       await _tapText(tester, 'Your music');
       await shoot('04-your-music');
 
+      // The third tab. It was the one destination in the bottom bar this walk
+      // had never opened, so nothing had ever looked at it — which matters now
+      // that the reader's own text size reaches it.
+      if (await _tapText(tester, 'Messages')) {
+        await shoot('04b-messages');
+        await _tapText(tester, 'Your music');
+      }
+
       // The single most-used path in the app, and the one carrying the most
       // layout: a toolbar, the asks, and a full-height editor.
-      if (await _tapText(tester, 'Midnight Signal')) {
+      //
+      // Scrolled to, then checked. At 2x text the shelf is taller than the
+      // screen and the song sits below the fold: the tap landed on the Open
+      // Mic tab instead, 05-song-workspace was a photograph of the Open Mic,
+      // and 06-takes and 07-analyze were skipped without a word. A walk that
+      // files the wrong picture under the right name is worse than one that
+      // says it could not get there.
+      await _revealAndTap(tester, find.text('Midnight Signal'));
+      if (find.byType(SongWorkspaceScreen).evaluate().isNotEmpty) {
         await shoot('05-song-workspace');
 
         if (await _tapKey(tester, 'workspace_layers_button')) {
@@ -326,6 +417,16 @@ void main() {
             await _tapKey(tester, 'workspace_record_button')) {
           await shoot('07-analyze');
         }
+      } else {
+        _findings.add(Finding(
+          rule: 'Nothing reaches it',
+          standard: 'a song on the shelf opens its workspace',
+          detail: 'tapping the seeded song did not open the workspace, so '
+              'the workspace, Takes and Analyze were not walked',
+          severity: Severity.warns,
+          device: device.name,
+          screen: '04-your-music',
+        ));
       }
       await _popToRoot(tester);
 
@@ -364,6 +465,7 @@ void main() {
         f.device = device.name;
         f.screen = 'after the walk';
         _findings.add(f);
+        if (f.rule == 'Overflowed') _overflowed.add(f);
       }
       while (tester.takeException() != null) {}
       restoreErrors();
@@ -372,6 +474,10 @@ void main() {
         print('eyes: ${device.name} ran without '
             '${absentPlugins.length} platform plugin(s)');
       }
+
+      // Last, so the sheets and the report are written either way and the
+      // walk is complete before anything can throw.
+      expect(_overflowed, isEmpty, reason: _overflowReport(device.name));
     }, timeout: const Timeout(Duration(minutes: 2)));
   }
 }

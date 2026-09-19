@@ -28,6 +28,7 @@ import '../../widgets/bloom_tap.dart';
 import '../../domain/name_policy.dart';
 import '../../widgets/music_tiles.dart';
 import '../../widgets/app_top_bar.dart';
+import '../../widgets/text_measures.dart';
 import 'new_song_flow.dart';
 import 'pick_it_back_up.dart';
 import 'sealed_take_card.dart';
@@ -1165,6 +1166,82 @@ class _SongsScreenState extends State<SongsScreen> {
     );
   }
 
+  /// The name of the tab, and the one button beside it.
+  ///
+  /// Side by side while the two fit, and the button under the title when they
+  /// do not. Every Musician, Same Song, 17 September 2026: the phone's own
+  /// text size is honoured, never clamped — and at the largest one there was
+  /// room for about six characters of a two-word heading, so the tab somebody
+  /// was standing on announced itself as "Your m…". Given the whole width
+  /// instead, the words are simply there.
+  ///
+  /// The switch is at 1.5 rather than at the first pixel of trouble. Below it
+  /// nothing about this header moves, which is most phones, and a heading
+  /// that reshuffles itself because somebody nudged their text size one step
+  /// is worse than either layout.
+  Widget _titleAndNew(BuildContext context) {
+    Widget title(int lines) => Text(
+          'Your music',
+          maxLines: lines,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.displaySmall,
+        );
+    // One button, three things, and the third is the point.
+    //
+    // Making a room was only possible inside the new-song flow — pick a room,
+    // or create one without leaving. So the concept this app is named after
+    // had no front door: you could only make a room as a step on the way to
+    // making a song, which is exactly backwards for somebody setting up a
+    // space for their band.
+    //
+    // It also drops an oddity: the button changed its own label depending on
+    // which segment was showing, so what "+" did depended on where you had
+    // last tapped.
+    final newThing = MenuAnchor(
+      builder: (context, controller, _) => FilledButton.icon(
+        key: const Key('songs_new_button'),
+        onPressed: () =>
+            controller.isOpen ? controller.close() : controller.open(),
+        icon: const Icon(Icons.add_rounded, size: 20),
+        label: const Text('New'),
+      ),
+      menuChildren: <Widget>[
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.music_note_rounded, size: 19),
+          onPressed: () => unawaited(_newSong()),
+          child: const Text('Song'),
+        ),
+        MenuItemButton(
+          key: const Key('songs_new_room'),
+          leadingIcon: const Icon(Icons.meeting_room_outlined, size: 19),
+          onPressed: () => unawaited(_newRoom()),
+          child: const Text('Room'),
+        ),
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.queue_music_rounded, size: 19),
+          onPressed: () => unawaited(_newSet()),
+          child: const Text('Set'),
+        ),
+      ],
+    );
+
+    if (textGrowth(context, 30) < 1.5) {
+      // One line beside the button, as it has always been.
+      return Row(
+        children: <Widget>[Expanded(child: title(1)), newThing],
+      );
+    }
+    // The whole width, and two lines if the heading needs them.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        title(2),
+        const SizedBox(height: 8),
+        newThing,
+      ],
+    );
+  }
+
   Widget _library(BuildContext context) {
     final controller = BetaScope.of(context);
     // Without the Ideas room the record button left behind empty. Every
@@ -1248,58 +1325,7 @@ class _SongsScreenState extends State<SongsScreen> {
           ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(18, 6, 18, 10),
-          sliver: SliverToBoxAdapter(
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text('Your music',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.displaySmall),
-                ),
-                // One button, three things, and the third is the point.
-                //
-                // Making a room was only possible inside the new-song flow —
-                // pick a room, or create one without leaving. So the concept
-                // this app is named after had no front door: you could only
-                // make a room as a step on the way to making a song, which
-                // is exactly backwards for somebody setting up a space for
-                // their band.
-                //
-                // It also drops an oddity: the button changed its own label
-                // depending on which segment was showing, so what "+" did
-                // depended on where you had last tapped.
-                MenuAnchor(
-                  builder: (context, controller, _) => FilledButton.icon(
-                    key: const Key('songs_new_button'),
-                    onPressed: () => controller.isOpen
-                        ? controller.close()
-                        : controller.open(),
-                    icon: const Icon(Icons.add_rounded, size: 20),
-                    label: const Text('New'),
-                  ),
-                  menuChildren: <Widget>[
-                    MenuItemButton(
-                      leadingIcon: const Icon(Icons.music_note_rounded, size: 19),
-                      onPressed: () => unawaited(_newSong()),
-                      child: const Text('Song'),
-                    ),
-                    MenuItemButton(
-                      key: const Key('songs_new_room'),
-                      leadingIcon: const Icon(Icons.meeting_room_outlined, size: 19),
-                      onPressed: () => unawaited(_newRoom()),
-                      child: const Text('Room'),
-                    ),
-                    MenuItemButton(
-                      leadingIcon: const Icon(Icons.queue_music_rounded, size: 19),
-                      onPressed: () => unawaited(_newSet()),
-                      child: const Text('Set'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+          sliver: SliverToBoxAdapter(child: _titleAndNew(context)),
         ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
@@ -1639,9 +1665,16 @@ class _RoomSection extends StatelessWidget {
                   // name's own size: 20 points of guitar so the room could
                   // have 16.
                   Flexible(
+                    // Two lines rather than one. A room's name is the heading
+                    // of everything under it, and at the largest text size
+                    // "After Hours Studio" read "After Hours St…" — a room
+                    // somebody named, cut in half on the screen where they
+                    // look for it. Two lines is enough for every room name
+                    // anybody has, and still ends the section rather than
+                    // becoming a paragraph.
                     child: Text(
                       room.name,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: AppColors.text,
