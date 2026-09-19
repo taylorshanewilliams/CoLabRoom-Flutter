@@ -82,23 +82,48 @@ double _heightWanted(WidgetTester tester, Finder label) =>
           double.infinity,
         );
 
+/// Where the ruler's marks stand, left to right, on the screen.
+///
+/// By render object rather than by widget: every tick is the same const
+/// [ColoredBox], so a finder cannot tell one from another.
+List<double> _tickCentres(WidgetTester tester) => tester
+    .renderObjectList<RenderBox>(find.descendant(
+      of: find.byType(TimelineRuler),
+      matching: find.byType(ColoredBox),
+    ))
+    .map((tick) => tick.localToGlobal(Offset.zero).dx + tick.size.width / 2)
+    .toList();
+
+/// Where the ruler's times are drawn, left to right.
+List<Rect> _timeRects(WidgetTester tester) => tester
+    .renderObjectList<RenderParagraph>(find.descendant(
+      of: find.byType(TimelineRuler),
+      matching: find.byType(Text),
+    ))
+    .map((time) => time.localToGlobal(Offset.zero) & time.size)
+    .toList();
+
 void main() {
   group('the strip of times above the lanes', () {
-    Future<void> openTheRuler(WidgetTester tester, double textScale) async {
-      _phone(tester, textScale: textScale);
-      await _pump(tester, const TimelineRuler(totalMs: 120000, leftInset: 112));
+    Future<void> openTheRuler(
+      WidgetTester tester,
+      double textScale, {
+      int totalMs = 120000,
+      Size size = const Size(390, 900),
+    }) async {
+      _phone(tester, textScale: textScale, size: size);
+      await _pump(tester, TimelineRuler(totalMs: totalMs, leftInset: 112));
     }
 
     testWidgets('grows for the times in it at twice the text size',
         (tester) async {
       await openTheRuler(tester, 2.0);
-      // Five marks on a two-minute song, and before this the strip overflowed
-      // on every one of them.
+      // Before this the strip overflowed on every mark on it.
       expect(tester.takeException(), isNull);
       final strip = tester.getSize(find.byType(TimelineRuler)).height;
       expect(strip, greaterThan(22),
           reason: 'a 9-point time is 25 at this size, in a strip of 22');
-      expect(_heightWanted(tester, find.text('0:30')) + 5,
+      expect(_heightWanted(tester, find.text('0:00')) + 5,
           lessThanOrEqualTo(strip + 0.5),
           reason: 'the strip holds the time and the tick under it');
       await _close(tester);
@@ -111,6 +136,66 @@ void main() {
           reason: 'nothing moves for a reader who has not turned their text up');
       expect(tester.takeException(), isNull);
       await _close(tester);
+    });
+
+    testWidgets('marks the same places on the audio at every text size',
+        (tester) async {
+      // A mark used to be placed by the width of the time standing over it —
+      // at*(strip - time) + time/2 — so it walked rightwards as the reader's
+      // text grew. 0:00 left the start of the waveform and stood about
+      // seventeen seconds into a three-minute song at the largest sizes,
+      // which is a ruler that lies to whoever lines a take up against it.
+      //
+      // The lanes underneath keep their waveform inside their padding and
+      // past their header column, so the audio runs from [waveStartsInLane]
+      // to [waveEndsBeforeLaneEnd] short of the right edge, and that is where
+      // the marks belong — at 1.0 and at 3.12 alike.
+      // A window wide enough that every text size here still carries several
+      // marks: the test font is a full square per letter, so a time in it is
+      // about twice as wide as the one a phone draws.
+      const wide = 1000.0;
+      for (final textScale in <double>[1.0, 2.0, 3.12]) {
+        await openTheRuler(
+          tester,
+          textScale,
+          totalMs: 180000,
+          size: const Size(wide, 900),
+        );
+        final ticks = _tickCentres(tester);
+        expect(ticks.length, greaterThan(1), reason: 'at $textScale');
+        expect(ticks.first, closeTo(TakeLane.waveStartsInLane, 0.5),
+            reason: 'at $textScale the first mark stands where the audio '
+                'starts');
+        expect(ticks.last, closeTo(wide - TakeLane.waveEndsBeforeLaneEnd, 0.5),
+            reason: 'at $textScale the last mark stands where it stops');
+        expect(tester.takeException(), isNull);
+        await _close(tester);
+      }
+    });
+
+    testWidgets('does not draw one time over another at the largest sizes',
+        (tester) async {
+      // Seven times on a three-minute phone screen are 30 pixels apart. At
+      // twice the text size a time is wider than that, so every one of them
+      // was painted over the one before it and the row was a smear. The marks
+      // thin out instead — two or three times that can be read beat seven
+      // that cannot.
+      for (final textScale in <double>[1.0, 1.3, 1.5, 2.0, 3.12]) {
+        await openTheRuler(tester, textScale, totalMs: 180000);
+        final times = _timeRects(tester);
+        expect(times, isNotEmpty);
+        for (var i = 1; i < times.length; i += 1) {
+          expect(times[i - 1].overlaps(times[i]), isFalse,
+              reason: 'at $textScale, ${times[i - 1]} runs into ${times[i]}');
+        }
+        for (final time in times) {
+          expect(time.left, greaterThanOrEqualTo(112 - 0.5),
+              reason: 'at $textScale a time is whole, not half off the strip');
+          expect(time.right, lessThanOrEqualTo(390 + 0.5));
+        }
+        expect(tester.takeException(), isNull);
+        await _close(tester);
+      }
     });
   });
 

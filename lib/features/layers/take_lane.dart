@@ -130,11 +130,29 @@ class TakeLane extends StatelessWidget {
 
   static const EdgeInsets _padding = EdgeInsets.fromLTRB(9, 8, 10, 8);
 
+  /// The column of names and buttons on the left of a lane, and the air
+  /// between it and the waveform.
+  static const double _headerWide = 104;
+  static const double _gapToWave = 8;
+
   /// The lane's outline, which a [Container] lays out inside its padding
   /// rather than around it — so it is two more pixels the column does not
   /// get, and leaving it out of the measure left the lane overflowing by
   /// exactly two.
   static const double _outline = 1;
+
+  /// Where the waveform starts and stops inside a lane: how far in from the
+  /// lane's left edge the audio begins, and how far in from its right edge it
+  /// ends.
+  ///
+  /// Shared because the strip of times above the lanes has to put its marks
+  /// against the audio rather than against itself, and this is the only place
+  /// that knows where the audio is. Added up from the parts rather than
+  /// written down as 122 and 11, so that moving the padding moves the ruler
+  /// with it — the same reason [buttonsHigh] is shared rather than repeated.
+  static final double waveStartsInLane =
+      _padding.left + _outline + _headerWide + _gapToWave;
+  static final double waveEndsBeforeLaneEnd = _padding.right + _outline;
 
   /// How tall a lane has to be to hold what is in it, at the text size this
   /// phone is set to — never less than the 78 it has always been.
@@ -184,7 +202,7 @@ class TakeLane extends StatelessWidget {
       child: Row(
         children: <Widget>[
           SizedBox(
-            width: 104,
+            width: _headerWide,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -270,7 +288,7 @@ class TakeLane extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: _gapToWave),
           Expanded(
             child: Stack(
               children: <Widget>[
