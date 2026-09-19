@@ -218,11 +218,10 @@ void main() {
     // Only this row's complaints, not the screen's.
     //
     // Two other things on the Takes screen overflow at 2.0 and did so before
-    // this change — the timeline ruler's Column (timeline_ruler.dart:34) and
-    // a take lane's (take_lane.dart:133), both fixed heights holding text
-    // that now grows. They are somebody else's slice; swallowing them with a
-    // bare `takeException` would have made this assertion meaningless either
-    // way, so the row is named instead.
+    // this change — the timeline ruler's Column and a take lane's, both
+    // fixed heights holding text that now grows. They are somebody else's
+    // slice; swallowing them with a bare `takeException` would have made
+    // this assertion meaningless either way, so the row is named instead.
     expect(
       complaints.where((detail) {
         final text = detail.toString();

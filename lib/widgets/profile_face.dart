@@ -98,7 +98,7 @@ class ProfileFace extends StatelessWidget {
                     // itself is written beside this face on every screen that
                     // uses it, and that is the text that grows.
                     //
-                    // player_face.dart:112 holds the same line for the same
+                    // player_face.dart holds the same line for the same
                     // reason; this circle is the one on the profile page.
                     textScaler: TextScaler.noScaling,
                     style: TextStyle(
