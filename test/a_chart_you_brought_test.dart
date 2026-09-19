@@ -351,6 +351,32 @@ void main() {
       expect(find.text('G7'), findsNothing);
     });
 
+    testWidgets('a line with more chords than words keeps every one of them',
+        (tester) async {
+      // The sheet holds one chord over each piece of a line, which is right
+      // for almost every line ever written and wrong for the short ones: two
+      // chords over one word would draw the second and quietly lose the
+      // first. Losing a chord is the one thing a chart must never do.
+      final repository = InMemoryMusicRepository.seeded();
+      final controller = await _controllerFor(repository);
+      addTearDown(controller.dispose);
+      final project = controller.projects.first;
+      await repository.bringChart(
+        project.id,
+        readChart('C   G\nOh\n').chordPro,
+      );
+
+      await _boot(tester, SongAnalysisScreen(project: project), controller);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('brought_chart')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Oh'), findsOneWidget);
+      expect(find.text('C'), findsOneWidget);
+      expect(find.text('G'), findsOneWidget);
+    });
+
     test('the sheet reads the chart by column, not by a clock', () {
       final chart = readChart(_asATabSite);
       final line = chart.lines

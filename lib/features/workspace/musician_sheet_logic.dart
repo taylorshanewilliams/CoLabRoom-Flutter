@@ -392,9 +392,11 @@ List<MusicianSheetLine> buildMusicianSheetLines(
 /// Song, 17 September 2026).
 ///
 /// The sheet holds one chord per piece of a line, and a second chord landing
-/// on a piece already taken moves to the next one, exactly as it does on a
-/// sheet made from a recording. The chart as stored keeps both where they
-/// were written, so nothing is lost by the drawing.
+/// on a piece already taken moves to the next free one, exactly as it does on
+/// a sheet made from a recording. A line with nowhere left to move one to —
+/// two chords over a single word — is drawn a different way entirely, with
+/// its chords on a row above the words; see `BroughtChartView._wordsLine`,
+/// which is where losing a chord is caught.
 MusicianSheetLine broughtLineAsSheetLine(
   BroughtChartLine line, {
   String? language,
@@ -403,15 +405,16 @@ MusicianSheetLine broughtLineAsSheetLine(
   final units = lyricUnits(line.text, language: language);
   final chords = <ChordCue>[
     for (final chord in line.chords)
-      ChordCue(
-        startMs: _unitHolding(units, line.text, chord.at) * step,
-        endMs: _unitHolding(units, line.text, chord.at) * step + step,
-        chord: chord.chord,
-        confidence: 1,
-        // Somebody wrote this chord down, which is what manual means
-        // everywhere else: it is not a guess with a confidence behind it.
-        source: 'manual',
-      ),
+      if (_unitHolding(units, line.text, chord.at) case final unit)
+        ChordCue(
+          startMs: unit * step,
+          endMs: unit * step + step,
+          chord: chord.chord,
+          confidence: 1,
+          // Somebody wrote this chord down, which is what manual means
+          // everywhere else: it is not a guess with a confidence behind it.
+          source: 'manual',
+        ),
   ]..sort((a, b) => a.startMs.compareTo(b.startMs));
   return MusicianSheetLine(
     contributionId: null,

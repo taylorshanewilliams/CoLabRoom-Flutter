@@ -17,10 +17,12 @@ import 'musician_sheet_logic.dart';
 /// shape all work already (Every Musician, Same Song, 17 September 2026).
 /// Nothing about a brought chart needed any of that written twice.
 ///
-/// Four kinds of line, and the last two are why this is a widget of its own:
-/// a row of chords with no words under it — an intro, a turnaround — and a
-/// block of tablature, which is kept character for character in a monospace
-/// block rather than taken apart.
+/// What it does that the song sheet does not, and the reason it is a widget
+/// of its own: a row of chords with no words under it — an intro, a
+/// turnaround — a block of tablature kept character for character in a
+/// monospace block rather than taken apart, a line the reader did not
+/// understand kept exactly as it arrived, and a line with more chords than it
+/// has words to put them over (see [_wordsLine]).
 class BroughtChartView extends StatelessWidget {
   const BroughtChartView({
     required this.chart,
@@ -142,15 +144,7 @@ class BroughtChartView extends StatelessWidget {
                           ),
                           fontScale: fontScale,
                         ),
-                      ChartLineKind.words => MusicianChordLyricLine(
-                          line: broughtLineAsSheetLine(line, language: language),
-                          transpose: sung,
-                          capo: capoHere,
-                          numbers: numbers,
-                          musicalKey: musicalKey,
-                          fontScale: fontScale,
-                          showChords: true,
-                        ),
+                      ChartLineKind.words => _wordsLine(line, sung, capoHere),
                       ChartLineKind.chords => _ChordRow(
                           chords: line.chords,
                           transpose: written,
@@ -171,6 +165,90 @@ class BroughtChartView extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Words with the chords over them — or, when they will not all fit, the
+  /// chords on a row of their own above the words.
+  ///
+  /// The sheet holds one chord over each piece of a line, which is what every
+  /// chord sheet in this app does and is right for almost every line ever
+  /// written. It is wrong for the short ones: "C  G" over "Oh" is two chords
+  /// and one word, and the sheet would draw the second and quietly lose the
+  /// first. Losing a chord is the one thing a chart must never do — the
+  /// chords are the whole reason somebody brought it — so a crowded line is
+  /// written the way a chart writes one, with the changes on their own row
+  /// above the words. The line as stored keeps every chord where it was
+  /// written either way.
+  Widget _wordsLine(BroughtChartLine line, int sung, int capoHere) {
+    final sheetLine = broughtLineAsSheetLine(line, language: language);
+    final placed = chordPlacementsForLine(
+      wordCount: sheetLine.units.length,
+      lineStartMs: sheetLine.startMs,
+      lineEndMs: sheetLine.endMs,
+      chords: sheetLine.chords,
+      wordStartsMs: sheetLine.wordStartsMs,
+    );
+    if (placed.length >= _chordsWanted(sheetLine.chords)) {
+      return MusicianChordLyricLine(
+        line: sheetLine,
+        transpose: sung,
+        capo: capoHere,
+        numbers: numbers,
+        musicalKey: musicalKey,
+        fontScale: fontScale,
+        showChords: true,
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _ChordRow(
+          chords: line.chords,
+          transpose: sung - capoHere,
+          numbers: numbers,
+          musicalKey: musicalKey,
+          fontScale: fontScale,
+        ),
+        MusicianChordLyricLine(
+          line: MusicianSheetLine(
+            contributionId: null,
+            body: line.text,
+            section: false,
+            startMs: sheetLine.startMs,
+            endMs: sheetLine.endMs,
+            chords: const <ChordCue>[],
+            approximateTiming: false,
+            language: language,
+          ),
+          transpose: sung,
+          capo: capoHere,
+          numbers: numbers,
+          musicalKey: musicalKey,
+          fontScale: fontScale,
+          showChords: false,
+        ),
+      ],
+    );
+  }
+
+  /// How many chords this line actually asks the sheet to draw.
+  ///
+  /// The same run-of-duplicates rule [chordPlacementsForLine] applies before
+  /// it places anything: the same chord written twice over one piece of a
+  /// line is one chord, not two, and counting it as two would send a line
+  /// that fits perfectly well down the crowded path.
+  static int _chordsWanted(List<ChordCue> chords) {
+    var count = 0;
+    ChordCue? last;
+    for (final chord in chords) {
+      if (last == null ||
+          last.chord != chord.chord ||
+          last.startMs != chord.startMs) {
+        count += 1;
+        last = chord;
+      }
+    }
+    return count;
   }
 
   /// The line under the title: what the chart called the song, who it says

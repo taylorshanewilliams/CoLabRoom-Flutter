@@ -359,9 +359,6 @@ BroughtChart readChart(String source) {
   );
 }
 
-/// The chart as this app stores it: normalised ChordPro, and nothing else.
-String chordProFor(String source) => readChart(source).chordPro;
-
 // ---------------------------------------------------------------------
 // The shapes
 // ---------------------------------------------------------------------
