@@ -3117,7 +3117,12 @@ class _LiveControls extends StatelessWidget {
             // has to be explained: the row teaches itself by being used.
             if (_showLetters) ...<Widget>[
               SizedBox(
-                height: 30,
+                // The row is as tall as the letters actually are on this
+                // phone. A fixed height would be a clamp on the reader's own
+                // text size, which is the one thing this screen must not do.
+                height: MediaQuery.textScalerOf(context).scale(_letterSize) *
+                        1.1 +
+                    12,
                 child: ListView(
                   key: const Key('live_letters'),
                   scrollDirection: Axis.horizontal,
@@ -3485,13 +3490,17 @@ class _YouAndTheSong extends StatelessWidget {
   }
 }
 
-/// One rehearsal letter, and the part it stands for.
+/// How big a rehearsal letter is set, before the phone's own text size is
+/// applied to it. Read by the row that holds the letters as well, so the row
+/// is as tall as its letters however large they come out.
+const double _letterSize = 12.5;
+
+/// One rehearsal letter.
 ///
-/// The letter is the target and it is set large, because it is read across a
-/// room and tapped by somebody holding an instrument. The part's name sits
-/// under it in the smallest type on the bar: it is there so the letter can be
-/// learnt without anybody being told what it means, and it is not what the
-/// eye is meant to land on.
+/// The letter alone, because the row underneath already names every part of
+/// the song on its loop chips and this bar is a third of the lyrics' height
+/// on the phone in landscape it is built for. The name is what a screen
+/// reader says instead, so "B" is never only a shape.
 class _LetterChip extends StatelessWidget {
   const _LetterChip({
     required this.letter,
@@ -3509,47 +3518,37 @@ class _LetterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final name = letter.label.trim();
     return Padding(
       padding: const EdgeInsets.only(right: 6),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(9),
-        child: Container(
-          constraints: const BoxConstraints(minWidth: 30),
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-          decoration: BoxDecoration(
-            color: here ? AppColors.gold : Colors.transparent,
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(
-              color: here ? AppColors.gold : AppColors.line,
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              Text(
-                letter.letter,
-                style: TextStyle(
-                  color: here ? AppColors.ink : AppColors.text,
-                  fontSize: 13,
-                  height: 1.1,
-                  fontWeight: FontWeight.w900,
-                ),
+      child: Semantics(
+        button: true,
+        label: name.isEmpty ? letter.letter : '${letter.letter}, $name',
+        excludeSemantics: true,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(9),
+          child: Container(
+            constraints: const BoxConstraints(minWidth: 28),
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: here ? AppColors.gold : Colors.transparent,
+              borderRadius: BorderRadius.circular(9),
+              border: Border.all(
+                color: here ? AppColors.gold : AppColors.line,
               ),
-              if (letter.label.trim().isNotEmpty)
-                Text(
-                  letter.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: here ? AppColors.ink : AppColors.muted,
-                    fontSize: 7.5,
-                    height: 1.1,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-            ],
+            ),
+            child: Text(
+              letter.letter,
+              style: TextStyle(
+                color: here ? AppColors.ink : AppColors.text,
+                fontSize: _letterSize,
+                height: 1.1,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.6,
+              ),
+            ),
           ),
         ),
       ),
