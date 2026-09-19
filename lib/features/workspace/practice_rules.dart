@@ -240,6 +240,83 @@ PracticeLoop? barLoop({
   );
 }
 
+/// The speed one chord change is drilled at.
+///
+/// Every Musician, Same Song, 17 September 2026: what stops a beginner is
+/// rarely a whole part, it is one change they cannot get their hand across in
+/// time. Six tenths is slow enough for the hand to arrive and fast enough
+/// that the two chords are still a change rather than two chords. One of
+/// [practiceRates], so the arrows either side step from it like anywhere
+/// else.
+const double changeLoopRate = 0.6;
+
+/// The bar a chord change lands in, and the bar before it, on repeat.
+///
+/// Two bars because a change is a place between two chords: looping the bar
+/// the new chord starts in drills arriving at it from silence, which is not
+/// the thing that goes wrong. Null without a grid to count bars on, and null
+/// for a change that happens in the pickup — that stretch has no bar number
+/// and is asked for by name (see [pickupLoop]).
+///
+/// Which bar a change is *in* is not quite where its clock says it is; see
+/// [_barOfChange].
+///
+/// A change in bar 1 has nothing in front of it, so it loops bar 1 alone
+/// rather than dragging in a pickup nobody asked for; [barLoop] does that
+/// clamping already.
+PracticeLoop? changeLoop({
+  required int changeMs,
+  required List<int> downbeatsMs,
+  int? songEndMs,
+  int barOne = 1,
+}) {
+  final bar = _barOfChange(changeMs, downbeatsMs, barOne);
+  if (bar == null) return null;
+  return barLoop(
+    firstBar: bar - 1,
+    lastBar: bar,
+    downbeatsMs: downbeatsMs,
+    songEndMs: songEndMs,
+    barOne: barOne,
+  );
+}
+
+/// How far ahead of a downbeat a change can land and still belong to the bar
+/// that downbeat opens, as a fraction of the bar it was written in. An eighth
+/// of a bar is half a beat in four.
+const double _changeAheadOfBar = 0.125;
+
+/// Which bar a change is really the change into.
+///
+/// Not every chord cue sits on the grid. A chord somebody added to a word is
+/// timed by where that word falls in the line (chordStartForWordIndex) and is
+/// never snapped to a beat, and a change played ahead of the bar is left
+/// where it was played on purpose (see defaultSnapWindow in
+/// chord_beat_grid.dart). A change a breath before the downbeat is the new
+/// bar's chord, and counting it into the bar before would put the loop's turn
+/// exactly where the change happens: the one thing the person asked to drill
+/// would never be heard inside the loop they got. Half a beat is wide enough
+/// for an interpolated cue and for a push played just ahead of the bar, and
+/// stops short of a chord that genuinely takes the last beat of the bar
+/// (Every Musician, Same Song, 17 September 2026).
+int? _barOfChange(int changeMs, List<int> downbeatsMs, int barOne) {
+  final count = downbeatsMs.length;
+  if (count == 0) return null;
+  for (var i = 1; i < count; i += 1) {
+    if (downbeatsMs[i] <= changeMs) continue;
+    final barMs = downbeatsMs[i] - downbeatsMs[i - 1];
+    if (barMs > 0 &&
+        downbeatsMs[i] - changeMs <= barMs * _changeAheadOfBar) {
+      // The downbeat's own bar, when it has a number: a change a breath
+      // before bar 1 is bar 1's, and one in the pickup proper still is not.
+      final bar = barNumberAt(downbeatsMs[i], downbeatsMs, barOne: barOne);
+      if (bar != null) return bar;
+    }
+    break;
+  }
+  return barNumberAt(changeMs, downbeatsMs, barOne: barOne);
+}
+
 /// The pickup on its own: everything from the first downbeat up to bar 1.
 ///
 /// Null when the band has said nothing, because then bar 1 *is* the first

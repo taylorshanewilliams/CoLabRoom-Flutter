@@ -3,13 +3,16 @@ import 'dart:math' as math;
 
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/domain/music_models.dart';
+import 'package:colabroom/domain/practice_mark.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/chord_chart_view.dart';
 import 'package:colabroom/features/workspace/chord_editor_sheet.dart';
 import 'package:colabroom/features/workspace/chord_sheet_export.dart';
+import 'package:colabroom/features/workspace/loop_this_change.dart';
 import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/musician_song_sheet.dart';
+import 'package:colabroom/features/workspace/practice_rules.dart';
 import 'package:colabroom/features/workspace/song_reading_store.dart';
 import 'package:colabroom/features/workspace/song_transpose_store.dart';
 import 'package:colabroom/features/workspace/sung_and_written_sheet.dart';
@@ -35,6 +38,7 @@ class SongSheetPanel extends StatefulWidget {
     required this.bundle,
     required this.onReviewLyrics,
     required this.onOpenLive,
+    this.onPractise,
     this.onAnalysisChanged,
     this.onSetKey,
     this.onSetBarOne,
@@ -47,6 +51,14 @@ class SongSheetPanel extends StatefulWidget {
   final SongAnalysisBundle bundle;
   final VoidCallback? onReviewLyrics;
   final VoidCallback? onOpenLive;
+
+  /// Opens the song where it can actually be played, already on a passage at
+  /// a speed — the door a practice mark opens (0150). It is what a chord held
+  /// down on this page reaches for: the sheet has no player of its own, so
+  /// "Loop this change" has to hand the two bars to the screen that has one
+  /// (Every Musician, Same Song, 17 September 2026). Null on a panel with no
+  /// such door, which leaves a long press on a chord doing nothing.
+  final void Function(PracticePart part)? onPractise;
   final ValueChanged<SongAnalysisBundle>? onAnalysisChanged;
 
   /// Takes what was sung into one written line, from the sung-and-written
@@ -178,6 +190,10 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     unawaited(_loadCapo());
     unawaited(_loadNumbers());
     unawaited(_loadMelody());
+    // Read back here rather than where it is used: the sheet a chord opens is
+    // built in the frame the chord was tapped in, so the choice has to be in
+    // hand before anybody taps one.
+    unawaited(SimplerShapesStore.warm());
   }
 
   @override
@@ -397,6 +413,53 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   bool get _keyOverridden =>
       (widget.project.keyOverride ?? '').trim().isNotEmpty;
 
+  /// Every chord the song reaches for, as it stores them.
+  ///
+  /// The cues rather than the chords on the lines: a chord that changes over
+  /// an instrumental bar belongs to the song as much as one over a word, and
+  /// the capo that helps has to be worked out from all of them.
+  List<String> get _songChords => <String>[
+        for (final cue in _bundle.chordCues)
+          if (cue.chord.trim().isNotEmpty) cue.chord,
+      ];
+
+  /// The downbeats this song was heard to have, which is what a bar loop is
+  /// counted on.
+  List<int> get _downbeats =>
+      _bundle.reference?.downbeatsMs ?? const <int>[];
+
+  /// "Loop this change": the bar this chord lands in and the bar before it,
+  /// at 60%, opened where the song can actually be played.
+  ///
+  /// This page draws the song and cannot play it, so the two bars are handed
+  /// to Perform as a passage and a speed — the same shape a practice mark
+  /// opens with (0150) — rather than a second player being grown here.
+  void _loopThisChange(ChordCue chord) {
+    final practise = widget.onPractise;
+    if (practise == null) return;
+    final loop = changeLoop(
+      changeMs: chord.startMs,
+      downbeatsMs: _downbeats,
+      songEndMs: _bundle.reference?.durationMs,
+      barOne: widget.project.barOne,
+    );
+    if (loop == null) return;
+    unawaited(showLoopThisChange(
+      context,
+      loop: loop,
+      detail: loopThisChangeDetail(loop),
+      onLoop: () => practise(PracticePart(
+        label: loop.label,
+        rate: changeLoopRate,
+        // Nothing has been practised yet; the seconds are only ever there to
+        // put the parts of a kept mark in order.
+        seconds: 0,
+        startMs: loop.startMs,
+        endMs: loop.endMs,
+      )),
+    ));
+  }
+
   /// The second way into the Read as choice.
   ///
   /// The key badge is where it belongs and where it stays, but the badge is
@@ -421,6 +484,12 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       sa: _sa,
       onSa: _chooseSa,
       hasTune: _hasReadableTune,
+      // Moved the way the key handed in above has been, so the capo the
+      // sheet offers is worked out in the key it is showing.
+      chords: <String>[
+        for (final chord in _songChords)
+          chordAsPlayed(chord, transpose: _shownTranspose, key: key),
+      ],
       songKey: key,
       overridden: _keyOverridden,
       onKey: widget.onSetKey == null ? null : _sayTheKey,
@@ -1275,6 +1344,13 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
             onAddChord: (line, wordIndex) {
               unawaited(_addChord(line, wordIndex));
             },
+            chords: _songChords,
+            // A long press asks for two bars off the recording's own grid, so
+            // a song that was never given one offers nothing rather than a
+            // loop over bars nobody counted.
+            onLoopChange: widget.onPractise == null || _downbeats.length < 2
+                ? null
+                : _loopThisChange,
           ),
           ),
         // Taking the page with you. On its own row and spelled out, rather

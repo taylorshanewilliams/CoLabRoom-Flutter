@@ -13,6 +13,7 @@ import '../../services/music_reference.dart';
 import '../../services/number_reading.dart';
 import 'guitar_chord_diagram.dart';
 import 'musician_sheet_logic.dart' show keyAsPlayed, semitonesBetweenKeys;
+import 'song_reading_store.dart' show SimplerShapesStore;
 
 /// The reference sheets, opened from the thing they describe.
 ///
@@ -46,12 +47,20 @@ Future<void> showChordReference(
     used: used,
     roles: roles,
   );
+  // The plain chord inside this one, for somebody who has asked for those.
+  // Read from what this session already holds rather than from the disk: the
+  // sheet is built in the frame the chord was tapped in.
+  final simpler = SimplerShapesStore.held ? simplerShapeFor(chordLabel) : null;
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
     backgroundColor: AppColors.deepNavy,
-    builder: (_) => _ChordReferenceSheet(reference: reference, help: help),
+    builder: (_) => _ChordReferenceSheet(
+      reference: reference,
+      help: help,
+      simpler: simpler,
+    ),
   );
 }
 
@@ -91,6 +100,7 @@ Future<void> showKeyReference(
   int? sa,
   ValueChanged<int?>? onSa,
   bool hasTune = false,
+  List<String> chords = const <String>[],
   String? songKey,
   bool overridden = false,
   SayTheKey? onKey,
@@ -114,6 +124,7 @@ Future<void> showKeyReference(
       sa: sa,
       onSa: onSa,
       hasTune: hasTune,
+      chords: chords,
       songKey: songKey,
       overridden: overridden,
       onKey: onKey,
@@ -144,6 +155,7 @@ Future<void> showReadingChoice(
   int? sa,
   ValueChanged<int?>? onSa,
   bool hasTune = false,
+  List<String> chords = const <String>[],
   String? songKey,
   bool overridden = false,
   SayTheKey? onKey,
@@ -164,6 +176,7 @@ Future<void> showReadingChoice(
       sa: sa,
       onSa: onSa,
       hasTune: hasTune,
+      chords: chords,
       songKey: songKey,
       overridden: overridden,
       onKey: onKey,
@@ -222,6 +235,7 @@ class _ReadingChoiceSheetState extends State<_ReadingChoiceSheet> {
   late HornReading _reading = widget.reading;
   late MelodyReading _melody = widget.melody;
   late int? _sa = widget.sa;
+  bool _simpler = SimplerShapesStore.held;
 
   @override
   Widget build(BuildContext context) {
@@ -271,6 +285,29 @@ class _ReadingChoiceSheetState extends State<_ReadingChoiceSheet> {
             songRoot: null,
           ),
         ],
+        // Here as well as on the key sheet, because a chord has a shape
+        // whether or not the analysis found a key — and this is the only
+        // readings sheet those songs, and the chart, ever open (review, 17
+        // September 2026, which found the same hole under the horn reading).
+        const SizedBox(height: 18),
+        _Section(
+          heading: 'Shapes',
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              _PickerChip(
+                label: 'Simpler shapes',
+                itemKey: const Key('simpler_shapes'),
+                selected: _simpler,
+                onTap: () {
+                  setState(() => _simpler = !_simpler);
+                  unawaited(SimplerShapesStore.save(_simpler));
+                },
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -382,12 +419,21 @@ class _NotesSection extends StatelessWidget {
 }
 
 class _ChordReferenceSheet extends StatelessWidget {
-  const _ChordReferenceSheet({required this.reference, this.help});
+  const _ChordReferenceSheet({
+    required this.reference,
+    this.help,
+    this.simpler,
+  });
 
   final ChordReference reference;
 
   /// What would work here, when the caller knew enough about the song to ask.
   final WhatWorksHere? help;
+
+  /// The plain chord inside this one, drawn in place of its own shape for
+  /// somebody reading with Simpler shapes on. Null when that is off, or when
+  /// this chord is already plain, or when nothing plainer can be drawn.
+  final ChordReference? simpler;
 
   @override
   Widget build(BuildContext context) {
@@ -447,7 +493,27 @@ class _ChordReferenceSheet extends StatelessWidget {
             'play if you are finding your way in.',
           )
         else ...<Widget>[
-          if (reference.shapes.isNotEmpty)
+          // The plain chord inside this one, where somebody has asked for
+          // those: the diagram is the one their hand can make, and the line
+          // under it says what that costs. "Changes the sound", never
+          // "easier" and never "beginner" — the shape is a different chord
+          // and the person playing it is owed that plainly (Every Musician,
+          // Same Song, 17 September 2026).
+          if (simpler != null)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                for (final shape in simpler!.shapes)
+                  Expanded(
+                    child: _ShapeView(
+                      shape: shape,
+                      spokenName: '${simpler!.root} '
+                          '${simpler!.qualityName.toLowerCase()}',
+                    ),
+                  ),
+              ],
+            )
+          else if (reference.shapes.isNotEmpty)
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -463,6 +529,12 @@ class _ChordReferenceSheet extends StatelessWidget {
                     ),
                   ),
               ],
+            ),
+          if (simpler != null)
+            _Note(
+              key: const Key('simpler_shape_said'),
+              '${simpler!.display} in place of ${reference.display} — '
+              'changes the sound.',
             ),
           const SizedBox(height: 14),
           _Section(
@@ -539,6 +611,7 @@ class _KeyReferenceSheet extends StatefulWidget {
     this.sa,
     this.onSa,
     this.hasTune = false,
+    this.chords = const <String>[],
     this.songKey,
     this.overridden = false,
     this.onKey,
@@ -567,6 +640,11 @@ class _KeyReferenceSheet extends StatefulWidget {
   /// notes row off the sheet: offering a language for notes that were never
   /// heard is a control that cannot do anything.
   final bool hasTune;
+  /// Every chord the song reaches for, in the key this sheet was opened in,
+  /// so the capo rows can be about this song rather than only about its key.
+  /// Empty from a caller that has no chords to hand, which leaves the rows
+  /// exactly the chart they were.
+  final List<String> chords;
 
   /// The song's own key, before this person moved anything — the only key
   /// "Set the key" can be about, because that one is the room's and the rest
@@ -591,6 +669,15 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
   late int? _sa = widget.sa;
   late String? _songKey = widget.songKey;
   late bool _overridden = widget.overridden;
+
+  /// Whether this person is offered the plain chord inside an extended one.
+  /// App-wide rather than per song — see SimplerShapesStore — so it is read
+  /// from what this session holds and written back on the tap.
+  bool _simpler = SimplerShapesStore.held;
+
+  /// The capo this song's own chords ask for, worked out once: it depends on
+  /// the chords and on nothing this sheet can change.
+  late final CapoThatHelps? _helpfulCapo = capoThatHelps(widget.chords);
 
   /// True while a key is on its way to the room. One write at a time, so two
   /// quick taps cannot land in the wrong order and leave the room in the key
@@ -642,6 +729,11 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
     if (capo == _capo) return;
     setState(() => _capo = capo);
     widget.onCapo?.call(capo);
+  }
+
+  void _chooseSimpler(bool simpler) {
+    setState(() => _simpler = simpler);
+    unawaited(SimplerShapesStore.save(simpler));
   }
 
   /// Says where the 1 is. The sheet redraws in the new key straight away, so
@@ -707,6 +799,21 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
     // is worked out from the concert key however this sheet is being read.
     final capoRows =
         keyReference(_concertKey)?.capo ?? const <(int, String)>[];
+    // The chart's own rows, with the one this song's chords ask for standing
+    // in for the row on its fret: "Capo 3 makes these open shapes: G, C, D"
+    // is the same fret saying something about this song rather than about
+    // five major shapes (Every Musician, Same Song, 17 September 2026).
+    final helpful = _helpfulCapo;
+    final capoFrets = <(int, String)>[
+      for (final (fret, shapeKey) in capoRows)
+        if (helpful == null || helpful.fret != fret)
+          (fret, 'play the $shapeKey shapes'),
+      if (helpful != null)
+        (
+          helpful.fret,
+          'makes these open shapes: ${helpful.shapes.join(', ')}',
+        ),
+    ]..sort((a, b) => a.$1.compareTo(b.$1));
     return _SheetFrame(
       key: const Key('key_reference_sheet'),
       title: reference.display,
@@ -802,6 +909,26 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
             ),
           ),
           const SizedBox(height: 14),
+          // Beside the other readings, because that is what it is: the same
+          // song, drawn the way this pair of hands can play it today. One
+          // chip, no explanation — the line under the first simplified chord
+          // says what it does (Every Musician, Same Song, 17 September 2026).
+          _Section(
+            heading: 'Shapes',
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                _PickerChip(
+                  label: 'Simpler shapes',
+                  itemKey: const Key('simpler_shapes'),
+                  selected: _simpler,
+                  onTap: () => _chooseSimpler(!_simpler),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
         ],
         _Section(
           heading: 'The scale',
@@ -852,7 +979,7 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
         // stay (review, 17 September 2026).
         if (_reading == HornReading.concert) ...<Widget>[
           const SizedBox(height: 14),
-          if (capoRows.isEmpty && _capo == 0)
+          if (capoFrets.isEmpty && _capo == 0)
             const _Note(
               'This key already sits under open chords — no capo needed.',
             )
@@ -866,10 +993,10 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
                   // does the work: the chords on the page become the shapes
                   // under your hand and the badge says what it still sounds
                   // like (Every Musician, Same Song, 17 September 2026).
-                  for (final (fret, shapeKey) in capoRows)
+                  for (final (fret, said) in capoFrets)
                     _CapoRow(
                       label: 'Capo $fret',
-                      value: 'play the $shapeKey shapes',
+                      value: said,
                       selected: fret == _capo,
                       onTap: widget.onCapo == null
                           ? null
@@ -1361,7 +1488,7 @@ class _Row extends StatelessWidget {
 }
 
 class _Note extends StatelessWidget {
-  const _Note(this.text);
+  const _Note(this.text, {super.key});
 
   final String text;
 

@@ -18,6 +18,14 @@ typedef MusicianWordTap = void Function(
   int wordIndex,
 );
 
+/// A chord held down: the change it is, offered on repeat.
+///
+/// Where a chord ends up on repeat is not the line's business — the sheet
+/// hands it to Perform and Perform already has a loop — so all that travels
+/// up is which change was held (Every Musician, Same Song, 17 September
+/// 2026).
+typedef MusicianChordHold = void Function(ChordCue chord);
+
 class MusicianSectionLine extends StatelessWidget {
   const MusicianSectionLine({
     required this.line,
@@ -76,6 +84,7 @@ class MusicianChordLyricLine extends StatelessWidget {
     this.selectedChordStartMs,
     this.onEditChord,
     this.onAddChord,
+    this.onLoopChange,
     super.key,
   });
 
@@ -141,6 +150,11 @@ class MusicianChordLyricLine extends StatelessWidget {
   final int? selectedChordStartMs;
   final MusicianChordTap? onEditChord;
   final MusicianWordTap? onAddChord;
+
+  /// A chord held down, for the one change a beginner is stuck on. Null
+  /// where there is nowhere for the song to be played from, which leaves the
+  /// long press doing nothing rather than offering a loop nothing can run.
+  final MusicianChordHold? onLoopChange;
 
   @override
   Widget build(BuildContext context) {
@@ -218,6 +232,7 @@ class MusicianChordLyricLine extends StatelessWidget {
                   placements[index]?.startMs == selectedChordStartMs,
               onEditChord: onEditChord,
               onAddChord: onAddChord,
+              onLoopChange: onLoopChange,
             ),
         ],
       ),
@@ -284,6 +299,7 @@ class _ChordWord extends StatelessWidget {
     required this.selected,
     required this.onEditChord,
     required this.onAddChord,
+    this.onLoopChange,
     this.note,
     this.showNotes = false,
     super.key,
@@ -320,6 +336,9 @@ class _ChordWord extends StatelessWidget {
   final MusicianChordTap? onEditChord;
   final MusicianWordTap? onAddChord;
 
+  /// See MusicianChordLyricLine.onLoopChange.
+  final MusicianChordHold? onLoopChange;
+
   void _activate() {
     final existing = chord;
     if (existing != null) {
@@ -349,66 +368,88 @@ class _ChordWord extends StatelessWidget {
     final chordInLetters = chord == null
         ? ''
         : chordAsPlayed(chord!.chord, transpose: transpose, key: musicalKey);
+    // Held down, a chord offers the change it is, on repeat and slowed. It is
+    // deliberately the one thing a chord does in live mode: a tap there would
+    // be a modal over the words while somebody is playing, and this is a
+    // gesture nobody makes by accident and nobody makes while their hands are
+    // busy (Every Musician, Same Song, 17 September 2026).
+    final held = chord == null || editable || onLoopChange == null
+        ? null
+        : () => onLoopChange!(chord!);
+    // A chord that answers when tapped is worth nothing if nobody taps it. On
+    // paper a chord is just ink, so it needs to look like it holds something:
+    // a pale tint behind it and a dotted underline — the oldest "there is
+    // more here" mark there is — which together cost almost no ink but change
+    // what the eye reads it as. Not in live mode, where a tap does nothing
+    // and a tint that says "tap me" would be a lie; the long press is
+    // deliberately unmarked there, the way the chart's own long press is (see
+    // chord_chart_view.dart).
+    final chordBody = chord == null
+        ? const SizedBox.shrink()
+        : Container(
+            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+            decoration: liveMode
+                ? null
+                : BoxDecoration(
+                    color: selected
+                        ? AppColors.cyan.withValues(alpha: 0.22)
+                        : const Color(0xFF197A74)
+                            .withValues(alpha: editable ? 0.16 : 0.08),
+                    borderRadius: BorderRadius.circular(5),
+                    border: selected
+                        ? Border.all(color: AppColors.cyan, width: 1.2)
+                        : null,
+                  ),
+            child: Text(
+              chordText,
+              style: TextStyle(
+                color: liveMode
+                    ? AppColors.gold
+                    : chord!.isManual
+                        ? const Color(0xFF0D655F)
+                        : const Color(0xFF197A74),
+                fontFamily: 'monospace',
+                fontSize: (liveMode ? 10.8 : 11.2) * fontScale,
+                height: 1,
+                fontWeight: FontWeight.w900,
+                decoration: liveMode ? null : TextDecoration.underline,
+                decorationStyle: TextDecorationStyle.dotted,
+                decorationColor: const Color(0xFF197A74)
+                    .withValues(alpha: editable ? 0.9 : 0.55),
+              ),
+            ),
+          );
+    final chordKey = chord?.id == null ? null : Key('edit_chord_${chord!.id}');
     final chordWidget = chord == null
         ? const SizedBox.shrink()
-        : InkWell(
-            key: chord!.id == null ? null : Key('edit_chord_${chord!.id}'),
+        : liveMode
+            // Nothing but the hold in live mode, and a bare gesture for it.
+            // An InkWell counts itself enabled the moment it is given a long
+            // press, so it takes the tap as well and wins it from the screen
+            // underneath — which is the screen's own "bring the controls
+            // back" tap, and chords sit over most of the words. So the hold
+            // goes on a recognizer that only listens for a hold, and taps
+            // carry on through to Perform. Translucent, because what is
+            // being held is the ink, not the row.
+            ? GestureDetector(
+                key: chordKey,
+                behavior: HitTestBehavior.translucent,
+                onLongPress: held,
+                child: chordBody,
+              )
             // A chord on the sheet answers a question before it asks one:
             // most of the time somebody tapping A♯ wants to know how to play
             // A♯, not to correct it. Correcting is the deliberate mode with
             // its own banner, and it keeps the tap while it is on.
-            //
-            // Not in live mode — a modal over the words while somebody is
-            // playing along is the one place this would be an interruption
-            // rather than an answer.
-            onTap: editable
-                ? _activate
-                : liveMode
-                    ? null
+            : InkWell(
+                key: chordKey,
+                onTap: editable
+                    ? _activate
                     : () => showChordReference(context, chordInLetters),
-            borderRadius: BorderRadius.circular(5),
-            // A chord that answers when tapped is worth nothing if nobody
-            // taps it. On paper a chord is just ink, so it needs to look
-            // like it holds something: a pale tint behind it and a dotted
-            // underline — the oldest "there is more here" mark there is —
-            // which together cost almost no ink but change what the eye
-            // reads it as. Not in live mode, where nothing is tappable and
-            // an affordance would be a lie.
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
-              decoration: liveMode
-                  ? null
-                  : BoxDecoration(
-                      color: selected
-                          ? AppColors.cyan.withValues(alpha: 0.22)
-                          : const Color(0xFF197A74)
-                              .withValues(alpha: editable ? 0.16 : 0.08),
-                      borderRadius: BorderRadius.circular(5),
-                      border: selected
-                          ? Border.all(color: AppColors.cyan, width: 1.2)
-                          : null,
-                    ),
-              child: Text(
-                chordText,
-                style: TextStyle(
-                  color: liveMode
-                      ? AppColors.gold
-                      : chord!.isManual
-                          ? const Color(0xFF0D655F)
-                          : const Color(0xFF197A74),
-                  fontFamily: 'monospace',
-                  fontSize: (liveMode ? 10.8 : 11.2) * fontScale,
-                  height: 1,
-                  fontWeight: FontWeight.w900,
-                  decoration:
-                      liveMode ? null : TextDecoration.underline,
-                  decorationStyle: TextDecorationStyle.dotted,
-                  decorationColor: const Color(0xFF197A74)
-                      .withValues(alpha: editable ? 0.9 : 0.55),
-                ),
-              ),
-            ),
-          );
+                onLongPress: held,
+                borderRadius: BorderRadius.circular(5),
+                child: chordBody,
+              );
 
     // widthFactor is intentional. Without it, Align consumes the complete
     // Wrap width and turns every lyric word into its own visual row.
