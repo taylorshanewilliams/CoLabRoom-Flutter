@@ -89,6 +89,14 @@ double appBarHighEnoughFor(
   // The 8 below and the 16 below that are the air the Takes bar has kept
   // since it was the only bar that measured itself: enough that the words are
   // not flush against the edges of the bar they sit in.
+  //
+  // Kept air, not the button's own padding, so the answer passes 56 a little
+  // before anything is actually being cut — a label alone reaches 56 at about
+  // 2.8, and with the 16 the bar starts growing from about 2.0. So between
+  // those two sizes a bar is a few pixels taller than it was although nothing
+  // was lost. That is deliberate: it is the same margin Takes has always had,
+  // and a bar whose words sit hard against its bottom edge reads as broken
+  // even when every letter is there.
   var high = kToolbarHeight;
   if (title.isNotEmpty) {
     final beneath = appBarTitleStyle(context);

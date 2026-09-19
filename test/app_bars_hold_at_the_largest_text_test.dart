@@ -5,6 +5,7 @@ import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/domain/calls.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/calls/call_screen.dart';
+import 'package:colabroom/features/notifications/notifications_screen.dart';
 import 'package:colabroom/features/workspace/lyric_review_screen.dart';
 import 'package:colabroom/features/workspace/song_history_screen.dart';
 import 'package:colabroom/services/call_session.dart';
@@ -34,7 +35,13 @@ import 'package:flutter_test/flutter_test.dart';
 /// all the way. At 2.0 a button label is 40 and still fits; it passes 56 at
 /// about 2.8 and is cut off from there up, so the size that catches it is the
 /// largest one iOS offers, 3.12 — the size the rest of the suite already
-/// renders at.
+/// renders at. The measure keeps 16 of air around a label, so such a bar is a
+/// few pixels taller than it was from about 2.0 up, before anything was being
+/// cut; that is the margin Takes has always kept, and why only 1.0 is asserted
+/// to be exactly 56.
+///
+/// The Inbox is the same shape with a condition on it — its actions are words
+/// only while there is width for them — so it is asserted at both widths.
 class _FakeCall extends CallSession {
   @override
   CallState get state => CallState.connected;
@@ -65,14 +72,22 @@ class _FakeCall extends CallSession {
   Future<void> leave() async {}
 }
 
-/// A phone with its text set to [textScale].
+/// The phone every case here runs on unless it says otherwise.
+const Size _aPhone = Size(390, 844);
+
+/// Wide enough that the Inbox keeps its actions as words at the largest text
+/// size instead of folding them into the overflow menu — a tablet, or a
+/// browser window on the web build.
+const Size _somethingWide = Size(1600, 900);
+
+/// A screen of [size] with its text set to [textScale].
 ///
 /// The scale goes on the dispatcher rather than into a MediaQuery wrapped
 /// around what is pumped: MaterialApp builds its own MediaQuery from the test
 /// window, so anything outside it is discarded and every large-text case would
 /// silently run at 1.0.
-void _phone(WidgetTester tester, double textScale) {
-  tester.view.physicalSize = const Size(390, 844);
+void _phone(WidgetTester tester, double textScale, Size size) {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   tester.platformDispatcher.textScaleFactorTestValue = textScale;
   addTearDown(tester.view.reset);
@@ -84,8 +99,9 @@ Future<MusicBetaController> _boot(
   InMemoryMusicRepository repository,
   Widget Function(MusicBetaController) home, {
   required double textScale,
+  Size size = _aPhone,
 }) async {
-  _phone(tester, textScale);
+  _phone(tester, textScale, size);
   final controller = MusicBetaController(repository);
   await controller.load();
   addTearDown(controller.dispose);
@@ -269,6 +285,65 @@ void main() {
       expect(_barHeight(tester), kToolbarHeight,
           reason: 'nothing moves for a reader who has not turned their text up');
       _theBarHoldsItsWords(tester, 'Review lyrics at 1.0');
+      expect(tester.takeException(), isNull);
+      await _close(tester);
+    });
+  });
+
+  group('a labelled action that is only sometimes a word', () {
+    // The Inbox is the one bar that measures itself conditionally: on a phone
+    // its two actions have already moved into the overflow menu by the time
+    // the text is this large, and a menu glyph is 48 and does not grow, so
+    // there is nothing to measure. On something wide enough to keep them as
+    // words — a tablet, or the web build in a wide window — they grow like any
+    // other label and the bar has to grow with them. Tested at that width
+    // because otherwise the branch that grows is never run by anything.
+    Future<void> openTheInbox(
+      WidgetTester tester,
+      double textScale, {
+      required Size size,
+    }) async {
+      await _boot(
+        tester,
+        InMemoryMusicRepository.seeded(),
+        (_) => const NotificationsScreen(),
+        textScale: textScale,
+        size: size,
+      );
+    }
+
+    testWidgets('grows for its words when there is room to keep them',
+        (tester) async {
+      await openTheInbox(tester, 3.12, size: _somethingWide);
+      expect(find.byKey(const Key('inbox_mark_all_read')), findsOneWidget,
+          reason: 'this width is the whole point of the case: if the action '
+              'has folded into the menu the bar is not being measured');
+      expect(_barHeight(tester), greaterThan(kToolbarHeight));
+      _theBarHoldsItsWords(tester, 'the Inbox at 3.12 on something wide');
+      expect(tester.takeException(), isNull);
+      await _close(tester);
+    });
+
+    testWidgets('is the height it always was at an ordinary text size',
+        (tester) async {
+      await openTheInbox(tester, 1.0, size: _somethingWide);
+      expect(find.byKey(const Key('inbox_mark_all_read')), findsOneWidget);
+      expect(_barHeight(tester), kToolbarHeight,
+          reason: 'nothing moves for a reader who has not turned their text up');
+      _theBarHoldsItsWords(tester, 'the Inbox at 1.0 on something wide');
+      expect(tester.takeException(), isNull);
+      await _close(tester);
+    });
+
+    testWidgets('stays 56 on a phone, where the words are in the menu',
+        (tester) async {
+      await openTheInbox(tester, 3.12, size: _aPhone);
+      expect(find.byKey(const Key('inbox_more')), findsOneWidget,
+          reason: 'there is no room for the words at this size on a phone');
+      expect(_barHeight(tester), kToolbarHeight,
+          reason: 'a menu glyph is 48 square and does not grow with the text, '
+              'so there is nothing for the bar to make room for');
+      _theBarHoldsItsWords(tester, 'the Inbox at 3.12 on a phone');
       expect(tester.takeException(), isNull);
       await _close(tester);
     });
