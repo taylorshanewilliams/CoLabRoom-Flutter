@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../app/colabroom_theme.dart';
@@ -26,6 +28,10 @@ class OutThere extends StatelessWidget {
     required this.onOpen,
     super.key,
   });
+
+  /// The height the strip rests at, and its floor. See the note on the
+  /// SizedBox below.
+  static const double _restingHeight = 92;
 
   final List<OpenMicStatus> mine;
   final ValueChanged<OpenMicStatus> onOpen;
@@ -74,9 +80,17 @@ class OutThere extends StatelessWidget {
             // horizontal list is the one layout Flutter will not size for
             // itself, and since the reader's own text size stopped being
             // clamped a flat 92 cut the second line off.
-            height: _Card.padding.vertical +
-                linesOfTextHigh(context, _Card.titleStyle, lines: 2) +
-                linesOfTextHigh(context, _Card.underStyle),
+            //
+            // 92 stays the floor, so the strip is the height it has always
+            // been at the usual text sizes: the card holds its title and its
+            // line apart (spaceBetween), and that air is part of the drawing
+            // rather than slack nobody meant.
+            height: math.max(
+              _restingHeight,
+              _Card.padding.vertical +
+                  linesOfTextHigh(context, _Card.titleStyle, lines: 2) +
+                  linesOfTextHigh(context, _Card.underStyle),
+            ),
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: mine.length,

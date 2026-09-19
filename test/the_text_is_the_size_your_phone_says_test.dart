@@ -47,17 +47,18 @@ Future<void> _frames(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 350));
 }
 
-/// Pumps the app at a phone size and a text scale.
+/// A phone of a given size, with its text set to [textScale], and every
+/// complaint recorded.
 ///
-/// Both go on the view and the dispatcher rather than into a MediaQuery
-/// wrapped around the app: MaterialApp builds its own MediaQuery from the
-/// test window, so anything wrapped outside is discarded and every "large
-/// text" case would silently run at 1.0.
-Future<MusicBetaController> _boot(
+/// Both settings go on the view and the dispatcher rather than into a
+/// MediaQuery wrapped around whatever is pumped: MaterialApp builds its own
+/// MediaQuery from the test window, so anything wrapped outside is discarded
+/// and every "large text" case would silently run at 1.0.
+void _phone(
   WidgetTester tester, {
   required double textScale,
   Size size = const Size(390, 844),
-}) async {
+}) {
   _complaints.clear();
   final previous = FlutterError.onError;
   FlutterError.onError = (FlutterErrorDetails details) {
@@ -71,6 +72,15 @@ Future<MusicBetaController> _boot(
   tester.platformDispatcher.textScaleFactorTestValue = textScale;
   addTearDown(tester.view.reset);
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+}
+
+/// The whole app, signed in, on that phone.
+Future<void> _boot(
+  WidgetTester tester, {
+  required double textScale,
+  Size size = const Size(390, 844),
+}) async {
+  _phone(tester, textScale: textScale, size: size);
 
   final controller = MusicBetaController(InMemoryMusicRepository.seeded());
   await controller.load();
@@ -78,7 +88,20 @@ Future<MusicBetaController> _boot(
 
   await tester.pumpWidget(CoLabRoomApp.preview(controller: controller));
   await _frames(tester);
-  return controller;
+}
+
+/// One screen on its own, for the two that the signed-in app never reaches.
+Future<void> _bootScreen(
+  WidgetTester tester,
+  Widget screen, {
+  required double textScale,
+}) async {
+  _phone(tester, textScale: textScale);
+  await tester.pumpWidget(MaterialApp(
+    theme: CoLabRoomTheme.dark(),
+    home: screen,
+  ));
+  await _frames(tester);
 }
 
 /// What the app actually believes it is drawing text at.
@@ -199,54 +222,27 @@ void main() {
   });
 
   testWidgets('a profile page holds at the largest text size', (tester) async {
-    _complaints.clear();
-    final previous = FlutterError.onError;
-    FlutterError.onError = (FlutterErrorDetails details) {
-      _complaints.add(details);
-      previous?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = previous);
-
-    tester.view.physicalSize = const Size(390, 844);
-    tester.view.devicePixelRatio = 1.0;
-    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
-    addTearDown(tester.view.reset);
-    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-
     // Somebody else's, which is the version most people see, and the one
     // carrying the most: a face, what they play, where they are, and the
     // three sections under it.
-    await tester.pumpWidget(MaterialApp(
-      theme: CoLabRoomTheme.dark(),
-      home: MusicianProfileScreen(
+    await _bootScreen(
+      tester,
+      MusicianProfileScreen(
         profileId: 'preview-mara',
         repository: InMemoryMusicRepository.seeded(),
       ),
-    ));
-    await _frames(tester);
+      textScale: 2.0,
+    );
     expect(tester.takeException(), isNull, reason: _why('a profile'));
   });
 
   testWidgets('the sign-in screen holds at the largest text size',
       (tester) async {
-    _complaints.clear();
-    final previous = FlutterError.onError;
-    FlutterError.onError = (FlutterErrorDetails details) {
-      _complaints.add(details);
-      previous?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = previous);
-
-    tester.view.physicalSize = const Size(390, 844);
-    tester.view.devicePixelRatio = 1.0;
-    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
-    addTearDown(tester.view.reset);
-    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-
     // Never reached by CoLabRoomApp.preview, which is already signed in, and
     // it is the one screen in the app somebody who has never used it sees
     // first. The client is never called: this screen only talks to it when
     // somebody presses a button.
+    //
     // Made outside the test's fake clock, and that is not a detail. A real
     // client starts a ten-second timer to refresh a session it does not have;
     // made in here that is a *fake* timer, and the test fails with "A Timer is
@@ -258,11 +254,11 @@ void main() {
         )))!;
     addTearDown(() => tester.runAsync(client.dispose));
 
-    await tester.pumpWidget(MaterialApp(
-      theme: CoLabRoomTheme.dark(),
-      home: SupabaseAuthScreen(client: client),
-    ));
-    await _frames(tester);
+    await _bootScreen(
+      tester,
+      SupabaseAuthScreen(client: client),
+      textScale: 2.0,
+    );
 
     expect(tester.takeException(), isNull, reason: _why('sign in'));
 

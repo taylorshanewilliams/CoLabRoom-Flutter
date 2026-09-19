@@ -662,13 +662,14 @@ class _NavButton extends StatelessWidget {
         child: ConstrainedBox(
           // A floor, not a height.
           //
-          // It was a fixed 56, which held an icon and one line of 11-point
-          // label and nothing more. Kept as the floor so the bar is the
-          // height it has always been on a phone at its usual text size, and
-          // so a tab whose word is short still clears Material's 48-dp
-          // target and Apple's 44-point one. Above the floor the button is
-          // as tall as its label, however large this phone draws text.
-          constraints: const BoxConstraints(minHeight: 56),
+          // It was a fixed 56 inside a bar of a fixed 72. 60 — what that 72
+          // left once the bar had taken its own padding — is the floor now,
+          // so the bar is exactly the height it has always been on a phone
+          // at its usual text size, and a tab whose word is short still
+          // clears Material's 48-dp target and Apple's 44-point one with
+          // room to spare. Above the floor the button is as tall as its
+          // label, however large this phone draws text.
+          constraints: const BoxConstraints(minHeight: 60),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
