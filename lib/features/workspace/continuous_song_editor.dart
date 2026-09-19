@@ -638,30 +638,53 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
                       ),
                       const SizedBox(width: 4),
                       Expanded(
-                        child: TextField(
-                          key: const Key('continuous_song_document'),
-                          controller: widget.controller.text,
-                          focusNode: widget.controller.focusNode,
-                          maxLines: null,
-                          minLines: compact ? 10 : 18,
-                          keyboardType: TextInputType.multiline,
-                          textInputAction: TextInputAction.newline,
-                          textCapitalization: TextCapitalization.sentences,
-                          cursorColor: AppColors.cyan,
-                          selectionControls: materialTextSelectionControls,
-                          style: style,
-                          decoration: const InputDecoration(
-                            filled: false,
-                            isDense: true,
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            // Directional, so the padding that keeps the
-                            // words clear of the rail is on the side the
-                            // rail is on (0163).
-                            contentPadding:
-                                EdgeInsetsDirectional.fromSTEB(0, 4, 4, 16),
-                            hintText: 'Tap anywhere and start writing…',
+                        // The words are the largest control on the most-used
+                        // screen in the app, and until now the only thing it
+                        // said about itself was the hint — which
+                        // `InputDecorator` stops building the moment there is
+                        // any text. So on every song that already has words,
+                        // VoiceOver and TalkBack read the whole song as the
+                        // node's value and never once said what the field
+                        // was (#403's own report, 18 September 2026).
+                        //
+                        // The name only, with no role beside it: the field
+                        // already says it is a text field, and repeating that
+                        // is what splits it in two. Two configurations
+                        // claiming the same flag cannot merge, so
+                        // `Semantics(textField: true, …)` becomes a separate,
+                        // empty "Lyrics" node above the real one — a reader
+                        // stops on it first and it carries none of the
+                        // editing actions. A plain label folds into the
+                        // field's own node and gives exactly what `labelText`
+                        // gives — name, value, role and actions together —
+                        // without `labelText`'s extra line of layout.
+                        child: Semantics(
+                          label: 'Lyrics',
+                          child: TextField(
+                            key: const Key('continuous_song_document'),
+                            controller: widget.controller.text,
+                            focusNode: widget.controller.focusNode,
+                            maxLines: null,
+                            minLines: compact ? 10 : 18,
+                            keyboardType: TextInputType.multiline,
+                            textInputAction: TextInputAction.newline,
+                            textCapitalization: TextCapitalization.sentences,
+                            cursorColor: AppColors.cyan,
+                            selectionControls: materialTextSelectionControls,
+                            style: style,
+                            decoration: const InputDecoration(
+                              filled: false,
+                              isDense: true,
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              // Directional, so the padding that keeps the
+                              // words clear of the rail is on the side the
+                              // rail is on (0163).
+                              contentPadding:
+                                  EdgeInsetsDirectional.fromSTEB(0, 4, 4, 16),
+                              hintText: 'Tap anywhere and start writing…',
+                            ),
                           ),
                         ),
                       ),

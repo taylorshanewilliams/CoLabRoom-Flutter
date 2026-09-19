@@ -193,20 +193,26 @@ class _MomentNoteSheetState extends State<_MomentNoteSheet> {
           // Nothing to type for a spoken note: what was said is already in
           // hand, and a box here would be a box for a second note.
           if (!widget.spoken) ...<Widget>[
+            // Named, because the hint goes as soon as there is a word in the
+            // box, and what is left is a note read back without anything
+            // saying it is the note (#403's report, 18 September 2026).
             SendOnEnter(
               onSend: _pin,
-              child: TextField(
-                key: const Key('moment_note_body'),
-                controller: _typed,
-                autofocus: true,
-                minLines: 2,
-                maxLines: 5,
-                textCapitalization: TextCapitalization.sentences,
-                inputFormatters: <TextInputFormatter>[
-                  LengthLimitingTextInputFormatter(MomentNote.bodyLimit),
-                ],
-                decoration: const InputDecoration(
-                  hintText: 'What happens here',
+              child: Semantics(
+                label: 'Note',
+                child: TextField(
+                  key: const Key('moment_note_body'),
+                  controller: _typed,
+                  autofocus: true,
+                  minLines: 2,
+                  maxLines: 5,
+                  textCapitalization: TextCapitalization.sentences,
+                  inputFormatters: <TextInputFormatter>[
+                    LengthLimitingTextInputFormatter(MomentNote.bodyLimit),
+                  ],
+                  decoration: const InputDecoration(
+                    hintText: 'What happens here',
+                  ),
                 ),
               ),
             ),

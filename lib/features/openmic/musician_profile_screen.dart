@@ -2375,19 +2375,26 @@ class _BioDialogState extends State<_BioDialog> {
             style: TextStyle(color: AppColors.muted, fontSize: 12.5),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _text,
-            autofocus: true,
-            maxLines: 5,
-            minLines: 3,
-            maxLength: 300,
-            // The counter is the whole point of maxLength here; hiding it and
-            // then silently refusing the 301st character is the version of
-            // this that annoys people.
-            style: const TextStyle(color: AppColors.text, fontSize: 15),
-            decoration: const InputDecoration(
-              hintText: 'Sing mostly, write when nobody is listening…',
-              hintStyle: TextStyle(color: AppColors.muted),
+          // Named: this dialog opens already filled for anybody editing what
+          // they wrote last time, and a filled field has no hint left, so it
+          // was read out as somebody's own words with nothing saying they
+          // were the ones on their page (#403's report, 18 September 2026).
+          Semantics(
+            label: 'About you',
+            child: TextField(
+              controller: _text,
+              autofocus: true,
+              maxLines: 5,
+              minLines: 3,
+              maxLength: 300,
+              // The counter is the whole point of maxLength here; hiding it
+              // and then silently refusing the 301st character is the
+              // version of this that annoys people.
+              style: const TextStyle(color: AppColors.text, fontSize: 15),
+              decoration: const InputDecoration(
+                hintText: 'Sing mostly, write when nobody is listening…',
+                hintStyle: TextStyle(color: AppColors.muted),
+              ),
             ),
           ),
           if (left < 0)

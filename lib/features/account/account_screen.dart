@@ -714,13 +714,22 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              TextField(
-                controller: _message,
-                autofocus: true,
-                minLines: 4,
-                maxLines: 8,
-                decoration: const InputDecoration(
-                  hintText: 'What happened, and what did you expect?',
+              // Named, because the hint is the only words this field has and
+              // `InputDecorator` stops building it the moment somebody types
+              // — so a report two sentences long was read back as two
+              // sentences belonging to nothing. The dialog's title names the
+              // dialog, not the field inside it (#403's report, 18 September
+              // 2026, and the same defect the song's own editor had).
+              Semantics(
+                label: 'Your report',
+                child: TextField(
+                  controller: _message,
+                  autofocus: true,
+                  minLines: 4,
+                  maxLines: 8,
+                  decoration: const InputDecoration(
+                    hintText: 'What happened, and what did you expect?',
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
