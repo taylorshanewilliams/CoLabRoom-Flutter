@@ -130,9 +130,10 @@ abstract final class AppRoutes {
         return const RouteTarget(RoutePlace.yourCode);
       case 'r':
         // /r/<room>/s/<song>, and the moment in the query. Anything else
-        // under /r names nothing: a half-typed address opens the app rather
-        // than a room somebody guessed the id of.
-        if (parts.length < 4 || parts[2] != 's') return null;
+        // under /r names nothing: a half-typed address, or one with a
+        // segment on the end nobody wrote, opens the app rather than a room
+        // somebody guessed the id of.
+        if (parts.length != 4 || parts[2] != 's') return null;
         final take = uri.queryParameters['take'];
         final at = int.tryParse(uri.queryParameters['at'] ?? '') ?? 0;
         return RouteTarget(

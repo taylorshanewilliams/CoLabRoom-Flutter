@@ -3,6 +3,7 @@ import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/app/deep_link.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
 import 'package:colabroom/app/routes.dart';
+import 'package:colabroom/app/workspace_shell.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
@@ -10,6 +11,7 @@ import 'package:colabroom/features/layers/a_moment_from_a_link.dart';
 import 'package:colabroom/features/layers/song_layers_screen.dart';
 import 'package:colabroom/features/layers/timeline_ruler.dart';
 import 'package:colabroom/features/workspace/live_performance_screen.dart';
+import 'package:colabroom/services/incoming_addresses.dart';
 import 'package:colabroom/services/moment_link.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:colabroom/services/song_layer_service.dart';
@@ -214,6 +216,7 @@ void main() {
       expect(AppRoutes.match('/r/room-1'), isNull);
       expect(AppRoutes.match('/r/room-1/s'), isNull);
       expect(AppRoutes.match('/r/room-1/songs/song-1'), isNull);
+      expect(AppRoutes.match('/r/room-1/s/song-1/take-3'), isNull);
       // A moment with no moment on it is the top of the song, not a refusal
       // to open: a link somebody trimmed still opens the song.
       expect(AppRoutes.match('/r/room-1/s/song-1')?.at?.atMs, 0);
@@ -303,6 +306,35 @@ void main() {
       final takes =
           tester.widget<SongLayersScreen>(find.byType(SongLayersScreen));
       expect(takes.projectId, 'song-1');
+      expect(takes.openAt?.atMs, 108000);
+      expect(takes.openAt?.takeId, 'layer-sent');
+    });
+
+    testWidgets('and so does one tapped while the app is already open',
+        (tester) async {
+      // Exactly what a phone pushes at a running app. The moment rides in
+      // the query, and the shell used to read `Uri.path`, which drops it:
+      // the link opened the song at the top instead of at the bar it named.
+      tester.view.physicalSize = const Size(390, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final controller = MusicBetaController(InMemoryMusicRepository.seeded());
+      await controller.load();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+          MaterialApp(home: WorkspaceShell(controller: controller)));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      await IncomingAddresses().didPushRouteInformation(RouteInformation(
+        uri: Uri.parse('https://app.colabroom.com/r/room-1/s/song-1'
+            '?take=layer-sent&at=108000'),
+      ));
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      final takes =
+          tester.widget<SongLayersScreen>(find.byType(SongLayersScreen));
       expect(takes.openAt?.atMs, 108000);
       expect(takes.openAt?.takeId, 'layer-sent');
     });

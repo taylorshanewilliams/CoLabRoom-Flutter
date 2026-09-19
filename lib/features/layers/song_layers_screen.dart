@@ -2851,7 +2851,13 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
               // and an icon on its own is the thing the plan's audit found
               // this app doing everywhere, so the moment is in the label the
               // way the pin button and the record button say it.
-              if (hasSomethingToHear)
+              //
+              // Upright only. Sideways is the faders, and that view is as
+              // tall as a landscape phone allows already -- one more line
+              // here and the fader strip is cut off (say_it_instead_of_
+              // typing_it measures it). Nothing is lost: every note in the
+              // list beside the faders carries its own link.
+              if (hasSomethingToHear && !console)
                 TextButton.icon(
                   key: const Key('copy_link_to_playhead'),
                   onPressed: _recording
@@ -3383,7 +3389,20 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         !_enabled.contains(takeId) &&
         _takes.any((take) => take.id == takeId)) {
       setState(() => _enabled.add(takeId));
-      await _applyMixChange();
+      try {
+        await _applyMixChange();
+      } catch (error) {
+        // The lane is on either way, and the next rebuild picks it up. A mix
+        // that will not be written must not swallow the arrival as well --
+        // this is awaited from an unawaited call, so a throw here would be
+        // an error with nobody left to report it.
+        reportAndDescribe(
+          error,
+          service: 'layers',
+          stage: 'takes.link.mix',
+          projectId: widget.projectId,
+        );
+      }
       if (!mounted) return;
     }
     await _goTo(Duration(milliseconds: MomentNote.playFromOf(at.atMs)),
