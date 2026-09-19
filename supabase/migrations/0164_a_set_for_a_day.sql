@@ -85,7 +85,9 @@ returns table (
   created_at timestamptz,
   updated_at timestamptz,
   project_id uuid,
-  position integer,
+  -- Not `position`: `position` is a keyword Postgres will not take as a
+  -- returns-table column name, and a set is about the running order anyway.
+  running_order integer,
   played_key text
 )
 language sql

@@ -644,6 +644,13 @@ class _SongsScreenState extends State<SongsScreen> {
     // give a leader who wants to know who has looked at Sunday.
     final today = DateTime.now();
     for (final set in setsForTheWeek(controller.setsForTheDay, today)) {
+      // A card with nothing behind it does nothing when it is tapped. The
+      // server hands back only the songs from rooms this person is in, so
+      // this is the library on this phone not having caught up rather than
+      // a set they cannot see.
+      if (!set.projectIds.any((id) => _songById(controller, id) != null)) {
+        continue;
+      }
       items.add(setForDayCard(
         set,
         today: today,
@@ -1043,6 +1050,11 @@ class _SongsScreenState extends State<SongsScreen> {
   /// which is the row turning into the "what you have not done yet" list
   /// this app does not have. Nothing tells the person who made the set
   /// either: there is no row to write.
+  ///
+  /// And no way to move bar 1 from here (0161). Most of a Sunday band can
+  /// only look at these songs, and where bar 1 is belongs to the room rather
+  /// than to the occasion — it is said on the song, by somebody who may
+  /// write on it.
   Future<void> _performSet(Setlist set) async {
     final controller = BetaScope.of(context, listen: false);
     final me = controller.meOrNobody;

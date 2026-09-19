@@ -11914,11 +11914,11 @@ declare
   ids uuid[];
   keys text[];
 begin
-  select array_agg(project_id order by position),
-         array_agg(coalesce(played_key, '-') order by position)
+  select array_agg(s.project_id order by s.running_order),
+         array_agg(coalesce(s.played_key, '-') order by s.running_order)
     into ids, keys
-  from public.sets_for_the_day()
-  where set_id = '1a4e0164-0000-0000-0000-000000000170';
+  from public.sets_for_the_day() s
+  where s.set_id = '1a4e0164-0000-0000-0000-000000000170';
 
   if ids is distinct from array[
        '1a4e0164-0000-0000-0000-000000000161'::uuid,

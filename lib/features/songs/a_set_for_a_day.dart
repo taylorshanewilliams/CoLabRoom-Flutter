@@ -77,9 +77,14 @@ const List<String> _months = <String>[
 /// "Sunday" could be either Sunday, so the date is said.
 String setDayNamed(DateTime day, DateTime today) {
   final on = dayOf(day);
-  final from = dayOf(today);
-  final ahead = on.difference(from).inDays;
   final weekday = _weekdays[on.weekday - 1];
+  // Counted in UTC from the two calendar days rather than by subtracting the
+  // local instants: the clocks go back inside some of these weeks, and a
+  // difference of six days and twenty-three hours rounds to six, which would
+  // print the bare weekday on exactly the day it is ambiguous.
+  final ahead = DateTime.utc(on.year, on.month, on.day)
+      .difference(DateTime.utc(today.year, today.month, today.day))
+      .inDays;
   if (ahead >= 0 && ahead < 7) return weekday;
   return '$weekday ${on.day} ${_months[on.month - 1]}';
 }
