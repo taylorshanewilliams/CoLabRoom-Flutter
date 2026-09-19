@@ -3519,12 +3519,21 @@ class _LetterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = letter.label.trim();
+    // The name is left off where it would only repeat the letter, the same
+    // way a printed heading leaves it off (rehearsal_letters.dart): "A, A"
+    // is worse than "A" to listen to.
+    final name = nameBeside(letter.letter, letter.label);
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: Semantics(
         button: true,
         label: name.isEmpty ? letter.letter : '${letter.letter}, $name',
+        // The tap belongs on the node that carries the label.
+        // excludeSemantics drops the InkWell's own node, and the tap action
+        // with it, so without this the row reads as a set of buttons that
+        // cannot be pressed — a player using TalkBack or VoiceOver would
+        // hear "B, Chorus, button", double-tap, and the song would not move.
+        onTap: onTap,
         excludeSemantics: true,
         child: InkWell(
           onTap: onTap,

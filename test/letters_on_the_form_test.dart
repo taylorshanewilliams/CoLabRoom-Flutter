@@ -14,6 +14,7 @@ import 'package:colabroom/services/chord_chart.dart';
 import 'package:colabroom/services/follow_me.dart';
 import 'package:colabroom/services/rehearsal_letters.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -89,6 +90,96 @@ void main() {
         StructureSection(startMs: 2000, endMs: 3000, label: 'A'),
       ];
       expect(arrangementCode(rehearsalLetters(lettered)), 'A B A');
+      // And the heading says it once. The name the analysis gave the part is
+      // the letter, so "A  A" would be the same thing printed twice.
+      final letters = rehearsalLetters(lettered);
+      expect(letteredHeading(letters.first.letter, letters.first.label), 'A');
+      expect(nameBeside(letters.first.letter, letters.first.label), '');
+    });
+
+    test('a lettered analysis shares a letter through the repeat pointer', () {
+      // Before the parts were named, every section had its own letter and a
+      // repeat pointed back at the section it repeated. chord_repeats.dart
+      // has always read that pointer; the letters read the same rule, so a
+      // band can still say "from B" and mean both times round.
+      const pointed = <StructureSection>[
+        StructureSection(startMs: 0, endMs: 16000, label: 'A'),
+        StructureSection(startMs: 16000, endMs: 32000, label: 'B'),
+        StructureSection(
+          startMs: 32000,
+          endMs: 48000,
+          label: 'C',
+          repeatsSectionLabel: 'B',
+        ),
+        StructureSection(startMs: 48000, endMs: 88000, label: 'D'),
+      ];
+      final letters = rehearsalLetters(pointed);
+      expect(arrangementCode(letters), 'A B B C');
+      // The repeat's own name is "C", which is a letter that now means
+      // another part. The heading prints the letter it shares instead of
+      // arguing with itself.
+      expect(letteredHeading(letters[2].letter, letters[2].label), 'B');
+    });
+
+    test('a pointer at a part that is not there any more still names it', () {
+      // A hand-edited analysis, or one section of a pair dropped: the
+      // pointer is the only thing that says which part this is, so it is
+      // believed rather than ignored.
+      const orphaned = <StructureSection>[
+        StructureSection(startMs: 0, endMs: 1000, label: 'B'),
+        StructureSection(
+          startMs: 1000,
+          endMs: 2000,
+          label: 'C',
+          repeatsSectionLabel: 'gone',
+        ),
+        StructureSection(
+          startMs: 2000,
+          endMs: 3000,
+          label: 'D',
+          repeatsSectionLabel: 'gone',
+        ),
+      ];
+      expect(arrangementCode(rehearsalLetters(orphaned)), 'A B B');
+    });
+
+    test('pointers that go round in a ring still agree with each other', () {
+      // Nothing writes this. A song that arrived with it would otherwise
+      // give each section a different answer depending on where the chain
+      // was started, so the ring settles on one of its own names.
+      const ring = <StructureSection>[
+        StructureSection(
+          startMs: 0,
+          endMs: 1000,
+          label: 'A',
+          repeatsSectionLabel: 'B',
+        ),
+        StructureSection(
+          startMs: 1000,
+          endMs: 2000,
+          label: 'B',
+          repeatsSectionLabel: 'A',
+        ),
+      ];
+      expect(arrangementCode(rehearsalLetters(ring)), 'A A');
+    });
+
+    test('an old lettering that reached I does not print two letters', () {
+      // The rehearsal letters skip I, so the ninth part is J. An analysis
+      // that lettered its own parts has called that part I, and "J  I" is
+      // one part wearing two letters.
+      final many = <StructureSection>[
+        for (var index = 0; index < 9; index += 1)
+          StructureSection(
+            startMs: index * 1000,
+            endMs: index * 1000 + 1000,
+            label: String.fromCharCode('A'.codeUnitAt(0) + index),
+          ),
+      ];
+      final letters = rehearsalLetters(many);
+      expect(letters.last.letter, 'J');
+      expect(letters.last.label, 'I');
+      expect(letteredHeading(letters.last.letter, letters.last.label), 'J');
     });
 
     test('I and O are left to the intro and the outro', () {
@@ -126,6 +217,20 @@ void main() {
       // Bar 1 moves the numbers in the margin and not one millisecond of the
       // recording (0161), so the pickup is a place you can go.
       expect(sectionDownbeatMs(200, const <int>[400, 900]), 200);
+    });
+
+    test('a boundary a hair early belongs to the bar it is a hair early for',
+        () {
+      // The worker's structure model snaps its sections onto downbeats; the
+      // chroma fallback it uses when that model is unavailable does not, so
+      // a boundary can sit either side of the bar it means. Going back from
+      // one that landed 50ms early would start the jump a whole bar before
+      // the part.
+      const bars = <int>[41450, 43400, 45350, 47300];
+      expect(sectionDownbeatMs(45300, bars), 45350);
+      // Far enough out to be a real boundary rather than a rounding of one,
+      // and the bar it is inside stands.
+      expect(sectionDownbeatMs(44800, bars), 43400);
     });
   });
 
@@ -254,6 +359,33 @@ void main() {
           transpose: 0,
         ).heading,
         'A  VERSE',
+      );
+    });
+
+    test('a part the analysis lettered itself prints its letter once', () {
+      // The chroma fallback in the worker calls the parts "A", "B", "A", so
+      // the name and the derived letter are the same word and a heading of
+      // "A  A" would say it twice.
+      const lettered = <StructureSection>[
+        StructureSection(startMs: 0, endMs: 2000, label: 'A'),
+        StructureSection(startMs: 2000, endMs: 4000, label: 'B'),
+        StructureSection(startMs: 4000, endMs: 6000, label: 'A'),
+      ];
+      final lines = ChordSheetExport.withSectionNames(
+        <MusicianSheetLine>[
+          sung('turning in the wind', startMs: 100),
+          sung('again and again', startMs: 2100),
+          sung('a second verse now', startMs: 4100),
+        ],
+        lettered,
+      );
+      expect(
+        <String>[
+          for (final line in lines)
+            if (line.section)
+              ChordSheetExport.textLine(line, transpose: 0).heading,
+        ],
+        <String>['A', 'B', 'A'],
       );
     });
 
@@ -427,6 +559,93 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('a letter can be pressed by a screen reader, not only read',
+        (tester) async {
+      await sized(tester);
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(project: project, analysis: bundle),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final node = tester.getSemantics(find.byKey(const Key('live_letter_2')));
+      // The name is said after the letter, so "B" is never only a shape.
+      expect(node.label, 'B, Chorus');
+      final data = node.getSemanticsData();
+      expect(data.flagsCollection.isButton, isTrue);
+      expect(data.hasAction(SemanticsAction.tap), isTrue,
+          reason: 'a button that cannot be pressed is not a button');
+
+      // And pressing it the way TalkBack presses it moves the song.
+      tester.semantics.tap(find.semantics.byLabel('B, Chorus'));
+      await tester.pump();
+      expect(
+        tester.widget<Slider>(find.byKey(const Key('live_seek'))).value,
+        closeTo(0.417, 0.01),
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      semantics.dispose();
+    });
+
+    testWidgets('a jump by letter reaches the room that is following',
+        (tester) async {
+      await sized(tester);
+      final sent = <Map<String, dynamic>>[];
+      final session = FollowSession(
+        line: _OneWayLine(sent),
+        userId: 'u1',
+        name: 'Taylor',
+      );
+      session.lead();
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: bundle,
+          together: session,
+          me: 'u1',
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // On repeat in the intro, then "from A". What the room hears next is
+      // the song at the verse with the repeat off — the jump travels as a
+      // seek and a cleared loop, which every heartbeat already carries.
+      final loopChip = find.byKey(const Key('live_loop_0'));
+      await tester.scrollUntilVisible(
+        loopChip,
+        80,
+        scrollable: find.descendant(
+          of: find.byKey(const Key('live_practice_row')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.tap(loopChip);
+      await tester.pump(const Duration(milliseconds: 400));
+
+      await tester.tap(find.byKey(const Key('live_letter_1')));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      final heard = <FollowState>[
+        for (final message in sent)
+          if (message['kind'] == 'lead')
+            FollowState.fromJson(message['state'] as Map<String, dynamic>)!,
+      ];
+      expect(heard, isNotEmpty);
+      expect(heard.last.positionMs, 1000,
+          reason: 'the verse begins on the downbeat at 1000');
+      expect(heard.last.looping, isFalse);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      session.dispose();
+    });
+
     testWidgets('a song with no sections has no row of letters', (tester) async {
       await sized(tester);
       await tester.pumpWidget(MaterialApp(
@@ -567,6 +786,33 @@ void main() {
       expect(followTargetMs(heard, heard.sentAt + 500), 4500);
     });
   });
+}
+
+/// One phone leading, with nobody at the other end.
+///
+/// Enough of a line to watch what the leader's screen sends: what arrives
+/// from other phones is Follow me's own business and tested there.
+class _OneWayLine implements FollowLine {
+  _OneWayLine(this.sent);
+
+  final List<Map<String, dynamic>> sent;
+
+  @override
+  String get device => 'me';
+
+  @override
+  Stream<Map<String, dynamic>> get followMessages =>
+      const Stream<Map<String, dynamic>>.empty();
+
+  @override
+  Stream<List<SongDevice>> get devices => const Stream<List<SongDevice>>.empty();
+
+  @override
+  Future<void> sendFollow(Map<String, dynamic> message) async =>
+      sent.add(message);
+
+  @override
+  Future<void> markFollowing(String? device) async {}
 }
 
 /// The words a PDF actually puts on the page, in order.

@@ -7,6 +7,7 @@ import '../../services/set_aside.dart';
 import '../../app/colabroom_theme.dart';
 import '../../services/chord_chart.dart';
 import '../../services/number_reading.dart';
+import '../../services/rehearsal_letters.dart';
 import 'music_reference_sheets.dart';
 import 'musician_sheet_logic.dart'
     show chordAsPlayed, chordAsRead, keyAsPlayed;
@@ -209,10 +210,10 @@ class ChordChartView extends StatelessWidget {
               child: Text(
                 // The letter first, then the name, the way a chart marks a
                 // part: "B  CHORUS". The letter is what gets said out loud
-                // and the name is what it means.
-                row.sectionLetter == null
-                    ? row.sectionLabel!.toUpperCase()
-                    : '${row.sectionLetter}  ${row.sectionLabel!.toUpperCase()}',
+                // and the name is what it means — and where the analysis
+                // lettered the part itself, the letter is the whole heading
+                // rather than being printed twice (rehearsal_letters.dart).
+                letteredHeading(row.sectionLetter, row.sectionLabel!),
                 style: TextStyle(
                   color: AppColors.gold,
                   fontSize: 10 * fontScale,

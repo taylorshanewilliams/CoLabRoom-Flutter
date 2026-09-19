@@ -701,9 +701,9 @@ class ChartTextLine {
   final String? letter;
 
   /// The heading as it is printed: "B  CHORUS", or the name alone for a part
-  /// with no letter to give.
-  String get heading =>
-      letter == null ? words.toUpperCase() : '$letter  ${words.toUpperCase()}';
+  /// with no letter to give — and the letter alone where the name would only
+  /// repeat it (see rehearsal_letters.dart).
+  String get heading => letteredHeading(letter, words);
 
   bool get isEmpty => chords.isEmpty && words.isEmpty;
 

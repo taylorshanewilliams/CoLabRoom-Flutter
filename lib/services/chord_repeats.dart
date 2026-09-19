@@ -2,6 +2,10 @@ import 'dart:math' as math;
 
 import '../domain/song_analysis_models.dart';
 import 'chord_beat_grid.dart';
+// Which part a section is a repeat of is one rule, and the rehearsal letters
+// read it too: a correction that travels to the second chorus and a letter
+// that says "B" both times have to mean the same thing by "the same part".
+import 'rehearsal_letters.dart';
 
 /// Correct a chord once, and everywhere the passage comes round again.
 ///
@@ -129,7 +133,7 @@ ChordRepeatOffer? findChordRepeats({
   final sections = reference.structureSections;
   final home = _sectionAt(sections, startMs);
   if (home == null) return null;
-  final family = _family(home);
+  final family = sectionFamily(home);
   if (family.isEmpty) return null;
 
   final downbeats = List<int>.of(reference.downbeatsMs)..sort();
@@ -151,7 +155,7 @@ ChordRepeatOffer? findChordRepeats({
   final targets = <ChordRepeatTarget>[];
   for (final repeat in sections) {
     if (repeat.startMs == home.startMs && repeat.endMs == home.endMs) continue;
-    if (_family(repeat) != family || repeat.durationMs <= 0) continue;
+    if (sectionFamily(repeat) != family || repeat.durationMs <= 0) continue;
 
     final moment = _mapMoment(home, repeat, startMs, downbeats);
     if (moment == null) continue;
@@ -188,17 +192,6 @@ ChordRepeatOffer? findChordRepeats({
   }
   if (targets.isEmpty) return null;
   return ChordRepeatOffer(chord: wanted, section: home, targets: targets);
-}
-
-/// Which part this is a repeat of.
-///
-/// Analyses since the parts were named share a label between repeats. The
-/// lettered analyses before that gave every section its own letter and
-/// pointed each repeat at the earlier section it resembled, so a pointer
-/// names the family and a section without one is its own.
-String _family(StructureSection section) {
-  final pointer = section.repeatsSectionLabel?.trim() ?? '';
-  return pointer.isNotEmpty ? pointer : section.label.trim();
 }
 
 StructureSection? _sectionAt(List<StructureSection> sections, int ms) {
