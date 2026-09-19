@@ -32,31 +32,46 @@ bool isSpentAudio(String name) {
   return false;
 }
 
-/// Deletes the spent audio in [dir], leaving alone anything in [inUse].
+/// Deletes the spent audio in [dir], leaving alone anything [inUse] names.
 ///
-/// [inUse] is every path something is still holding: the mix that is loaded,
-/// the file the microphone is writing to this second, and the take an upload
-/// is reading from. That last one is why this takes the argument at all -- a
-/// take on its way to the room is the only copy of something somebody played,
-/// and housekeeping must never be the reason it does not arrive.
+/// [inUse] answers with every path something is still holding: the mix that
+/// is loaded, the file the microphone is writing to this second, and the take
+/// an upload is reading from. That last one is why this takes the argument at
+/// all -- a take on its way to the room is the only copy of something
+/// somebody played, and housekeeping must never be the reason it does not
+/// arrive.
+///
+/// A function rather than a set, asked again for every file. Listing a
+/// directory is asynchronous, so a set passed in is a photograph of a moment
+/// before the first name came back; a take that starts going up while the
+/// listing is still running would not be in it, and the sweep would walk on
+/// to that file and delete it.
 ///
 /// Best effort throughout. A file that will not delete is clutter, not a
 /// failure worth showing anybody.
 Future<void> sweepSpentAudio(
   Directory dir, {
-  Set<String> inUse = const <String>{},
+  Set<String> Function()? inUse,
 }) async {
   // Matched on the name rather than the whole path. Everything here is one
   // directory deep, so a name is as good as an address -- and a path built as
   // `${dir.path}/name` does not equal the one `list()` hands back on Windows,
   // where the separator it uses is the other one.
-  final held = <String>{for (final path in inUse) _nameOf(path)};
+  bool held(String name) {
+    final paths = inUse?.call();
+    if (paths == null) return false;
+    for (final path in paths) {
+      if (_nameOf(path) == name) return true;
+    }
+    return false;
+  }
+
   try {
     await for (final entry in dir.list()) {
       if (entry is! File) continue;
       final name = _nameOf(entry.path);
       if (!isSpentAudio(name)) continue;
-      if (held.contains(name)) continue;
+      if (held(name)) continue;
       await entry.delete();
     }
   } catch (_) {

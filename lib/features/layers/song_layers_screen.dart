@@ -883,6 +883,21 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
 
   bool _sweptSpentAudio = false;
 
+  /// Every take on its way to the room, from any visit to this screen.
+  ///
+  /// Static for the reason [_mixSequence] is, and for a sharper one. A take
+  /// deliberately outlives the screen it was played on: _stop does not stop
+  /// because a widget went away, because a take somebody has played is the
+  /// most expensive thing this feature can lose. So leaving Takes the instant
+  /// Stop is pressed and walking straight back in gives two screens at once --
+  /// the old one still reading the file, the new one sweeping the directory.
+  /// A field on the state would make the new screen's set empty, and its
+  /// first mix would delete the take out from under the upload.
+  ///
+  /// Added in _stop before the recorder is even asked to stop, and removed in
+  /// its finally.
+  static final Set<String> _takesInFlight = <String>{};
+
   /// [kind] names what the file is. Then and now writes
   /// `_mix_then_and_now_…`, which keeps the `_mix_` prefix [isSpentAudio]
   /// looks for, so a passage left behind by an earlier visit goes with the
@@ -908,7 +923,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     if (!await dir.exists()) await dir.create(recursive: true);
     if (!_sweptSpentAudio) {
       _sweptSpentAudio = true;
-      await sweepSpentAudio(dir, inUse: _audioInUse);
+      await sweepSpentAudio(dir, inUse: () => _audioInUse);
     }
     _mixSequence += 1;
     final stamp = DateTime.now().microsecondsSinceEpoch;
@@ -921,6 +936,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// The two recordings are the ones that matter. A sweep runs at the first
   /// mix this visit writes, which can be a mute pressed while the microphone
   /// is running or a rebuild while a take is still going up.
+  ///
+  /// [_takesInFlight] is in here as well as [_savingPath] because an upload
+  /// belonging to an earlier visit is not on this state at all.
   Set<String> get _audioInUse => <String>{
         for (final path in <String?>[
           _lastMixPath,
@@ -929,6 +947,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           _savingPath,
         ])
           if (path != null) path,
+        ..._takesInFlight,
       };
 
   /// Whether what is about to play is a click on its own, and so should loop.
@@ -1616,6 +1635,20 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         ),
         path: path,
       );
+      // The screen went away while the microphone was opening.
+      //
+      // Getting here at all takes a back press during _rebuildMix or the
+      // count, both of which are seconds long on a song with takes under it.
+      // dispose() ran before this line: it found _recordingPath still null,
+      // so it had nothing to give up on, and the recorder it disposed is not
+      // the one now running. Nothing below would stop it either -- the count
+      // is not involved on this path, and the failure handler only runs on a
+      // throw. Given up on here instead, or the microphone stays open,
+      // writing a file nobody will ever hear, until the process dies.
+      if (!mounted) {
+        await _letGoOfTheRecording();
+        return;
+      }
       _backingWasPlaying = hasBacking && _lastMixPath != null;
       if (_backingWasPlaying) {
         // The recorder gets a head start before anything plays.
@@ -1639,12 +1672,25 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         if (countIn == null) {
           await _playMix(from: _punchInAt);
         } else if (!await _countInAndComeIn(countIn)) {
-          // The screen went away during the bar, and took the recorder with
-          // it. Nobody is left to bring a song in for.
+          // The screen went away during the bar. Nobody is left to bring a
+          // song in for -- and the microphone has been running since before
+          // the count, so it is let go of here rather than left open. This
+          // used to say the screen "took the recorder with it", which was
+          // true of a recorder built in a field initialiser and is not true
+          // of one built on use: dispose() had nothing to dispose yet.
+          // A no-op when dispose already gave up on this recording.
+          await _letGoOfTheRecording();
           return;
         }
       }
 
+      // Same again after the count and the song coming in, either of which
+      // can be the second somebody leaves. A periodic timer started on a
+      // screen that has gone is one nothing will ever cancel.
+      if (!mounted) {
+        await _letGoOfTheRecording();
+        return;
+      }
       _elapsed = Duration.zero;
       _timer = Timer.periodic(const Duration(milliseconds: 200), (_) {
         if (mounted) setState(() => _elapsed += const Duration(milliseconds: 200));
@@ -1812,8 +1858,17 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     // asked to stop, because leaving the screen in that second would
     // otherwise find a recording in progress and delete it -- and a take
     // somebody has played is the most expensive thing this feature can lose.
+    // Held here as well as on the state, and removed in the finally below.
+    // The set is static and this list is what this particular take put in it,
+    // so two takes going up at once cannot clear each other's entries.
+    final handedToTheUpload = <String>{};
     _savingPath = _recordingPath;
     _recordingPath = null;
+    final saving = _savingPath;
+    if (saving != null) {
+      handedToTheUpload.add(saving);
+      _takesInFlight.add(saving);
+    }
     setState(() {
       _busy = true;
       _recording = false;
@@ -1823,7 +1878,11 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     try {
       final path = await _recorder.stop();
       // The recorder's own answer, which is the file it really wrote.
-      if (path != null) _savingPath = path;
+      if (path != null) {
+        _savingPath = path;
+        handedToTheUpload.add(path);
+        _takesInFlight.add(path);
+      }
       await _player.stop();
 
       // Every way this can end without a take now says so.
@@ -2038,6 +2097,7 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       // is deliberately left on the phone -- the sentence above says so -- and
       // the next visit's sweep is what eventually takes it.
       _savingPath = null;
+      _takesInFlight.removeAll(handedToTheUpload);
       if (mounted) {
         setState(() {
           _busy = false;

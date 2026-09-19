@@ -16,13 +16,36 @@ class TakeRecorder {
 
   AudioRecorder? _recorder;
 
+  /// Whether this has been let go of for good.
+  ///
+  /// Made-on-use and disposed-once do not go together on their own, and the
+  /// first version of this class had the hole: [dispose] dropped the recorder,
+  /// and the next call built a fresh one. A recording still in flight when the
+  /// screen went away would then open a brand new microphone that nothing
+  /// owned -- disposed already, so nobody would dispose it, and on two paths
+  /// out of _record nobody would cancel it either. That is the leak this
+  /// class was written to close, arriving through the class itself.
+  ///
+  /// A concrete AudioRecorder used to give this for free: the plugin throws
+  /// on a recorder that has been disposed, and _record's catch has always
+  /// relied on that ("the throw that brings us here is often a call on a
+  /// recorder that is already gone"). The flag keeps that promise.
+  bool _disposed = false;
+
   /// Made on use rather than in the constructor, so opening the takes screen
   /// costs nothing until somebody actually records.
-  AudioRecorder get _mic => _recorder ??= AudioRecorder();
+  AudioRecorder get _mic {
+    if (_disposed) {
+      throw StateError(
+        'The recorder was disposed with the screen; it cannot be opened again.',
+      );
+    }
+    return _recorder ??= AudioRecorder();
+  }
 
-  Future<bool> hasPermission() => _mic.hasPermission();
+  Future<bool> hasPermission() async => _mic.hasPermission();
 
-  Future<void> start(RecordConfig config, {required String path}) =>
+  Future<void> start(RecordConfig config, {required String path}) async =>
       _mic.start(config, path: path);
 
   /// The file that was written, or null when the recorder had nothing to give
@@ -37,6 +60,9 @@ class TakeRecorder {
   Future<void> cancel() async => _recorder?.cancel();
 
   Future<void> dispose() async {
+    // Set first, so a call racing this one cannot slip a new recorder in
+    // between the await below and the field being cleared.
+    _disposed = true;
     await _recorder?.dispose();
     _recorder = null;
   }

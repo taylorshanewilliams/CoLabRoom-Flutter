@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:colabroom/domain/song_analysis_models.dart';
@@ -5,6 +6,7 @@ import 'package:colabroom/features/layers/song_layers_screen.dart';
 import 'package:colabroom/features/layers/spent_audio.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:colabroom/services/song_layer_service.dart';
+import 'package:colabroom/services/take_naming.dart';
 import 'package:colabroom/services/take_recorder.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -46,6 +48,37 @@ class _EmptyLayers extends SongLayerService {
   Future<void> markOpened(Iterable<String> layerIds) async {}
 }
 
+/// A song with one part already in it, so that pressing Record builds a mix
+/// — which is the only thing that sweeps the directory.
+class _OneTake extends SongLayerService {
+  _OneTake(this.localPath) : super(client: null);
+
+  /// Where the take already is on this phone, so nothing has to be fetched.
+  final String localPath;
+
+  @override
+  Future<List<SharedLayer>> listLayers(String projectId) async => <SharedLayer>[
+        SharedLayer(
+          // A layer id is a uuid, which is why the sweep can never mistake
+          // one of the room's takes for a leftover.
+          id: '7f1c0e3a-9d21-4a77-8c55-0b2f4e6d8a10',
+          projectId: projectId,
+          recordedBy: 'someone-else',
+          storagePath: 'room-1/$projectId/layers/1.m4a',
+          label: 'Guitar 1',
+          part: TakePart.other,
+          createdAt: DateTime(2026, 9, 19),
+          sharedAt: DateTime(2026, 9, 19),
+        ),
+      ];
+
+  @override
+  Future<String> ensureLocal(SharedLayer layer) async => localPath;
+
+  @override
+  Future<void> markOpened(Iterable<String> layerIds) async {}
+}
+
 class _NoAnalysis extends SongAnalysisService {
   _NoAnalysis() : super(client: null);
 
@@ -74,6 +107,11 @@ class _Mic extends TakeRecorder {
   /// and a take that is not happening.
   bool failAfterStarting = false;
 
+  /// Holds [stop] open, which is where the screen waits with a take on its
+  /// way to the room. A real one is held open for as long as the upload
+  /// takes, which on a long take over a slow connection is a while.
+  Completer<void>? holdTheStop;
+
   @override
   Future<bool> hasPermission() async => true;
 
@@ -90,6 +128,8 @@ class _Mic extends TakeRecorder {
   @override
   Future<String?> stop() async {
     stops += 1;
+    final hold = holdTheStop;
+    if (hold != null) await hold.future;
     return wrote;
   }
 
@@ -102,16 +142,19 @@ class _Mic extends TakeRecorder {
   }
 }
 
-Widget _screen(_Mic mic) => MaterialApp(
+Widget _screen(_Mic mic, {SongLayerService? layers}) => MaterialApp(
       home: SongLayersScreen(
         roomId: 'room-1',
         projectId: 'project-1',
         songTitle: 'Mountains',
-        layerService: _EmptyLayers(),
+        layerService: layers ?? _EmptyLayers(),
         analysisService: _NoAnalysis(),
         takeRecorder: mic,
       ),
     );
+
+/// Nothing on screen, which is how a screen is left in a widget test.
+const Widget _gone = MaterialApp(home: SizedBox.shrink());
 
 /// Lets the real work happen.
 ///
@@ -145,6 +188,14 @@ const List<MethodChannel> _audioChannels = <MethodChannel>[
 void main() {
   late Directory documents;
 
+  /// Parks the next ask for the app's documents directory.
+  ///
+  /// _record asks for it before it has written down the name of the file it
+  /// is about to record into, which is the window this screen is leaky in:
+  /// on a real phone the same window is _rebuildMix mixing every take in the
+  /// song, or a bar being counted, both of them seconds long.
+  Completer<void>? holdTheDirectory;
+
   setUp(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
     SharedPreferences.setMockInitialValues(<String, Object>{
@@ -153,10 +204,19 @@ void main() {
       'microphone_granted': true,
     });
     documents = await Directory.systemTemp.createTemp('colabroom_takes');
+    holdTheDirectory = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
       const MethodChannel('plugins.flutter.io/path_provider'),
-      (MethodCall call) async => documents.path,
+      (MethodCall call) async {
+        // Held once, for the test that leaves the screen during the run-up.
+        final hold = holdTheDirectory;
+        if (hold != null) {
+          holdTheDirectory = null;
+          await hold.future;
+        }
+        return documents.path;
+      },
     );
     for (final channel in _audioChannels) {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -240,6 +300,121 @@ void main() {
     });
   });
 
+  group('a screen left during the run-up to a take', () {
+    testWidgets('does not leave a microphone open behind it', (tester) async {
+      final mic = _Mic();
+      await tester.pumpWidget(_screen(mic));
+      await tester.pumpAndSettle();
+
+      // Pressed, and then held before the screen has written down what it is
+      // recording into. Everything that makes this window long on a phone --
+      // mixing the song's parts, counting a bar in -- happens here.
+      final ready = Completer<void>();
+      holdTheDirectory = ready;
+      await tester.tap(find.byKey(const Key('layers_record_button')));
+      await _letItHappen(tester);
+      expect(mic.starts, 0, reason: 'the run-up was not held');
+
+      // Back, while it is still getting ready. There is no file name yet, so
+      // dispose() has nothing to give up on -- and the recorder it lets go of
+      // is not the one that is about to open.
+      await tester.pumpWidget(_gone);
+      await _letItHappen(tester);
+
+      ready.complete();
+      await _letItHappen(tester);
+
+      // The microphone opens, because the ask for it was already on its way,
+      // and it is given up on at once. This is the leak the fix for the catch
+      // block put back through the seam it needed: the recorder is made on
+      // use, so a start() after dispose() built a second one that nothing
+      // owned, nothing cancelled and nothing would ever dispose. It stayed
+      // open, writing a file nobody would hear, until the app was killed.
+      expect(mic.starts, 1);
+      expect(mic.cancels, 1,
+          reason: 'the microphone was left open after the screen went away');
+      expect(File(mic.wrote!).existsSync(), isFalse,
+          reason: 'the file it opened was left on the phone');
+    });
+  });
+
+  group('a take on its way to the room', () {
+    testWidgets('is not swept by the next visit to the same song',
+        (tester) async {
+      final mic = _Mic();
+      await tester.pumpWidget(_screen(mic));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('layers_record_button')));
+      await _letItHappen(tester);
+      final take = File(mic.wrote!);
+      expect(take.existsSync(), isTrue);
+
+      // Stop, and the upload holds the screen. _stop deliberately carries on
+      // after the screen goes: a take somebody has played is the most
+      // expensive thing this feature can lose.
+      mic.holdTheStop = Completer<void>();
+      // The same button, which says Stop while a take is running.
+      await tester.tap(find.byKey(const Key('layers_record_button')));
+      await _letItHappen(tester);
+      expect(mic.stops, 1, reason: 'the take never reached the upload');
+
+      // A recording from some earlier visit that nobody finished, which the
+      // sweep is supposed to take.
+      final abandoned = File('${take.parent.path}/new_1700000000000.m4a')
+        ..writeAsStringSync('an abandoned recording');
+      // And a take of the room's already on this phone, so that the second
+      // visit has something to mix -- which is the only thing that sweeps.
+      final roomsTake =
+          File('${take.parent.path}/7f1c0e3a-9d21-4a77-8c55-0b2f4e6d8a10.m4a')
+            ..writeAsStringSync('somebody else s part');
+
+      // Out of Takes and straight back in, while the upload is still reading.
+      await tester.pumpWidget(_gone);
+      await _letItHappen(tester);
+      await tester.pumpWidget(_screen(_Mic(), layers: _OneTake(roomsTake.path)));
+      await _letItHappen(tester);
+      await tester.tap(find.byKey(const Key('layers_record_button')));
+      await _letItHappen(tester);
+
+      expect(abandoned.existsSync(), isFalse,
+          reason: 'the second visit never swept, so this proves nothing');
+      // The one that matters. The guard on a take in flight used to live on
+      // the screen that recorded it, and this is a different screen: its set
+      // was empty, and the first mix it wrote deleted the take out from under
+      // the upload that was still reading it.
+      expect(take.existsSync(), isTrue,
+          reason: 'a take still going up was swept by the next visit');
+      expect(roomsTake.existsSync(), isTrue,
+          reason: "a take of the room's was deleted");
+
+      mic.holdTheStop!.complete();
+      await _letItHappen(tester);
+      await tester.pumpWidget(_gone);
+      await _letItHappen(tester);
+    });
+  });
+
+  group('a recorder let go of with its screen', () {
+    test('does not quietly open another microphone', () async {
+      // Never opened, so there is no plugin anywhere in this.
+      final recorder = TakeRecorder();
+      await recorder.dispose();
+
+      // A concrete AudioRecorder gave this for free -- the plugin throws on
+      // one that has been disposed -- and _record's catch has always relied
+      // on it. Made on use, it built a fresh recorder instead.
+      await expectLater(
+        recorder.start(const RecordConfig(), path: 'nowhere.m4a'),
+        throwsA(isA<StateError>()),
+      );
+      await expectLater(recorder.hasPermission(), throwsA(isA<StateError>()));
+      // Except cancelling, which stays quiet: there is no recording left to
+      // discard, and asking would be the very thing this stops.
+      await recorder.cancel();
+    });
+  });
+
   group('what the sweep may take', () {
     test('an abandoned recording goes and one still going up stays', () async {
       final dir = await Directory.systemTemp.createTemp('colabroom_sweep');
@@ -261,7 +436,7 @@ void main() {
 
       await sweepSpentAudio(
         dir,
-        inUse: <String>{goingUp.path, loadedMix.path},
+        inUse: () => <String>{goingUp.path, loadedMix.path},
       );
 
       expect(abandoned.existsSync(), isFalse,
