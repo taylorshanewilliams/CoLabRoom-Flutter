@@ -390,6 +390,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(service.said, 'ar');
+      // The page turns round on the next frame, not on the next correction:
+      // the sheet's lines are worked out once and cached, and the answer has
+      // to throw that away.
+      expect(
+        Directionality.of(tester.element(find.text('night'))),
+        TextDirection.rtl,
+      );
       // Asked, not done: listening again costs money and replaces words
       // somebody may have corrected by hand.
       expect(service.listened, 0);

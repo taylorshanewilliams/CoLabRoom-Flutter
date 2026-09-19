@@ -676,7 +676,9 @@ List<MusicianSheetLine> transcriptSheetLines({
   // joined without them: putting a space between every character of a
   // Chinese line would be a line no reader of Chinese has ever seen.
   final byCharacter = anchorsByCharacter(language);
-  final gap = unitGap(language);
+  // Named `between` rather than `gap`: the line-breaking loop below already
+  // has a `gap`, and that one is a silence in milliseconds.
+  final between = unitGap(language);
   List<ChordCue> chordsForRange(int startMs, int endMs) => chordCues
       .where((cue) => cue.endMs >= startMs && cue.startMs <= endMs)
       .toList(growable: false);
@@ -712,7 +714,7 @@ List<MusicianSheetLine> transcriptSheetLines({
     return slices
         .map((slice) => MusicianSheetLine(
               contributionId: null,
-              body: slice.map((word) => word.word).join(gap),
+              body: slice.map((word) => word.word).join(between),
               section: false,
               startMs: slice.first.startMs,
               endMs: slice.last.endMs,
@@ -745,7 +747,7 @@ List<MusicianSheetLine> transcriptSheetLines({
     chunks.add(
       pieces
           .sublist(start, math.min(start + perLine, pieces.length))
-          .join(gap),
+          .join(between),
     );
   }
   return chunks.asMap().entries.map((entry) {

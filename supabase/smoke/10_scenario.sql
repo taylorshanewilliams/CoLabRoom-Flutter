@@ -11346,7 +11346,9 @@ reset role;
 insert into auth.users (id, email, raw_user_meta_data) values
   ('1a4e0163-0000-0000-0000-000000000164', 'thesinger@smoke.test',
    '{"display_name": "The Singer"}'),
-  ('1a4e0163-0000-0000-0000-000000000165', 'onlylooking@smoke.test',
+  -- Not `onlylooking@smoke.test`: that address is already somebody else in
+  -- this file (0142's block), and auth.users is unique on email.
+  ('1a4e0163-0000-0000-0000-000000000165', 'onlylooking0163@smoke.test',
    '{"display_name": "Only Looking"}'),
   -- Never inserted into room_members anywhere, so room_role_for is null for
   -- this account: the case the `is distinct from` pair exists for, and the

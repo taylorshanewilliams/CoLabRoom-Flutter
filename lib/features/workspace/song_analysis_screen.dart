@@ -174,7 +174,11 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     final controller = BetaScope.of(context, listen: false);
     await controller.repository.setSongLanguage(_project.id, language);
     if (!mounted) return;
-    setState(() => _project = _project.copyWith(language: language));
+    // Kept in the one spelling the server stores it in, so the local copy
+    // and the row cannot disagree about which language this is.
+    setState(
+      () => _project = _project.copyWith(language: languageTagTyped(language)),
+    );
     unawaited(controller.refreshProject(_project.id));
   }
 

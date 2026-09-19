@@ -192,9 +192,12 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   /// re-scanned every chord cue against every line on every frame, including
   /// the frames that draw the chart and never look at them.
   ///
-  /// Safe to key on the bundle alone: with `ignoreWorkspaceLyrics` these come
-  /// entirely from the recording, so the project the panel is holding does
-  /// not enter into them.
+  /// The words come entirely from the recording (`ignoreWorkspaceLyrics`),
+  /// but two facts about the song do enter into them and both have to throw
+  /// this away when they change: where bar 1 is, which numbers the gutter
+  /// (0161), and what the song is sung in, which decides how each line is
+  /// broken into the pieces a chord sits over and which way it runs (0163).
+  /// See [didUpdateWidget].
   List<MusicianSheetLine>? _lines;
 
   List<ChartRow> get _chart => _chartRows ??= buildChartRows(
@@ -245,12 +248,23 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       _chartRows = null;
       _lines = null;
       _repeatOffer = null;
+      // And so does the offer to listen again: it asked about the words
+      // these lines were built from, and they are not those words now.
+      _offerToListenAgain = null;
     }
     // Where bar 1 is decides every number on the chart and in the sheet's
     // gutter, and both are worked out once per bundle — so a song that has
     // just been told where it starts has to have them worked out again.
     if (oldWidget.project.barOne != widget.project.barOne) {
       _chartRows = null;
+      _lines = null;
+    }
+    // What the song is sung in decides how every line is broken into the
+    // pieces a chord sits over and which way it runs (0163), and the lines
+    // are worked out once per bundle — so a song that has just been told
+    // what it is sung in has to have them worked out again, or the answer
+    // shows on the next correction rather than on the next frame.
+    if (oldWidget.project.language != widget.project.language) {
       _lines = null;
     }
     if (oldWidget.project.id != widget.project.id) {

@@ -7,8 +7,10 @@ import '../../services/song_language.dart';
 /// away again with a null.
 ///
 /// Completes with null once it has landed, or with the sentence to show when
-/// it did not — the same shape as [SayTheKey], and for the same reason: the
-/// sheet is where somebody tapped, so the sheet is where a refusal is said.
+/// it did not — the same shape as SayTheKey in music_reference_sheets.dart,
+/// and for the same reason: the sheet is where somebody tapped, so the sheet
+/// is where a refusal is said. A snackbar would land on the page underneath,
+/// hidden by the sheet it was about.
 typedef SayTheLanguage = Future<String?> Function(String? tag);
 
 /// What language is this song sung in?
