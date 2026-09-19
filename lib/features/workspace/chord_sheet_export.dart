@@ -6,6 +6,7 @@ import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/services/project_export_service.dart';
+import 'package:colabroom/services/rehearsal_letters.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -58,6 +59,7 @@ abstract final class ChordSheetExport {
         chords: '',
         words: ProjectExportService.printable(line.body.trim()),
         section: true,
+        letter: line.letter,
       );
     }
     final words = ProjectExportService.printable(line.body)
@@ -132,18 +134,20 @@ abstract final class ChordSheetExport {
   /// lands twice. Only the last section due before a line is written, so
   /// every heading has something underneath it: "Intro" and "Verse" printed
   /// back to back name a part the page does not show.
+  ///
+  /// Each heading carries its rehearsal letter with it, so the page can mark
+  /// the part the way a band names it out loud — see rehearsal_letters.dart.
   static List<MusicianSheetLine> withSectionNames(
     List<MusicianSheetLine> lines,
     List<StructureSection> sections,
   ) {
     if (lines.isEmpty || sections.isEmpty) return lines;
     if (lines.any((line) => line.section)) return lines;
-    final ordered = List<StructureSection>.of(sections)
-      ..sort((a, b) => a.startMs.compareTo(b.startMs));
+    final ordered = rehearsalLetters(sections);
     final out = <MusicianSheetLine>[];
     var next = 0;
     for (final line in lines) {
-      StructureSection? due;
+      RehearsalLetter? due;
       while (next < ordered.length &&
           ordered[next].startMs <= line.startMs + _sectionPickupMs) {
         due = ordered[next];
@@ -153,12 +157,13 @@ abstract final class ChordSheetExport {
         out.add(
           MusicianSheetLine(
             contributionId: null,
-            body: due.displayLabel,
+            body: due.label,
             section: true,
             startMs: due.startMs,
             endMs: due.endMs,
             chords: const <ChordCue>[],
             approximateTiming: false,
+            letter: due.letter,
           ),
         );
       }
@@ -338,6 +343,7 @@ abstract final class ChordSheetExport {
     required int transpose,
     String? musicalKey,
     double? bpm,
+    String arrangement = '',
   }) {
     return pw.Document()
       ..addPage(
@@ -347,6 +353,7 @@ abstract final class ChordSheetExport {
           transpose: transpose,
           musicalKey: musicalKey,
           bpm: bpm,
+          arrangement: arrangement,
         ),
       );
   }
@@ -384,6 +391,9 @@ abstract final class ChordSheetExport {
   /// glue two documents together after the fact. The page is exactly what
   /// the song's own print produces, so a chart in a pack cannot differ from
   /// the same chart printed from the song.
+  /// [arrangement] is the song's whole form on one line — "I A A B A C B B O"
+  /// — printed under the facts. Empty for a song whose sections are not
+  /// known, and then the line is not printed at all.
   static pw.MultiPage chartPage({
     required SongProject project,
     required List<MusicianSheetLine> lines,
@@ -391,6 +401,7 @@ abstract final class ChordSheetExport {
     String? musicalKey,
     String? keyLabel,
     double? bpm,
+    String arrangement = '',
   }) {
     final wordsTravel = ProjectExportService.wordsTravel(project);
     final chart = <ChartTextLine>[
@@ -427,6 +438,20 @@ abstract final class ChordSheetExport {
           pw.Text(ProjectExportService.printable(facts.join('   ·   ')),
               style: const pw.TextStyle(fontSize: 11)),
         ],
+        // The shape of the song, under its title, where a chart writes it.
+        // In Courier with the rest of the page so the letters keep the
+        // spacing they were written with.
+        if (arrangement.isNotEmpty) ...<pw.Widget>[
+          pw.SizedBox(height: 6),
+          pw.Text(
+            ProjectExportService.printable(arrangement),
+            style: pw.TextStyle(
+              font: monoBold,
+              fontSize: 11,
+              letterSpacing: 1.1,
+            ),
+          ),
+        ],
         if (!wordsTravel) ...<pw.Widget>[
           pw.SizedBox(height: 6),
           pw.Text(
@@ -440,7 +465,9 @@ abstract final class ChordSheetExport {
               ? pw.Padding(
                   padding: const pw.EdgeInsets.only(top: 14, bottom: 4),
                   child: pw.Text(
-                    line.words.toUpperCase(),
+                    // The letter beside the name, the way a chart marks a
+                    // part somebody will call for out loud.
+                    line.heading,
                     style: pw.TextStyle(
                       fontSize: 11,
                       fontWeight: pw.FontWeight.bold,
@@ -487,6 +514,7 @@ abstract final class ChordSheetExport {
     required int transpose,
     String? musicalKey,
     double? bpm,
+    String arrangement = '',
   }) async {
     final document = chartDocument(
       project: project,
@@ -494,6 +522,7 @@ abstract final class ChordSheetExport {
       transpose: transpose,
       musicalKey: musicalKey,
       bpm: bpm,
+      arrangement: arrangement,
     );
     await Printing.layoutPdf(
       name: '${ProjectExportService.fileName(project.title)}-chart.pdf',
@@ -655,6 +684,7 @@ class ChartTextLine {
     required this.chords,
     required this.words,
     this.section = false,
+    this.letter,
   });
 
   /// The chord row, padded with spaces so each chord starts over its word.
@@ -665,6 +695,14 @@ class ChartTextLine {
   final String words;
 
   final bool section;
+
+  /// The part's rehearsal letter, on a [section] line that has one.
+  final String? letter;
+
+  /// The heading as it is printed: "B  CHORUS", or the name alone for a part
+  /// with no letter to give.
+  String get heading =>
+      letter == null ? words.toUpperCase() : '$letter  ${words.toUpperCase()}';
 
   bool get isEmpty => chords.isEmpty && words.isEmpty;
 

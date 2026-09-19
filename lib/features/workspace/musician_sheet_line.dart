@@ -36,7 +36,14 @@ class MusicianSectionLine extends StatelessWidget {
         bottom: liveMode ? 8 : 7,
       ),
       child: Text(
-        line.body.toUpperCase(),
+        // The rehearsal letter first, where the part has one: "B  CHORUS".
+        // It is what gets said out loud — "from B" — and the name is what
+        // it means (Every Musician, Same Song, 17 September 2026). A heading
+        // somebody typed into the song carries no letter and is printed
+        // exactly as it always was.
+        line.letter == null
+            ? line.body.toUpperCase()
+            : '${line.letter}  ${line.body.toUpperCase()}',
         style: TextStyle(
           color: liveMode
               ? AppColors.gold

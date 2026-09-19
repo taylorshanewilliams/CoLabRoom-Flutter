@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import '../domain/song_analysis_models.dart';
 import 'chord_beat_grid.dart';
+import 'rehearsal_letters.dart';
 
 /// Laying the chords out as bars, the way a chart is written.
 ///
@@ -39,6 +40,7 @@ class ChartBar {
     required this.chords,
     this.downbeat = 0,
     this.sectionLabel,
+    this.sectionLetter,
   });
 
   /// 1-indexed, counted from wherever the band says bar 1 is — or 0 for a bar
@@ -66,16 +68,25 @@ class ChartBar {
 
   /// Set on the bar a section begins on.
   final String? sectionLabel;
+
+  /// The rehearsal letter of the section beginning on this bar — "A", "I" —
+  /// when the chart was built with the song's sections. See
+  /// rehearsal_letters.dart.
+  final String? sectionLetter;
 }
 
 /// One printed line of the chart.
 class ChartRow {
-  const ChartRow({required this.bars, this.sectionLabel});
+  const ChartRow({required this.bars, this.sectionLabel, this.sectionLetter});
 
   final List<ChartBar> bars;
 
   /// The section starting on this row, when one does.
   final String? sectionLabel;
+
+  /// That section's rehearsal letter, printed beside its name the way a
+  /// chart marks one.
+  final String? sectionLetter;
 
   /// What goes in the margin: the first bar's number, or 0 when the line is
   /// still in the pickup and has no number to print.
@@ -121,10 +132,10 @@ List<ChartBar> buildChartBars({
   // number, so an intro that turns out to sit in the pickup still gets its
   // name: the label belongs to a place in the recording, and bar 1 moving
   // does not move the place.
-  final sectionByBar = <int, String>{};
-  for (final section in sections) {
+  final sectionByBar = <int, RehearsalLetter>{};
+  for (final section in rehearsalLetters(sections)) {
     final bar = barNumberAt(section.startMs, downbeats);
-    if (bar != null) sectionByBar.putIfAbsent(bar, () => section.displayLabel);
+    if (bar != null) sectionByBar.putIfAbsent(bar, () => section);
   }
 
   final bars = <ChartBar>[];
@@ -160,7 +171,8 @@ List<ChartBar> buildChartBars({
         endMs: end,
         beatsInBar: barBeats.isEmpty ? 1 : barBeats.length,
         chords: List<ChartChord>.unmodifiable(chords),
-        sectionLabel: sectionByBar[index + 1],
+        sectionLabel: sectionByBar[index + 1]?.label,
+        sectionLetter: sectionByBar[index + 1]?.letter,
       ),
     );
   }
@@ -212,19 +224,28 @@ List<ChartRow> buildChartRows(
   final rows = <ChartRow>[];
   var current = <ChartBar>[];
   String? currentLabel;
+  String? currentLetter;
 
   void flush() {
     if (current.isEmpty) return;
-    rows.add(ChartRow(bars: List<ChartBar>.unmodifiable(current), sectionLabel: currentLabel));
+    rows.add(ChartRow(
+      bars: List<ChartBar>.unmodifiable(current),
+      sectionLabel: currentLabel,
+      sectionLetter: currentLetter,
+    ));
     current = <ChartBar>[];
     currentLabel = null;
+    currentLetter = null;
   }
 
   for (final bar in bars) {
     if ((bar.sectionLabel != null || bar.number == 1) && current.isNotEmpty) {
       flush();
     }
-    if (current.isEmpty) currentLabel = bar.sectionLabel;
+    if (current.isEmpty) {
+      currentLabel = bar.sectionLabel;
+      currentLetter = bar.sectionLetter;
+    }
     current.add(bar);
     if (current.length == safePerRow) flush();
   }

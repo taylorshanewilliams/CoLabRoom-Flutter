@@ -27,6 +27,7 @@ import '../../services/number_reading.dart';
 import '../../services/pitch.dart';
 import '../../services/pitch_listener.dart';
 import '../../services/play_along.dart';
+import '../../services/rehearsal_letters.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/song_layer_service.dart';
 import '../../services/take_naming.dart';
@@ -411,6 +412,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   List<StructureSection> get _sections =>
       widget.analysis?.reference?.structureSections ??
       const <StructureSection>[];
+
+  /// A letter per part, the way a band names them: "from B". Derived from
+  /// the sections every time rather than kept, so a re-analysis or a rename
+  /// cannot leave a stale letter behind (see rehearsal_letters.dart).
+  List<RehearsalLetter> get _letters => rehearsalLetters(_sections);
 
   /// The first beat of each bar, which is the whole of what bar loops are
   /// built on. Empty for a recording analysed before beat tracking, or one
@@ -2037,6 +2043,46 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _armControlHide();
   }
 
+  /// "From B": the song jumps to that part and plays on through it.
+  ///
+  /// A loop comes off, because the sentence is "from B", not "B again" —
+  /// somebody asking for a letter is asking to run the song from there, and
+  /// a repeat still on would pull them back into the part they just left
+  /// (Every Musician, Same Song, 17 September 2026). "B again" is the loop
+  /// chip, which is a tap away in the same row.
+  ///
+  /// Playing or paused, the same as choosing a part to loop: paused, the
+  /// words still move so the next press of Start begins where the eye is.
+  ///
+  /// Nothing new is needed for this to reach a room that is following. Follow
+  /// me carries where the song is and what is on repeat, and this changes
+  /// both; the next heartbeat takes it, exactly as a section jump has always
+  /// travelled (see _followStateNow and worthSending).
+  void _jumpToLetter(RehearsalLetter letter) {
+    _takeOver();
+    _cancelCountdown();
+    final at = sectionDownbeatMs(letter.startMs, _downbeats);
+    setState(() {
+      _loop = null;
+      _controlsVisible = true;
+      if (_mode == LiveScrollMode.off && _hasSync) _mode = LiveScrollMode.synced;
+      _seekTo(Duration(milliseconds: at));
+    });
+    if (_mode == LiveScrollMode.synced) {
+      _markOffsetsDirty();
+      if (!_playing) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_scroll.hasClients) return;
+          final position = _scroll.position;
+          final maxExtent = position.maxScrollExtent;
+          if (maxExtent > 0) _tickSynced(position, maxExtent);
+        });
+      }
+    }
+    _lastTick = null;
+    _armControlHide();
+  }
+
   /// Pick the bars to put on repeat.
   ///
   /// It opens on the bars the song is sitting in rather than on bar 1, so
@@ -2362,6 +2408,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         loops: sectionLoops(_sections),
                         loop: _loop,
                         onLoop: _setLoop,
+                        letters: _letters,
+                        onLetter: _jumpToLetter,
                         barCount: _downbeats.length,
                         onBars: _openBarLoop,
                         rate: _rate,
@@ -2922,6 +2970,8 @@ class _LiveControls extends StatelessWidget {
     required this.loops,
     required this.loop,
     required this.onLoop,
+    this.letters = const <RehearsalLetter>[],
+    this.onLetter,
     this.barCount = 0,
     this.onBars,
     required this.rate,
@@ -2995,6 +3045,12 @@ class _LiveControls extends StatelessWidget {
   final PracticeLoop? loop;
   final ValueChanged<PracticeLoop> onLoop;
 
+  /// A letter per part of the song, in order, and where a tap on one goes.
+  /// Empty for a recording with no sections found, and then the row is not
+  /// there at all — see rehearsal_letters.dart.
+  final List<RehearsalLetter> letters;
+  final ValueChanged<RehearsalLetter>? onLetter;
+
   /// How many bars the recording has, and the way to pick a run of them.
   /// Nought means no beat grid was found, and then there are no bar
   /// controls at all: sections are the only thing that can be looped.
@@ -3020,6 +3076,25 @@ class _LiveControls extends StatelessWidget {
   /// A run of bars is what is on repeat, rather than a named part.
   bool get _barsOn => loop?.isBars ?? false;
 
+  /// The letters are offered on the same terms as the loops: a jump only
+  /// means something when the song is the clock. In a manual scroll mode
+  /// there is nothing to seek, so "from B" would have nowhere to go.
+  bool get _showLetters =>
+      _showPractice && letters.isNotEmpty && onLetter != null;
+
+  /// Which part the song is in, so the letter being played is the one lit.
+  /// -1 before the first section and after the last, which is a real place
+  /// to be on plenty of recordings.
+  int get _letterHere {
+    final at = elapsed.inMilliseconds;
+    for (var index = letters.length - 1; index >= 0; index -= 1) {
+      if (at >= letters[index].startMs && at < letters[index].endMs) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
   @override
   Widget build(BuildContext context) {
     final total = duration.inMilliseconds;
@@ -3035,6 +3110,30 @@ class _LiveControls extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             if (together != null) ...<Widget>[together!, const SizedBox(height: 2)],
+            // The form, above the transport, where a band's eyes already
+            // are. One tap is "from B" — the sentence rehearsals are run on
+            // (Every Musician, Same Song, 17 September 2026). The name of
+            // the part is on the letter's label underneath it, so nothing
+            // has to be explained: the row teaches itself by being used.
+            if (_showLetters) ...<Widget>[
+              SizedBox(
+                height: 30,
+                child: ListView(
+                  key: const Key('live_letters'),
+                  scrollDirection: Axis.horizontal,
+                  children: <Widget>[
+                    for (var i = 0; i < letters.length; i += 1)
+                      _LetterChip(
+                        key: Key('live_letter_$i'),
+                        letter: letters[i],
+                        here: i == _letterHere,
+                        onTap: () => onLetter!(letters[i]),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+            ],
             Row(
               children: <Widget>[
                 FilledButton.tonalIcon(
@@ -3381,6 +3480,78 @@ class _YouAndTheSong extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// One rehearsal letter, and the part it stands for.
+///
+/// The letter is the target and it is set large, because it is read across a
+/// room and tapped by somebody holding an instrument. The part's name sits
+/// under it in the smallest type on the bar: it is there so the letter can be
+/// learnt without anybody being told what it means, and it is not what the
+/// eye is meant to land on.
+class _LetterChip extends StatelessWidget {
+  const _LetterChip({
+    required this.letter,
+    required this.here,
+    required this.onTap,
+    super.key,
+  });
+
+  final RehearsalLetter letter;
+
+  /// Whether the song is inside this part now.
+  final bool here;
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(9),
+        child: Container(
+          constraints: const BoxConstraints(minWidth: 30),
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+          decoration: BoxDecoration(
+            color: here ? AppColors.gold : Colors.transparent,
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(
+              color: here ? AppColors.gold : AppColors.line,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Text(
+                letter.letter,
+                style: TextStyle(
+                  color: here ? AppColors.ink : AppColors.text,
+                  fontSize: 13,
+                  height: 1.1,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              if (letter.label.trim().isNotEmpty)
+                Text(
+                  letter.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: here ? AppColors.ink : AppColors.muted,
+                    fontSize: 7.5,
+                    height: 1.1,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
