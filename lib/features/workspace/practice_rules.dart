@@ -240,6 +240,44 @@ PracticeLoop? barLoop({
   );
 }
 
+/// The speed one chord change is drilled at.
+///
+/// Every Musician, Same Song, 17 September 2026: what stops a beginner is
+/// rarely a whole part, it is one change they cannot get their hand across in
+/// time. Six tenths is slow enough for the hand to arrive and fast enough
+/// that the two chords are still a change rather than two chords. One of
+/// [practiceRates], so the arrows either side step from it like anywhere
+/// else.
+const double changeLoopRate = 0.6;
+
+/// The bar a chord change lands in, and the bar before it, on repeat.
+///
+/// Two bars because a change is a place between two chords: looping the bar
+/// the new chord starts in drills arriving at it from silence, which is not
+/// the thing that goes wrong. Null without a grid to count bars on, and null
+/// for a change that happens in the pickup — that stretch has no bar number
+/// and is asked for by name (see [pickupLoop]).
+///
+/// A change in bar 1 has nothing in front of it, so it loops bar 1 alone
+/// rather than dragging in a pickup nobody asked for; [barLoop] does that
+/// clamping already.
+PracticeLoop? changeLoop({
+  required int changeMs,
+  required List<int> downbeatsMs,
+  int? songEndMs,
+  int barOne = 1,
+}) {
+  final bar = barNumberAt(changeMs, downbeatsMs, barOne: barOne);
+  if (bar == null) return null;
+  return barLoop(
+    firstBar: bar - 1,
+    lastBar: bar,
+    downbeatsMs: downbeatsMs,
+    songEndMs: songEndMs,
+    barOne: barOne,
+  );
+}
+
 /// The pickup on its own: everything from the first downbeat up to bar 1.
 ///
 /// Null when the band has said nothing, because then bar 1 *is* the first

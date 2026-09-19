@@ -39,11 +39,19 @@ class MusicianSongSheet extends StatelessWidget {
     this.selectedChordStartMs,
     this.onEditChord,
     this.onAddChord,
+    this.onLoopChange,
+    this.chords = const <String>[],
     super.key,
   });
 
   final String title;
   final List<MusicianSheetLine> lines;
+
+  /// Every chord the song reaches for, as the song stores them, so the capo
+  /// rows on the key sheet can be about this song and not only about its
+  /// key. Empty on a sheet whose caller has none — a draft in the Studio —
+  /// which leaves those rows the chart they always were.
+  final List<String> chords;
   final String? musicalKey;
   final int transpose;
 
@@ -108,6 +116,10 @@ class MusicianSongSheet extends StatelessWidget {
   final int? selectedChordStartMs;
   final MusicianChordTap? onEditChord;
   final MusicianWordTap? onAddChord;
+
+  /// A chord held down, for the one change somebody is stuck on. Null on a
+  /// sheet with nowhere to play the song from.
+  final MusicianChordHold? onLoopChange;
 
   @override
   Widget build(BuildContext context) {
@@ -225,6 +237,14 @@ class MusicianSongSheet extends StatelessWidget {
                         sa: sa,
                         onSa: onSa,
                         hasTune: _hasReadableTune,
+                        // The song's own chords, moved the way the key on
+                        // this badge has been, so the capo the sheet offers
+                        // is worked out in the key it is showing.
+                        chords: <String>[
+                          for (final chord in chords)
+                            chordAsPlayed(chord,
+                                transpose: transpose, key: key),
+                        ],
                         songKey: key,
                         overridden: keyOverridden,
                         onKey: onKey,
@@ -334,6 +354,7 @@ class MusicianSongSheet extends StatelessWidget {
                               selectedChordStartMs: selectedChordStartMs,
                               onEditChord: onEditChord,
                               onAddChord: onAddChord,
+                              onLoopChange: onLoopChange,
                             ),
                         if (approximate) ...<Widget>[
                           const SizedBox(height: 16),

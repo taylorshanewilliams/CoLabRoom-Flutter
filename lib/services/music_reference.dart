@@ -310,6 +310,15 @@ const Map<String, _Quality> _qualities = <String, _Quality>{
   'min6': _Quality('min6', 'Minor 6th', <int>[0, 3, 7, 9], null),
   'sus2': _Quality('sus2', 'Suspended 2nd', <int>[0, 2, 7], null),
   'sus4': _Quality('sus4', 'Suspended 4th', <int>[0, 5, 7], null),
+  // Written on charts as often as a plain sus4, and until now it came back
+  // unrecognised — which is also the answer Simpler shapes got when it went
+  // looking for something plainer to draw under a G7sus4 (Every Musician,
+  // Same Song, 17 September 2026).
+  '7sus4': _Quality('7sus4', 'Dominant 7th suspended 4th', <int>[0, 5, 7, 10], null),
+  // Two notes, no third, so it is neither major nor minor. It is here
+  // because it is what is left of a chord whose triad a hand cannot make
+  // yet — see [simplerShapeFor] — and because people write C5 on charts.
+  '5': _Quality('5', 'Fifth', <int>[0, 7], '5'),
   'add9': _Quality('add9', 'Added 9th', <int>[0, 4, 7, 14], null),
   '9': _Quality('9', 'Dominant 9th', <int>[0, 4, 7, 10, 14], '7'),
   'min9': _Quality('min9', 'Minor 9th', <int>[0, 3, 7, 10, 14], 'min7'),
@@ -334,6 +343,8 @@ const Map<String, String> _writtenSuffixes = <String, String>{
   '6': 'maj6', 'maj6': 'maj6',
   'm6': 'min6', 'min6': 'min6',
   'sus2': 'sus2', 'sus4': 'sus4', 'sus': 'sus4',
+  '7sus4': '7sus4', '7sus': '7sus4',
+  '5': '5',
   'add9': 'add9', 'add2': 'add9',
   '9': '9', 'm9': 'min9', 'min9': 'min9', 'maj9': 'maj9', 'M9': 'maj9',
   '11': '11', '13': '13',
@@ -363,6 +374,7 @@ const Map<String, String> _shortForms = <String, String>{
   'maj': '', 'min': 'm', '7': '7', 'maj7': 'maj7', 'min7': 'm7',
   'dim': '°', 'aug': '+', 'dim7': '°7', 'hdim7': 'm7♭5',
   'maj6': '6', 'min6': 'm6', 'sus2': 'sus2', 'sus4': 'sus4',
+  '7sus4': '7sus4', '5': '5',
   'add9': 'add9', '9': '9', 'min9': 'm9', 'maj9': 'maj9',
   '11': '11', '13': '13',
 };
@@ -398,6 +410,12 @@ const Map<String, List<int>> _openShapes = <String, List<int>>{
   'Asus4': <int>[-1, 0, 2, 2, 3, 0],
   'B7': <int>[-1, 2, 1, 2, 0, 2],
   'Fmaj7': <int>[-1, -1, 3, 2, 1, 0],
+  // The three fifths that are already under the hand at the nut. Without
+  // them E5 and A5 would be drawn seven and five frets up, which is the one
+  // place a beginner offered a simpler shape should never be sent.
+  'E5': <int>[0, 2, 2, -1, -1, -1],
+  'A5': <int>[-1, 0, 2, 2, -1, -1],
+  'D5': <int>[-1, -1, 0, 2, 3, -1],
 };
 
 /// Movable shapes, written relative to their own barre. The E family is
@@ -408,6 +426,9 @@ const Map<String, List<int>> _eShapes = <String, List<int>>{
   '7': <int>[1, 3, 1, 2, 1, 1],
   'min7': <int>[1, 3, 1, 1, 1, 1],
   'maj7': <int>[1, 3, 2, 2, 1, 1],
+  // Two fingers and three strings, no barre: the fifth that is left of a
+  // chord when the triad is out of reach.
+  '5': <int>[1, 3, 3, -1, -1, -1],
 };
 
 const Map<String, List<int>> _aShapes = <String, List<int>>{
@@ -416,13 +437,21 @@ const Map<String, List<int>> _aShapes = <String, List<int>>{
   '7': <int>[-1, 1, 3, 1, 3, 1],
   'min7': <int>[-1, 1, 3, 1, 2, 1],
   'maj7': <int>[-1, 1, 3, 2, 3, 1],
+  '5': <int>[-1, 1, 3, 3, -1, -1],
 };
 
 /// Everything worth saying about one chord.
 ///
 /// Returns null for a stretch with no chord — ChordMini's `N` — so a caller
 /// can leave the tap doing nothing rather than opening an empty sheet.
-ChordReference? chordReference(String label) {
+/// A chord label pulled apart into the three things every reader of one
+/// wants: its root, the id of its quality, and the bass under it.
+///
+/// Both spellings go through here — ChordMini's `A:min7` and a person's
+/// `Am7` — and the quality comes out as a key of [_qualities] whenever it is
+/// one this knows. Null for a label this cannot read at all, which includes
+/// ChordMini's "no chord".
+({String root, String quality, String bass})? _chordParts(String label) {
   final raw = label.trim();
   if (raw.isEmpty || raw == 'N' || raw == 'X') return null;
 
@@ -448,9 +477,18 @@ ChordReference? chordReference(String label) {
     if (slash >= 0) rest = rest.substring(0, slash);
     qualityToken = _writtenSuffixes[rest] ?? rest;
   }
+  if (_pitchValues[rootText] == null) return null;
+  return (root: rootText, quality: qualityToken, bass: bassToken);
+}
 
-  final rootPitch = _pitchValues[rootText];
-  if (rootPitch == null) return null;
+ChordReference? chordReference(String label) {
+  final parts = _chordParts(label);
+  if (parts == null) return null;
+  final rootText = parts.root;
+  final qualityToken = parts.quality;
+  final bassToken = parts.bass;
+
+  final rootPitch = _pitchValues[rootText]!;
   final flats = _prefersFlats(rootText);
 
   final quality = _qualities[qualityToken];
@@ -526,7 +564,11 @@ List<ChordShape> _shapesFor(String rootText, int rootPitch, _Quality quality) {
         name: openName,
         frets: frets,
         baseFret: fret,
-        hint: 'Barre at fret $fret, root on the $rootString',
+        // A fifth is three strings and two fingers wherever it is put, so
+        // saying "barre" over one would describe a hand nobody makes.
+        hint: family == '5'
+            ? 'Root and fifth at fret $fret, root on the $rootString'
+            : 'Barre at fret $fret, root on the $rootString',
       ));
     }
   }
@@ -548,6 +590,142 @@ List<(String, String)> _bassMovesFor(int rootPitch, _Quality quality, bool flats
     else
       ('Walking', '$root  $third  $fifth  $sixth'),
   ];
+}
+
+/// The triad each quality is built on, for the chords that have something
+/// stacked on top of one. A quality that is already three notes — major,
+/// minor, diminished, augmented, either sus — is missing from here, because
+/// there is nothing to take off it.
+///
+/// Every Musician, Same Song, 17 September 2026: a beginner stops at the
+/// first chord they cannot make, and a Cmaj7 in bar 2 ends the song. The
+/// triad under it is a chord they can already play, and every note of it is
+/// a note of the chord written — nothing here invents a note.
+const Map<String, String> _plainTriads = <String, String>{
+  '7': 'maj', 'maj7': 'maj', 'maj6': 'maj', 'add9': 'maj',
+  '9': 'maj', 'maj9': 'maj', '11': 'maj', '13': 'maj',
+  'min7': 'min', 'min6': 'min', 'min9': 'min',
+  'dim7': 'dim', 'hdim7': 'dim',
+  '7sus4': 'sus4',
+};
+
+/// The plain chord inside [label] — `Cmaj7` is a C, `Am9` an Am, `F#m7♭5` an
+/// F♯°, `G7sus4` a Gsus4 — or null when the chord is already plain, or is not
+/// one this can read.
+///
+/// The root and the quality both survive: a minor chord stays minor and a
+/// half-diminished keeps the flat fifth that makes it one. What goes is
+/// everything stacked above the fifth, which is why the honest line beside it
+/// is "changes the sound" and never "easier".
+///
+/// A slash bass goes too. It is the bass player's note rather than the
+/// guitar's — the chord sheet says so already — and no shape here has ever
+/// been drawn from one.
+String? simplerChord(String label) {
+  final parts = _chordParts(label);
+  if (parts == null) return null;
+  final plain = _plainTriads[parts.quality];
+  if (plain == null) return null;
+  return '${parts.root}${_shortForms[plain] ?? ''}';
+}
+
+/// What to draw instead of [label]'s own shape for somebody reading with
+/// Simpler shapes on, or null when there is nothing plainer to draw.
+///
+/// The triad first. Where the triad is one no shape is stored for — a
+/// diminished or an augmented one, or a sus chord rooted away from D, A and
+/// E — the fifth is offered instead, but only when the chord really has a
+/// plain fifth in it: a power chord over an F♯m7♭5 would put a note in the
+/// room that the chord does not contain, and describing a chord is the whole
+/// job (Every Musician, Same Song, 17 September 2026).
+ChordReference? simplerShapeFor(String label) {
+  final plain = simplerChord(label);
+  if (plain == null) return null;
+  final triad = chordReference(plain);
+  if (triad != null && triad.shapes.isNotEmpty) return triad;
+
+  final parts = _chordParts(label);
+  final quality = parts == null ? null : _qualities[parts.quality];
+  if (parts == null || quality == null) return null;
+  if (!quality.intervals.contains(7)) return null;
+  final fifth = chordReference('${parts.root}5');
+  if (fifth == null || fifth.shapes.isEmpty) return null;
+  return fifth;
+}
+
+/// A capo worth putting on for this song, and the open shapes it makes.
+class CapoThatHelps {
+  const CapoThatHelps({required this.fret, required this.shapes});
+
+  final int fret;
+
+  /// The open shapes the capo leaves under the hand, in the order the song
+  /// first reaches for them: `G, C, D`.
+  final List<String> shapes;
+}
+
+/// The capo between 1 and 7 that leaves the most of [chords] on open shapes
+/// and the fewest on barres, or null when no capo is worth the trouble.
+///
+/// The capo chart on the key sheet has always answered a different question —
+/// which shapes this *key* can be played with — and answered it off five
+/// major shapes, so it had nothing to say about the Bm in bar 3 or about a
+/// song whose key nobody found. This counts the song's own chords (Every
+/// Musician, Same Song, 17 September 2026).
+///
+/// It offers nothing when the song already sits open, when no capo beats no
+/// capo, or when the best a capo can do is a single open shape: a song of
+/// barre chords that a capo cannot help is told nothing rather than sent up
+/// the neck for one chord. Seven frets, like the chart beside it — past that
+/// a guitar is a mandolin.
+CapoThatHelps? capoThatHelps(List<String> chords) {
+  final distinct = <(int, String)>[];
+  for (final label in chords) {
+    final parts = _chordParts(label);
+    final pitch = parts == null ? null : _pitchValues[parts.root];
+    if (parts == null || pitch == null) continue;
+    final entry = (pitch, parts.quality);
+    if (!distinct.contains(entry)) distinct.add(entry);
+  }
+  // One chord is not a song, and a capo for it is a coin toss.
+  if (distinct.length < 2) return null;
+
+  var bestFret = 0;
+  var bestOpen = -1;
+  var bestBarres = 0;
+  var bestShapes = const <String>[];
+  for (var fret = 0; fret <= 7; fret += 1) {
+    final shapes = <String>[];
+    var barres = 0;
+    for (final (pitch, quality) in distinct) {
+      final open = _openShapeName(((pitch - fret) % 12 + 12) % 12, quality);
+      if (open != null) {
+        shapes.add(open);
+      } else if (_qualities[quality]?.shapeFamily != null) {
+        barres += 1;
+      }
+    }
+    // No capo is measured first and only beaten outright, so a tie stays at
+    // the nut and a song that is already open is left alone.
+    final better = shapes.length > bestOpen ||
+        (shapes.length == bestOpen && barres < bestBarres);
+    if (better) {
+      bestFret = fret;
+      bestOpen = shapes.length;
+      bestBarres = barres;
+      bestShapes = shapes;
+    }
+  }
+  if (bestFret == 0 || bestShapes.length < 2) return null;
+  return CapoThatHelps(fret: bestFret, shapes: bestShapes);
+}
+
+/// The name of the open shape a chord falls on, or null when it has none.
+String? _openShapeName(int pitch, String qualityId) {
+  final short = _shortForms[qualityId];
+  if (short == null) return null;
+  final name = '${noteName(pitch, flats: false)}$short';
+  return _openShapes.containsKey(name) ? name : null;
 }
 
 /// Where a degree sits, as (the number, the accidental in front of it).
@@ -609,6 +787,7 @@ const Map<String, String> _nashvilleSuffixes = <String, String>{
   'maj': '', 'min': '-', 'dim': '°', 'aug': '+',
   '7': '7', 'maj7': 'maj7', 'min7': '-7', 'dim7': '°7', 'hdim7': '-7♭5',
   'maj6': '6', 'min6': '-6', 'sus2': 'sus2', 'sus4': 'sus4', 'add9': 'add9',
+  '7sus4': '7sus4', '5': '5',
   '9': '9', 'min9': '-9', 'maj9': 'maj9', '11': '11', '13': '13',
 };
 
@@ -619,6 +798,7 @@ const Map<String, String> _romanSuffixes = <String, String>{
   'maj': '', 'min': '', 'dim': '°', 'aug': '+',
   '7': '7', 'maj7': 'maj7', 'min7': '7', 'dim7': '°7', 'hdim7': 'ø7',
   'maj6': '6', 'min6': '6', 'sus2': 'sus2', 'sus4': 'sus4', 'add9': 'add9',
+  '7sus4': '7sus4', '5': '5',
   '9': '9', 'min9': '9', 'maj9': 'maj9', '11': '11', '13': '13',
 };
 

@@ -18,6 +18,14 @@ typedef MusicianWordTap = void Function(
   int wordIndex,
 );
 
+/// A chord held down: the change it is, offered on repeat.
+///
+/// Where a chord ends up on repeat is not the line's business — the sheet
+/// hands it to Perform and Perform already has a loop — so all that travels
+/// up is which change was held (Every Musician, Same Song, 17 September
+/// 2026).
+typedef MusicianChordHold = void Function(ChordCue chord);
+
 class MusicianSectionLine extends StatelessWidget {
   const MusicianSectionLine({
     required this.line,
@@ -76,6 +84,7 @@ class MusicianChordLyricLine extends StatelessWidget {
     this.selectedChordStartMs,
     this.onEditChord,
     this.onAddChord,
+    this.onLoopChange,
     super.key,
   });
 
@@ -141,6 +150,11 @@ class MusicianChordLyricLine extends StatelessWidget {
   final int? selectedChordStartMs;
   final MusicianChordTap? onEditChord;
   final MusicianWordTap? onAddChord;
+
+  /// A chord held down, for the one change a beginner is stuck on. Null
+  /// where there is nowhere for the song to be played from, which leaves the
+  /// long press doing nothing rather than offering a loop nothing can run.
+  final MusicianChordHold? onLoopChange;
 
   @override
   Widget build(BuildContext context) {
@@ -218,6 +232,7 @@ class MusicianChordLyricLine extends StatelessWidget {
                   placements[index]?.startMs == selectedChordStartMs,
               onEditChord: onEditChord,
               onAddChord: onAddChord,
+              onLoopChange: onLoopChange,
             ),
         ],
       ),
@@ -284,6 +299,7 @@ class _ChordWord extends StatelessWidget {
     required this.selected,
     required this.onEditChord,
     required this.onAddChord,
+    this.onLoopChange,
     this.note,
     this.showNotes = false,
     super.key,
@@ -319,6 +335,9 @@ class _ChordWord extends StatelessWidget {
   final bool selected;
   final MusicianChordTap? onEditChord;
   final MusicianWordTap? onAddChord;
+
+  /// See MusicianChordLyricLine.onLoopChange.
+  final MusicianChordHold? onLoopChange;
 
   void _activate() {
     final existing = chord;
@@ -366,6 +385,15 @@ class _ChordWord extends StatelessWidget {
                 : liveMode
                     ? null
                     : () => showChordReference(context, chordInLetters),
+            // Held down, the same chord offers the change it is, on repeat
+            // and slowed. It is deliberately the one thing a chord does in
+            // live mode: a tap there would be a modal over the words while
+            // somebody is playing, and this is a gesture nobody makes by
+            // accident and nobody makes while their hands are busy (Every
+            // Musician, Same Song, 17 September 2026).
+            onLongPress: editable || onLoopChange == null
+                ? null
+                : () => onLoopChange!(chord!),
             borderRadius: BorderRadius.circular(5),
             // A chord that answers when tapped is worth nothing if nobody
             // taps it. On paper a chord is just ink, so it needs to look

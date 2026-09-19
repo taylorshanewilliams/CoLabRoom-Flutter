@@ -272,6 +272,72 @@ abstract final class MelodySaStore {
   }
 }
 
+/// Whether this person is shown the plain chord inside an extended one.
+///
+/// One setting for the whole app rather than one per song, like the minor
+/// convention below it and for the same reason: a hand that cannot make a
+/// Cmaj7 tonight cannot make one in the next song either, and being asked
+/// again on every song would be asking somebody what their hands can do
+/// (Every Musician, Same Song, 17 September 2026).
+///
+/// Held as well as stored, because the sheet a chord opens is built in the
+/// frame the chord is tapped in and cannot wait on a disk read. Off until a
+/// read says otherwise, which is what every chord sheet did before this.
+abstract final class SimplerShapesStore {
+  static const String _key = 'simpler_shapes';
+
+  static bool _held = false;
+  static Future<void>? _warming;
+
+  /// What this session knows: false until [warm] has read it back or this
+  /// session has saved a choice.
+  static bool get held => _held;
+
+  /// Reads the choice back, once.
+  static Future<void> warm() => _warming ??= _read();
+
+  static Future<void> _read() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _held = prefs.getBool(_key) ?? false;
+    } catch (_) {
+      // Nothing read back: chords are drawn the way they are written.
+    }
+  }
+
+  static Future<bool> load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_key) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> save(bool on) async {
+    // Held before the write, so the next chord tapped agrees with the chip
+    // that was just pressed even when the disk does not take it.
+    _held = on;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Off is the absence of a choice, stored as nothing.
+      if (on) {
+        await prefs.setBool(_key, true);
+      } else {
+        await prefs.remove(_key);
+      }
+    } catch (_) {
+      // Not remembered this time; the sheet on screen is still right.
+    }
+  }
+
+  @visibleForTesting
+  static void resetForTesting() {
+    _held = false;
+    _warming = null;
+  }
+}
+
 /// Which note this person counts a minor song from.
 ///
 /// One setting for the whole app rather than one per song: somebody who reads

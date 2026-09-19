@@ -10,6 +10,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../widgets/song_sheet_button.dart';
 import '../../domain/music_models.dart';
+import '../../domain/practice_mark.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
 import '../../widgets/analysis_depth_sheet.dart';
@@ -436,7 +437,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
   /// else it is worked on: the door a person came through is not something
   /// their practice should depend on (Every Musician, Same Song,
   /// 17 September 2026).
-  Future<void> _openLive() async {
+  ///
+  /// [practise] opens it on a passage at a speed, waiting for Start — the
+  /// two bars a chord held down on the sheet asks for.
+  Future<void> _openLive({PracticePart? practise}) async {
     final controller = BetaScope.of(context, listen: false);
     final me = controller.meOrNobody;
     await Navigator.of(context).push<void>(
@@ -448,6 +452,7 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
           project: _project,
           analysis: _bundle,
           me: me,
+          practise: practise,
           ownMarkId: ownPracticeMarkId(
             controller.practiceMarks,
             projectId: widget.project.id,
@@ -919,6 +924,8 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                         bundle: bundle!,
                         onReviewLyrics: (reference?.transcriptWords.isNotEmpty ?? false) ? _reviewLyrics : null,
                         onOpenLive: _openLive,
+                        onPractise: (part) =>
+                            unawaited(_openLive(practise: part)),
                         onAnalysisChanged: (updated) => setState(() => _bundle = updated),
                         onSetKey: canEditTheSong ? _setSongKey : null,
                         onSetBarOne: canEditTheSong ? _setBarOne : null,

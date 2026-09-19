@@ -42,6 +42,7 @@ import '../layers/take_turns.dart';
 import 'count_in.dart';
 import 'follow_me_bar.dart';
 import 'live_countdown_store.dart';
+import 'loop_this_change.dart';
 import 'musician_sheet_line.dart';
 import 'musician_sheet_logic.dart';
 import 'practice_marks.dart';
@@ -2089,6 +2090,40 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _armControlHide();
   }
 
+  /// "Loop this change": a chord held down on the words puts the bar it
+  /// lands in and the bar before it on repeat, at 60%.
+  ///
+  /// The change is what trips a beginner, not the chorus around it (Every
+  /// Musician, Same Song, 17 September 2026). Nothing new underneath it: the
+  /// bars are the bar loops from #362 and the speed is one of their seven, so
+  /// a leader doing this carries the room with them and what it leaves behind
+  /// is a practice mark like any other.
+  ///
+  /// Asked for before it happens, because a long press that quietly changed
+  /// what the song is doing would be a gesture nobody could check.
+  void _loopThisChange(ChordCue chord) {
+    final loop = changeLoop(
+      changeMs: chord.startMs,
+      downbeatsMs: _downbeats,
+      songEndMs: _recordingEndMs,
+      barOne: _barOne,
+    );
+    if (loop == null) return;
+    _showControls();
+    unawaited(showLoopThisChange(
+      context,
+      loop: loop,
+      detail: loopThisChangeDetail(loop),
+      onLoop: () {
+        // Named the way every other loop on this screen is, so bars that
+        // happen to be exactly a part say the part's name.
+        final named = _loopFor(loop.startMs, loop.endMs) ?? loop;
+        if (named != _loop) _setLoop(named);
+        if (_rate != changeLoopRate) _setRate(changeLoopRate);
+      },
+    ));
+  }
+
   /// "From B": the song jumps to that part and plays on through it.
   ///
   /// A loop comes off, because the sentence is "from B", not "B again" —
@@ -2408,6 +2443,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                                 ? widget.analysis?.reference?.melody
                                 : null,
                             spelling: spelling,
+                            // A chord held down puts the change it is on
+                            // repeat, slowed. Only on a song with a grid to
+                            // count bars on.
+                            onLoopChange: _downbeats.length < 2
+                                ? null
+                                : _loopThisChange,
                           ),
                         SizedBox(height: media.size.height * 0.52),
                       ],
@@ -2566,6 +2607,7 @@ class _PerformanceLine extends StatelessWidget {
     this.melody,
     this.spelling,
     this.musicalKey,
+    this.onLoopChange,
     super.key,
   });
 
@@ -2601,6 +2643,10 @@ class _PerformanceLine extends StatelessWidget {
   /// The language the notes under the words are read in, when it is not
   /// letters. See MusicianChordLyricLine.spelling.
   final MelodySpelling? spelling;
+
+  /// A chord held down, for the one change somebody is stuck on. See
+  /// MusicianChordLyricLine.onLoopChange.
+  final MusicianChordHold? onLoopChange;
 
   @override
   Widget build(BuildContext context) {
@@ -2683,6 +2729,7 @@ class _PerformanceLine extends StatelessWidget {
               elapsedMs: elapsedMs,
               melody: melody,
               spelling: spelling,
+              onLoopChange: onLoopChange,
             ),
           ),
         ],
