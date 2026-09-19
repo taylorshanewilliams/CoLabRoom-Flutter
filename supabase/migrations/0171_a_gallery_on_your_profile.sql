@@ -81,8 +81,15 @@ as $$
     );
 $$;
 
-revoke all on function private.profile_page_visible(uuid)
-  from public, anon, authenticated;
+-- Executable by `authenticated`, unlike most of `private`, and for 0002's
+-- reason: the read policy below calls this while evaluating a request made by
+-- that role, and a policy helper the caller cannot execute is a table nobody
+-- can read at all. It stays out of the exposed schema, it derives everything
+-- from auth.uid(), and it answers nothing musician_profile would not — asking
+-- it about a profile you cannot see returns false, which is what opening the
+-- page already tells you.
+revoke all on function private.profile_page_visible(uuid) from public, anon;
+grant execute on function private.profile_page_visible(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------
 -- The pictures
@@ -171,7 +178,7 @@ revoke all on table public.profile_pictures from authenticated;
 -- one that could rewrite `storage_path` could point a passed row at a
 -- different object afterwards.
 grant select, delete on table public.profile_pictures to authenticated;
-grant insert (profile_id, storage_path, caption, project_id, position)
+grant insert (id, profile_id, storage_path, caption, project_id, position)
   on table public.profile_pictures to authenticated;
 grant update (caption, project_id, position)
   on table public.profile_pictures to authenticated;

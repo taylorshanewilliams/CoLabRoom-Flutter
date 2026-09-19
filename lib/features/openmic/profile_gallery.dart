@@ -104,6 +104,7 @@ class _ProfileGalleryState extends State<ProfileGallery> {
   }
 
   Future<void> _add() async {
+    if (_busy) return;
     final pictures = widget.pictures ?? const <GalleryPicture>[];
     if (pictures.length >= 8) {
       // The door stays; what it says changes. Opening a picker to refuse the
@@ -111,47 +112,51 @@ class _ProfileGalleryState extends State<ProfileGallery> {
       _say('You can show up to 8 pictures. Take one off to add another.');
       return;
     }
-    if (_busy) return;
-    final file = await FilePicker.pickFile(type: FileType.image);
-    if (file == null || !mounted) return;
-    final raw = await file.readAsBytes();
-    if (!mounted) return;
-    if (raw.isEmpty) {
-      _say('That file was empty.');
-      return;
-    }
-
-    Uint8List bytes;
-    try {
-      // Shrunk and re-encoded before it goes anywhere, which is also what
-      // leaves the EXIF behind. See PictureForUpload.forGallery.
-      bytes = await PictureForUpload.forGallery(raw);
-    } on PictureThisPhoneCannotRead catch (error) {
-      if (!mounted) return;
-      _say(error.toString());
-      return;
-    }
-    if (!mounted) return;
-
-    final added = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: AppColors.deepNavy,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
-        ),
-        child: _AddPictureSheet(
-          repository: widget.repository,
-          bytes: bytes,
-        ),
-      ),
-    );
-    if (added != true || !mounted) return;
+    // Held across the picker as well as the upload. The picker is the
+    // platform's own window rather than a route, so nothing else stops a
+    // second press opening a second one.
     setState(() => _busy = true);
-    await widget.onChanged();
-    if (mounted) setState(() => _busy = false);
+    try {
+      final file = await FilePicker.pickFile(type: FileType.image);
+      if (file == null || !mounted) return;
+      final raw = await file.readAsBytes();
+      if (!mounted) return;
+      if (raw.isEmpty) {
+        _say('That file was empty.');
+        return;
+      }
+
+      final Uint8List bytes;
+      try {
+        // Shrunk and re-encoded before it goes anywhere, which is also what
+        // leaves the EXIF behind. See PictureForUpload.forGallery.
+        bytes = await PictureForUpload.forGallery(raw);
+      } on PictureThisPhoneCannotRead catch (error) {
+        if (mounted) _say(error.toString());
+        return;
+      }
+      if (!mounted) return;
+
+      final added = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        backgroundColor: AppColors.deepNavy,
+        builder: (sheetContext) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+          ),
+          child: _AddPictureSheet(
+            repository: widget.repository,
+            bytes: bytes,
+          ),
+        ),
+      );
+      if (added != true || !mounted) return;
+      await widget.onChanged();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _open(GalleryPicture picture) async {
@@ -297,48 +302,46 @@ class _PictureTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bytes = image;
+    final caption = picture.caption.trim();
     return Semantics(
       button: true,
-      label: picture.caption.trim().isEmpty
-          ? 'A picture'
-          : 'A picture: ${picture.caption.trim()}',
-      child: Tooltip(
-        message: picture.caption.trim(),
-        child: Opacity(
-          // Dimmed while it is still waiting to be looked at, which is the
-          // difference between "yours to see" and "everybody's".
-          opacity: picture.waiting ? 0.45 : 1,
-          child: Material(
-            color: AppColors.raised,
-            clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: const BorderSide(color: AppColors.line),
-            ),
-            child: InkWell(
-              key: Key('gallery_picture_${picture.id}'),
-              onTap: onTap,
-              child: SizedBox(
-                width: 104,
-                height: 104,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: <Widget>[
-                    if (bytes != null)
-                      Image.memory(bytes, fit: BoxFit.cover)
-                    else
-                      const Center(
-                        child: Icon(Icons.image_outlined,
-                            size: 22, color: AppColors.muted),
-                      ),
-                    if (picture.playsASong)
-                      const Positioned(
-                        right: 6,
-                        bottom: 6,
-                        child: _PlaysASongMark(),
-                      ),
-                  ],
-                ),
+      // The words are the only thing a screen reader can be told about a
+      // photograph, so they are said rather than left as decoration.
+      label: caption.isEmpty ? 'A picture' : 'A picture: $caption',
+      child: Opacity(
+        // Dimmed while it is still waiting to be looked at, which is the
+        // difference between "yours to see" and "everybody's".
+        opacity: picture.waiting ? 0.45 : 1,
+        child: Material(
+          color: AppColors.raised,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: AppColors.line),
+          ),
+          child: InkWell(
+            key: Key('gallery_picture_${picture.id}'),
+            onTap: onTap,
+            child: SizedBox(
+              width: 104,
+              height: 104,
+              child: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  if (bytes != null)
+                    Image.memory(bytes, fit: BoxFit.cover)
+                  else
+                    const Center(
+                      child: Icon(Icons.image_outlined,
+                          size: 22, color: AppColors.muted),
+                    ),
+                  if (picture.playsASong)
+                    const Positioned(
+                      right: 6,
+                      bottom: 6,
+                      child: _PlaysASongMark(),
+                    ),
+                ],
               ),
             ),
           ),
