@@ -1546,6 +1546,7 @@ class Setlist {
     required this.name,
     required this.createdAt,
     required this.updatedAt,
+    this.forDay,
     this.songs = const <SetlistSong>[],
   });
 
@@ -1554,6 +1555,19 @@ class Setlist {
   final String name;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  /// The day this set is for (0164), or null when it is not for a day.
+  ///
+  /// A calendar day and nothing finer: midnight local, because a set for the
+  /// fourth of October is for the fourth of October wherever the phone is.
+  /// Null is what every set was before this and what most of them stay — a
+  /// list of songs rather than an occasion.
+  ///
+  /// It is the set owner's to say, the way the name is. What it buys is the
+  /// week before it: everybody in the rooms the set's songs live in gets one
+  /// quiet card until the day goes by (Every Musician, Same Song, 17
+  /// September 2026, worship teams item 2).
+  final DateTime? forDay;
 
   /// The songs in the order they are played, each with what the band does
   /// with it here.
@@ -1585,9 +1599,12 @@ class Setlist {
     );
   }
 
+  /// [forDay] clears, because "this set is not for a day" is a real answer
+  /// and the only way back from having given one.
   Setlist copyWith({
     String? name,
     DateTime? updatedAt,
+    Object? forDay = _unset,
     List<SetlistSong>? songs,
   }) {
     return Setlist(
@@ -1596,6 +1613,7 @@ class Setlist {
       name: name ?? this.name,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      forDay: identical(forDay, _unset) ? this.forDay : forDay as DateTime?,
       songs: songs ?? this.songs,
     );
   }

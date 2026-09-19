@@ -192,6 +192,25 @@ abstract interface class MusicRepository {
   /// will not hold (see [SetlistSong.cleaned]).
   Future<void> saveSetlistSong(Setlist setlist, SetlistSong song);
 
+  /// The day this set is for, or null to say it is not for a day (0164).
+  ///
+  /// The set's owner's to say, the way the name is: 0005's update policy is
+  /// the whole guard, so this throws [notYourSet] for anybody else. Only the
+  /// calendar day of [day] is kept.
+  Future<void> setSetlistDay(Setlist setlist, DateTime? day);
+
+  /// The dated sets waiting for this person, whoever owns them.
+  ///
+  /// One per set, each holding the songs from rooms they are actually in, in
+  /// the running order and with the key the set does each in. A set with no
+  /// day is not here, and neither is one whose day has gone by.
+  ///
+  /// Reading this records nothing. There is no row anywhere that could say
+  /// who opened a set or whether anybody did — the promise in the plan is
+  /// that leaders never see who opened it, and it is kept by there being
+  /// nothing to see (Every Musician, Same Song, 17 September 2026).
+  Future<List<Setlist>> setsForTheDay();
+
   Future<void> moveProjects(Iterable<SongProject> projects, MusicRoom targetRoom);
 
   /// One song, with its lyrics — rather than the whole library.

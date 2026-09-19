@@ -43,6 +43,8 @@ import '../welcome/play_later.dart';
 import '../openmic/musician_profile_screen.dart';
 import '../rooms/room_detail_screen.dart';
 import '../rooms/setlist_detail_screen.dart';
+import '../rooms/setlist_pack.dart' show setSongFacts;
+import 'a_set_for_a_day.dart';
 import '../workspace/song_workspace_screen.dart';
 import '../../services/song_search.dart';
 import '../workspace/song_analysis_screen.dart';
@@ -633,6 +635,22 @@ class _SongsScreenState extends State<SongsScreen> {
       ));
     }
 
+    // The set somebody is playing on this week (0164). One quiet card, from
+    // a week out until the day has gone by, for everybody in the room and
+    // not only for whoever made the set.
+    //
+    // No push and no reminder: it is here when the app is opened and nowhere
+    // else. Nothing is written when it is opened, so there is no answer to
+    // give a leader who wants to know who has looked at Sunday.
+    final today = DateTime.now();
+    for (final set in setsForTheWeek(controller.setsForTheDay, today)) {
+      items.add(setForDayCard(
+        set,
+        today: today,
+        onOpen: () => unawaited(_performSet(set)),
+      ));
+    }
+
     // A take sealed for later, on the day it comes back (0158). One quiet
     // card, and either answer is the last of it.
     for (final sealed in controller.sealedTakesDue) {
@@ -1009,6 +1027,63 @@ class _SongsScreenState extends State<SongsScreen> {
         fullscreenDialog: true,
       ),
     );
+  }
+
+  /// The set for the day, from its card on Home (0164).
+  ///
+  /// Its songs in the running order, each in the key the set does it in, one
+  /// Perform at a time: "Next" in the top bar comes back with true and opens
+  /// the song after this one, and the x comes back with nothing and that is
+  /// the end of the set. Songs from rooms this person is not in never arrive
+  /// here to be opened, and a song this phone has not loaded is passed over
+  /// rather than opening an empty screen.
+  ///
+  /// Nothing is kept. Practising from a card keeps a practice mark, and a
+  /// set of eight songs would put eight more cards on Home for a week —
+  /// which is the row turning into the "what you have not done yet" list
+  /// this app does not have. Nothing tells the person who made the set
+  /// either: there is no row to write.
+  Future<void> _performSet(Setlist set) async {
+    final controller = BetaScope.of(context, listen: false);
+    final me = controller.meOrNobody;
+    final songs = <SongProject>[];
+    for (final id in set.projectIds) {
+      final song = _songById(controller, id);
+      if (song != null) songs.add(song);
+    }
+    for (var index = 0; index < songs.length; index += 1) {
+      final song = songs[index];
+      // The sheet as the server has it, or as this phone kept it, or a word
+      // about why neither — the same door every other way into Perform uses,
+      // which is also what makes the set work in a basement once it has been
+      // kept on this phone.
+      final sheet = await _analysis.sheetForPerform(song);
+      if (!mounted) return;
+      final entry = set.songFor(song.id);
+      // Read through the one call the set's screen and its printed pack read
+      // the key through, so the page on the stand and the screen in somebody's
+      // hand cannot disagree about what key Sunday is in. Null when the set
+      // says nothing about the song, which leaves this phone's own key alone:
+      // an undated preference of the singer's is not overruled by silence.
+      final facts = setSongFacts(entry, song, sheet.bundle);
+      final onward = await Navigator.of(context).push<bool>(
+        MaterialPageRoute<bool>(
+          settings: RouteSettings(name: AppRoutes.songLive(song.id)),
+          builder: (_) => LivePerformanceScreen(
+            project: song,
+            analysis: sheet.bundle,
+            missing: sheet.missing,
+            analysisService: widget.analysisService,
+            me: me,
+            transpose: entry?.key == null ? null : facts.transpose,
+            nextInSet:
+                index + 1 < songs.length ? songs[index + 1].title : null,
+          ),
+          fullscreenDialog: true,
+        ),
+      );
+      if (onward != true || !mounted) return;
+    }
   }
 
   /// The listening desk (0151), from the card that says something arrived.

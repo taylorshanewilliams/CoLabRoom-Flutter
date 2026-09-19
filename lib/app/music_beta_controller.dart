@@ -206,6 +206,16 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   List<Musician> get openMicPeople =>
       List<Musician>.unmodifiable(_openMicPeople);
   List<Setlist> get setlists => List<Setlist>.unmodifiable(_setlists);
+
+  List<Setlist> _setsForTheDay = const <Setlist>[];
+
+  /// The dated sets waiting for this person, whoever made them (0164).
+  ///
+  /// Not [setlists]: those are this person's own, and these are the
+  /// occasions they are playing on — usually somebody else's set, made by
+  /// whoever leads. Empty on nearly every day of nearly everybody's year.
+  List<Setlist> get setsForTheDay => List<Setlist>.unmodifiable(_setsForTheDay);
+
   List<AppNotification> get notifications => List<AppNotification>.unmodifiable(_notifications);
   NotificationPreferences get notificationPreferences => _notificationPreferences;
   int get unreadNotificationCount => _notifications.where((n) => !n.isRead).length;
@@ -568,6 +578,14 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
       // And what a teacher asked for with a song they sent. The same again.
       try {
         _songBriefs = await repository.mySongBriefs();
+      } catch (_) {
+        // Left as it was.
+      }
+      // The sets somebody is playing on this week (0164). The same bargain:
+      // a card that could not be fetched today is offered tomorrow, and the
+      // set is on the server either way.
+      try {
+        _setsForTheDay = await repository.setsForTheDay();
       } catch (_) {
         // Left as it was.
       }
@@ -1072,6 +1090,12 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> saveSetlistSong(Setlist setlist, SetlistSong song) async {
     await repository.saveSetlistSong(setlist, song);
+    await load();
+  }
+
+  /// Says which day a set is for, or takes the day off it again (0164).
+  Future<void> setSetlistDay(Setlist setlist, DateTime? day) async {
+    await repository.setSetlistDay(setlist, day);
     await load();
   }
 

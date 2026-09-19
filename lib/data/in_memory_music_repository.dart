@@ -594,7 +594,10 @@ class InMemoryMusicRepository implements MusicRepository {
     final now = DateTime.now();
     final setlist = Setlist(
       id: _id('setlist'),
-      ownerId: 'preview-user',
+      // Whoever is asking, not the literal preview user: a test that stands
+      // in a bandmate's shoes to make the set for Sunday (0164) needs the
+      // fake to agree that the set is theirs and not this phone's.
+      ownerId: currentUserId,
       name: cleaned,
       createdAt: now,
       updatedAt: now,
@@ -648,7 +651,7 @@ class InMemoryMusicRepository implements MusicRepository {
     final cleaned = song.cleaned();
     // The same refusal 0005's update policy makes in the database: a set is
     // its owner's, and an update from anybody else lands on no row.
-    if (setlist.ownerId != 'preview-user') {
+    if (setlist.ownerId != currentUserId) {
       throw StateError(MusicRepository.notYourSet);
     }
     // And the other silence: the set is theirs, but the song is not in it
@@ -662,6 +665,47 @@ class InMemoryMusicRepository implements MusicRepository {
           .map((entry) => entry.projectId == song.projectId ? cleaned : entry)
           .toList(growable: false),
     ));
+  }
+
+  @override
+  Future<void> setSetlistDay(Setlist setlist, DateTime? day) async {
+    // The same refusal again, and the same reason: 0005's update policy is
+    // the whole guard on a set's own row, so somebody who is only playing on
+    // Sunday lands on no row (0164).
+    if (setlist.ownerId != currentUserId) {
+      throw StateError(MusicRepository.notYourSet);
+    }
+    final held = _setlists.where((value) => value.id == setlist.id).firstOrNull;
+    if (held == null) return;
+    _replaceSetlist(held.copyWith(
+      forDay: day == null ? null : DateTime(day.year, day.month, day.day),
+      updatedAt: clock(),
+    ));
+  }
+
+  @override
+  Future<List<Setlist>> setsForTheDay() async {
+    final now = clock();
+    // Yesterday onwards, the way 0164's function cuts it: the phone decides
+    // whether its own card is still for a day to come, and this only stops a
+    // year of old sets coming back.
+    final from = DateTime(now.year, now.month, now.day - 1);
+    final known = _allProjects.map((project) => project.id).toSet();
+    final waiting = <Setlist>[];
+    for (final setlist in _setlists) {
+      final day = setlist.forDay;
+      if (day == null || day.isBefore(from)) continue;
+      // Only the songs this person can see, which is every song this fake
+      // holds: there is one library here and everybody is in all of it.
+      final songs = <SetlistSong>[
+        for (final song in setlist.songs)
+          if (known.contains(song.projectId))
+            SetlistSong(projectId: song.projectId, key: song.key),
+      ];
+      if (songs.isEmpty) continue;
+      waiting.add(setlist.copyWith(songs: songs));
+    }
+    return List<Setlist>.unmodifiable(waiting);
   }
 
   /// Unheard counts the fake simply holds, so a badge can be exercised in a

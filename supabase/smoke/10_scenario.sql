@@ -11774,6 +11774,201 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- A set for a day, and one quiet card for each of you (0164).
+--
+-- The day is the set owner's, the way the set is: 0005's update policy is
+-- the whole guard, so a player in the same room lands on no row. What is new
+-- is the read -- until now only the owner could see that a set existed at
+-- all, and the people playing it on Sunday have to be able to see that there
+-- is a set on Sunday. sets_for_the_day answers that one question: the set,
+-- its day, and the songs in it from rooms the caller is actually in.
+--
+-- And nothing here records who asked. The function is stable; there is no
+-- receipt to write and none to read.
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('1a4e0164-0000-0000-0000-000000000164', 'theleader@smoke.test',
+   '{"display_name": "The Leader"}'),
+  ('1a4e0164-0000-0000-0000-000000000165', 'theplayer@smoke.test',
+   '{"display_name": "The Player"}'),
+  -- In no room of this block's, so is_room_member is false for every song in
+  -- the set: the account the read has to hand back nothing at all to, not
+  -- even the set's name.
+  ('1a4e0164-0000-0000-0000-000000000166', 'notinthisband@smoke.test',
+   '{"display_name": "Not In This Band"}');
+
+insert into public.rooms (id, account_id, name)
+values ('1a4e0164-0000-0000-0000-000000000160',
+        '11111111-1111-1111-1111-111111111111', 'The Sunday Room');
+
+-- Distinct colours, as every other room in this file has
+-- (room_members_room_color_unique, 0006).
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('1a4e0164-0000-0000-0000-000000000160', '1a4e0164-0000-0000-0000-000000000164',
+   'The Leader', 'owner', 4294937164),
+  ('1a4e0164-0000-0000-0000-000000000160', '1a4e0164-0000-0000-0000-000000000165',
+   'The Player', 'viewer', 4283215664);
+
+insert into public.projects (id, room_id, account_id, title, created_by, song_origin) values
+  ('1a4e0164-0000-0000-0000-000000000161', '1a4e0164-0000-0000-0000-000000000160',
+   '11111111-1111-1111-1111-111111111111', 'Our Own Opening Song',
+   '1a4e0164-0000-0000-0000-000000000164', 'ours'),
+  -- Somebody else's song (0142). It stays in the set for its sheet and its
+  -- key; the read below hands back neither words nor audio for anything.
+  ('1a4e0164-0000-0000-0000-000000000162', '1a4e0164-0000-0000-0000-000000000160',
+   '11111111-1111-1111-1111-111111111111', 'A Song We Have A Licence For',
+   '1a4e0164-0000-0000-0000-000000000164', 'cover');
+
+insert into public.setlists (id, owner_id, name) values
+  ('1a4e0164-0000-0000-0000-000000000170', '1a4e0164-0000-0000-0000-000000000164',
+   'Sunday morning'),
+  -- A set with no day on it: a list of songs rather than an occasion, which
+  -- is what every set was before 0164 and what most of them stay.
+  ('1a4e0164-0000-0000-0000-000000000171', '1a4e0164-0000-0000-0000-000000000164',
+   'Songs we know'),
+  -- And one whose day has gone by. The card goes away after the day, and
+  -- this is the half of that the server can say.
+  ('1a4e0164-0000-0000-0000-000000000172', '1a4e0164-0000-0000-0000-000000000164',
+   'Last Sunday');
+
+insert into public.setlist_projects (setlist_id, project_id, position, played_key) values
+  ('1a4e0164-0000-0000-0000-000000000170',
+   '1a4e0164-0000-0000-0000-000000000161', 0, 'G'),
+  ('1a4e0164-0000-0000-0000-000000000170',
+   '1a4e0164-0000-0000-0000-000000000162', 1, 'Bb major'),
+  ('1a4e0164-0000-0000-0000-000000000171',
+   '1a4e0164-0000-0000-0000-000000000161', 0, null),
+  ('1a4e0164-0000-0000-0000-000000000172',
+   '1a4e0164-0000-0000-0000-000000000161', 0, null);
+
+update public.setlists set for_day = current_date - 5
+where id = '1a4e0164-0000-0000-0000-000000000172';
+
+-- The leader says which day it is for.
+set local request.jwt.claims = '{"sub": "1a4e0164-0000-0000-0000-000000000164"}';
+set local role authenticated;
+
+do $$
+begin
+  -- Null is the honest default: a set nobody has dated is not an occasion.
+  if (select for_day from public.setlists
+        where id = '1a4e0164-0000-0000-0000-000000000170') is not null then
+    raise exception 'a new set arrived with a day nobody gave it';
+  end if;
+
+  update public.setlists set for_day = current_date + 7
+  where id = '1a4e0164-0000-0000-0000-000000000170';
+  if (select for_day from public.setlists
+        where id = '1a4e0164-0000-0000-0000-000000000170')
+     is distinct from current_date + 7 then
+    raise exception 'the set''s owner could not say what day it is for';
+  end if;
+
+  -- Their own set, so they are handed it too: the leader is in the room
+  -- like everybody else, and the card is for them as well.
+  if (select count(*) from public.sets_for_the_day()
+        where set_id = '1a4e0164-0000-0000-0000-000000000170') <> 2 then
+    raise exception 'the set''s owner was not handed their own dated set';
+  end if;
+end $$;
+
+-- A player in the same room cannot say what day the set is for. The set is
+-- the leader's, the way it always was; 0005's update policy is the whole
+-- guard and an update from anybody else lands on no row.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0164-0000-0000-0000-000000000165"}';
+set local role authenticated;
+
+do $$
+declare
+  touched integer;
+begin
+  update public.setlists set for_day = current_date + 30
+  where id = '1a4e0164-0000-0000-0000-000000000170';
+  get diagnostics touched = row_count;
+  if touched <> 0 then
+    raise exception 'somebody who is not the set''s owner moved the day';
+  end if;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select for_day from public.setlists
+        where id = '1a4e0164-0000-0000-0000-000000000170')
+     is distinct from current_date + 7 then
+    raise exception 'the day the owner set did not stand';
+  end if;
+end $$;
+
+-- And what that player is handed: the set, its day, and the two songs in the
+-- running order the leader put them in, each with the key the set does it in.
+-- Nothing about who asked is written by asking.
+set local request.jwt.claims = '{"sub": "1a4e0164-0000-0000-0000-000000000165"}';
+set local role authenticated;
+
+do $$
+declare
+  ids uuid[];
+  keys text[];
+begin
+  select array_agg(project_id order by position),
+         array_agg(coalesce(played_key, '-') order by position)
+    into ids, keys
+  from public.sets_for_the_day()
+  where set_id = '1a4e0164-0000-0000-0000-000000000170';
+
+  if ids is distinct from array[
+       '1a4e0164-0000-0000-0000-000000000161'::uuid,
+       '1a4e0164-0000-0000-0000-000000000162'::uuid] then
+    raise exception 'the set did not come back in the order it is played in';
+  end if;
+  if keys is distinct from array['G', 'Bb major'] then
+    raise exception 'the keys the set does its songs in did not come back';
+  end if;
+
+  -- A set with no day is not an occasion and is nobody else's business.
+  if exists (select 1 from public.sets_for_the_day()
+               where set_id = '1a4e0164-0000-0000-0000-000000000171') then
+    raise exception 'a set with no day was handed to somebody who is not its owner';
+  end if;
+
+  -- And one whose day has gone by is done with.
+  if exists (select 1 from public.sets_for_the_day()
+               where set_id = '1a4e0164-0000-0000-0000-000000000172') then
+    raise exception 'a set whose day has gone by was still being handed out';
+  end if;
+end $$;
+
+-- Somebody with a valid token and nothing to do with this band is handed
+-- nothing, including the set's name: the read is per song, through the same
+-- membership every other read in this file asks for.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0164-0000-0000-0000-000000000166"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.sets_for_the_day()
+               where set_id = '1a4e0164-0000-0000-0000-000000000170') then
+    raise exception 'a stranger was handed somebody else''s set';
+  end if;
+end $$;
+
+-- Nobody at all cannot ask.
+reset role;
+set local request.jwt.claims = '{"role": "anon"}';
+set local role anon;
+
+do $$
+begin
+  perform public.sets_for_the_day();
+  raise exception 'anon read the sets for the day';
+exception when insufficient_privilege then null;
+end $$;
+
 reset role;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
