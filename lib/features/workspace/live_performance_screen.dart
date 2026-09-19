@@ -1160,20 +1160,25 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     });
   }
 
-  /// What is on repeat, found by where it sits in the song: the part with
-  /// those edges, or the bars it covers. See loopFor.
-  PracticeLoop? _loopFor(int? startMs, int? endMs) => loopFor(
-        startMs,
-        endMs,
-        sections: _sections,
+  /// How this song counts itself at this moment, in the shape a screen that
+  /// is not Perform can be handed.
+  ///
+  /// One funnel for every name a stretch of this song gets: the chip, the
+  /// follower's chip, what a practice mark remembers, and the practice card
+  /// on Home, which builds the same thing from the same three facts. They
+  /// agree because they all come through here (0161), and they say cycles
+  /// rather than bars when the band counts cycles (0162).
+  SongCount get _counting => SongCount(
         downbeatsMs: _downbeats,
-        // One funnel for every name a stretch of this song gets: the chip,
-        // the follower's chip, and what a practice mark remembers. They agree
-        // because they all come through here (0161), and they say cycles
-        // rather than bars when the band counts cycles (0162).
         barOne: _countOne,
         cycles: _countingCycle != null,
+        sections: _sections,
       );
+
+  /// What is on repeat, found by where it sits in the song: the part with
+  /// those edges, or the bars it covers. See loopFor.
+  PracticeLoop? _loopFor(int? startMs, int? endMs) =>
+      _counting.passage(startMs, endMs);
 
   /// Following ended. Whatever was worked on is kept, with the leader's
   /// note; when it was the leader who stopped, the phone says where it went,
@@ -1188,7 +1193,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     // keeps the same mark open: this phone follows again if they come back.
     if (!end.stopped) return;
     if (mark != null && mounted) {
-      final worked = practiceWorked(mark);
+      final worked = practiceWorked(mark, counted: _counting);
       _say(worked == null
           ? '${end.said} Their note is on your Home.'
           : '${end.said} $worked is on your Home to practise.');

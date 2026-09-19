@@ -1,6 +1,12 @@
 import '../../domain/song_analysis_models.dart';
+import '../../domain/song_cycle.dart';
 import '../../services/chord_beat_grid.dart'
-    show barNumberAt, barOneIndex, downbeatIndexOfBar, numberedBarCount;
+    show
+        barNumberAt,
+        barOneIndex,
+        cycleGridFor,
+        downbeatIndexOfBar,
+        numberedBarCount;
 import '../../services/melody_reading.dart';
 import 'musician_sheet_logic.dart' show noteAsPlayed;
 
@@ -394,7 +400,25 @@ PracticeLoop? loopFor(
   // The end is where the loop turns round rather than a moment it plays, so
   // the last bar is the one the instant just before it sits in.
   final last = barNumberAt(endMs - 1, downbeatsMs, barOne: barOne);
-  if (last == null) return null;
+  if (last == null) {
+    // Both ends ahead of bar 1, so the whole of it is inside the pickup. It
+    // has a name, and the name is the pickup's: a passage kept when bar 1 was
+    // the first downbeat can end up entirely in front of bar 1 once somebody
+    // says the recording opens with a count-in, and a practice card that went
+    // on saying "Bars 9–12" about it would be naming bars that are no longer
+    // there at all. Named the way "Pickup–bar 2" is, and on the same terms:
+    // both take the pickup's word for a stretch that is part of it.
+    if (downbeatsMs.isNotEmpty && startMs >= downbeatsMs.first) {
+      return PracticeLoop(
+        startMs: startMs,
+        endMs: endMs,
+        label: pickupLabel,
+        firstBar: 0,
+        lastBar: 0,
+      );
+    }
+    return null;
+  }
   // A loop that starts inside the pickup and runs on into numbered bars.
   // This is what somebody already looping the first few bars is left holding
   // the moment they say bar 1 is further in, and it has a name — "Pickup–bar
@@ -413,6 +437,81 @@ PracticeLoop? loopFor(
     firstBar: first,
     lastBar: last,
   );
+}
+
+/// How a song counts itself right now: the grid its numbers are counted on,
+/// which of that grid's entries is number 1, and whether those numbers are
+/// bars or cycles.
+///
+/// The three facts [loopFor] needs, in one object, so that every screen that
+/// names a stretch of a song names it the way Perform's bar picker does.
+/// Perform worked them out for itself and nowhere else could: a cycle
+/// replaces the analysed bars outright (0162) and bar 1 can sit a few
+/// downbeats in (0161), so a screen reading the raw downbeats would count
+/// from a different 1 than the picker. Home names the passage on a practice
+/// card and was doing exactly that (Every Musician, Same Song, 17 September
+/// 2026; the limit #385 left open).
+class SongCount {
+  const SongCount({
+    this.downbeatsMs = const <int>[],
+    this.barOne = 1,
+    this.cycles = false,
+    this.sections = const <StructureSection>[],
+  });
+
+  /// What [song] is counted on, given the grid its recording has.
+  ///
+  /// The cycle the band counts when its beats can hold one, and the analysed
+  /// downbeats otherwise — which is the same choice, through the same
+  /// function, that Perform makes.
+  factory SongCount.of(
+    SongGrid grid, {
+    int barOne = 1,
+    SongCycle? cycle,
+  }) {
+    final counted = cycleGridFor(
+      cycle,
+      beatsMs: grid.beatsMs,
+      downbeatsMs: grid.downbeatsMs,
+      barOne: barOne,
+    );
+    return SongCount(
+      downbeatsMs: counted?.downbeatsMs ?? grid.downbeatsMs,
+      barOne: counted?.barOne ?? barOne,
+      cycles: counted != null,
+      sections: grid.sections,
+    );
+  }
+
+  /// The moments a count begins: the cycle's when there is one, the analysed
+  /// downbeats when there is not.
+  final List<int> downbeatsMs;
+
+  /// Which entry of [downbeatsMs] is number 1. Everything ahead of it is the
+  /// pickup and has no number.
+  final int barOne;
+
+  /// Whether those numbers are said as cycles rather than as bars.
+  final bool cycles;
+
+  /// The parts the analysis found, so a passage with a part's own two edges
+  /// keeps its name.
+  final List<StructureSection> sections;
+
+  /// Whether there is anything here to count with.
+  bool get isEmpty => downbeatsMs.isEmpty && sections.isEmpty;
+
+  /// What the stretch from [startMs] to [endMs] is called on this song now.
+  /// Named [passage] rather than `loopFor` so it cannot be mistaken for --
+  /// or accidentally recurse into -- the function it calls.
+  PracticeLoop? passage(int? startMs, int? endMs) => loopFor(
+        startMs,
+        endMs,
+        sections: sections,
+        downbeatsMs: downbeatsMs,
+        barOne: barOne,
+        cycles: cycles,
+      );
 }
 
 /// Which word of a line is being sung at [elapsedMs]: the last one that has

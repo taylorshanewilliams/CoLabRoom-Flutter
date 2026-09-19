@@ -93,6 +93,77 @@ class ReferenceTrack {
   final Melody? melody;
 
   bool get hasTranscript => (transcriptText?.trim().isNotEmpty ?? false);
+
+  /// Just the counting: what a passage of this song needs to be given a name.
+  SongGrid get grid => SongGrid(
+        beatsMs: beatsMs,
+        downbeatsMs: downbeatsMs,
+        sections: structureSections,
+      );
+}
+
+/// What a song is counted on, without the rest of the analysis.
+///
+/// A recording's grid and the parts the analysis named: the three things a
+/// stretch of milliseconds needs before anybody can say it is "Chorus 2" or
+/// "Bars 9–12". It is its own small thing because a screen that only wants
+/// to *name* a passage should not have to load a transcript, a melody and
+/// every chord cue to do it — Home names the passage on a practice card and
+/// has no other use for a sheet (Every Musician, Same Song, 17 September
+/// 2026; see SongAnalysisService.gridsFor).
+class SongGrid {
+  const SongGrid({
+    this.beatsMs = const <int>[],
+    this.downbeatsMs = const <int>[],
+    this.sections = const <StructureSection>[],
+  });
+
+  /// Every beat, which is what a cycle is counted in (0162).
+  final List<int> beatsMs;
+
+  /// The first beat of each bar, which is what bars are counted in (0161).
+  final List<int> downbeatsMs;
+
+  /// The parts the analysis found, so a passage with a part's own two edges
+  /// keeps the part's name rather than being called a run of bars.
+  final List<StructureSection> sections;
+
+  /// Whether there is anything here to name a passage with. A recording the
+  /// beat tracker found nothing in at all has nothing to count on, and then
+  /// nothing is renamed.
+  ///
+  /// The beats count, not only the downbeats: a cycle is laid over the beats
+  /// and needs no analysed bars at all (cycleGridFor starts from the first
+  /// beat when there are none), so a recording with beats and no downbeats
+  /// still counts itself in cycles the moment the band says what it counts.
+  /// Leaving the beats out here left Home calling that song's passage by the
+  /// words its mark was kept under while Perform called it "Cycles 3–4"
+  /// (review, 19 September 2026).
+  bool get isEmpty => beatsMs.isEmpty && downbeatsMs.isEmpty && sections.isEmpty;
+}
+
+/// What a batch of [SongGrid]s came back with: the songs that answered, and
+/// the songs nothing could be said about because the request itself failed.
+///
+/// The two are different and a caller has to be able to tell them apart. A
+/// song with no recording behind it is absent from [grids] and absent from
+/// [missed] — there is nothing there, and asking again would find nothing
+/// again. A song whose request threw, or that a phone out of signal could
+/// not be told about, is in [missed], so a screen that remembers what it has
+/// already asked for can forget that one and ask once more rather than
+/// keeping a dropped connection for the life of the session (review, 19
+/// September 2026).
+class SongGrids {
+  const SongGrids({
+    this.grids = const <String, SongGrid>{},
+    this.missed = const <String>{},
+  });
+
+  /// How each song that answered counts itself.
+  final Map<String, SongGrid> grids;
+
+  /// The songs the request could not answer for. Worth asking about again.
+  final Set<String> missed;
 }
 
 /// Note names with sharps, C first, so `midiNoteNames[midi % 12]`.

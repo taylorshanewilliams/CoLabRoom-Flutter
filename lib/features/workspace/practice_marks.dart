@@ -27,19 +27,45 @@ const int practiceGapCapMs = 6000;
 /// The parts kept, at most.
 const int practicePartsKept = 3;
 
+/// What a part of a mark is called now, rather than when it was kept.
+///
+/// A mark remembers a passage as two times and a few words, and the words
+/// were written the moment the mark was kept. Bar numbers are a fact about
+/// the song rather than about the mark: once somebody moves bar 1 (0161) or
+/// counts a cycle (0162), the same milliseconds are called something else,
+/// and a card still reading "Bars 9–12" sends a student to a passage the bar
+/// picker calls "Bars 8–11" — the limit #385 disclosed and left open. So the
+/// words follow the song. They are worked out again from the times the mark
+/// stores, through the same [loopFor] that names Perform's chips, which is
+/// what makes the two agree.
+///
+/// [counted] is how the song counts itself now. Null, empty, or a passage
+/// this grid cannot name leaves the words exactly as they were kept: the
+/// whole song, which has no times; a recording the beat tracker found no
+/// bars in; and a card built before the song's grid has been read. Only the
+/// words change — the milliseconds are the truth and nothing here touches
+/// them.
+String practicePassage(PracticePart part, {SongCount? counted}) {
+  if (!part.isLoop || counted == null || counted.isEmpty) return part.label;
+  return counted.passage(part.startMs, part.endMs)?.label ?? part.label;
+}
+
 /// "Chorus 2 at ¾", or just "Chorus 2" at full speed.
-String practiceSaid(PracticePart part) =>
-    part.rate == 1 ? part.label : '${part.label} at ${rateLabel(part.rate)}';
+String practiceSaid(PracticePart part, {SongCount? counted}) {
+  final passage = practicePassage(part, counted: counted);
+  return part.rate == 1 ? passage : '$passage at ${rateLabel(part.rate)}';
+}
 
 /// What was worked on, in a line: "Chorus 2 at ¾", "Chorus 2 at ¾ and
 /// Verse 1", "Chorus 2 at ¾ and 2 more". Null when all that was kept is a
 /// note.
-String? practiceWorked(PracticeMark mark) {
+String? practiceWorked(PracticeMark mark, {SongCount? counted}) {
   final parts = mark.parts;
   if (parts.isEmpty) return null;
-  if (parts.length == 1) return practiceSaid(parts.first);
-  if (parts.length == 2) return '${practiceSaid(parts[0])} and ${practiceSaid(parts[1])}';
-  return '${practiceSaid(parts[0])} and ${parts.length - 1} more';
+  String said(PracticePart part) => practiceSaid(part, counted: counted);
+  if (parts.length == 1) return said(parts.first);
+  if (parts.length == 2) return '${said(parts[0])} and ${said(parts[1])}';
+  return '${said(parts[0])} and ${parts.length - 1} more';
 }
 
 /// Whether a session left anything worth a card: something practised, or

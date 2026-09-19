@@ -16,6 +16,7 @@ import '../../domain/activity.dart';
 import '../../domain/music_models.dart';
 import '../../domain/practice_mark.dart';
 import '../../domain/sealed_take.dart';
+import '../../domain/song_analysis_models.dart' show SongGrid;
 import '../../services/kept_songs.dart';
 import '../../services/now_playing.dart';
 import '../../services/song_analysis_service.dart';
@@ -24,6 +25,7 @@ import '../lessons/what_came_in.dart';
 import '../lessons/what_to_practise.dart';
 import '../workspace/live_performance_screen.dart';
 import '../workspace/practice_marks.dart';
+import '../workspace/practice_rules.dart' show SongCount;
 import '../../widgets/app_surface.dart';
 import '../../widgets/bloom_tap.dart';
 import '../../domain/name_policy.dart';
@@ -227,6 +229,68 @@ class _SongsScreenState extends State<SongsScreen> {
     if (!KeptSongs.supported) return;
     final ids = await _analysis.kept.keptIds();
     if (mounted) setState(() => _keptIds = ids);
+  }
+
+  /// The grid each song with a practice card on it is counted on.
+  ///
+  /// Held as the grid rather than as a finished [SongCount] so that bar 1
+  /// moving, or a cycle being counted, changes the cards on the way back from
+  /// Perform without anything being fetched again: the grid comes from the
+  /// recording and does not move, and where bar 1 is comes off the song.
+  final Map<String, SongGrid> _grids = <String, SongGrid>{};
+
+  /// Songs already settled, so a rebuilding strip asks once rather than once
+  /// a frame.
+  ///
+  /// Settled means answered, or answered with "there is no recording": both
+  /// are final, and neither is worth another request. A song the request
+  /// *failed* on is taken back out again (see [_loadGrids]), because
+  /// remembering a tunnel as an answer would leave that card reading the
+  /// words its mark was kept under for the rest of the session — Home is a
+  /// tab rather than a route, so the session lasts until the app is killed,
+  /// and a card stuck on old bar numbers is the whole thing this exists to
+  /// stop (review, 19 September 2026).
+  final Set<String> _gridsAsked = <String>{};
+
+  /// How [song] counts itself now, or null while nothing has been read for
+  /// it — in which case a practice card keeps the words its mark was kept
+  /// under (see practicePassage).
+  SongCount? _countOf(SongProject song) {
+    final grid = _grids[song.id];
+    if (grid == null || grid.isEmpty) return null;
+    return SongCount.of(grid, barOne: song.barOne, cycle: song.cycle);
+  }
+
+  /// Reads the grids of the songs the strip is about to name a passage of.
+  ///
+  /// One request for all of them, and only for songs that have a practice
+  /// card — which for most people is none at all, and that is the point:
+  /// nothing is fetched for a Home with nothing to rename. Called from the
+  /// build that needs them and deferred a frame, because the answer arrives
+  /// as a setState.
+  void _askHowTheyCount(List<SongProject> songs) {
+    final wanted = <SongProject>[
+      for (final song in songs)
+        if (!_gridsAsked.contains(song.id)) song,
+    ];
+    if (wanted.isEmpty) return;
+    _gridsAsked.addAll(wanted.map((song) => song.id));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_loadGrids(wanted.map((song) => song.id).toList()));
+    });
+  }
+
+  Future<void> _loadGrids(List<String> projectIds) async {
+    final answer = await _analysis.gridsFor(projectIds);
+    if (!mounted) return;
+    // Forgotten rather than remembered as asked, so the next ordinary
+    // rebuild of the strip — coming back from Perform, the controller
+    // refreshing, the app waking up — tries again once signal is back. This
+    // cannot spin: a miss changes nothing on screen, so it causes no rebuild
+    // of its own.
+    _gridsAsked.removeAll(answer.missed);
+    if (answer.grids.isEmpty) return;
+    setState(() => _grids.addAll(answer.grids));
   }
 
   void _keptSongsChanged() => unawaited(_loadKeptIds());
@@ -575,6 +639,7 @@ class _SongsScreenState extends State<SongsScreen> {
     // themselves. One card a song, the latest — except that words outlast
     // work; see _cardMark.
     final practised = <String>{};
+    final toCount = <SongProject>[];
     for (final newest in controller.practiceMarks) {
       if (practised.contains(newest.projectId)) continue;
       if (SetAside.has(SetAside.practice, newest.id)) continue;
@@ -589,7 +654,14 @@ class _SongsScreenState extends State<SongsScreen> {
       // carries somebody's words is a different thing said and keeps its
       // card. Nothing is lost: the mark is still kept.
       if (briefed.contains(mark.projectId) && isYourOwnPractice(mark, me: me)) continue;
-      final worked = practiceWorked(mark);
+      // Named by how the song counts itself now, not by the words the mark
+      // was kept under: see practicePassage, and _countOf for where the
+      // counting comes from. Only a mark that points at somewhere inside the
+      // song needs the grid; "The whole song" is called that whatever the
+      // band counts, and asking for a grid to confirm it would be a request
+      // made for nothing.
+      if (mark.parts.any((part) => part.isLoop)) toCount.add(song);
+      final worked = practiceWorked(mark, counted: _countOf(song));
       final note = mark.note;
       final mine = isYourOwnPractice(mark, me: me);
       items.add(WaitingItem(
@@ -609,6 +681,7 @@ class _SongsScreenState extends State<SongsScreen> {
         onDismiss: () => unawaited(_setAside(SetAside.practice, mark.id)),
       ));
     }
+    _askHowTheyCount(toCount);
 
     // What a student sent their teacher (0151). One card, however many
     // came in: nine cards for nine students would be the strip turning into
