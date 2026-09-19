@@ -39,6 +39,7 @@ import { crypto as stdCrypto } from 'jsr:@std/crypto@1';
 import { encodeHex } from 'jsr:@std/encoding@1/hex';
 
 import { hallucinationSuspicion } from '../_shared/transcript_guard.ts';
+import { cachedTranscriptFits, whisperLanguage } from '../_shared/whisper_languages.ts';
 
 const RUNPOD_API_KEY = Deno.env.get('RUNPOD_API_KEY');
 const RUNPOD_ENDPOINT_ID = Deno.env.get('RUNPOD_ENDPOINT_ID');
@@ -149,6 +150,37 @@ async function sha256OfUrl(url: string): Promise<string | null> {
   }
 }
 
+/// What the room said this song is sung in (migration 0163), as the code the
+/// transcriber takes, and '' when nobody has said.
+///
+/// Read here rather than sent by the app, for the same reason the lyrics
+/// hint is not: this function is where the transcription is actually asked
+/// for. Reading it means every build in a band sends the language the moment
+/// its room says one, with no new APK, and that a hand-written request
+/// cannot claim a song is sung in something its room never said.
+///
+/// Best-effort. A language that cannot be read is no language, which is how
+/// every song in the app behaved before 0163 — the worker detects it itself.
+/// Saying what a song is sung in must never be the reason an analysis stops
+/// working.
+async function declaredSongLanguage(
+  client: { from: (table: string) => any },
+  projectId: string | null,
+): Promise<string> {
+  if (!projectId) return '';
+  try {
+    const { data } = await client
+      .from('projects')
+      .select('language')
+      .eq('id', projectId)
+      .maybeSingle();
+    return whisperLanguage((data as { language?: unknown } | null)?.language);
+  } catch (error) {
+    console.error(`Could not read the song's language: ${error}`);
+    return '';
+  }
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -189,6 +221,15 @@ interface SeparationResult {
   /// predates transcription. All three mean "no lyrics this time", which is
   /// a result the pipeline has always had to handle.
   transcript: { text?: string; words?: unknown[] } | null;
+  /// The language the worker's transcript was made in — the one it was told
+  /// (migration 0163), or the one it detected when it was told nothing. Null
+  /// from a worker image that predates being told, which is also a worker
+  /// that ignored the language it was sent, so it is the one value that must
+  /// never be assumed. Kept apart from `transcript` because it survives the
+  /// transcript being dropped: a run that heard nothing still heard nothing
+  /// *in a language*, and that is what stops the same empty answer being
+  /// re-bought on every open.
+  transcriptLanguage: string | null;
   /// {notes, low_midi, high_midi, voiced_ratio} from the worker, or null for
   /// an instrumental, a failure inside the pitch tracker, or a worker image
   /// that predates it. All three mean "no tune this time".
@@ -225,6 +266,7 @@ async function submitSeparation(
   mixUpload: string | null,
   skipStructure: boolean,
   lyricsHint: string | null,
+  language: string,
 ): Promise<string> {
   const runResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`, {
     method: 'POST',
@@ -252,6 +294,12 @@ async function submitSeparation(
         // which the poll below treats exactly like an instrumental.
         transcribe: true,
         lyrics_hint: lyricsHint,
+        // What the room said this song is sung in (migration 0163), cut to
+        // the code Whisper takes. Null when nobody has said, which is what
+        // every song was before 0163 and what a Studio idea always is: the
+        // worker then detects the language itself, exactly as it did before
+        // this field existed. An older worker image ignores it the same way.
+        language: language.length > 0 ? language : null,
       },
     }),
   });
@@ -310,6 +358,11 @@ async function readSeparation(jobId: string): Promise<SeparationResult | null> {
     transcript:
       statusBody.output?.transcript && Array.isArray(statusBody.output.transcript.words)
         ? statusBody.output.transcript
+        : null,
+    transcriptLanguage:
+      typeof statusBody.output?.transcript?.language === 'string' &&
+        statusBody.output.transcript.language.length > 0
+        ? statusBody.output.transcript.language
         : null,
     // Same shape of refusal as the transcript: a melody without notes, or
     // one that reports its own error, is not a melody.
@@ -499,6 +552,12 @@ Deno.serve(async (req) => {
       return json({ error: 'That recording does not belong to this project.' }, 403);
     }
   }
+
+  // Both halves of this call need it: `start` decides with it whether a
+  // transcript already on file is the right words for this song, and `poll`
+  // files the answer under the language it was heard in. Read once, after
+  // the project has been confirmed to be the caller's to analyse.
+  const declaredLanguage = await declaredSongLanguage(adminClient, projectId);
 
 
   // Stems live beside the reference recording:
@@ -789,8 +848,23 @@ Deno.serve(async (req) => {
       .eq('audio_sha256', sha)
       .in('pipeline_version', cacheVersionsFor(depth));
     if (error || !rows || rows.length === 0) return null;
+    // A transcript made in one language is not the words to a song sung in
+    // another, so a row that was heard in something else is not a hit for
+    // this song — it is analysed afresh and the new row carries the language
+    // it was heard in. Nothing is thrown away: the old row is replaced only
+    // when a real run produces a better one, and a song nobody has answered
+    // for skips this entirely and finds exactly the rows it always did.
+    //
+    // Filtered before the version is chosen rather than after, so a quick
+    // analysis heard in the right language beats a full one heard in the
+    // wrong one. Being wrong about the words is worse than being without
+    // the sections.
+    const usable = rows.filter((row) =>
+      cachedTranscriptFits(declaredLanguage, row.transcript_language)
+    );
+    if (usable.length === 0) return null;
     const preferred = cacheVersionsFor(depth);
-    const cached = rows.sort(
+    const cached = usable.sort(
       (left, right) =>
         preferred.indexOf(left.pipeline_version as string) -
         preferred.indexOf(right.pipeline_version as string),
@@ -962,6 +1036,7 @@ Deno.serve(async (req) => {
         mixUpload,
         depth === 'quick',
         lyricsHint,
+        declaredLanguage,
       );
       return json({ status: 'started', jobId: startedJobId });
     } catch (error) {
@@ -1033,6 +1108,25 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Told what the song is sung in, and handed back words that do not say
+    // they were heard in it. The same shape of silence as the melody above
+    // and worth the same row: an image built before the language reached the
+    // worker ignores it and names no language, which looks identical to a
+    // working pipeline from the outside — except that every song with a
+    // language declared would then be analysed from scratch on every open,
+    // for ever, because no cached row could ever be shown to fit it. That is
+    // real money leaving quietly, and nothing else would say so.
+    if (declaredLanguage.length > 0 && separation.transcriptLanguage !== declaredLanguage) {
+      await noteWorkerSilence(
+        'lyrics',
+        `The song says it is sung in ${declaredLanguage} and the worker's transcript was ` +
+          `heard in ${separation.transcriptLanguage ?? 'a language it would not name'}. ` +
+          'Either the image that ran this job predates the language parameter and ignored ' +
+          'it (the rollout has not reached this worker), or the transcription raised. ' +
+          'Until it agrees, this recording cannot be served from the cache.',
+      );
+    }
+
     let stems: { stem: string; storagePath: string }[] = [];
     if (projectId || draftId) {
       stems = separation.uploadedStems
@@ -1099,6 +1193,12 @@ Deno.serve(async (req) => {
           // is the answer — re-analysing the same bytes would reach the same
           // model and get the same nothing.
           transcript,
+          // What the words were actually heard in, as the worker reports it
+          // — never what it was told, because a worker image older than this
+          // change ignores the language and says so by naming none. Assuming
+          // it obeyed would file a Spanish transcript under Portuguese and
+          // serve it to that song for ever.
+          transcript_language: separation.transcriptLanguage,
           melody: separation.melody,
           worker_build: separation.workerBuild,
           stem_bucket: stems.length > 0 ? bucket : null,

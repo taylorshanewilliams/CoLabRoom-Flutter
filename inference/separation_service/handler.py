@@ -6,7 +6,8 @@ Input:  {"input": {
           "audio_url": "<signed URL>",
           "filename": "song.mp3",
           "stem_uploads": {"vocals": "<signed PUT url>", ...},  # optional
-          "mix_upload": "<signed PUT url>"                      # optional
+          "mix_upload": "<signed PUT url>",                     # optional
+          "language": "pt"                                      # optional
         }}
 Output: {
   "harmonic_mix_uploaded": true,
@@ -52,6 +53,7 @@ lyrics, which don't depend on any of them.
 import base64
 import concurrent.futures
 import os
+import re
 import subprocess
 import tempfile
 
@@ -623,7 +625,94 @@ def _extract_melody(path: str) -> dict | None:
         return {"error": f"{type(error).__name__}: {error}"}
 
 
-def _transcribe(path: str, prompt: str | None = None) -> dict | None:
+def _known_languages() -> frozenset[str] | None:
+    """The language codes this build of faster-whisper accepts, or None when
+    it will not say.
+
+    Asked of the library rather than kept as a list here, because a list here
+    would be a second opinion about what the model knows and the model's own
+    is the one that decides. None means the private name moved between
+    versions; the caller then hands the code over anyway and relies on the
+    retry below, which is the same outcome by a slower route.
+    """
+    try:
+        from faster_whisper.tokenizer import _LANGUAGE_CODES
+
+        return frozenset(_LANGUAGE_CODES)
+    except Exception:  # noqa: BLE001 - an absent private name is not an error
+        return None
+
+
+def _whisper_language(raw) -> str | None:
+    """The language a job asked for, as faster-whisper takes it, or None.
+
+    The caller sends what the room declared the song is sung in (migration
+    0163), which is a BCP-47 tag — so 'pt-BR' is cut to 'pt' and 'zh-Hans' to
+    'zh', the same cut the Edge Functions make. None for anything absent,
+    malformed, or not a language this build knows, and None means detect as
+    before: being told what a song is sung in must never be the reason it
+    comes back without words.
+    """
+    if not isinstance(raw, str):
+        return None
+    code = raw.strip().split("-")[0].lower()
+    if not re.fullmatch(r"[a-z]{2,3}", code):
+        return None
+    known = _known_languages()
+    if known is not None and code not in known:
+        return None
+    return code
+
+
+def _whisper_pass(path: str, prompt: str | None, language: str | None) -> dict:
+    """One decode, and what it heard."""
+    segments, info = _get_whisper().transcribe(
+        path,
+        word_timestamps=True,
+        vad_filter=True,
+        # Whisper's default of temperature=0 does not mean deterministic —
+        # it escalates temperature on its own when its confidence
+        # thresholds fail, which is the mechanism behind the same file
+        # transcribing correctly one hour and as repeated boilerplate the
+        # next. A single fixed temperature refuses that escalation.
+        temperature=0.0,
+        condition_on_previous_text=False,
+        initial_prompt=prompt,
+        # Absent, this is exactly what it always was: Whisper reads the first
+        # few seconds and decides for itself. Given, it does not decide — and
+        # a sung vocal over an instrumental intro is precisely where deciding
+        # goes wrong, which is why a room is allowed to say.
+        language=language,
+    )
+    words = []
+    text_parts = []
+    for segment in segments:
+        text_parts.append(segment.text)
+        for word in (segment.words or []):
+            words.append(
+                {
+                    "word": word.word,
+                    "start_ms": int(round(word.start * 1000)),
+                    "end_ms": int(round(word.end * 1000)),
+                }
+            )
+    heard_in = getattr(info, "language", None)
+    return {
+        "text": "".join(text_parts).strip(),
+        "words": words,
+        # What these words were actually heard in — the language it was told,
+        # or the one it detected when it was told nothing. The caller files
+        # the transcript under this, so it must be what happened rather than
+        # what was asked for.
+        "language": heard_in if isinstance(heard_in, str) and heard_in else None,
+    }
+
+
+def _transcribe(
+    path: str,
+    prompt: str | None = None,
+    language: str | None = None,
+) -> dict | None:
     """Words and their timings, or None if transcription failed outright.
 
     Runs with Silero VAD in front of it. That is the point of doing this here
@@ -637,32 +726,19 @@ def _transcribe(path: str, prompt: str | None = None) -> dict | None:
     not take chords and structure down with them.
     """
     try:
-        segments, _info = _get_whisper().transcribe(
-            path,
-            word_timestamps=True,
-            vad_filter=True,
-            # Whisper's default of temperature=0 does not mean deterministic —
-            # it escalates temperature on its own when its confidence
-            # thresholds fail, which is the mechanism behind the same file
-            # transcribing correctly one hour and as repeated boilerplate the
-            # next. A single fixed temperature refuses that escalation.
-            temperature=0.0,
-            condition_on_previous_text=False,
-            initial_prompt=prompt,
-        )
-        words = []
-        text_parts = []
-        for segment in segments:
-            text_parts.append(segment.text)
-            for word in (segment.words or []):
-                words.append(
-                    {
-                        "word": word.word,
-                        "start_ms": int(round(word.start * 1000)),
-                        "end_ms": int(round(word.end * 1000)),
-                    }
-                )
-        return {"text": "".join(text_parts).strip(), "words": words}
+        return _whisper_pass(path, prompt, language)
+    except ValueError as error:
+        # faster-whisper refuses a language code it does not recognise before
+        # it decodes anything, and _whisper_language cannot always check
+        # first. Listen again without one rather than hand back no words at
+        # all: a song whose language this model has never heard of should
+        # transcribe exactly as well as it did before anybody said.
+        if language is None:
+            return {"error": f"{type(error).__name__}: {error}"}
+        try:
+            return _whisper_pass(path, prompt, None)
+        except Exception as retry_error:  # noqa: BLE001 - see docstring
+            return {"error": f"{type(retry_error).__name__}: {retry_error}"}
     except Exception as error:  # noqa: BLE001 - see docstring
         return {"error": f"{type(error).__name__}: {error}"}
 
@@ -688,6 +764,10 @@ def handler(job):
     # and chords shouldn't pay the tail of a transcription it will discard.
     transcribe = job_input.get("transcribe") is True
     lyrics_hint = job_input.get("lyrics_hint")
+    # What the room said this song is sung in (migration 0163). Optional, and
+    # a job that does not send one — an older Edge Function, a Studio idea, a
+    # song nobody has answered for — transcribes exactly as it always did.
+    language = _whisper_language(job_input.get("language"))
     if not audio_url:
         return {"error": "Missing 'audio_url' in input."}
 
@@ -835,7 +915,11 @@ def handler(job):
         if transcribe:
             vocal_path = stem_paths.get("vocals")
             if vocal_path and os.path.exists(vocal_path):
-                transcript = _transcribe(vocal_path, prompt=lyrics_hint)
+                transcript = _transcribe(
+                    vocal_path,
+                    prompt=lyrics_hint,
+                    language=language,
+                )
 
         # The tune, from the same stem the words come from. Only when the
         # stem has a voice in it: pyin over a silent stem finds nothing

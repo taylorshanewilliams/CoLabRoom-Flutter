@@ -165,13 +165,36 @@ String? languageTagTyped(String? raw) {
   ].join('-');
 }
 
-/// The language part of a tag: 'ar' from 'ar-EG', 'zh' from 'zh-Hans'.
+/// Tags the transcriber spells differently from this list.
+///
+/// The same map as `WHISPER_ALIASES` in
+/// supabase/functions/_shared/whisper_languages.ts, which is where the tag
+/// actually becomes what Whisper is told — this copy exists only so the app
+/// can tell whether two answers are the same instruction. Norwegian is the
+/// one that matters in practice: this list stores the Bokmål tag and the
+/// transcriber only knows 'no', so without this a Norwegian song would be
+/// offered a re-listen that heard it in the language it was already heard in.
+const Map<String, String> _transcriberSpells = <String, String>{
+  'nb': 'no',
+  'nn': 'no',
+  'fil': 'tl',
+  'yue': 'zh',
+  'iw': 'he',
+  'ji': 'yi',
+  'in': 'id',
+  'mo': 'ro',
+};
+
+/// The language part of a tag as the transcriber hears it: 'ar' from 'ar-EG',
+/// 'zh' from 'zh-Hans', 'no' from 'nb'.
 ///
 /// What a transcriber is given, because Whisper's `language` takes an ISO
-/// code and nothing after it.
+/// code and nothing after it — so this is also the only honest way to ask
+/// whether two answers mean the same thing to it.
 String? languageOf(String? tag) {
-  final clean = languageTagTyped(tag);
-  return clean?.split('-').first;
+  final base = languageTagTyped(tag)?.split('-').first;
+  if (base == null) return null;
+  return _transcriberSpells[base] ?? base;
 }
 
 /// The language named, for a sheet or a sentence: "Arabic", "Chinese", or

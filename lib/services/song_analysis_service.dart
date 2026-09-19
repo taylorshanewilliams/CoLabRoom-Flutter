@@ -431,6 +431,7 @@ class SongAnalysisService {
         transcriptWords: (row['transcript_words'] as List<dynamic>? ?? const <dynamic>[])
             .map((value) => TranscriptWord.fromJson(Map<String, dynamic>.from(value as Map)))
             .toList(growable: false),
+        transcriptLanguage: row['transcript_language'] as String?,
         analysisWarning: row['analysis_warning'] as String?,
         lastError: row['last_error'] as String?,
         bpm: (row['bpm'] as num?)?.toDouble(),
@@ -844,10 +845,15 @@ class SongAnalysisService {
   Future<SongAnalysisBundle> updateTranscript({
     required String projectId,
     required List<TranscriptWord> words,
+    String? heardIn,
   }) async {
     await client.from('project_audio_references').update(<String, dynamic>{
       'transcript_words': words.map((word) => word.toJson()).toList(growable: false),
       'transcript_text': words.map((word) => word.word).join(' '),
+      // Only when the transcriber is the one writing. A correction typed on
+      // the lyric review screen changes the words, not the language they
+      // were heard in, so it leaves this alone rather than blanking it.
+      if (heardIn != null) 'transcript_language': heardIn,
     }).eq('project_id', projectId);
     return load(projectId);
   }
@@ -915,7 +921,16 @@ class SongAnalysisService {
         'is still there.',
       );
     }
-    return updateTranscript(projectId: project.id, words: words);
+    // What it was heard in this time, from the transcriber rather than from
+    // what it was asked for: a tag the transcriber does not know is dropped
+    // on the way, and recording it as though it had been used would stop the
+    // sheet ever offering to listen again for that song.
+    final heardIn = result['language'];
+    return updateTranscript(
+      projectId: project.id,
+      words: words,
+      heardIn: heardIn is String && heardIn.isNotEmpty ? heardIn : null,
+    );
   }
 
   /// Calls the `transcribe-audio` Supabase Edge Function, which forwards
@@ -1224,6 +1239,13 @@ class SongAnalysisService {
       final vocalStemPath = chordResult['vocalStemPath'] as String?;
       List<TranscriptWord> transcriptWords = const <TranscriptWord>[];
       String? transcriptText;
+      // What the words were heard in, as the transcriber reports it. Both
+      // paths below answer this the same way — the worker names it inside the
+      // transcript it returns, and transcribe-audio names it beside the words
+      // — so one variable covers a first listen, a cached one and the API
+      // fallback. Null when nothing said, which is what every analysis before
+      // this said and is read as "not known" (0167).
+      String? transcriptLanguage;
       // The analysis job transcribes the vocal stem itself now, on the GPU
       // that just separated it, with a model already resident in the worker
       // image. Measured against the lyrics these songs' writers typed, that
@@ -1314,6 +1336,11 @@ class SongAnalysisService {
               .where((word) => word.word.isNotEmpty)
               .toList(growable: false);
           transcriptText = transcriptWords.map((word) => word.word).join(' ');
+          // Beside the words rather than instead of anything: nothing on the
+          // page says it, and the sheet reads it only to know whether these
+          // words were already heard in a language somebody declares later.
+          final heardIn = cloudResult['language'];
+          transcriptLanguage = heardIn is String && heardIn.isNotEmpty ? heardIn : null;
         }
       } on _TranscriptionSkipped {
         // Already reported before the block was entered. Nothing to add,
@@ -1426,6 +1453,7 @@ class SongAnalysisService {
             'beats_per_bar': usedFallback ? null : chordResult['beatsPerBar'],
             'transcript_text': transcriptText,
             'transcript_words': transcriptWords.map((word) => word.toJson()).toList(growable: false),
+            'transcript_language': transcriptLanguage,
             'structure_sections': structureSections.map((s) => s.toJson()).toList(growable: false),
             'instruments': instruments?.toJson() ?? <String, dynamic>{},
             'melody': melody?.toJson(),
