@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' show Rect;
 
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
@@ -582,10 +583,16 @@ abstract final class ChordSheetExport {
   /// rather than anything broken. A limit reported as a fault is the exact
   /// shape the takes screen already removed. The caller gates on `kIsWeb`
   /// and says so in a sentence instead.
+  ///
+  /// [origin] is where on screen the share was asked for; an iPad hangs the
+  /// share sheet off it. Required, so that a new caller has to say where
+  /// from rather than silently passing nothing. See
+  /// services/share_origin.dart.
   static Future<void> shareChordPro({
     required SongProject project,
     required List<MusicianSheetLine> lines,
     required int transpose,
+    required Rect origin,
     String? musicalKey,
     double? bpm,
   }) async {
@@ -610,6 +617,7 @@ abstract final class ChordSheetExport {
         // XFile.fromData has no file on disk to take a name from, so without
         // this the receiving app is handed something called "null".
         fileNameOverrides: <String>[name],
+        sharePositionOrigin: origin,
       ),
     );
   }

@@ -25,6 +25,7 @@ import '../../services/project_export_service.dart';
 import '../../services/cowork_service.dart';
 import '../../services/follow_me.dart';
 import '../../services/kept_songs.dart';
+import '../../services/share_origin.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/offer_notifications.dart';
@@ -1522,7 +1523,13 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     unawaited(_loadAnalysisBundle());
   }
 
-  Future<void> _exportSong(SongProject project, _SongMenuAction action) async {
+  /// [origin] is the options menu that was tapped, which an iPad hangs
+  /// the share sheet off. See services/share_origin.dart.
+  Future<void> _exportSong(
+    SongProject project,
+    _SongMenuAction action, {
+    required Rect origin,
+  }) async {
     if (action == _SongMenuAction.importLyrics) {
       await _importLyrics(project);
       return;
@@ -1595,7 +1602,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           await ProjectExportService.printSong(project);
           break;
         case _SongMenuAction.share:
-          await ProjectExportService.shareSong(project);
+          await ProjectExportService.shareSong(project, origin: origin);
           break;
         case _SongMenuAction.importLyrics:
         case _SongMenuAction.invite:
@@ -2222,7 +2229,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         compact: keyboardOpen,
         onBack: widget.embedded ? null : () => Navigator.maybePop(context),
         onRename: () => _rename(project),
-        onExport: (action) => _exportSong(project, action),
+        onExport: (action, origin) =>
+            _exportSong(project, action, origin: origin),
         leavePracticeFor: _leaveFor?.name,
         keptHere: _keptHere,
         keepingHere: _keepingHere,
@@ -2290,7 +2298,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 onRename: () => _rename(project),
                 onOpenLayers: () => _openLayers(project),
                 onOpenLive: () => _openLivePerformance(project),
-                onExport: (action) => _exportSong(project, action),
+                onExport: (action, origin) =>
+                    _exportSong(project, action, origin: origin),
                 hasRecording: _analysisBundle?.reference != null,
                 onAnalyze: () => _openAnalysis(project),
                 onRecord: () => _openAnalysis(project, autoRecord: true),
@@ -2473,7 +2482,11 @@ class _PortraitProjectHeader extends StatelessWidget {
   final bool compact;
   final VoidCallback? onBack;
   final VoidCallback onRename;
-  final ValueChanged<_SongMenuAction> onExport;
+  /// Carries the options menu's own rectangle beside the choice,
+  /// because an iPad hangs the share sheet off the control that was
+  /// tapped and only this row knows where that is. See
+  /// services/share_origin.dart.
+  final void Function(_SongMenuAction action, Rect origin) onExport;
 
   /// The student's name when this is a lesson this person teaches (0143),
   /// and null everywhere else — which is what keeps the entry out of every
@@ -2579,129 +2592,135 @@ class _PortraitProjectHeader extends StatelessWidget {
               ),
             ),
           ),
-          PopupMenuButton<_SongMenuAction>(
-            key: const Key('song_options_menu'),
-            tooltip: 'Song options',
-            onSelected: onExport,
-            itemBuilder: (_) => <PopupMenuEntry<_SongMenuAction>>[
-              // First, and only for a teacher: these are the entries that
-              // reach another person's week.
-              if (leavePracticeFor != null || sendToStudents)
-                ...<PopupMenuEntry<_SongMenuAction>>[
-                  if (leavePracticeFor != null)
-                    PopupMenuItem<_SongMenuAction>(
-                      key: const Key('song_leave_practice'),
-                      value: _SongMenuAction.leavePractice,
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.repeat_rounded),
-                        title: Text(leavePracticeLabel(leavePracticeFor!)),
+          // Built under a Builder so a share started from this menu knows
+          // which control was tapped: an iPad hangs the share sheet off that
+          // rectangle, and the screen's context would hand it the whole
+          // screen. See services/share_origin.dart.
+          Builder(
+            builder: (menu) => PopupMenuButton<_SongMenuAction>(
+              key: const Key('song_options_menu'),
+              tooltip: 'Song options',
+              onSelected: (action) => onExport(action, shareOrigin(menu)),
+              itemBuilder: (_) => <PopupMenuEntry<_SongMenuAction>>[
+                // First, and only for a teacher: these are the entries that
+                // reach another person's week.
+                if (leavePracticeFor != null || sendToStudents)
+                  ...<PopupMenuEntry<_SongMenuAction>>[
+                    if (leavePracticeFor != null)
+                      PopupMenuItem<_SongMenuAction>(
+                        key: const Key('song_leave_practice'),
+                        value: _SongMenuAction.leavePractice,
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.repeat_rounded),
+                          title: Text(leavePracticeLabel(leavePracticeFor!)),
+                        ),
                       ),
-                    ),
-                  if (sendToStudents)
-                    const PopupMenuItem<_SongMenuAction>(
-                      key: Key('song_send_to_students'),
-                      value: _SongMenuAction.sendToStudents,
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.school_outlined),
-                        title: Text(sendToStudentsLabel),
+                    if (sendToStudents)
+                      const PopupMenuItem<_SongMenuAction>(
+                        key: Key('song_send_to_students'),
+                        value: _SongMenuAction.sendToStudents,
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.school_outlined),
+                          title: Text(sendToStudentsLabel),
+                        ),
                       ),
-                    ),
-                  const PopupMenuDivider(),
-                ],
-              const PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.tell,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.campaign_outlined),
-                  title: Text('Tell somebody'),
+                    const PopupMenuDivider(),
+                  ],
+                const PopupMenuItem<_SongMenuAction>(
+                  value: _SongMenuAction.tell,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.campaign_outlined),
+                    title: Text('Tell somebody'),
+                  ),
                 ),
-              ),
-              const PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.importLyrics,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.file_download_outlined),
-                  title: Text('Import lyrics'),
+                const PopupMenuItem<_SongMenuAction>(
+                  value: _SongMenuAction.importLyrics,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.file_download_outlined),
+                    title: Text('Import lyrics'),
+                  ),
                 ),
-              ),
-              const PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.history,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.receipt_long_outlined),
-                  title: Text('History'),
-                  subtitle: Text('Who did what, and when'),
+                const PopupMenuItem<_SongMenuAction>(
+                  value: _SongMenuAction.history,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.receipt_long_outlined),
+                    title: Text('History'),
+                    subtitle: Text('Who did what, and when'),
+                  ),
                 ),
-              ),
-              const PopupMenuItem<_SongMenuAction>(
-                key: Key('song_cut_lines'),
-                value: _SongMenuAction.cutLines,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.content_cut_rounded),
-                  title: Text('Your cut lines'),
-                  subtitle: Text('Kept for you, whoever cut them'),
+                const PopupMenuItem<_SongMenuAction>(
+                  key: Key('song_cut_lines'),
+                  value: _SongMenuAction.cutLines,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.content_cut_rounded),
+                    title: Text('Your cut lines'),
+                    subtitle: Text('Kept for you, whoever cut them'),
+                  ),
                 ),
-              ),
-              const PopupMenuDivider(),
-              const PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.whoseSong,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.edit_note_rounded),
-                  title: Text('Who wrote this song'),
+                const PopupMenuDivider(),
+                const PopupMenuItem<_SongMenuAction>(
+                  value: _SongMenuAction.whoseSong,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.edit_note_rounded),
+                    title: Text('Who wrote this song'),
+                  ),
                 ),
-              ),
-              const PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.color,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.circle_outlined),
-                  title: Text('Line color'),
+                const PopupMenuItem<_SongMenuAction>(
+                  value: _SongMenuAction.color,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.circle_outlined),
+                    title: Text('Line color'),
+                  ),
                 ),
-              ),
-              const PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.print,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.print_rounded),
-                  title: Text('Send to printer'),
+                const PopupMenuItem<_SongMenuAction>(
+                  value: _SongMenuAction.print,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.print_rounded),
+                    title: Text('Send to printer'),
+                  ),
                 ),
-              ),
-              const PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.share,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.share_rounded),
-                  title: Text('Share by text or email'),
+                const PopupMenuItem<_SongMenuAction>(
+                  value: _SongMenuAction.share,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.share_rounded),
+                    title: Text('Share by text or email'),
+                  ),
                 ),
-              ),
-              if (keptHere != null) _keepHereEntry(keptHere!, keeping: keepingHere),
-              // Last, and on its own, because it is the only entry here that
-              // cannot be undone.
-              const PopupMenuDivider(),
-              const PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.markFinished,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.check_circle_outline_rounded),
-                  title: Text('Mark as finished'),
-                  subtitle: Text('Just for you, until you show it'),
+                if (keptHere != null) _keepHereEntry(keptHere!, keeping: keepingHere),
+                // Last, and on its own, because it is the only entry here that
+                // cannot be undone.
+                const PopupMenuDivider(),
+                const PopupMenuItem<_SongMenuAction>(
+                  value: _SongMenuAction.markFinished,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.check_circle_outline_rounded),
+                    title: Text('Mark as finished'),
+                    subtitle: Text('Just for you, until you show it'),
+                  ),
                 ),
-              ),
-              const PopupMenuItem<_SongMenuAction>(
-                value: _SongMenuAction.deleteSong,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.delete_outline_rounded,
-                      color: Color(0xFFFF9AA9)),
-                  title: Text('Delete this song',
-                      style: TextStyle(color: Color(0xFFFF9AA9))),
+                const PopupMenuItem<_SongMenuAction>(
+                  value: _SongMenuAction.deleteSong,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.delete_outline_rounded,
+                        color: Color(0xFFFF9AA9)),
+                    title: Text('Delete this song',
+                        style: TextStyle(color: Color(0xFFFF9AA9))),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(width: 8),
         ],
@@ -2747,7 +2766,11 @@ class _LandscapeWorkspace extends StatelessWidget {
   final bool? keptHere;
   final bool keepingHere;
   final VoidCallback onOpenLive;
-  final ValueChanged<_SongMenuAction> onExport;
+  /// Carries the options menu's own rectangle beside the choice,
+  /// because an iPad hangs the share sheet off the control that was
+  /// tapped and only this row knows where that is. See
+  /// services/share_origin.dart.
+  final void Function(_SongMenuAction action, Rect origin) onExport;
   final bool hasRecording;
   final VoidCallback onAnalyze;
   final VoidCallback onRecord;
@@ -2872,118 +2895,124 @@ class _LandscapeWorkspace extends StatelessWidget {
                 tooltip: 'Perform',
                 icon: const Icon(Icons.play_circle_outline_rounded, size: 19, color: AppColors.cyan),
               ),
-              PopupMenuButton<_SongMenuAction>(
-                key: const Key('song_options_menu'),
-                tooltip: 'Song options',
-                onSelected: onExport,
-                itemBuilder: (_) => <PopupMenuEntry<_SongMenuAction>>[
-                  // First, and only for a teacher: these are the entries
-                  // that reach another person's week.
-                  if (leavePracticeFor != null || sendToStudents)
-                    ...<PopupMenuEntry<_SongMenuAction>>[
-                      if (leavePracticeFor != null)
-                        PopupMenuItem<_SongMenuAction>(
-                          key: const Key('song_leave_practice'),
-                          value: _SongMenuAction.leavePractice,
-                          child: ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.repeat_rounded),
-                            title: Text(leavePracticeLabel(leavePracticeFor!)),
+              // Built under a Builder so a share started from this menu knows
+              // which control was tapped: an iPad hangs the share sheet off that
+              // rectangle, and the screen's context would hand it the whole
+              // screen. See services/share_origin.dart.
+              Builder(
+                builder: (menu) => PopupMenuButton<_SongMenuAction>(
+                  key: const Key('song_options_menu'),
+                  tooltip: 'Song options',
+                  onSelected: (action) => onExport(action, shareOrigin(menu)),
+                  itemBuilder: (_) => <PopupMenuEntry<_SongMenuAction>>[
+                    // First, and only for a teacher: these are the entries
+                    // that reach another person's week.
+                    if (leavePracticeFor != null || sendToStudents)
+                      ...<PopupMenuEntry<_SongMenuAction>>[
+                        if (leavePracticeFor != null)
+                          PopupMenuItem<_SongMenuAction>(
+                            key: const Key('song_leave_practice'),
+                            value: _SongMenuAction.leavePractice,
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.repeat_rounded),
+                              title: Text(leavePracticeLabel(leavePracticeFor!)),
+                            ),
                           ),
-                        ),
-                      if (sendToStudents)
-                        const PopupMenuItem<_SongMenuAction>(
-                          key: Key('song_send_to_students'),
-                          value: _SongMenuAction.sendToStudents,
-                          child: ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(Icons.school_outlined),
-                            title: Text(sendToStudentsLabel),
+                        if (sendToStudents)
+                          const PopupMenuItem<_SongMenuAction>(
+                            key: Key('song_send_to_students'),
+                            value: _SongMenuAction.sendToStudents,
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.school_outlined),
+                              title: Text(sendToStudentsLabel),
+                            ),
                           ),
-                        ),
-                      const PopupMenuDivider(),
-                    ],
-                  const PopupMenuItem<_SongMenuAction>(
-                    value: _SongMenuAction.importLyrics,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.file_download_outlined),
-                      title: Text('Import lyrics'),
+                        const PopupMenuDivider(),
+                      ],
+                    const PopupMenuItem<_SongMenuAction>(
+                      value: _SongMenuAction.importLyrics,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.file_download_outlined),
+                        title: Text('Import lyrics'),
+                      ),
                     ),
-                  ),
-                  const PopupMenuItem<_SongMenuAction>(
-                    value: _SongMenuAction.invite,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.person_add_alt_1_rounded),
-                      title: Text('Invite to This Song'),
+                    const PopupMenuItem<_SongMenuAction>(
+                      value: _SongMenuAction.invite,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.person_add_alt_1_rounded),
+                        title: Text('Invite to This Song'),
+                      ),
                     ),
-                  ),
-                  const PopupMenuItem<_SongMenuAction>(
-                    key: Key('song_cut_lines'),
-                    value: _SongMenuAction.cutLines,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.content_cut_rounded),
-                      title: Text('Your cut lines'),
-                      subtitle: Text('Kept for you, whoever cut them'),
+                    const PopupMenuItem<_SongMenuAction>(
+                      key: Key('song_cut_lines'),
+                      value: _SongMenuAction.cutLines,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.content_cut_rounded),
+                        title: Text('Your cut lines'),
+                        subtitle: Text('Kept for you, whoever cut them'),
+                      ),
                     ),
-                  ),
-                  const PopupMenuDivider(),
-                  const PopupMenuItem<_SongMenuAction>(
-                    value: _SongMenuAction.whoseSong,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.edit_note_rounded),
-                      title: Text('Who wrote this song'),
+                    const PopupMenuDivider(),
+                    const PopupMenuItem<_SongMenuAction>(
+                      value: _SongMenuAction.whoseSong,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.edit_note_rounded),
+                        title: Text('Who wrote this song'),
+                      ),
                     ),
-                  ),
-                  const PopupMenuItem<_SongMenuAction>(
-                    value: _SongMenuAction.color,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.circle_outlined),
-                      title: Text('Line color'),
+                    const PopupMenuItem<_SongMenuAction>(
+                      value: _SongMenuAction.color,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.circle_outlined),
+                        title: Text('Line color'),
+                      ),
                     ),
-                  ),
-                  const PopupMenuItem<_SongMenuAction>(
-                    value: _SongMenuAction.print,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.print_rounded),
-                      title: Text('Send to printer'),
+                    const PopupMenuItem<_SongMenuAction>(
+                      value: _SongMenuAction.print,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.print_rounded),
+                        title: Text('Send to printer'),
+                      ),
                     ),
-                  ),
-                  const PopupMenuItem<_SongMenuAction>(
-                    value: _SongMenuAction.share,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.share_rounded),
-                      title: Text('Share by text or email'),
+                    const PopupMenuItem<_SongMenuAction>(
+                      value: _SongMenuAction.share,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.share_rounded),
+                        title: Text('Share by text or email'),
+                      ),
                     ),
-                  ),
-                  if (keptHere != null) _keepHereEntry(keptHere!, keeping: keepingHere),
-                  const PopupMenuDivider(),
-                  const PopupMenuItem<_SongMenuAction>(
-                    value: _SongMenuAction.markFinished,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.check_circle_outline_rounded),
-                      title: Text('Mark as finished'),
-                      subtitle: Text('Just for you, until you show it'),
+                    if (keptHere != null) _keepHereEntry(keptHere!, keeping: keepingHere),
+                    const PopupMenuDivider(),
+                    const PopupMenuItem<_SongMenuAction>(
+                      value: _SongMenuAction.markFinished,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.check_circle_outline_rounded),
+                        title: Text('Mark as finished'),
+                        subtitle: Text('Just for you, until you show it'),
+                      ),
                     ),
-                  ),
-                  const PopupMenuItem<_SongMenuAction>(
-                    value: _SongMenuAction.deleteSong,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.delete_outline_rounded,
-                          color: Color(0xFFFF9AA9)),
-                      title: Text('Delete this song',
-                          style: TextStyle(color: Color(0xFFFF9AA9))),
+                    const PopupMenuItem<_SongMenuAction>(
+                      value: _SongMenuAction.deleteSong,
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.delete_outline_rounded,
+                            color: Color(0xFFFF9AA9)),
+                        title: Text('Delete this song',
+                            style: TextStyle(color: Color(0xFFFF9AA9))),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(width: 4),
             ],

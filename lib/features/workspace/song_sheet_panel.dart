@@ -22,6 +22,7 @@ import 'package:colabroom/services/horn_reading.dart';
 import 'package:colabroom/services/melody_reading.dart';
 import 'package:colabroom/services/number_reading.dart';
 import 'package:colabroom/services/rehearsal_letters.dart';
+import 'package:colabroom/services/share_origin.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:colabroom/services/song_language.dart';
 import 'package:colabroom/services/user_facing_error.dart';
@@ -799,7 +800,9 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     }
   }
 
-  Future<void> _sendChordPro() async {
+  /// [origin] is the button that was tapped, which an iPad hangs the share
+  /// sheet off. See services/share_origin.dart.
+  Future<void> _sendChordPro(Rect origin) async {
     try {
       await ChordSheetExport.shareChordPro(
         project: widget.project,
@@ -807,6 +810,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
         transpose: _shownTranspose,
         musicalKey: _songKey,
         bpm: _bundle.reference?.bpm,
+        origin: origin,
       );
     } catch (error) {
       _saySomethingWentWrong(error);
@@ -1570,13 +1574,20 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
               if (!kIsWeb) ...<Widget>[
                 const SizedBox(width: 10),
                 Expanded(
-                  child: OutlinedButton.icon(
-                    key: const Key('send_as_chordpro'),
-                    onPressed: () => unawaited(_sendChordPro()),
-                    icon: const Icon(Icons.ios_share_rounded, size: 17),
-                    label: const Text(
-                      'Send as ChordPro',
-                      style: TextStyle(fontSize: 12),
+                  // Built under a Builder so the share knows which control
+                  // was tapped: an iPad hangs the share sheet off that
+                  // rectangle and the screen's context would hand it the
+                  // whole screen. See services/share_origin.dart.
+                  child: Builder(
+                    builder: (button) => OutlinedButton.icon(
+                      key: const Key('send_as_chordpro'),
+                      onPressed: () =>
+                          unawaited(_sendChordPro(shareOrigin(button))),
+                      icon: const Icon(Icons.ios_share_rounded, size: 17),
+                      label: const Text(
+                        'Send as ChordPro',
+                        style: TextStyle(fontSize: 12),
+                      ),
                     ),
                   ),
                 ),

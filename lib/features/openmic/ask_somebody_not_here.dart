@@ -7,6 +7,7 @@ import '../../app/colabroom_theme.dart';
 import '../../data/music_repository.dart';
 import '../../domain/music_models.dart';
 import '../../domain/musical_roles.dart';
+import '../../services/share_origin.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/problem_report.dart';
 import '../../services/copy_text.dart';
@@ -319,14 +320,24 @@ class _AskSomebodyNotHereState extends State<AskSomebodyNotHere> {
         Row(
           children: <Widget>[
             Expanded(
-              child: FilledButton.icon(
-                onPressed: () => unawaited(
-                    SharePlus.instance.share(ShareParams(text: message))),
-                icon: const Icon(Icons.ios_share_rounded, size: 18),
-                label: const Text('Send it'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.cyan,
-                  foregroundColor: AppColors.ink,
+              // Built under a Builder so the share knows which control was
+              // tapped: an iPad hangs the share sheet off that rectangle and
+              // the screen's context would hand it the whole screen. See
+              // services/share_origin.dart.
+              child: Builder(
+                builder: (button) => FilledButton.icon(
+                  onPressed: () => unawaited(SharePlus.instance.share(
+                    ShareParams(
+                      text: message,
+                      sharePositionOrigin: shareOrigin(button),
+                    ),
+                  )),
+                  icon: const Icon(Icons.ios_share_rounded, size: 18),
+                  label: const Text('Send it'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.cyan,
+                    foregroundColor: AppColors.ink,
+                  ),
                 ),
               ),
             ),

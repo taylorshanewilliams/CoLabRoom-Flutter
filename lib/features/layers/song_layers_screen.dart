@@ -27,6 +27,7 @@ import '../../services/moment_link.dart';
 import '../../services/multitrack.dart';
 import '../../services/overdub_session.dart';
 import '../../domain/song_analysis_models.dart';
+import '../../services/share_origin.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/error_reporter.dart';
 import '../../services/song_layer_service.dart';
@@ -2440,7 +2441,11 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     }
   }
 
-  Future<void> _export() async {
+  /// [origin] is the Save button that was tapped, which an iPad hangs the
+  /// share sheet off. See services/share_origin.dart. Read before the sheet
+  /// opens, for the same reason the key and bar 1 below are read early: by
+  /// the time the files are written there has been a sheet over the button.
+  Future<void> _export(Rect origin) async {
     final takes = _takes;
     if (takes.isEmpty || _busy) return;
     // A platform limit, not a fault, and so not routed through _error.
@@ -2524,7 +2529,11 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
             );
       if (file == null) return;
       await SharePlus.instance.share(
-        ShareParams(files: <XFile>[XFile(file.path)], subject: widget.songTitle),
+        ShareParams(
+          files: <XFile>[XFile(file.path)],
+          subject: widget.songTitle,
+          sharePositionOrigin: origin,
+        ),
       );
     } catch (error) {
       if (mounted) setState(() => _error = reportAndDescribe(error, service: 'layers', route: 'Takes'));
@@ -2626,18 +2635,24 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
           // when there is genuinely nothing.
           Padding(
             padding: const EdgeInsets.only(right: 4),
-            child: TextButton.icon(
-              // Off in a browser, where the files are put together on the
-              // device and there is nowhere to put them. The note below says
-              // so, in the same place it says what else needs the app.
-              onPressed: !hasSomethingToHear || _busy || kIsWeb
-                  ? null
-                  : () => unawaited(_export()),
-              icon: const Icon(Icons.ios_share_rounded, size: 18),
-              label: const Text('Save', style: _takesActionStyle),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.cyan,
-                disabledForegroundColor: AppColors.line,
+            // Built under a Builder so the share knows which control was
+            // tapped: an iPad hangs the share sheet off that rectangle and
+            // the screen's context would hand it the whole screen. See
+            // services/share_origin.dart.
+            child: Builder(
+              builder: (button) => TextButton.icon(
+                // Off in a browser, where the files are put together on the
+                // device and there is nowhere to put them. The note below says
+                // so, in the same place it says what else needs the app.
+                onPressed: !hasSomethingToHear || _busy || kIsWeb
+                    ? null
+                    : () => unawaited(_export(shareOrigin(button))),
+                icon: const Icon(Icons.ios_share_rounded, size: 18),
+                label: const Text('Save', style: _takesActionStyle),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.cyan,
+                  disabledForegroundColor: AppColors.line,
+                ),
               ),
             ),
           ),
