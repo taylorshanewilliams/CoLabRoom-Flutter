@@ -422,7 +422,16 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
             await SetlistPack.print(setlist, songs);
             break;
           case _SetlistMenuAction.sharePdf:
-            await SetlistPack.share(setlist, songs);
+            // The same anchor the text share below takes, and the same
+            // reason: on an iPad the sheet hangs off the options menu it was
+            // chosen in rather than the corner of the window. The menu is
+            // this button in the app bar, which stays mounted across the
+            // await above.
+            await SetlistPack.share(
+              setlist,
+              songs,
+              origin: shareOriginOf(_optionsMenu),
+            );
             break;
           case _SetlistMenuAction.share:
             await SetlistPack.shareText(
