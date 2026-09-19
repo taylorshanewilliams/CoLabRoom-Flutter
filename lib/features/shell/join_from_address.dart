@@ -6,6 +6,7 @@ import '../../services/invite_link.dart';
 import '../../services/user_facing_error.dart';
 import '../lessons/with_birth_month.dart';
 import '../rooms/room_detail_screen.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Whether an address is a way into a room: an invitation, or a teacher's
 /// lesson link.
@@ -43,19 +44,19 @@ Future<void> joinFromAddress(
         .map((room) => room.name)
         .toList();
     onJoined?.call();
-    messenger.showSnackBar(SnackBar(
-      content: Text(joined.isEmpty
+    messenger.showNote(
+      joined.isEmpty
           ? 'You are in. The room is under Your music.'
-          : 'You are in ${joined.first}. It is under Your music.'),
-    ));
+          : 'You are in ${joined.first}. It is under Your music.',
+    );
   } catch (error) {
     if (!context.mounted) return;
     // Used, expired, or already yours: said plainly, and the app goes
     // on as it would have without the link.
-    messenger.showSnackBar(SnackBar(
-      content: Text(reportAndDescribe(error,
-          service: 'app', stage: 'invite.link', route: 'Home')),
-    ));
+    messenger.showNote(
+      reportAndDescribe(error,
+          service: 'app', stage: 'invite.link', route: 'Home'),
+    );
   }
 }
 
@@ -81,7 +82,7 @@ Future<void> _joinLesson(
     onJoined?.call();
     // Both rooms, when a class link put them in two (0148): they opened a
     // link, not a room with other people in it.
-    messenger.showSnackBar(SnackBar(content: Text(joined.sentence())));
+    messenger.showNote(joined.sentence());
     final room = joined.room;
     if (room != null) {
       await navigator.push(MaterialPageRoute<void>(
@@ -94,9 +95,9 @@ Future<void> _joinLesson(
     // is said about it.
   } catch (error) {
     if (!context.mounted) return;
-    messenger.showSnackBar(SnackBar(
-      content: Text(reportAndDescribe(error,
-          service: 'app', stage: 'lesson.link', route: 'Home')),
-    ));
+    messenger.showNote(
+      reportAndDescribe(error,
+          service: 'app', stage: 'lesson.link', route: 'Home'),
+    );
   }
 }

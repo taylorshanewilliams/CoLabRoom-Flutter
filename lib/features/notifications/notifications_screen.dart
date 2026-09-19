@@ -27,6 +27,7 @@ import '../messages/room_thread_sheet.dart';
 import '../openmic/person_thread_sheet.dart';
 import '../workspace/ask_thread_sheet.dart';
 import '../workspace/song_workspace_screen.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// The single inbox: pending invitations you can act on, then everything
 /// that has happened since you were last here.
@@ -50,10 +51,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Future<void> _run(Future<void> Function() action, String success, {VoidCallback? open}) async {
     final messenger = ScaffoldMessenger.of(context);
     if (!await _attempt(action)) return;
-    messenger.showSnackBar(SnackBar(
-      content: Text(success),
+    messenger.showNote(
+      success,
       action: open == null ? null : SnackBarAction(label: 'Open', onPressed: open),
-    ));
+    );
   }
 
   /// Runs [action] with the screen busy, and says what went wrong if
@@ -112,8 +113,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final messenger = ScaffoldMessenger.of(context);
     controller.holdDecline(inviteId);
     messenger.hideCurrentSnackBar();
-    final shown = messenger.showSnackBar(SnackBar(
-      content: Text(said),
+    final shown = messenger.showNote(
+      said,
       // An action makes a snackbar stay up until it is dismissed, and this
       // one has to go on its own for the answer to be sent.
       persist: false,
@@ -133,7 +134,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         label: 'Undo',
         onPressed: () => controller.releaseDecline(inviteId),
       ),
-    ));
+    );
     unawaited(shown.closed.then((_) async {
       try {
         await controller.sendHeldDecline(inviteId, send);
@@ -174,7 +175,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       // The room by name, and the class room with it when a class link put
       // them in two (0148): they opened a link, not a room with other
       // people in it. Where, as well, because this screen stays put.
-      messenger.showSnackBar(SnackBar(content: Text(joined.sentence(sayWhere: true))));
+      messenger.showNote(joined.sentence(sayWhere: true));
       return;
     }
     // Somebody's own code, or the link their QR code holds: this is the box
@@ -245,9 +246,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       projectId: ask.projectId,
     );
     if (sent && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Report sent. Somebody reads every one of these.'),
-      ));
+      ScaffoldMessenger.of(context).showNote('Report sent. Somebody reads every one of these.');
     }
   }
 

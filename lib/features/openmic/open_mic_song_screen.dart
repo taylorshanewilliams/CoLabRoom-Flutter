@@ -16,6 +16,7 @@ import '../../widgets/problem_report.dart';
 import '../../app/routes.dart';
 import '../notifications/notifications_screen.dart';
 import '../workspace/song_workspace_screen.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// A song somebody put up for anybody to hear.
 ///
@@ -106,7 +107,7 @@ class _OpenMicSongScreenState extends State<OpenMicSongScreen> {
   void _say(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showNote(message);
   }
 
   /// Offering to play on it, which is the point of the page.

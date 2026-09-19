@@ -26,6 +26,7 @@ import '../welcome/welcome_flow.dart';
 import 'join_from_address.dart';
 import '../../widgets/now_playing_bar.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// How wide the content gets on a desk.
 ///
@@ -340,14 +341,14 @@ class _AppShellState extends State<AppShell> {
     } catch (error) {
       messenger
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(reportAndDescribe(
+        ..showNote(
+          reportAndDescribe(
             error,
             service: 'app',
             stage: 'start_idea',
             route: 'Home',
-          )),
-        ));
+          ),
+        );
     }
   }
 

@@ -11,6 +11,7 @@ import '../../services/user_facing_error.dart';
 import '../../widgets/profile_face.dart';
 import '../openmic/musician_profile_screen.dart';
 import 'your_code_screen.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Somebody's card, opened from the code on their phone.
 ///
@@ -89,11 +90,11 @@ class _AddPersonScreenState extends State<AddPersonScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
-        ..showSnackBar(SnackBar(
-          content: Text(isRefusal(error)
+        ..showNote(
+          isRefusal(error)
               ? describeForUser(error)
-              : reportAndDescribe(error, service: 'app', stage: 'meeting.add', route: 'Add somebody')),
-        ));
+              : reportAndDescribe(error, service: 'app', stage: 'meeting.add', route: 'Add somebody'),
+        );
     } finally {
       if (mounted) setState(() => _busy = false);
     }

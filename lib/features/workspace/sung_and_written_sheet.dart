@@ -4,6 +4,7 @@ import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
 import 'sung_vs_written.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Where one line is taken across: the sung words become the written line.
 typedef UseSungLine = Future<void> Function(Contribution line, String words);
@@ -93,9 +94,7 @@ class _SungAndWrittenSheetState extends State<SungAndWrittenSheet> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(content: Text('Could not change that line: $error')),
-        );
+        ..showNote('Could not change that line: $error');
     } finally {
       if (mounted) setState(() => _busyLineId = null);
     }

@@ -12,6 +12,7 @@ import '../../services/user_facing_error.dart';
 import '../../widgets/qr_code.dart';
 import 'add_person_screen.dart';
 import '../../services/copy_text.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Your code, for meeting people in person.
 ///
@@ -179,7 +180,7 @@ class _YourCodeScreenState extends State<YourCodeScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showNote(message);
   }
 
   @override

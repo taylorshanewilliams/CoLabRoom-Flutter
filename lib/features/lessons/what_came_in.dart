@@ -11,6 +11,7 @@ import '../../services/now_playing.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/send_on_enter.dart';
 import '../layers/moment_notes.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// What came in: the takes students have sent, in one pass.
 ///
@@ -272,7 +273,7 @@ class _WhatCameInScreenState extends State<WhatCameInScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showNote(message);
   }
 
   @override

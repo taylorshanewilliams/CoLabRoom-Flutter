@@ -18,6 +18,7 @@ import '../../services/share_origin.dart';
 import '../../services/song_search.dart';
 import '../songs/a_set_for_a_day.dart';
 import 'setlist_pack.dart';
+import '../../widgets/note_that_fits.dart';
 
 enum _SetlistMenuAction { print, sharePdf, share, rename, delete, keepHere, day }
 
@@ -213,9 +214,10 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
         await controller.setSetlistDay(setlist, day);
       } catch (error) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(reportAndDescribe(error,
-                  service: 'app', stage: 'set_day', route: 'Setlist'))));
+          ScaffoldMessenger.of(context).showNote(
+            reportAndDescribe(error,
+                service: 'app', stage: 'set_day', route: 'Setlist'),
+          );
         }
       }
     }
@@ -258,7 +260,9 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
         await controller.renameSetlist(setlist, name);
       } catch (error) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', stage: 'rename_set', route: 'Setlist'))));
+          ScaffoldMessenger.of(context).showNote(
+            reportAndDescribe(error, service: 'app', stage: 'rename_set', route: 'Setlist'),
+          );
         }
       }
     }
@@ -286,9 +290,11 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
       try {
         await controller.deleteSetlist(setlist);
         navigator.pop();
-        messenger.showSnackBar(SnackBar(content: Text('${setlist.name} is deleted. Its songs are untouched.')));
+        messenger.showNote('${setlist.name} is deleted. Its songs are untouched.');
       } catch (error) {
-        messenger.showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', stage: 'delete_set', route: 'Setlist'))));
+        messenger.showNote(
+          reportAndDescribe(error, service: 'app', stage: 'delete_set', route: 'Setlist'),
+        );
       }
     }
 
@@ -343,10 +349,10 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
       void say(String message, {bool staying = false}) {
         messenger
           ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text(message),
+          ..showNote(
+            message,
             duration: staying ? const Duration(minutes: 30) : const Duration(seconds: 4),
-          ));
+          );
       }
 
       if (keptAll) {
@@ -448,7 +454,9 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
         }
       } catch (error) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Setlist'))));
+          ScaffoldMessenger.of(context).showNote(
+            reportAndDescribe(error, service: 'app', route: 'Setlist'),
+          );
         }
       }
     }
@@ -469,7 +477,9 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
         await controller.addProjectsToSetlist(setlist, selected);
       } catch (error) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'Setlist'))));
+          ScaffoldMessenger.of(context).showNote(
+            reportAndDescribe(error, service: 'app', route: 'Setlist'),
+          );
         }
       }
     }

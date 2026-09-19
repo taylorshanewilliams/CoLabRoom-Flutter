@@ -8,6 +8,7 @@ import '../../domain/music_models.dart';
 import '../../services/song_analysis_service.dart';
 import '../../widgets/app_surface.dart';
 import '../workspace/live_performance_screen.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// The songs kept on this phone, each with the one thing that can be done
 /// with it when nothing else will load: perform it.
@@ -63,9 +64,7 @@ class _KeptHereState extends State<KeptHere> {
     final kept = await _analysis.kept.load(song.id);
     if (!mounted) return;
     if (kept == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('That song is no longer on this phone.')),
-      );
+      ScaffoldMessenger.of(context).showNote('That song is no longer on this phone.');
       unawaited(_load());
       return;
     }

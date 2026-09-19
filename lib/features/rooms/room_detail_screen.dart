@@ -19,6 +19,7 @@ import '../songs/new_song_flow.dart';
 import '../workspace/song_workspace_screen.dart';
 import 'room_actions.dart';
 import 'room_members_screen.dart';
+import '../../widgets/note_that_fits.dart';
 
 enum _ProjectSort { manual, updatedRecent, alphabetical, createdNewest, createdOldest }
 
@@ -297,7 +298,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
   void _showMessage(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showNote(message);
   }
 
   void _reorderProjects(
@@ -494,9 +495,7 @@ class _RoomDetailScreenState extends State<RoomDetailScreen> {
     if (!mounted || !sent) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(
-        content: Text('Report sent. Thank you — somebody reads every one.'),
-      ));
+      ..showNote('Report sent. Thank you — somebody reads every one.');
   }
 
   @override

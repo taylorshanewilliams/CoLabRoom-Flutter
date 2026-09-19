@@ -7,6 +7,7 @@ import '../../domain/music_models.dart';
 import '../../services/picture_for_upload.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/invite_collaborator_dialog.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// What can be done to a room, from wherever the room is.
 ///
@@ -18,7 +19,7 @@ import '../../widgets/invite_collaborator_dialog.dart';
 void _say(BuildContext context, String message) {
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(message)));
+    ..showNote(message);
 }
 
 /// Whether [me] owns [room]. An owner cannot leave -- there would be

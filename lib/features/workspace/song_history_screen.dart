@@ -9,6 +9,7 @@ import '../../services/provenance_export.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/problem_report.dart';
 import '../../widgets/text_measures.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Everything that has happened to this song, in the order it happened.
 ///
@@ -87,14 +88,14 @@ class _SongHistoryScreenState extends State<SongHistoryScreen> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(
           error,
           service: 'app',
           stage: 'provenance_export',
           route: 'Song history',
-        )),
-      ));
+        ),
+      );
     }
   }
 

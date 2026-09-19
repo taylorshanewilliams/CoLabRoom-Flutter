@@ -10,6 +10,7 @@ import '../../services/registered_devices.dart';
 import '../../services/test_when_closed.dart';
 import '../../widgets/problem_report.dart';
 import '../../widgets/app_surface.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Whether this phone is on the list at all.
 ///
@@ -111,12 +112,10 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile>
       _busy = false;
     });
     if (allowed) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text(
-        'Your phone is set to refuse notifications from CoLabRoom. Turn them '
-        'on in your phone settings and come back.',
-      ),
-    ));
+    ScaffoldMessenger.of(context).showNote(
+      'Your phone is set to refuse notifications from CoLabRoom. Turn them '
+      'on in your phone settings and come back.',
+    );
   }
 
   Future<void> _sendTest() async {
@@ -125,11 +124,11 @@ class _PhoneNotificationsTileState extends State<_PhoneNotificationsTile>
     try {
       final sent = await PushRegistration.sendTestNotification();
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(
-        content: Text(sent
+      messenger.showNote(
+        sent
             ? 'Sent. Close the app and it should arrive in a moment.'
-            : 'This phone is not registered, so nothing was sent.'),
-      ));
+            : 'This phone is not registered, so nothing was sent.',
+      );
       // Long enough for the receipt to land, so the line below changes
       // while the person is still looking at it.
       if (sent) unawaited(Future<void>.delayed(const Duration(seconds: 5), _check));

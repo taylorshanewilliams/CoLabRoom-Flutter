@@ -9,6 +9,7 @@ import '../../services/current_route.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/player_face.dart';
 import '../../widgets/problem_report.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Who you have blocked, and the way back.
 ///
@@ -66,21 +67,19 @@ class _BlockedPeopleScreenState extends State<BlockedPeopleScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text('${person.displayName} is unblocked.'),
-        ));
+        ..showNote('${person.displayName} is unblocked.');
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(reportAndDescribe(
+        ..showNote(
+          reportAndDescribe(
             error,
             service: 'app',
             stage: 'unblock_user',
             route: 'Blocked people',
-          )),
-        ));
+          ),
+        );
     }
   }
 

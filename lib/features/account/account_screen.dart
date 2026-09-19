@@ -28,6 +28,7 @@ import 'what_you_get.dart';
 import '../notifications/notification_settings_screen.dart';
 import '../openmic/musician_profile_screen.dart';
 import '../meeting/your_code_screen.dart';
+import '../../widgets/note_that_fits.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({
@@ -79,14 +80,14 @@ class _AccountScreenState extends State<AccountScreen> {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text(reportAndDescribe(
+          ..showNote(
+            reportAndDescribe(
               error,
               service: 'app',
               stage: 'set_avatar',
               route: 'Account',
-            )),
-          ));
+            ),
+          );
       }
     } finally {
       if (mounted) setState(() => _savingAvatar = false);
@@ -102,9 +103,9 @@ class _AccountScreenState extends State<AccountScreen> {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(
-            content: Text(reportAndDescribe(error, service: 'app', stage: 'clear_avatar', route: 'Account')),
-          ));
+          ..showNote(
+            reportAndDescribe(error, service: 'app', stage: 'clear_avatar', route: 'Account'),
+          );
       }
     } finally {
       if (mounted) setState(() => _savingAvatar = false);
@@ -131,13 +132,13 @@ class _AccountScreenState extends State<AccountScreen> {
       if (mounted) setState(() {});
     } on AuthException catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+        ScaffoldMessenger.of(context).showNote(error.message);
       }
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(reportAndDescribe(error, service: 'app', stage: 'edit_profile', route: 'Account')),
-        ));
+        ScaffoldMessenger.of(context).showNote(
+          reportAndDescribe(error, service: 'app', stage: 'edit_profile', route: 'Account'),
+        );
       }
     }
   }
@@ -245,9 +246,9 @@ class _AccountScreenState extends State<AccountScreen> {
       await client.auth.signOut();
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(reportAndDescribe(error, service: 'app', stage: 'delete_account', route: 'Account')),
-        ));
+        ScaffoldMessenger.of(context).showNote(
+          reportAndDescribe(error, service: 'app', stage: 'delete_account', route: 'Account'),
+        );
       }
     }
   }
@@ -280,16 +281,14 @@ class _AccountScreenState extends State<AccountScreen> {
     );
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(reportAndDescribe(error, service: 'app', stage: 'feedback', route: 'Account')),
-        ));
+        ScaffoldMessenger.of(context).showNote(
+          reportAndDescribe(error, service: 'app', stage: 'feedback', route: 'Account'),
+        );
       }
       return;
     }
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sent. Thank you — I read all of these.')),
-      );
+      ScaffoldMessenger.of(context).showNote('Sent. Thank you — I read all of these.');
     }
   }
 
@@ -695,7 +694,7 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
       if (mounted) {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text('Could not attach that image: $error')));
+          ..showNote('Could not attach that image: $error');
       }
     } finally {
       if (mounted) setState(() => _pickingScreenshot = false);

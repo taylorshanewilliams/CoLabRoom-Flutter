@@ -12,6 +12,7 @@ import '../../services/user_facing_error.dart';
 import '../../widgets/player_face.dart';
 import 'ask_musician_sheet.dart';
 import 'report_sheet.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Somewhere to sit.
 ///
@@ -168,9 +169,7 @@ class _ListenScreenState extends State<ListenScreen> {
     if (sent == true) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text('Sent. ${track.ownerName} will hear about it.'),
-        ));
+        ..showNote('Sent. ${track.ownerName} will hear about it.');
     }
     await _now.resume();
   }
@@ -189,9 +188,7 @@ class _ListenScreenState extends State<ListenScreen> {
     if (sent) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Report sent. Thank you — somebody reads every one.'),
-        ));
+        ..showNote('Report sent. Thank you — somebody reads every one.');
     }
     await _now.resume();
   }

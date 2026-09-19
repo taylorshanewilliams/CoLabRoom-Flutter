@@ -23,6 +23,7 @@ import '../../widgets/offer_to_be_found.dart';
 import 'out_there.dart';
 import 'what_are_you_after.dart';
 import '../../widgets/problem_report.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Open Mic — where you meet somebody you have not met.
 ///
@@ -174,15 +175,12 @@ class _OpenMicScreenState extends State<OpenMicScreen> {
         note: choice.note.isEmpty ? null : choice.note,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Noted. You will hear when $label turns up.'),
-      ));
+      ScaffoldMessenger.of(context).showNote('Noted. You will hear when $label turns up.');
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            reportAndDescribe(error, service: 'app', stage: 'leave_want')),
-      ));
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(error, service: 'app', stage: 'leave_want'),
+      );
     }
   }
 

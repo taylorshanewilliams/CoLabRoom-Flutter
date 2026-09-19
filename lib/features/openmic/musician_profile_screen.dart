@@ -25,6 +25,7 @@ import '../../app/beta_scope.dart';
 import '../../widgets/profile_face.dart';
 import '../../domain/sounds.dart';
 import '../../domain/sung_in.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Somebody's own room.
 ///
@@ -233,11 +234,11 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
-        ..showSnackBar(SnackBar(
-          content: Text(isRefusal(error)
+        ..showNote(
+          isRefusal(error)
               ? describeForUser(error)
-              : reportAndDescribe(error, service: 'app', stage: stage, route: 'Profile')),
-        ));
+              : reportAndDescribe(error, service: 'app', stage: stage, route: 'Profile'),
+        );
     } finally {
       if (mounted) setState(() => _connecting = false);
     }
@@ -349,7 +350,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
   void _say(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showNote(message);
   }
 
   Future<void> _add() async {
@@ -567,7 +568,7 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
       setState(() => _claiming = null);
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text('$part added to what you play.')));
+        ..showNote('$part added to what you play.');
     } catch (error) {
       if (!mounted) return;
       setState(() => _claiming = null);
@@ -602,12 +603,10 @@ class _MusicianProfileScreenState extends State<MusicianProfileScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(
-            '${musician.displayName} has been invited. They see it when '
-            'they say yes.',
-          ),
-        ));
+        ..showNote(
+          '${musician.displayName} has been invited. They see it when '
+          'they say yes.',
+        );
       if (!mounted) return;
       await offerNotifications(
         context,

@@ -54,6 +54,7 @@ import 'take_turns_card.dart';
 import 'then_and_now.dart';
 import 'timeline_ruler.dart';
 import '../../widgets/problem_report.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// The takes a song is built from, and adding another one.
 ///
@@ -3770,13 +3771,13 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       final opens = await controller.sealTake(layer.id, until: chosen);
       await _load();
       await _leaveOutOfTheMix();
-      messenger?.showSnackBar(SnackBar(
-        content: Text(sealedUntilWords(opens)),
+      messenger?.showNote(
+        sealedUntilWords(opens),
         action: SnackBarAction(
           label: 'Undo',
           onPressed: () => unawaited(_unseal(layer)),
         ),
-      ));
+      );
     } catch (error) {
       if (!mounted) return;
       setState(() => _error = reportAndDescribe(

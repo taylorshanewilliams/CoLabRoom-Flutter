@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../widgets/note_that_fits.dart';
 
 /// Copying, and knowing whether it worked.
 ///
@@ -23,7 +24,7 @@ Future<void> copyAndSay(BuildContext context, String text, String copied) async 
   if (await copyText(text)) {
     messenger
       ?..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(copied)));
+      ..showNote(copied);
     return;
   }
   if (!context.mounted) return;

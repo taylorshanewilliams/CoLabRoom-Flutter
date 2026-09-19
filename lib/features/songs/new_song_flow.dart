@@ -6,6 +6,7 @@ import '../../domain/music_models.dart';
 import '../../domain/name_policy.dart';
 import '../../widgets/app_surface.dart';
 import '../../services/user_facing_error.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// Asks for a name and makes a room with it.
 ///
@@ -74,7 +75,9 @@ Future<SongProject?> _askForSongTitle(
 }
 
 void _showError(BuildContext context, Object error) {
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(reportAndDescribe(error, service: 'app', route: 'New song'))));
+  ScaffoldMessenger.of(context).showNote(
+    reportAndDescribe(error, service: 'app', route: 'New song'),
+  );
 }
 
 class _RoomDraft {

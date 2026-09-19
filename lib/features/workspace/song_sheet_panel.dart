@@ -26,6 +26,7 @@ import 'package:colabroom/services/share_origin.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:colabroom/services/song_language.dart';
 import 'package:colabroom/services/user_facing_error.dart';
+import 'package:colabroom/widgets/note_that_fits.dart';
 import 'package:colabroom/widgets/text_measures.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -427,15 +428,15 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       await write(downbeat);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(
           error,
           service: 'app',
           stage: 'set_bar_one',
           route: 'Song sheet',
           projectId: widget.project.id,
-        )),
-      ));
+        ),
+      );
     }
   }
 
@@ -509,15 +510,15 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       widget.onAnalysisChanged?.call(updated);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(
           error,
           service: 'analysis',
           stage: 'transcribe_again',
           route: 'Song sheet',
           projectId: widget.project.id,
-        )),
-      ));
+        ),
+      );
     } finally {
       if (mounted) setState(() => _listening = false);
     }
@@ -821,15 +822,13 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(reportAndDescribe(
-            error,
-            service: 'app',
-            stage: 'chart_export',
-            route: 'Song sheet',
-            projectId: widget.project.id,
-          )),
+      ..showNote(
+        reportAndDescribe(
+          error,
+          service: 'app',
+          stage: 'chart_export',
+          route: 'Song sheet',
+          projectId: widget.project.id,
         ),
       );
   }
@@ -1071,9 +1070,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(content: Text('Could not save that chord: $error')),
-        );
+        ..showNote('Could not save that chord: $error');
     } finally {
       if (mounted) setState(() => _savingChord = false);
     }
@@ -1113,11 +1110,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text('Could not change the other parts: $error'),
-          ),
-        );
+        ..showNote('Could not change the other parts: $error');
     } finally {
       if (mounted) setState(() => _savingChord = false);
     }

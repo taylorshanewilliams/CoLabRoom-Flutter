@@ -14,6 +14,7 @@ import '../../services/user_facing_error.dart';
 import 'interludes.dart';
 import 'play_later.dart';
 import '../../domain/sounds.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// The first two minutes, and the four facts the app cannot work without.
 ///
@@ -406,13 +407,11 @@ class _WelcomeFlowState extends State<WelcomeFlow> {
       // screen whose entire content is "by the way, you can do this again"
       // is a screen that earns a tap and gives nothing back.
       if (widget.mode == WelcomeMode.beforeTheRoom) {
-        messenger.showSnackBar(const SnackBar(
-          duration: Duration(seconds: 7),
-          content: Text(
-            'Saved. Account → Show me around takes you back through this any '
-            'time, with a tour of the app.',
-          ),
-        ));
+        messenger.showNote(
+          'Saved. Account → Show me around takes you back through this any '
+          'time, with a tour of the app.',
+          duration: const Duration(seconds: 7),
+        );
       }
     } catch (error) {
       if (!mounted) return;

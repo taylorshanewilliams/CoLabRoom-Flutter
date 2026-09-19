@@ -11,6 +11,7 @@ import '../../services/push_registration.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/ask_terms_picker.dart';
 import 'ask_thread_sheet.dart';
+import '../../widgets/note_that_fits.dart';
 
 /// What this song is asking for, and whether anybody has heard it.
 ///
@@ -104,9 +105,9 @@ class _AskBarState extends State<AskBar> {
           _nods.add(widget.repository.currentUserId);
         }
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(error, service: 'app', stage: 'nod')),
-      ));
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(error, service: 'app', stage: 'nod'),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -149,17 +150,17 @@ class _AskBarState extends State<AskBar> {
       );
       await _load();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(choice.part.isEmpty
+      ScaffoldMessenger.of(context).showNote(
+        choice.part.isEmpty
             ? 'Asked the room what it needs.'
-            : 'Asked the room for ${choice.part}.'),
-      ));
+            : 'Asked the room for ${choice.part}.',
+      );
       await _offerNotifications();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(error, service: 'app', stage: 'ask')),
-      ));
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(error, service: 'app', stage: 'ask'),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -260,10 +261,9 @@ class _AskBarState extends State<AskBar> {
       await _load();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content:
-            Text(reportAndDescribe(error, service: 'app', stage: 'ask_close')),
-      ));
+      ScaffoldMessenger.of(context).showNote(
+        reportAndDescribe(error, service: 'app', stage: 'ask_close'),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
