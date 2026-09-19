@@ -45,6 +45,14 @@ dependencies:
   xml: ^7.0.1
   flutter_local_notifications: ^22.3.0
   livekit_client: 2.13.0
+  # The only thing in this app that says anything out loud. Perform calls the
+  # next chord one beat before it lands, for a player whose eyes are on their
+  # instrument or who cannot see the chart at all (Every Musician, Same Song,
+  # 17 September 2026, "feel the beat, hear the chords coming"). Pinned rather
+  # than ranged because it is a platform plugin and how a voice queues is the
+  # kind of thing a minor bump changes; a test speaks through ChordVoice
+  # instead, and never through this.
+  flutter_tts: 4.2.5
 
 dev_dependencies:
   flutter_test:
