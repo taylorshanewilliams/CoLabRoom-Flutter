@@ -11,6 +11,7 @@ import 'package:record/record.dart';
 import '../../app/colabroom_theme.dart';
 import '../../services/latency_probe.dart';
 import '../../services/onset_align.dart';
+import '../../services/phone_audio.dart';
 import '../../widgets/microphone_disclosure.dart';
 import '../../services/user_facing_error.dart';
 
@@ -72,7 +73,14 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
       _failures.clear();
     });
 
+    // Held across the whole run rather than per trial, so the session is not
+    // rebuilt between trials -- and so that what is measured is a take's
+    // session. A probe run while a call holds the phone's audio measures the
+    // call, not the take, which is why asking for this stands the call's
+    // microphone down for the duration.
+    final audio = await phoneAudio.need(AudioNeed.recording);
     try {
+      await phoneAudio.useOn(_player);
       final directory = await getTemporaryDirectory();
       final signalPath = '${directory.path}/latency_signal.wav';
       await File(signalPath).writeAsBytes(
@@ -99,6 +107,7 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
     } catch (error) {
       if (mounted) setState(() => _error = reportAndDescribe(error, service: 'app', route: 'Latency probe'));
     } finally {
+      await audio.release();
       if (mounted) setState(() {
         _running = false;
         _stage = '';
@@ -180,7 +189,10 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
       _stage = 'Play along with the click';
     });
 
+    // As in _run: one session for the whole pass, and a call stands down.
+    final audio = await phoneAudio.need(AudioNeed.recording);
     try {
+      await phoneAudio.useOn(_player);
       final directory = await getTemporaryDirectory();
       final signalPath = '${directory.path}/latency_click.wav';
       await File(signalPath).writeAsBytes(
@@ -213,6 +225,7 @@ class _LatencyProbeScreenState extends State<LatencyProbeScreen> {
     } catch (error) {
       if (mounted) setState(() => _error = reportAndDescribe(error, service: 'app', route: 'Latency probe'));
     } finally {
+      await audio.release();
       if (mounted) setState(() {
         _running = false;
         _stage = '';

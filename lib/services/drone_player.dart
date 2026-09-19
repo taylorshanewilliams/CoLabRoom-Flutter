@@ -2,6 +2,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 
 import 'drone.dart';
+import 'phone_audio.dart';
 
 /// Something that holds one note. The screens talk to this so a test can hand
 /// them a silent one, the same shape ClickPlayer has.
@@ -57,40 +58,32 @@ abstract class DroneOutput {
 
 /// A [DroneOutput] on an audioplayers player of its own.
 ///
-/// **Why it asks Android for no audio focus.** This is the first place in the
-/// app that deliberately runs two sounds at once, and Android's default is the
-/// opposite of that: audioplayers gives every player its own focus request,
-/// and the default is `AUDIOFOCUS_GAIN` — "this app is the only thing you are
+/// **Why it asks for no audio focus.** This is the first place in the app that
+/// deliberately runs two sounds at once, and Android's default is the opposite
+/// of that: audioplayers gives every player its own focus request, and the
+/// default is `AUDIOFOCUS_GAIN` — "this app is the only thing you are
 /// listening to". Each new request takes focus off the last one, and
 /// audioplayers pauses a player that loses focus and never starts it again.
 /// Left alone, turning the drone on under a song would stop the song, pressing
 /// the starting pitch would stop the drone, and pressing play would stop both,
-/// with every switch on screen still saying on. Asking for no focus at all is
-/// what OverdubSession already does, for the same reason and with the same
-/// reasoning: the drone has nothing to say to other apps, it is one voice
-/// among several inside this one.
+/// with every switch on screen still saying on. The drone has nothing to say
+/// to other apps: it is one voice among several inside this one, which is what
+/// `amongOthers` means to [PhoneAudio].
 ///
-/// Android only. audioplayers on iOS has no per-player session — asking for
-/// one rewrites the whole app's — so there the drone runs on whatever session
-/// the rest of the app is using, which is ordinary playback.
+/// The session itself comes from [PhoneAudio] and nowhere else, so a drone
+/// sounding in a call is on the call's session rather than one of its own.
 class AudioPlayerOutput implements DroneOutput {
-  AudioPlayerOutput([AudioPlayer? player]) : _player = player;
+  AudioPlayerOutput([AudioPlayer? player, PhoneAudio? audio])
+      : _player = player,
+        _audio = audio ?? AudioSessionOwner.instance;
 
   /// Made when a note is first asked for, the way Perform's click is: opening
   /// the sheet is not the same as wanting a sound, and most of the people who
   /// look at it will never turn the drone on.
   AudioPlayer? _player;
+  final PhoneAudio _audio;
+  AudioHold? _hold;
   bool _prepared = false;
-
-  static AudioContext get _session => AudioContext(
-        android: const AudioContextAndroid(
-          isSpeakerphoneOn: false,
-          stayAwake: false,
-          contentType: AndroidContentType.music,
-          usageType: AndroidUsageType.media,
-          audioFocus: AndroidAudioFocus.none,
-        ),
-      );
 
   @override
   Future<void> play(
@@ -99,20 +92,13 @@ class AudioPlayerOutput implements DroneOutput {
     required double volume,
   }) async {
     final player = _player ??= AudioPlayer();
+    _hold ??= await _audio.need(AudioNeed.playing);
     // Awaited before the first sound rather than applied at construction: a
     // focus request that landed after the source had started would already
     // have taken focus off whatever else was going.
     if (!_prepared) {
       _prepared = true;
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-        try {
-          await player.setAudioContext(_session);
-        } catch (_) {
-          // A phone that refuses the session still sounds the note; it may
-          // just stop being heard under the song. There is nowhere useful to
-          // say so, and nothing anybody could do about it from a tuner sheet.
-        }
-      }
+      await _audio.useOn(player, amongOthers: true);
     }
     await player.stop();
     await player.setReleaseMode(loop ? ReleaseMode.loop : ReleaseMode.release);
@@ -131,10 +117,24 @@ class AudioPlayerOutput implements DroneOutput {
   /// Only what was made: stopping a drone nobody started must not make the
   /// player that was avoided.
   @override
-  Future<void> stop() async => _player?.stop();
+  Future<void> stop() async {
+    await _player?.stop();
+    await _letGoOfTheAudio();
+  }
 
   @override
-  Future<void> dispose() async => _player?.dispose();
+  Future<void> dispose() async {
+    await _letGoOfTheAudio();
+    await _player?.dispose();
+  }
+
+  /// Cleared before the release is awaited, so a stop and a dispose racing
+  /// each other cannot release the same hold twice.
+  Future<void> _letGoOfTheAudio() async {
+    final hold = _hold;
+    _hold = null;
+    await hold?.release();
+  }
 }
 
 /// How the tone gets built. Production builds it off the main thread; a test

@@ -1,5 +1,7 @@
 import 'package:record/record.dart';
 
+import 'phone_audio.dart';
+
 /// The microphone a take is recorded with.
 ///
 /// A class rather than [AudioRecorder] reached for directly, for the reason
@@ -12,9 +14,17 @@ import 'package:record/record.dart';
 /// otherwise it keeps running into a file nothing will ever play, and the
 /// next press on Record opens a second recorder beside the first.
 class TakeRecorder {
-  TakeRecorder({AudioRecorder? recorder}) : _recorder = recorder;
+  TakeRecorder({AudioRecorder? recorder, PhoneAudio? audio})
+      : _recorder = recorder,
+        _audio = audio ?? AudioSessionOwner.instance;
 
   AudioRecorder? _recorder;
+
+  /// The phone's audio, asked before the microphone opens and let go of the
+  /// moment the pass is over -- including the paths where it fails. A hold
+  /// left out would leave a call with its microphone handed away.
+  final PhoneAudio _audio;
+  AudioHold? _hold;
 
   /// Whether this has been let go of for good.
   ///
@@ -45,25 +55,60 @@ class TakeRecorder {
 
   Future<bool> hasPermission() async => _mic.hasPermission();
 
-  Future<void> start(RecordConfig config, {required String path}) async =>
-      _mic.start(config, path: path);
+  Future<void> start(RecordConfig config, {required String path}) async {
+    // Read first, so a recorder disposed with its screen throws before the
+    // phone's audio is moved for a recording that is not going to happen.
+    final mic = _mic;
+    // Asked for before the microphone opens rather than after, because the
+    // session a take needs has to be in place before anything is captured,
+    // and because this is what tells a call on this phone to stand down.
+    _hold ??= await _audio.need(AudioNeed.recording);
+    try {
+      await mic.start(config, path: path);
+    } catch (_) {
+      await _letGoOfTheAudio();
+      rethrow;
+    }
+  }
 
   /// The file that was written, or null when the recorder had nothing to give
   /// back.
-  Future<String?> stop() => _mic.stop();
+  Future<String?> stop() async {
+    try {
+      return await _mic.stop();
+    } finally {
+      await _letGoOfTheAudio();
+    }
+  }
 
   /// Stops and throws away whatever was being recorded.
   ///
   /// Nothing happens when the microphone was never opened: there is no
   /// recording to discard, and asking would open a recorder in order to
   /// cancel it.
-  Future<void> cancel() async => _recorder?.cancel();
+  Future<void> cancel() async {
+    try {
+      await _recorder?.cancel();
+    } finally {
+      await _letGoOfTheAudio();
+    }
+  }
 
   Future<void> dispose() async {
     // Set first, so a call racing this one cannot slip a new recorder in
     // between the await below and the field being cleared.
     _disposed = true;
+    await _letGoOfTheAudio();
     await _recorder?.dispose();
     _recorder = null;
+  }
+
+  /// Cleared before the release is awaited, so two paths out of a failed
+  /// recording cannot release the same hold twice and take the phone out of
+  /// a state something else still wants.
+  Future<void> _letGoOfTheAudio() async {
+    final hold = _hold;
+    _hold = null;
+    await hold?.release();
   }
 }

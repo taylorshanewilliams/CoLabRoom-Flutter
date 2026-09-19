@@ -25,6 +25,7 @@ import '../../services/project_export_service.dart';
 import '../../services/cowork_service.dart';
 import '../../services/follow_me.dart';
 import '../../services/kept_songs.dart';
+import '../../services/phone_audio.dart';
 import '../../services/share_origin.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/user_facing_error.dart';
@@ -213,6 +214,11 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
 
   AudioRecorder? _voiceRecorder;
   AudioPlayer? _voicePlayer;
+
+  /// The phone's audio while a voice note is being recorded. Every recording
+  /// in the app asks for this, so a call on this phone stands down rather
+  /// than echo cancelling what is being recorded -- see PhoneAudio.
+  AudioHold? _voiceHold;
   StreamSubscription<void>? _playerCompleteSubscription;
   Timer? _recordingTimer;
   int? _dictationStart;
@@ -1011,6 +1017,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       unawaited(recorder.cancel());
       unawaited(recorder.dispose());
     }
+    unawaited(_letGoOfTheVoiceAudio());
     final player = _voicePlayer;
     if (player != null) unawaited(player.dispose());
     _continuousController.dispose();
@@ -2033,13 +2040,16 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
         if (mounted) _showMessage('Microphone permission is needed for voice notes.');
         return;
       }
+      final path = await _recordingPath();
+      // Before the microphone opens, not after.
+      _voiceHold ??= await phoneAudio.need(AudioNeed.recording);
       await recorder.start(
         const RecordConfig(
           encoder: AudioEncoder.wav,
           sampleRate: 44100,
           numChannels: 1,
         ),
-        path: await _recordingPath(),
+        path: path,
       );
       if (!mounted) return;
       _voiceStartedAt = DateTime.now();
@@ -2067,8 +2077,17 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       });
       _showMessage('Recording voice note — tap the red square to save.');
     } catch (error) {
+      await _letGoOfTheVoiceAudio();
       if (mounted) _showMessage('Could not start recording: $error');
     }
+  }
+
+  /// Cleared before the release is awaited, so two ways out of one recording
+  /// cannot release the same hold twice.
+  Future<void> _letGoOfTheVoiceAudio() async {
+    final hold = _voiceHold;
+    _voiceHold = null;
+    await hold?.release();
   }
 
   Future<void> _finishVoiceRecording(
@@ -2085,6 +2104,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     });
     try {
       final path = await recorder.stop();
+      await _letGoOfTheVoiceAudio();
       if (path == null) throw StateError('The recorder did not return a voice note.');
       final bytes = await XFile(path).readAsBytes();
       if (bytes.isEmpty) throw StateError('The voice note was empty.');
@@ -2097,6 +2117,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
       );
       if (mounted) _showMessage('Voice note attached to this line.');
     } catch (error) {
+      await _letGoOfTheVoiceAudio();
       if (mounted) _showMessage('Could not save the voice note: $error');
     } finally {
       _voiceStartedAt = null;
@@ -2108,6 +2129,8 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     final note = contribution.voiceNote;
     if (note == null) return;
     final player = _voicePlayer ??= AudioPlayer();
+    // The phone's session, from the one place that decides it.
+    if (_playerCompleteSubscription == null) await phoneAudio.useOn(player);
     _playerCompleteSubscription ??= player.onPlayerComplete.listen((_) {
       if (mounted) setState(() => _playingContributionId = null);
     });

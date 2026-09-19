@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 
+import 'phone_audio.dart';
 import 'streaming_audio.dart';
 
 /// The one thing making a sound.
@@ -29,6 +30,14 @@ class NowPlaying extends ChangeNotifier {
 
   final AudioPlayer _player = AudioPlayer();
   final StreamingAudio streams = StreamingAudio();
+
+  /// This player's hold on the phone's audio.
+  ///
+  /// It matters more here than anywhere else: this is the one player that
+  /// outlives every screen, so it is the one that can still be sounding when
+  /// a call starts. Whether it is holding is what decides whether the phone
+  /// is in a talking call or a call with music in it.
+  AudioHold? _hold;
 
   StreamSubscription<Duration>? _positions;
   StreamSubscription<void>? _completions;
@@ -116,9 +125,28 @@ class NowPlaying extends ChangeNotifier {
     _completions = _player.onPlayerComplete.listen((_) {
       _playing = false;
       _position = Duration.zero;
+      unawaited(_sounding(false));
       notifyListeners();
       onFinished?.call();
     });
+  }
+
+  /// Tells the phone's audio whether this player is making a sound.
+  ///
+  /// Asked for before the sound rather than after, so the session is already
+  /// right when the first note arrives, and let go of on every way out --
+  /// paused, stopped, finished on its own, or the player thrown away.
+  Future<void> _sounding(bool on) async {
+    if (on) {
+      _hold ??= await AudioSessionOwner.instance.need(AudioNeed.playing);
+      // And on this player, which was built as a field initialiser and so
+      // may never have seen the app's default.
+      await AudioSessionOwner.instance.useOn(_player);
+      return;
+    }
+    final hold = _hold;
+    _hold = null;
+    await hold?.release();
   }
 
   /// Plays [storagePath], or pauses it if it is already the one playing.
@@ -137,7 +165,9 @@ class NowPlaying extends ChangeNotifier {
       if (_playing) {
         await _player.pause();
         _playing = false;
+        await _sounding(false);
       } else {
+        await _sounding(true);
         await _player.resume();
         _playing = true;
       }
@@ -207,6 +237,9 @@ class NowPlaying extends ChangeNotifier {
     }
 
     try {
+      // Before the sound, so the session is music-grade by the time the
+      // first note arrives rather than a moment after it.
+      await _sounding(true);
       await _player.play(UrlSource(url));
       if (_path != storagePath) return;
       _playing = true;
@@ -214,6 +247,7 @@ class NowPlaying extends ChangeNotifier {
     } catch (_) {
       _playing = false;
       _path = null;
+      await _sounding(false);
     } finally {
       if (_path == storagePath || _path == null) _loading = false;
       notifyListeners();
@@ -224,11 +258,13 @@ class NowPlaying extends ChangeNotifier {
     if (!_playing) return;
     await _player.pause();
     _playing = false;
+    await _sounding(false);
     notifyListeners();
   }
 
   Future<void> resume() async {
     if (_playing || _path == null) return;
+    await _sounding(true);
     await _player.resume();
     _playing = true;
     notifyListeners();
@@ -238,6 +274,7 @@ class NowPlaying extends ChangeNotifier {
   /// out — where the signed URLs go too, because one outlives its session.
   Future<void> stop() async {
     await _player.stop();
+    await _sounding(false);
     _path = null;
     _title = '';
     _byline = '';
@@ -261,6 +298,7 @@ class NowPlaying extends ChangeNotifier {
   void dispose() {
     unawaited(_positions?.cancel());
     unawaited(_completions?.cancel());
+    unawaited(_sounding(false));
     unawaited(_player.dispose());
     super.dispose();
   }

@@ -8,6 +8,7 @@ import '../../domain/loop_round.dart';
 import '../../domain/music_models.dart' show RoomMember;
 import '../../domain/song_analysis_models.dart' show StructureSection;
 import '../../services/audio_source_for.dart';
+import '../../services/phone_audio.dart';
 import '../../services/song_layer_service.dart' show SharedLayer;
 import '../workspace/practice_rules.dart';
 import 'take_turns.dart';
@@ -171,6 +172,9 @@ class _TakeTurnsCardState extends State<TakeTurnsCard> {
         return;
       }
       final player = _player ??= AudioPlayer();
+      // The phone's session, from the one place that decides it: this card
+      // sits on the takes screen, where the microphone may be open.
+      if (_done == null) await phoneAudio.useOn(player, amongOthers: true);
       _done ??= player.onPlayerComplete.listen((_) {
         if (mounted) {
           setState(() {

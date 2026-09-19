@@ -25,7 +25,7 @@ import '../../services/click_player.dart';
 import '../../services/copy_text.dart';
 import '../../services/moment_link.dart';
 import '../../services/multitrack.dart';
-import '../../services/overdub_session.dart';
+import '../../services/phone_audio.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/share_origin.dart';
 import '../../services/song_analysis_service.dart';
@@ -183,6 +183,16 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   String? _referencePath;
   late final TakeRecorder _recorder = widget.takeRecorder ?? TakeRecorder();
   final AudioPlayer _player = AudioPlayer();
+
+  /// This screen's hold on the phone's audio, for as long as it is open.
+  ///
+  /// Held from initState rather than from the press on Record, because the
+  /// session a take needs has to be in place before the backing track makes
+  /// its first sound: a track already playing under an ordinary playback
+  /// session is where the silent takes came from. The tighter hold — the
+  /// microphone actually being open — is [TakeRecorder]'s, and that is the
+  /// one that asks a call on this phone to stand down.
+  AudioHold? _audioHold;
 
   /// The file the microphone is writing to, from the press on Record until
   /// the take is stopped or given up on. Null the rest of the time.
@@ -345,11 +355,8 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     super.initState();
     // Before anything plays. A backing track started under the default
     // audio session takes the microphone away from the recorder on both
-    // platforms — see OverdubSession, which is where the explanation lives.
-    unawaited(OverdubSession.begin());
-    // And on this player specifically. It was built as a field initialiser,
-    // before this line runs, so the global default may never reach it.
-    unawaited(OverdubSession.applyTo(_player));
+    // platforms — see PhoneAudio, which is where the explanation lives.
+    unawaited(_takeTheAudio());
     _completeSub = _player.onPlayerComplete.listen((_) {
       if (mounted) {
         setState(() {
@@ -502,8 +509,26 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     unawaited(_voice?.dispose());
     _hushTurns.dispose();
     // Every other screen in the app is a player, not a recorder.
-    unawaited(OverdubSession.end());
+    final audio = _audioHold;
+    _audioHold = null;
+    unawaited(audio?.release());
     super.dispose();
+  }
+
+  /// Takes the screen's hold, and puts the session on the song's player.
+  ///
+  /// The player was built as a field initialiser, before initState runs, so
+  /// the app's default may never have reached it — and it is the one doing
+  /// the playback a take is recorded against.
+  Future<void> _takeTheAudio() async {
+    final hold = await phoneAudio.need(AudioNeed.readyToRecord);
+    if (!mounted) {
+      // The screen went away while this was being applied.
+      await hold.release();
+      return;
+    }
+    _audioHold = hold;
+    await phoneAudio.useOn(_player);
   }
 
   Future<void> _load() async {
@@ -1808,13 +1833,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       await _player.setSource(audioSourceFor(path));
       if (_punchInAt > Duration.zero) await _player.seek(_punchInAt);
     }
-    if (_countClick == null) {
-      // The same session the song's player is given in initState, for the
-      // same reason: this one sounds while the recorder is running.
-      final player = AudioPlayer();
-      await OverdubSession.applyTo(player);
-      _countClick = WavClickPlayer(player: player);
-    }
+    // The click carries the phone's session itself now, for the same reason
+    // the song's player is given one: it sounds while the recorder is
+    // running, and one voice among several must never ask for audio focus.
+    _countClick ??= WavClickPlayer();
     if (!mounted) return;
     setState(() {
       // The playhead and the button's label move to where the take will
@@ -3551,6 +3573,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     final repository = _repository;
     if (repository == null || !note.isSpoken) return;
     final voice = _voice ??= AudioPlayer();
+    // The screen's own session, not the app's default: a spoken note is
+    // heard on the same screen the microphone is on.
+    if (_voiceDone == null) await phoneAudio.useOn(voice, amongOthers: true);
     _voiceDone ??= voice.onPlayerComplete.listen((_) {
       if (mounted) setState(() => _hearing = null);
     });

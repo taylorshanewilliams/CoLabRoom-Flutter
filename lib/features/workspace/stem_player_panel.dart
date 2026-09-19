@@ -9,6 +9,7 @@ import '../../services/audio_source_for.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/chord_beat_grid.dart';
+import '../../services/phone_audio.dart';
 import '../../widgets/problem_report.dart';
 
 /// Plays the separated instrument stems Demucs produced during analysis —
@@ -105,6 +106,10 @@ class _StemPlayerPanelState extends State<StemPlayerPanel> {
       });
     });
     _player = player;
+    // The phone's session, from the one place that decides it. Not awaited:
+    // this is called from the middle of a tap handler, and a stem that
+    // started a moment before the session landed is still the right sound.
+    unawaited(phoneAudio.useOn(player));
     return player;
   }
 

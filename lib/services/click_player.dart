@@ -3,6 +3,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'audio_source_for.dart';
 import 'multitrack.dart';
+import 'phone_audio.dart';
 
 /// Something that clicks at a tempo. The screens talk to this so a test can
 /// hand them a silent one.
@@ -42,14 +43,22 @@ abstract class ClickPlayer {
 /// in a way a backing track never is, because there is nothing else playing
 /// for it to drift against.
 class WavClickPlayer implements ClickPlayer {
-  /// [player] is for a screen whose click has to carry an audio session of
-  /// its own. The takes screen counts somebody in while its recorder is
-  /// running, and a player left on the default session asks Android for sole
-  /// audio focus and gets the capture silenced -- see OverdubSession. Owned
-  /// from here on either way: [dispose] disposes it.
-  WavClickPlayer({AudioPlayer? player}) : _player = player ?? AudioPlayer();
+  /// [player] is for a test that wants to watch one. Owned from here on
+  /// either way: [dispose] disposes it.
+  ///
+  /// The click carries the phone's session itself rather than being handed a
+  /// player somebody else configured. The takes screen counts somebody in
+  /// while its recorder is running, and a click left on the app's default
+  /// asks Android for sole audio focus and gets the capture silenced -- see
+  /// [PhoneAudio], which is now the only place that decides such things.
+  WavClickPlayer({AudioPlayer? player, PhoneAudio? audio})
+      : _player = player ?? AudioPlayer(),
+        _audio = audio ?? AudioSessionOwner.instance;
 
   final AudioPlayer _player;
+  final PhoneAudio _audio;
+  AudioHold? _hold;
+  bool _carriesTheSession = false;
   int _generation = 0;
 
   @override
@@ -61,6 +70,13 @@ class WavClickPlayer implements ClickPlayer {
     List<int> accents = const <int>[],
   }) async {
     final generation = ++_generation;
+    // One voice among several: the click sounds under the backing track and
+    // under a recording, so it must never ask for audio focus.
+    _hold ??= await _audio.need(AudioNeed.playing);
+    if (!_carriesTheSession) {
+      _carriesTheSession = true;
+      await _audio.useOn(_player, amongOthers: true);
+    }
     final directory = await getTemporaryDirectory();
     // The bar count is part of the name because audioplayers keys its cache
     // on the path: a one-bar count-in and an eight-bar metronome at the same
@@ -88,8 +104,20 @@ class WavClickPlayer implements ClickPlayer {
   Future<void> stop() async {
     _generation++;
     await _player.stop();
+    await _letGoOfTheAudio();
   }
 
   @override
-  Future<void> dispose() => _player.dispose();
+  Future<void> dispose() async {
+    await _letGoOfTheAudio();
+    await _player.dispose();
+  }
+
+  /// Cleared before the release is awaited, so a stop and a dispose racing
+  /// each other cannot release the same hold twice.
+  Future<void> _letGoOfTheAudio() async {
+    final hold = _hold;
+    _hold = null;
+    await hold?.release();
+  }
 }
