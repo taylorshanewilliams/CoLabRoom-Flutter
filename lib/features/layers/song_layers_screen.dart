@@ -2580,17 +2580,13 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
         // size is honoured, never clamped. 56 does not move with it, so at
         // the largest iOS size the Save label lost its bottom — silently,
         // because a toolbar clips rather than overflows — on the button that
-        // is the only way to get a take off the phone. Measured with the
-        // styles the words are drawn in, and 56 is kept as the floor so
-        // nothing moves for anybody who has not turned their text up.
-        toolbarHeight: math.max(
-          kToolbarHeight,
-          math.max(
-            linesOfTextHigh(context, _takesTitleStyle) +
-                linesOfTextHigh(context, _takesUnderStyle) +
-                8,
-            linesOfTextHigh(context, _takesActionStyle) + 16,
-          ),
+        // is the only way to get a take off the phone. This bar worked the
+        // arithmetic out for itself while it was the only one that did; every
+        // bar that can clip shares the one measure now.
+        toolbarHeight: appBarHighEnoughFor(
+          context,
+          title: const <TextStyle>[_takesTitleStyle, _takesUnderStyle],
+          actions: const <TextStyle>[_takesActionStyle],
         ),
         automaticallyImplyLeading: !widget.embedded,
         leading: widget.embedded

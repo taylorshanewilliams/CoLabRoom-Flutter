@@ -8,6 +8,7 @@ import '../../domain/music_models.dart';
 import '../../services/provenance_export.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/problem_report.dart';
+import '../../widgets/text_measures.dart';
 
 /// Everything that has happened to this song, in the order it happened.
 ///
@@ -37,6 +38,15 @@ class SongHistoryScreen extends StatefulWidget {
   @override
   State<SongHistoryScreen> createState() => _SongHistoryScreenState();
 }
+
+/// What is in the bar across the top: the word, the song's name under it, and
+/// the one labelled action. Named so the bar can be measured with the same
+/// styles it draws.
+const TextStyle _historyTitleStyle = TextStyle(fontSize: 17);
+const TextStyle _historyUnderStyle =
+    TextStyle(color: AppColors.muted, fontSize: 11);
+const TextStyle _historyActionStyle =
+    TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700);
 
 class _SongHistoryScreenState extends State<SongHistoryScreen> {
   List<ProvenanceEvent>? _events;
@@ -95,15 +105,25 @@ class _SongHistoryScreenState extends State<SongHistoryScreen> {
       backgroundColor: AppColors.deepNavy,
       appBar: AppBar(
         backgroundColor: AppColors.deepNavy,
+        // As tall as the words in it, rather than Material's 56. An action's
+        // words are not held to any ceiling the way a title's are, so at the
+        // largest text sizes Export lost its bottom — silently, because a
+        // toolbar clips rather than overflows — on the button that is the
+        // whole point of this screen.
+        toolbarHeight: appBarHighEnoughFor(
+          context,
+          title: const <TextStyle>[_historyTitleStyle, _historyUnderStyle],
+          actions: const <TextStyle>[_historyActionStyle],
+        ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const Text('History', style: TextStyle(fontSize: 17)),
+            const Text('History', style: _historyTitleStyle),
             Text(
               widget.songTitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: AppColors.muted, fontSize: 11),
+              style: _historyUnderStyle,
             ),
           ],
         ),
@@ -115,13 +135,7 @@ class _SongHistoryScreenState extends State<SongHistoryScreen> {
                   ? null
                   : () => unawaited(_export()),
               icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
-              label: const Text(
-                'Export',
-                style: TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              label: const Text('Export', style: _historyActionStyle),
               style: TextButton.styleFrom(
                 foregroundColor: AppColors.cyan,
                 disabledForegroundColor: AppColors.line,

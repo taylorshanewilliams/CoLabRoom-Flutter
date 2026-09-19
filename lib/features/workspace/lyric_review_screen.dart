@@ -7,6 +7,7 @@ import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
 import '../../services/song_analysis_service.dart';
 import '../../services/song_language.dart';
+import '../../widgets/text_measures.dart';
 
 /// Lets the user proofread and correct the transcript before it becomes the
 /// project's actual lyrics — the direct "Replace project lyrics with this"
@@ -30,6 +31,11 @@ class LyricReviewScreen extends StatefulWidget {
   @override
   State<LyricReviewScreen> createState() => _LyricReviewScreenState();
 }
+
+/// The one labelled action in the bar across the top. Named so the bar can be
+/// measured with the same style it draws.
+const TextStyle _saveStyle =
+    TextStyle(color: AppColors.gold, fontWeight: FontWeight.w700);
 
 class _LyricReviewScreenState extends State<LyricReviewScreen> {
   final SongAnalysisService _service = SongAnalysisService();
@@ -130,6 +136,15 @@ class _LyricReviewScreenState extends State<LyricReviewScreen> {
       appBar: AppBar(
         title: const Text('Review lyrics'),
         backgroundColor: AppColors.deepNavy,
+        // As tall as the Save label, rather than Material's 56. An action's
+        // words are not held to any ceiling the way a title's are, so at the
+        // largest text sizes this one lost its bottom — silently, because a
+        // toolbar clips rather than overflows — on the only button that keeps
+        // the corrections somebody has just typed.
+        toolbarHeight: appBarHighEnoughFor(
+          context,
+          actions: const <TextStyle>[_saveStyle],
+        ),
         actions: <Widget>[
           Padding(
             padding: const EdgeInsets.only(right: 10),
@@ -142,7 +157,7 @@ class _LyricReviewScreenState extends State<LyricReviewScreen> {
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.gold),
                     )
-                  : const Text('Save', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.w700)),
+                  : const Text('Save', style: _saveStyle),
             ),
           ),
         ],

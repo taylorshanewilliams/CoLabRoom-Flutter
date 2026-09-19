@@ -9,6 +9,7 @@ import '../../domain/calls.dart';
 import '../../services/call_session.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/profile_face.dart';
+import '../../widgets/text_measures.dart';
 import '../openmic/report_sheet.dart';
 
 /// How a call screen gets into a call. [LiveKitCallSession.join] in the app;
@@ -41,6 +42,11 @@ class CallScreen extends StatefulWidget {
   @override
   State<CallScreen> createState() => _CallScreenState();
 }
+
+/// The line under the room's name in the bar across the top. Named so the bar
+/// can be measured with the same style it draws.
+const TextStyle _callUnderStyle =
+    TextStyle(color: AppColors.muted, fontSize: 12.5, fontWeight: FontWeight.w500);
 
 class _CallScreenState extends State<CallScreen> {
   CallSession? _session;
@@ -219,14 +225,21 @@ class _CallScreenState extends State<CallScreen> {
       backgroundColor: AppColors.ink,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
+        // Two lines, so as tall as two lines. At the accessibility text sizes
+        // the room's name and the sentence under it came to more than
+        // Material's 56 between them and the pair sat over the edges of the
+        // bar, the name up under the status bar and "nothing is recorded"
+        // across the top of the call — which is the one sentence on this
+        // screen somebody needs to be able to read.
+        toolbarHeight: appBarHighEnoughFor(
+          context,
+          title: <TextStyle>[appBarTitleStyle(context), _callUnderStyle],
+        ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Text(widget.roomName, maxLines: 1, overflow: TextOverflow.ellipsis),
-            const Text(
-              'Call · nothing is recorded',
-              style: TextStyle(color: AppColors.muted, fontSize: 12.5, fontWeight: FontWeight.w500),
-            ),
+            const Text('Call · nothing is recorded', style: _callUnderStyle),
           ],
         ),
       ),
