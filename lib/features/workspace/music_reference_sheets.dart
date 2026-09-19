@@ -11,9 +11,12 @@ import '../../services/horn_reading.dart';
 import '../../services/melody_reading.dart';
 import '../../services/music_reference.dart';
 import '../../services/number_reading.dart';
+import '../../services/shape_reading.dart';
+import 'bass_and_piano_diagrams.dart';
 import 'guitar_chord_diagram.dart';
 import 'musician_sheet_logic.dart' show keyAsPlayed, semitonesBetweenKeys;
-import 'song_reading_store.dart' show SimplerShapesStore;
+import 'song_reading_store.dart'
+    show LeftHandedStore, ShapeReadingStore, SimplerShapesStore;
 
 /// The reference sheets, opened from the thing they describe.
 ///
@@ -47,10 +50,21 @@ Future<void> showChordReference(
     used: used,
     roles: roles,
   );
+  // Which instrument's picture of this chord, and which way round. Read from
+  // what this session already holds rather than from the disk: the sheet is
+  // built in the frame the chord was tapped in.
+  final shapes = ShapeReadingStore.held;
   // The plain chord inside this one, for somebody who has asked for those.
-  // Read from what this session already holds rather than from the disk: the
-  // sheet is built in the frame the chord was tapped in.
-  final simpler = SimplerShapesStore.held ? simplerShapeFor(chordLabel) : null;
+  // A guitar answer and only a guitar answer: simplerShapeFor weighs one
+  // shape against another by what a guitar hand can reach — open, then two
+  // fingers on three strings, then a barre — and handing that verdict to a
+  // uke player would give them a different chord for a reason that is not
+  // about their instrument. It says even less about a keyboard, or about the
+  // two notes of a root and a fifth (Every Musician, Same Song, 17 September
+  // 2026).
+  final simpler = SimplerShapesStore.held && shapes == ShapeReading.guitar
+      ? simplerShapeFor(chordLabel)
+      : null;
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
@@ -60,6 +74,8 @@ Future<void> showChordReference(
       reference: reference,
       help: help,
       simpler: simpler,
+      shapes: shapes,
+      leftHanded: LeftHandedStore.held,
     ),
   );
 }
@@ -235,7 +251,6 @@ class _ReadingChoiceSheetState extends State<_ReadingChoiceSheet> {
   late HornReading _reading = widget.reading;
   late MelodyReading _melody = widget.melody;
   late int? _sa = widget.sa;
-  bool _simpler = SimplerShapesStore.held;
 
   @override
   Widget build(BuildContext context) {
@@ -290,25 +305,96 @@ class _ReadingChoiceSheetState extends State<_ReadingChoiceSheet> {
         // readings sheet those songs, and the chart, ever open (review, 17
         // September 2026, which found the same hole under the horn reading).
         const SizedBox(height: 18),
-        _Section(
-          heading: 'Shapes',
-          child: Wrap(
+        const _ShapesSection(),
+      ],
+    );
+  }
+}
+
+/// Which instrument a chord is drawn for, which way round the neck goes, and
+/// whether the plain chord inside an extended one is drawn in its place.
+///
+/// Its own widget because it belongs on both sheets, like [_NotesSection]: the
+/// key sheet the badge opens, and the plain Read as sheet a song with no key
+/// gets. Flat and in a fixed order, like every other row of readings here —
+/// four instruments, not a ladder from easy to hard.
+class _ShapesSection extends StatefulWidget {
+  const _ShapesSection({this.onChanged});
+
+  /// Called once a choice has landed, for a sheet whose other rows depend on
+  /// it: a capo means nothing to a pianist, so the key sheet redraws without
+  /// its capo rows.
+  final VoidCallback? onChanged;
+
+  @override
+  State<_ShapesSection> createState() => _ShapesSectionState();
+}
+
+class _ShapesSectionState extends State<_ShapesSection> {
+  ShapeReading _shapes = ShapeReadingStore.held;
+  bool _left = LeftHandedStore.held;
+  bool _simpler = SimplerShapesStore.held;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Section(
+      heading: 'Shapes',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Wrap(
             spacing: 8,
             runSpacing: 8,
             children: <Widget>[
-              _PickerChip(
-                label: 'Simpler shapes',
-                itemKey: const Key('simpler_shapes'),
-                selected: _simpler,
-                onTap: () {
-                  setState(() => _simpler = !_simpler);
-                  unawaited(SimplerShapesStore.save(_simpler));
-                },
-              ),
+              for (final reading in ShapeReading.values)
+                _PickerChip(
+                  label: reading.label,
+                  itemKey: Key('read_shapes_${reading.name}'),
+                  selected: reading == _shapes,
+                  onTap: () {
+                    if (reading == _shapes) return;
+                    setState(() => _shapes = reading);
+                    unawaited(ShapeReadingStore.save(reading));
+                    widget.onChanged?.call();
+                  },
+                ),
             ],
           ),
-        ),
-      ],
+          // Both of these are about a neck, so neither is offered to somebody
+          // reading a keyboard: a left-handed pianist plays the same keyboard
+          // the rest of us do. Simpler shapes is narrower still — it is
+          // decided by what a guitar hand can reach, so it is offered where
+          // that is the hand (see showChordReference).
+          if (_shapes.mirrors) ...<Widget>[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                _PickerChip(
+                  label: 'Left-handed',
+                  itemKey: const Key('left_handed_shapes'),
+                  selected: _left,
+                  onTap: () {
+                    setState(() => _left = !_left);
+                    unawaited(LeftHandedStore.save(_left));
+                  },
+                ),
+                if (_shapes == ShapeReading.guitar)
+                  _PickerChip(
+                    label: 'Simpler shapes',
+                    itemKey: const Key('simpler_shapes'),
+                    selected: _simpler,
+                    onTap: () {
+                      setState(() => _simpler = !_simpler);
+                      unawaited(SimplerShapesStore.save(_simpler));
+                    },
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -423,6 +509,8 @@ class _ChordReferenceSheet extends StatelessWidget {
     required this.reference,
     this.help,
     this.simpler,
+    this.shapes = ShapeReading.guitar,
+    this.leftHanded = false,
   });
 
   final ChordReference reference;
@@ -434,6 +522,11 @@ class _ChordReferenceSheet extends StatelessWidget {
   /// somebody reading with Simpler shapes on. Null when that is off, or when
   /// this chord is already plain, or when nothing plainer can be drawn.
   final ChordReference? simpler;
+
+  /// Which instrument this chord is drawn for, and which way round the neck
+  /// goes. Both are this device's, like every other reading.
+  final ShapeReading shapes;
+  final bool leftHanded;
 
   @override
   Widget build(BuildContext context) {
@@ -499,37 +592,11 @@ class _ChordReferenceSheet extends StatelessWidget {
           // "easier" and never "beginner" — the shape is a different chord
           // and the person playing it is owed that plainly (Every Musician,
           // Same Song, 17 September 2026).
-          if (simpler != null)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                for (final shape in simpler!.shapes)
-                  Expanded(
-                    child: _ShapeView(
-                      shape: shape,
-                      spokenName: '${simpler!.root} '
-                          '${simpler!.qualityName.toLowerCase()}',
-                    ),
-                  ),
-              ],
-            )
-          else if (reference.shapes.isNotEmpty)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                for (final shape in reference.shapes)
-                  Expanded(
-                    child: _ShapeView(
-                      shape: shape,
-                      // "G major", not "G" — a screen reader spells a bare
-                      // chord symbol out letter by letter, and `Gm7` comes
-                      // out as noise. The sheet already knows the long form.
-                      spokenName: '${reference.root} '
-                          '${reference.qualityName.toLowerCase()}',
-                    ),
-                  ),
-              ],
-            ),
+          _ChordPicture(
+            reference: simpler ?? reference,
+            shapes: shapes,
+            leftHanded: leftHanded,
+          ),
           if (simpler != null)
             _Note(
               key: const Key('simpler_shape_said'),
@@ -670,11 +737,6 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
   late String? _songKey = widget.songKey;
   late bool _overridden = widget.overridden;
 
-  /// Whether this person is offered the plain chord inside an extended one.
-  /// App-wide rather than per song — see SimplerShapesStore — so it is read
-  /// from what this session holds and written back on the tap.
-  bool _simpler = SimplerShapesStore.held;
-
   /// The capo this song's own chords ask for, worked out once: it depends on
   /// the chords and on nothing this sheet can change.
   late final CapoThatHelps? _helpfulCapo = capoThatHelps(widget.chords);
@@ -687,11 +749,17 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
   /// Why the last key did not land, said under the chords that were tapped.
   String? _refused;
 
-  /// A capo is a guitar answer about the key the band is in. Worked out from
-  /// a written key it names frets that put the guitar a tone away from
-  /// everybody else, so it is only ever in play in concert pitch — the same
-  /// rule the capo chart itself has followed since the horn reading landed.
-  int get _capoOffset => _reading == HornReading.concert ? _capo : 0;
+  /// A capo is a fretting hand's answer about the key the band is in. Worked
+  /// out from a written key it names frets that put the guitar a tone away
+  /// from everybody else, so it is only ever in play in concert pitch — the
+  /// same rule the capo chart itself has followed since the horn reading
+  /// landed — and it says nothing at all to somebody reading a keyboard or a
+  /// bass, which have no capo on them (Every Musician, Same Song, 17
+  /// September 2026).
+  bool get _capoApplies =>
+      _reading == HornReading.concert && ShapeReadingStore.held.takesACapo;
+
+  int get _capoOffset => _capoApplies ? _capo : 0;
 
   /// How far this person has moved the song, read off the two keys the sheet
   /// was opened with, so a key set from here lands where their own key puts
@@ -729,11 +797,6 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
     if (capo == _capo) return;
     setState(() => _capo = capo);
     widget.onCapo?.call(capo);
-  }
-
-  void _chooseSimpler(bool simpler) {
-    setState(() => _simpler = simpler);
-    unawaited(SimplerShapesStore.save(simpler));
   }
 
   /// Says where the 1 is. The sheet redraws in the new key straight away, so
@@ -910,24 +973,11 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
           ),
           const SizedBox(height: 14),
           // Beside the other readings, because that is what it is: the same
-          // song, drawn the way this pair of hands can play it today. One
-          // chip, no explanation — the line under the first simplified chord
-          // says what it does (Every Musician, Same Song, 17 September 2026).
-          _Section(
-            heading: 'Shapes',
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                _PickerChip(
-                  label: 'Simpler shapes',
-                  itemKey: const Key('simpler_shapes'),
-                  selected: _simpler,
-                  onTap: () => _chooseSimpler(!_simpler),
-                ),
-              ],
-            ),
-          ),
+          // song, drawn for the instrument in this person's hands and the way
+          // that pair of hands can play it today. No explanation — the line
+          // under the first simplified chord says what that one does (Every
+          // Musician, Same Song, 17 September 2026).
+          _ShapesSection(onChanged: () => setState(() {})),
           const SizedBox(height: 14),
         ],
         _Section(
@@ -971,13 +1021,14 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
             ],
           ),
         ),
-        // Only in concert pitch. A capo is a guitar answer about the key the
-        // band is in; worked out from a written key it names frets that put
-        // the guitar a tone away from everybody else, and it means nothing at
-        // all to the instrument the reading was chosen for. The scale, the
-        // pentatonic and the chords above are right in the written key and
-        // stay (review, 17 September 2026).
-        if (_reading == HornReading.concert) ...<Widget>[
+        // Only in concert pitch, and only for an instrument with frets under
+        // the hand. A capo is an answer about the key the band is in; worked
+        // out from a written key it names frets that put the guitar a tone
+        // away from everybody else, and it means nothing at all to the
+        // instrument the reading was chosen for — nor to a keyboard or a bass.
+        // The scale, the pentatonic and the chords above are right in the
+        // written key and stay (review, 17 September 2026).
+        if (_capoApplies) ...<Widget>[
           const SizedBox(height: 14),
           if (capoFrets.isEmpty && _capo == 0)
             const _Note(
@@ -1173,25 +1224,120 @@ class _SheetFrame extends StatelessWidget {
   }
 }
 
+/// The chord, drawn for whichever instrument this person reads shapes for.
+///
+/// Every Musician, Same Song, 17 September 2026: the same chord, four
+/// pictures. A uke player, a bass player and a pianist were all being handed a
+/// six-string guitar, and a left-handed guitarist was being handed it the
+/// wrong way round.
+class _ChordPicture extends StatelessWidget {
+  const _ChordPicture({
+    required this.reference,
+    required this.shapes,
+    required this.leftHanded,
+  });
+
+  final ChordReference reference;
+  final ShapeReading shapes;
+  final bool leftHanded;
+
+  /// "G major", not "G" — a screen reader spells a bare chord symbol out
+  /// letter by letter, and `Gm7` comes out as noise. The sheet already knows
+  /// the long form.
+  ///
+  /// The bass of a slash chord comes with it only where it is drawn: on a
+  /// guitar or a uke that note is the bass player's and no shape here has ever
+  /// had it in.
+  String _spokenName({required bool withBass}) {
+    final name = '${reference.root} ${reference.qualityName.toLowerCase()}';
+    final bass = reference.bassNote;
+    return withBass && bass != null ? '$name over $bass' : name;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    switch (shapes) {
+      case ShapeReading.guitar:
+      case ShapeReading.ukulele:
+        final uke = shapes == ShapeReading.ukulele;
+        final drawn =
+            uke ? ukuleleShapesFor(reference.display) : reference.shapes;
+        if (drawn.isEmpty) {
+          return uke
+              ? const _Note(
+                  key: Key('no_ukulele_shape'),
+                  'No ukulele shape stored for this one. The notes in it are '
+                  'below either way.',
+                )
+              : const SizedBox.shrink();
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            for (final shape in drawn)
+              Expanded(
+                child: _ShapeView(
+                  shape: shape,
+                  spokenName: _spokenName(withBass: false),
+                  strings: uke ? ukuleleStrings : guitarStrings,
+                  mirrored: leftHanded,
+                ),
+              ),
+          ],
+        );
+      case ShapeReading.bass:
+        return Center(
+          key: const Key('bass_neck_diagram'),
+          child: BassNeckDiagram(
+            positions: bassPositionsFor(reference.display),
+            spokenName: _spokenName(withBass: true),
+            leftHanded: leftHanded,
+          ),
+        );
+      case ShapeReading.piano:
+        return Center(
+          key: const Key('piano_keys_diagram'),
+          child: PianoKeysDiagram(
+            keys: pianoKeysFor(reference.display),
+            spokenName: _spokenName(withBass: true),
+          ),
+        );
+    }
+  }
+}
+
 class _ShapeView extends StatelessWidget {
-  const _ShapeView({required this.shape, required this.spokenName});
+  const _ShapeView({
+    required this.shape,
+    required this.spokenName,
+    required this.strings,
+    required this.mirrored,
+  });
 
   final ChordShape shape;
 
   /// What the chord is called out loud. See the call site.
   final String spokenName;
 
+  /// The strings of the instrument this shape is for, low to high.
+  final List<String> strings;
+
+  /// Whether the neck is drawn the way a left-handed player sees it.
+  final bool mirrored;
+
   @override
   Widget build(BuildContext context) {
+    final chord = ChordDiagramData(
+      name: shape.name,
+      frets: shape.frets,
+      baseFret: shape.baseFret,
+      spokenName: spokenName,
+      strings: strings,
+    );
     return Column(
       children: <Widget>[
-        GuitarChordDiagram(
-          chord: ChordDiagramData(
-            name: shape.name,
-            frets: shape.frets,
-            baseFret: shape.baseFret,
-            spokenName: spokenName,
-          ),
+        FrettedChordDiagram(
+          chord: mirrored ? mirrorForLeftHand(chord) : chord,
           size: 112,
         ),
         const SizedBox(height: 4),

@@ -118,7 +118,7 @@ void main() {
     );
     await tester.pumpWidget(const Directionality(
       textDirection: TextDirection.ltr,
-      child: Center(child: GuitarChordDiagram(chord: chord)),
+      child: Center(child: FrettedChordDiagram(chord: chord)),
     ));
 
     final semantics = tester.widget<Semantics>(

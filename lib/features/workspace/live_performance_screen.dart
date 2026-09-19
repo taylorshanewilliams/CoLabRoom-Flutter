@@ -783,6 +783,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     unawaited(_loadTranspose());
     unawaited(_loadReading());
     unawaited(_loadCapo());
+    // Entering Perform straight from a set on a cold start reaches here before
+    // anything has read the shape reading back, so it is warmed rather than
+    // assumed: the listener below is what turns the answer into a redraw.
+    unawaited(ShapeReadingStore.warm());
+    ShapeReadingStore.changes.addListener(_shapesChanged);
     unawaited(_loadNumbers());
     unawaited(_loadMelodyReading());
     final missing = widget.missing;
@@ -1154,6 +1159,20 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _markOffsetsDirty();
   }
 
+  /// Which instrument's shapes this person reads, held for the whole app
+  /// rather than per song. Perform never offers the choice — it is made on
+  /// the song sheet — but it has to follow it, because a capo says nothing to
+  /// a pianist or a bass player. Without this the same person's song sheet
+  /// and stage view printed chords a minor third apart, and the capo rows
+  /// that would have let them fix it are hidden for those two readings
+  /// (review, 19 September 2026).
+  void _shapesChanged() {
+    if (!mounted) return;
+    setState(() {});
+    // The chord row is redrawn in another key, so the words wrap elsewhere.
+    _markOffsetsDirty();
+  }
+
   Future<void> _loadNumbers() async {
     final style = await SongNumbersStore.load(widget.project.id);
     final minor = await MinorNumbersStore.load();
@@ -1276,6 +1295,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
 
   @override
   void dispose() {
+    ShapeReadingStore.changes.removeListener(_shapesChanged);
     // Closing the song keeps what was worked on, quietly: the ending the
     // session sends after this screen is gone has nobody left to hear it, and
     // a solo session has nothing to announce the end of at all. Both marks
@@ -2850,9 +2870,16 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final songKey = widget.project.songKey(
       widget.analysis?.reference?.musicalKey,
     );
-    // A capo is a guitar answer about the key the band is in, so it is only
-    // ever in play in concert pitch -- see the capo rows in the key sheet.
-    final capo = _reading == HornReading.concert ? _capo : 0;
+    // A capo is a fretting hand's answer about the key the band is in, so it
+    // is only ever in play in concert pitch, and only for an instrument that
+    // can wear one: a pianist and a bass player read the chords as they sound
+    // (Every Musician, Same Song, 17 September 2026). The song sheet and the
+    // key sheet follow the same two rules, and this page has to agree with
+    // them about the same song for the same person.
+    final capo = _reading == HornReading.concert &&
+            ShapeReadingStore.held.takesACapo
+        ? _capo
+        : 0;
     // The typed words have no chords over them, so no key to be in either.
     // Nor does a sheet with its chords turned off: somebody reading only the
     // words has said they do not want the harmony, and a key over bare
