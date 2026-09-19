@@ -68,9 +68,9 @@ void main() {
 
     // "Lyrics, tap anywhere and start writing…": the name first, and the hint
     // after it while there is still nothing in the field. The hint is a
-    // painted `Text` rather than a semantics hint, so merging picks it up as
-    // part of the name — which is the right thing to hear, and it goes away
-    // by itself as soon as there are words.
+    // painted `Text` rather than a semantics hint, so it folds into the name
+    // — which is the right thing to hear, and it goes away by itself as soon
+    // as there are words.
     final data = _spoken(tester, _words);
     expect(data.label, startsWith('Lyrics'));
     expect(data.flagsCollection.isTextField, isTrue,
@@ -147,15 +147,24 @@ void main() {
     );
     await tester.enterText(pasted, 'First lyric line\nSecond lyric line');
     await tester.pumpAndSettle();
-    expect(_spoken(tester, pasted).label, 'Lyrics',
+    final pastedData = _spoken(tester, pasted);
+    expect(pastedData.label, 'Lyrics',
         reason: 'the pasting field keeps its name once there is text in it');
+    // The name and the words on the same node. Without this the test would
+    // pass just as well on the shape that must not ship: an empty "Lyrics"
+    // field a reader stops on first, with the real, still-unnamed one under
+    // it. `tester.getSemantics` walks up to the first node it finds, so only
+    // the value proves which node the name landed on.
+    expect(pastedData.value, contains('First lyric line'));
 
     await tester.tap(find.text('Review'));
     await tester.pumpAndSettle();
 
     final reviewed = find.byType(TextField);
-    expect(_spoken(tester, reviewed).label, 'Lyrics',
+    final reviewedData = _spoken(tester, reviewed);
+    expect(reviewedData.label, 'Lyrics',
         reason: 'the review field never had any words of its own at all');
+    expect(reviewedData.value, contains('First lyric line'));
 
     semantics.dispose();
   });

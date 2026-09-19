@@ -226,15 +226,22 @@ class _ProblemReportSheetState extends State<_ProblemReportSheet> {
                   setState(() => _category = selection.first),
             ),
             const SizedBox(height: 14),
-            TextField(
-              controller: _message,
-              autofocus: true,
-              minLines: 3,
-              maxLines: 6,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
-                hintText: 'What were you trying to do?',
-                border: OutlineInputBorder(),
+            // The hint was this field's only words, and it stops being built
+            // as soon as anything is typed — so somebody swiping back to
+            // what they had written heard it read out with nothing saying
+            // what it was (#403's report, 18 September 2026).
+            Semantics(
+              label: 'Your report',
+              child: TextField(
+                controller: _message,
+                autofocus: true,
+                minLines: 3,
+                maxLines: 6,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(
+                  hintText: 'What were you trying to do?',
+                  border: OutlineInputBorder(),
+                ),
               ),
             ),
             if (widget._machineHalf != null) ...<Widget>[

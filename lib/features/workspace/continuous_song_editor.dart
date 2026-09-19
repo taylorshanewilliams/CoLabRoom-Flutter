@@ -647,42 +647,43 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
                         // node's value and never once said what the field
                         // was (#403's own report, 18 September 2026).
                         //
-                        // Merged rather than a bare `Semantics`: an
-                        // annotation above a text field makes a second node,
-                        // and a reader would then stop on an empty "Lyrics"
-                        // before reaching the real one. Merging gives the one
-                        // node `labelText` would have given — name, value,
-                        // role and the editing actions together — without
-                        // `labelText`'s extra line of layout.
-                        child: MergeSemantics(
-                          child: Semantics(
-                            textField: true,
-                            label: 'Lyrics',
-                            child: TextField(
-                              key: const Key('continuous_song_document'),
-                              controller: widget.controller.text,
-                              focusNode: widget.controller.focusNode,
-                              maxLines: null,
-                              minLines: compact ? 10 : 18,
-                              keyboardType: TextInputType.multiline,
-                              textInputAction: TextInputAction.newline,
-                              textCapitalization: TextCapitalization.sentences,
-                              cursorColor: AppColors.cyan,
-                              selectionControls: materialTextSelectionControls,
-                              style: style,
-                              decoration: const InputDecoration(
-                                filled: false,
-                                isDense: true,
-                                border: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                focusedBorder: InputBorder.none,
-                                // Directional, so the padding that keeps the
-                                // words clear of the rail is on the side the
-                                // rail is on (0163).
-                                contentPadding:
-                                    EdgeInsetsDirectional.fromSTEB(0, 4, 4, 16),
-                                hintText: 'Tap anywhere and start writing…',
-                              ),
+                        // The name only, with no role beside it: the field
+                        // already says it is a text field, and repeating that
+                        // is what splits it in two. Two configurations
+                        // claiming the same flag cannot merge, so
+                        // `Semantics(textField: true, …)` becomes a separate,
+                        // empty "Lyrics" node above the real one — a reader
+                        // stops on it first and it carries none of the
+                        // editing actions. A plain label folds into the
+                        // field's own node and gives exactly what `labelText`
+                        // gives — name, value, role and actions together —
+                        // without `labelText`'s extra line of layout.
+                        child: Semantics(
+                          label: 'Lyrics',
+                          child: TextField(
+                            key: const Key('continuous_song_document'),
+                            controller: widget.controller.text,
+                            focusNode: widget.controller.focusNode,
+                            maxLines: null,
+                            minLines: compact ? 10 : 18,
+                            keyboardType: TextInputType.multiline,
+                            textInputAction: TextInputAction.newline,
+                            textCapitalization: TextCapitalization.sentences,
+                            cursorColor: AppColors.cyan,
+                            selectionControls: materialTextSelectionControls,
+                            style: style,
+                            decoration: const InputDecoration(
+                              filled: false,
+                              isDense: true,
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              // Directional, so the padding that keeps the
+                              // words clear of the rail is on the side the
+                              // rail is on (0163).
+                              contentPadding:
+                                  EdgeInsetsDirectional.fromSTEB(0, 4, 4, 16),
+                              hintText: 'Tap anywhere and start writing…',
                             ),
                           ),
                         ),

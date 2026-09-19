@@ -283,7 +283,10 @@ List<Finding> auditTapTargets(WidgetTester tester) {
 /// `InkWell` wrapping an `Icon` — both of which look completely finished.
 ///
 /// "Nothing at all" means no label, no tooltip, no value and no hint, the
-/// same four [_namedAbove] counts for a painting.
+/// same four [_namedAbove] counts for a painting. A control that announces a
+/// value is heard, so it is not reported under that sentence — but a text
+/// field is reported under its own, because what somebody has typed is a
+/// value and never a name.
 List<Finding> auditLabels(WidgetTester tester) {
   final findings = <Finding>[];
   final seen = <String>{};
@@ -313,13 +316,35 @@ List<Finding> auditLabels(WidgetTester tester) {
     // both heard; calling either of them "announces nothing" is false, and
     // two rules in the same report disagreeing about what counts as speech
     // is how a report stops being believed.
-    //
-    // WCAG 2.2 SC 4.1.2 does ask for a name as well as a value, so a field
-    // that only announces what is typed in it is still worth fixing — the
-    // lyric editor was the live example, and is named now. But that is a
-    // different sentence from this one, and this rule prints this one.
     if (data.label.trim().isNotEmpty) return;
     if (data.tooltip.trim().isNotEmpty) return;
+    // A text field is the one control that is routinely heard without ever
+    // being introduced: what somebody has typed arrives as the node's value,
+    // so the field says the song back and never says it is the song. WCAG
+    // 2.2 SC 4.1.2 asks for a name as well as a value, and #403 asked for
+    // this to stay a finding in words that are true of it — so it keeps its
+    // own sentence rather than losing the one it had. The lyric editor was
+    // the live example and is named now; this is what catches the next one.
+    //
+    // Only once there is text in it. While a field is empty the hint is
+    // painted, and a painted hint merges into the label, so an empty field
+    // reads as named and leaves before here. That is a real limit of walking
+    // screens nobody has typed into, and it is why the four fields this
+    // slice names were found by reading the source rather than by the walk.
+    if (data.flagsCollection.isTextField) {
+      final key = 'field|${rect.left.round()},${rect.top.round()}'
+          ',${rect.width.round()}x${rect.height.round()}';
+      if (!seen.add(key)) return;
+      findings.add(Finding(
+        rule: 'Unnamed text field',
+        standard: 'WCAG 2.2 SC 4.1.2 (A)',
+        detail: 'a text field ${rect.width.round()}x${rect.height.round()} '
+            'at (${rect.left.round()}, ${rect.top.round()}) announces what is '
+            'typed in it but not what it is',
+        severity: Severity.fails,
+      ));
+      return;
+    }
     if (data.value.trim().isNotEmpty) return;
     if (data.hint.trim().isNotEmpty) return;
     // A node whose children carry the text — a card wrapping a Text — is
