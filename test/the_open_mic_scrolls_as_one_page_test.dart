@@ -26,6 +26,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// rewrite of a screen's scrolling is most likely to break on the way past —
 /// where the room is when you come back from somebody, and whether anything
 /// moved at all for a reader at the ordinary text size.
+
 /// A room with more people in it than a screen holds.
 ///
 /// The preview seeds three, which at twice normal text is a list shorter than
