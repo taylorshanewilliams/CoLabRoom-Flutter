@@ -13,6 +13,7 @@ import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
 import '../../domain/music_models.dart';
 import '../../services/current_route.dart';
+import '../../services/error_reporter.dart';
 import '../../services/kept_songs.dart';
 import '../../services/now_playing.dart';
 import '../../services/picture_for_upload.dart';
@@ -231,9 +232,27 @@ class _AccountScreenState extends State<AccountScreen> {
       ),
     );
     if (confirmed != true || !context.mounted) return;
+    final repository = BetaScope.of(context, listen: false).repository;
     try {
       final client = widget.supabase;
       if (client == null) return;
+      // The photographs first, while this account still exists and its own
+      // token can delete them. `delete_my_account` takes the rows with the
+      // profile, but SQL is not allowed to delete a stored object — so
+      // without this, up to eight personal pictures stay in the bucket after
+      // the person and every row that named them are gone: nothing left to
+      // take them down through, and a line on the bill paid every month
+      // forever. Best effort, because a cleanup that fails must never be the
+      // reason somebody cannot leave.
+      try {
+        await repository.removeAllGalleryPictures();
+      } catch (error) {
+        unawaited(ErrorReporter().reportWarning(
+          service: 'app',
+          stage: 'delete_account_pictures',
+          message: error.toString(),
+        ));
+      }
       await client.rpc<void>('delete_my_account');
       await PushRegistration.forget();
       await NowPlaying.instance.forget();

@@ -268,6 +268,46 @@ abstract interface class MusicRepository {
 
   Future<void> removeShowcaseLink(String linkId);
 
+  /// The pictures on somebody's profile, in the order they put them in.
+  ///
+  /// Somebody else's arrive already filtered: only pictures that have been
+  /// looked at, and only from a profile you could already open. Your own
+  /// arrive whether they have been looked at or not, each saying which.
+  Future<List<GalleryPicture>> loadGallery(String profileId);
+
+  /// Puts one picture on your own profile.
+  ///
+  /// [bytes] are uploaded as they are given — shrink and re-encode them
+  /// first, which is what `PictureForUpload.forGallery` is for. [songId] must
+  /// be one of your own songs that is already on the Open Mic; the server
+  /// refuses anything else, because a picture that plays a song in a private
+  /// room would be a way into a room nobody was let into.
+  ///
+  /// Throws with the server's own sentence when the profile already has
+  /// eight, and [PictureRefused] when the picture was looked at and turned
+  /// down.
+  Future<void> addGalleryPicture({
+    required Uint8List bytes,
+    String caption,
+    String? songId,
+  });
+
+  /// Takes one of your own pictures off your profile, and deletes the image.
+  Future<void> removeGalleryPicture(String pictureId);
+
+  /// Deletes the stored image behind every one of your own pictures.
+  ///
+  /// For deleting an account, and only for that. The rows go with the profile
+  /// — every target column cascades — but SQL cannot delete a stored object,
+  /// so without this the photographs stay in the bucket after the person and
+  /// the rows that named them are gone, with nothing left to take them down
+  /// through and a bill paid on them every month forever. Best effort: a
+  /// cleanup that fails must not stop somebody leaving.
+  Future<void> removeAllGalleryPictures();
+
+  /// The image itself.
+  Future<Uint8List> loadGalleryImage(String storagePath);
+
   /// The city you and [profileId] turn out to share, if you have made
   /// something together and they allow it. Null otherwise, which is the
   /// normal case and not an error.
@@ -467,6 +507,7 @@ abstract interface class MusicRepository {
     String? layerId,
     String? linkId,
     String? roomId,
+    String? pictureId,
   });
 
   /// Songs you are on and could offer to [profileId], newest first.
@@ -516,12 +557,20 @@ abstract interface class MusicRepository {
   /// catches the ordinary case before it is seen.
   ///
   /// Never throws. A moderation call that fails must not stop somebody
-  /// having a profile picture — the report path still exists.
-  Future<void> checkPicture({
-    required String bucket,
-    required String path,
+  /// having a profile picture — the report path still exists. Returns true
+  /// only when the picture was actually looked at and refused, which is the
+  /// one answer somebody has to be told about.
+  ///
+  /// [bucket] and [path] say what to look at for an avatar or a room logo.
+  /// A gallery picture takes neither: the server reads the object out of the
+  /// row named by [subject], because a caller that could name the row and the
+  /// object separately could have one picture looked at and a different one
+  /// passed.
+  Future<bool> checkPicture({
     required String kind,
     required String subject,
+    String? bucket,
+    String? path,
   });
 
   /// A room, a first song and an invitation, in one call.
@@ -1138,4 +1187,20 @@ abstract interface class MusicRepository {
   void resumeLiveUpdates();
 
   void dispose();
+}
+
+/// A picture was looked at and turned down.
+///
+/// Its own type because the sentence is an answer rather than a fault: a
+/// screen should say it plainly and must not offer to file a bug about it.
+/// Without it, adding a refused picture closed the sheet like a success and
+/// simply left nothing on the profile — a general-purpose classifier will
+/// sometimes refuse an innocent photograph of a gig, and somebody told
+/// nothing tries again, leaving another stored object behind each time.
+class PictureRefused implements Exception {
+  const PictureRefused();
+
+  @override
+  String toString() => 'That picture could not go on your profile. '
+      'Somebody will take a look.';
 }

@@ -1118,6 +1118,114 @@ class InMemoryMusicRepository implements MusicRepository {
     _showcase.removeWhere((link) => link.id == linkId);
   }
 
+  /// Pictures, by whose profile they are on.
+  ///
+  /// Mara has two, one of them tied to a song she owns, so a stranger's page
+  /// draws a real strip in a preview build. Yours starts empty, which is the
+  /// state that matters: it is the one the empty door has to be worth
+  /// looking at in.
+  final Map<String, List<GalleryPicture>> _galleries =
+      <String, List<GalleryPicture>>{
+    'preview-mara': <GalleryPicture>[
+      const GalleryPicture(
+        id: 'preview-picture-1',
+        storagePath: 'preview-mara/gallery/bird.png',
+        caption: 'The Bird, October',
+        songId: 'preview-open-1',
+        songTitle: 'Ladder Of Life',
+        songStoragePath: 'preview/ladder.m4a',
+        songDurationMs: 184000,
+      ),
+      const GalleryPicture(
+        id: 'preview-picture-2',
+        storagePath: 'preview-mara/gallery/pedalboard.png',
+      ),
+      // One nobody has looked at yet. It is here on purpose: a stranger must
+      // never be handed it, and the preview is where that is easy to get
+      // wrong without noticing.
+      const GalleryPicture(
+        id: 'preview-picture-3',
+        storagePath: 'preview-mara/gallery/waiting.png',
+        waiting: true,
+      ),
+    ],
+  };
+
+  int _picturesAdded = 0;
+
+  @override
+  Future<List<GalleryPicture>> loadGallery(String profileId) async {
+    final all = _galleries[profileId] ?? const <GalleryPicture>[];
+    if (profileId == currentUserId) {
+      return List<GalleryPicture>.unmodifiable(all);
+    }
+    // What the server does before it answers about anybody else (0171): a
+    // picture nobody has looked at is nobody else's to see.
+    return List<GalleryPicture>.unmodifiable(
+      all.where((picture) => !picture.waiting),
+    );
+  }
+
+  @override
+  Future<void> addGalleryPicture({
+    required Uint8List bytes,
+    String caption = '',
+    String? songId,
+  }) async {
+    final mine = _galleries.putIfAbsent(currentUserId, () => <GalleryPicture>[]);
+    // The cap from 0171's profile_pictures_capped trigger, raised the same
+    // way the server raises it — 54000 with the server's own wording — so the
+    // sentence a full gallery shows can be seen by hand in a preview build.
+    if (mine.length >= 8) {
+      throw PostgrestException(
+        message: 'A profile can show up to eight pictures.',
+        code: '54000',
+      );
+    }
+    // Your own song, and one that is already on the Open Mic. The preview
+    // refuses what the server refuses, with the server's sentence.
+    OpenMicSong? song;
+    if (songId != null) {
+      for (final each in await songsBy(currentUserId)) {
+        if (each.id == songId && each.ownerId == currentUserId) song = each;
+      }
+      if (song == null) {
+        throw StateError(
+          'A picture can play one of your own songs that is on the Open Mic.',
+        );
+      }
+    }
+    _picturesAdded += 1;
+    mine.add(GalleryPicture(
+      id: 'preview-picture-added-$_picturesAdded',
+      storagePath: '$currentUserId/gallery/added-$_picturesAdded.png',
+      caption: caption.trim(),
+      songId: song?.id,
+      songTitle: song?.title,
+      songStoragePath: song?.storagePath ?? '',
+      songDurationMs: song?.durationMs,
+    ));
+  }
+
+  @override
+  Future<void> removeGalleryPicture(String pictureId) async {
+    for (final gallery in _galleries.values) {
+      gallery.removeWhere((picture) => picture.id == pictureId);
+    }
+  }
+
+  @override
+  Future<void> removeAllGalleryPictures() async {
+    _galleries.remove(currentUserId);
+  }
+
+  @override
+  Future<Uint8List> loadGalleryImage(String storagePath) async {
+    // Nothing to download without a server, and a page of initials-coloured
+    // blocks is a perfectly good preview of a gallery.
+    throw StateError('No picture in the preview.');
+  }
+
   @override
   Future<String?> sharedCityWith(String profileId) async => 'Glasgow';
 
@@ -1778,6 +1886,22 @@ class InMemoryMusicRepository implements MusicRepository {
 
   @override
   Future<List<OpenMicSong>> songsBy(String profileId) async {
+    // One of your own, out in the open — which is what a picture is allowed
+    // to play (0171), so the preview can show a photograph that plays a song.
+    if (profileId == currentUserId) {
+      return <OpenMicSong>[
+        OpenMicSong(
+          id: 'preview-open-mine',
+          title: 'Midnight Signal',
+          ownerId: currentUserId,
+          ownerName: 'You',
+          putUpAt: DateTime.now().subtract(const Duration(days: 4)),
+          takeCount: 2,
+          storagePath: 'preview/midnight.m4a',
+          durationMs: 167000,
+        ),
+      ];
+    }
     // Mara owns one and played on the other, which is the pair worth
     // previewing: the section has to read correctly both ways.
     if (profileId != 'preview-mara') return const <OpenMicSong>[];
@@ -2311,6 +2435,7 @@ class InMemoryMusicRepository implements MusicRepository {
     String? layerId,
     String? linkId,
     String? roomId,
+    String? pictureId,
   }) async {}
 
   @override
@@ -2372,13 +2497,14 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<void> checkPicture({
-    required String bucket,
-    required String path,
+  Future<bool> checkPicture({
     required String kind,
     required String subject,
+    String? bucket,
+    String? path,
   }) async {
-    // Nothing to call in the preview.
+    // Nothing to call in the preview, so nothing is ever refused by it.
+    return false;
   }
 
   @override

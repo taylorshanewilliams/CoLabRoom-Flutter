@@ -66,4 +66,55 @@ class PictureForUpload {
       return bytes;
     }
   }
+
+  /// The same, for a picture going on a profile's gallery (0171).
+  ///
+  /// Two differences, both because of what a gallery picture is: a photograph
+  /// of a place, on a page strangers read, rather than a face in a circle.
+  ///
+  /// It **always** re-encodes, even when the picture is already small enough.
+  /// [shrink] hands back the original bytes untouched in that case, and the
+  /// original bytes of a phone photo carry EXIF — which on an ordinary snap
+  /// means the time it was taken and very often where. Decoding to pixels and
+  /// encoding a fresh PNG leaves that behind. Nothing is inferred about a
+  /// person in this app (Every Musician, Same Song, 17 September 2026), and a
+  /// photograph that quietly carried a house's coordinates onto a profile
+  /// would be the largest inference of all.
+  ///
+  /// And it **refuses** rather than falling back. A picture this phone cannot
+  /// decode is one it cannot strip, and a gallery can do without a picture in
+  /// a format nobody here can read.
+  static Future<Uint8List> forGallery(Uint8List bytes) async {
+    final ui.Codec codec;
+    try {
+      final probe = await ui.instantiateImageCodec(bytes);
+      final first = await probe.getNextFrame();
+      final width = first.image.width;
+      final height = first.image.height;
+      first.image.dispose();
+
+      codec = width <= longestSide && height <= longestSide
+          ? await ui.instantiateImageCodec(bytes)
+          : width >= height
+              ? await ui.instantiateImageCodec(bytes, targetWidth: longestSide)
+              : await ui.instantiateImageCodec(bytes, targetHeight: longestSide);
+    } catch (_) {
+      throw const PictureThisPhoneCannotRead();
+    }
+
+    final frame = await codec.getNextFrame();
+    final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+    frame.image.dispose();
+    if (data == null) throw const PictureThisPhoneCannotRead();
+    return data.buffer.asUint8List();
+  }
+}
+
+/// Said in words somebody can act on: try a different picture.
+class PictureThisPhoneCannotRead implements Exception {
+  const PictureThisPhoneCannotRead();
+
+  @override
+  String toString() => 'That picture could not be read on this phone. '
+      'One from the camera roll works.';
 }

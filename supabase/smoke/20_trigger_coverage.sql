@@ -125,7 +125,19 @@ insert into smoke_covered (name) values
   ('room_members_leaving_takes_the_songs'),
   -- 0166. The scenario moves a song into a room one set's owner is in and
   -- another's is not, and asserts it left exactly one of the two sets.
-  ('projects_a_moved_song_leaves_sets');
+  ('projects_a_moved_song_leaves_sets'),
+  -- 0171. The scenario puts eight pictures on a profile and asserts the
+  -- ninth was refused in the server's own words, then takes one down and
+  -- asserts the place it held came free. That second half is the one easy
+  -- to lose: a picture removed by moderation must not leave its owner stuck
+  -- at seven with something they cannot see.
+  ('profile_pictures_capped'),
+  -- 0171. The scenario ties a picture to a song of the owner's that is not
+  -- on the Open Mic, and to somebody else's song, and asserts both refusals.
+  -- Nothing else refuses either: gallery_for re-checks the tie at read time
+  -- but only by untying it, so with this dead a picture could be a way into
+  -- a private room and every other assertion in that block would still pass.
+  ('profile_pictures_song_is_your_own');
 
 -- Not fired, and a deliberate choice rather than an oversight. Each of these
 -- is the same one-line `set updated_at = now()` body on a table the scenario
