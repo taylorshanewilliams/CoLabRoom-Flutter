@@ -163,7 +163,15 @@ class NowPlaying extends ChangeNotifier {
   }) async {
     if (storagePath.isEmpty) return;
     _wire();
-    await _player.stop();
+    try {
+      await _player.stop();
+    } catch (_) {
+      // Whatever was loaded is not stopping, and that is not this caller's
+      // problem: play() swallows playback failures everywhere else in the
+      // method, and a tap on a row in a feed must not throw out of the button
+      // that was pressed. Left outside the try below on purpose -- the old
+      // track has to stop before the new path is taken, not after it signs.
+    }
     _path = storagePath;
     _title = title;
     _byline = byline;
