@@ -2856,6 +2856,11 @@ class SupabaseMusicRepository implements MusicRepository {
             ? 'A student'
             : (row['student_name'] as String).trim(),
         storagePath: row['storage_path'] as String? ?? '',
+        // Where the take sits on the song, so a note pinned while listening
+        // is filed at the bar it was heard at rather than at the same number
+        // of seconds into the song (0045, 0141).
+        startMs: (row['start_ms'] as num?)?.round() ?? 0,
+        offsetMs: (row['offset_ms'] as num?)?.round() ?? 0,
       );
 
   @override

@@ -1123,6 +1123,7 @@ class InMemoryMusicRepository implements MusicRepository {
     String? by,
     bool shared = true,
     int startMs = 0,
+    int offsetMs = 0,
   }) {
     final id = _id('take');
     final who = by ?? currentUserId;
@@ -1133,6 +1134,7 @@ class InMemoryMusicRepository implements MusicRepository {
       part: part,
       shared: shared,
       startMs: startMs,
+      offsetMs: offsetMs,
     ));
     // A take shared onto a song that is already out there asks its own
     // player, whoever they are, the way the trigger in 0155 does.
@@ -3458,6 +3460,8 @@ class InMemoryMusicRepository implements MusicRepository {
         studentId: take.recordedBy,
         studentName: student?.displayName ?? 'A student',
         storagePath: take.storagePath,
+        startMs: take.startMs,
+        offsetMs: take.offsetMs,
       ));
     }
     return List<SentTake>.unmodifiable(came);
@@ -4034,6 +4038,7 @@ class _TakeOnSong {
     required this.part,
     this.shared = true,
     this.startMs = 0,
+    this.offsetMs = 0,
   });
 
   final String id;
@@ -4047,9 +4052,14 @@ class _TakeOnSong {
   /// able to say which row it is playing (0151).
   String get storagePath => '$projectId/layers/$id.m4a';
 
-  /// Where on the song it begins (0045). Only a round reads it: a turn
-  /// starts on the round's passage.
+  /// Where on the song it begins (0045). A round reads it, and so does the
+  /// listening desk: a note pinned on a take punched in at the last chorus
+  /// belongs at the last chorus of the song (0151).
   final int startMs;
+
+  /// The latency trim dropped off the front of the recording (0038), which
+  /// is the other half of turning the take's clock into the song's.
+  final int offsetMs;
 
   /// The same take once the room can hear it, which is what handing a turn
   /// in does to a draft.
@@ -4059,6 +4069,7 @@ class _TakeOnSong {
         recordedBy: recordedBy,
         part: part,
         startMs: startMs,
+        offsetMs: offsetMs,
       );
 }
 

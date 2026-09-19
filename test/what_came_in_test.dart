@@ -26,8 +26,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// one that came in last is the last. A row says who played it and what the
 /// song is, and says nothing else: there is no date on the screen because
 /// there is no date in the answer. The keys are the pass: Space plays, N
-/// pins a note at the playhead, Enter moves on. And it is reachable, from
-/// the lesson link screen and from Home when something has arrived.
+/// pins a note at the playhead, Enter moves on -- and a phone, which has no
+/// N, can still answer, at a moment that is a place in the song and not a
+/// place in the take's file. And it is reachable, from the lesson link
+/// screen whether or not a link is open, and from Home when something has
+/// arrived.
 
 /// A player a test can press Space at.
 ///
@@ -362,6 +365,51 @@ void main() {
       expect(notes.single.body, 'you rushed into the turnaround');
     });
 
+    testWidgets('a note lands where it was heard in the song, not in the file',
+        (tester) async {
+      final repository = InMemoryMusicRepository.seeded();
+      final hers = repository.teachALesson(
+        studentId: 'student-maya',
+        studentName: 'Maya',
+      );
+      final song = await repository.createSong(room: hers, title: 'Gymnopédie no 1');
+      // Punched in at the last chorus, with a tenth of a second of latency
+      // trimmed off the front: the take begins at 1:30 of the song and at
+      // 0:00 of its own file (0045).
+      final take = repository.recordTake(
+        song.id,
+        part: 'piano',
+        by: 'student-maya',
+        startMs: 90000,
+        offsetMs: 120,
+      );
+
+      final player = await _openTheDesk(tester, repository);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      // Five seconds into what he can hear.
+      player.listeningAt(5000);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+      await tester.pumpAndSettle();
+
+      // Which is 1:34 of the song, not 0:05 of it. A note filed at 0:05
+      // would open on a bar where the student is not playing at all.
+      expect(find.text('Note at 1:34'), findsWidgets);
+
+      await tester.enterText(
+        find.byKey(const Key('moment_note_body')),
+        'you rushed into the turnaround',
+      );
+      await tester.tap(find.byKey(const Key('moment_note_pin')));
+      await tester.pumpAndSettle();
+
+      final notes = await repository.loadMomentNotes(song.id);
+      expect(notes.single.atMs, 94880,
+          reason: 'the moment is on the take\'s clock and not the song\'s');
+      expect(notes.single.layerId, take);
+    });
+
     testWidgets('and a phone\'s own keyboard is left alone', (tester) async {
       final studio = await _aStudio();
       final player = await _openTheDesk(tester, studio.repository, onKeyboard: false);
@@ -373,6 +421,53 @@ void main() {
       expect(player.started, isEmpty);
       // The takes are still there to tap.
       expect(find.byKey(Key('came_in_${studio.fromMaya}')), findsOneWidget);
+      // And so is the hint line's absence: the keys are only said where
+      // there are keys.
+      expect(find.byKey(const Key('what_came_in_keys')), findsNothing);
+    });
+
+    testWidgets('and a phone can answer, with no N to press', (tester) async {
+      final studio = await _aStudio();
+      final player = await _openTheDesk(
+        tester,
+        studio.repository,
+        onKeyboard: false,
+      );
+
+      await tester.tap(find.byKey(Key('came_in_${studio.fromMaya}')));
+      await tester.pumpAndSettle();
+      player.listeningAt(12000);
+      await tester.pumpAndSettle();
+
+      // A teacher between lessons, with the app in their hand. Without this
+      // they could hear Maya's take and then have to leave the desk, find
+      // her room among nine and find the moment again.
+      await tester.tap(find.byKey(Key('came_in_note_${studio.fromMaya}')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Note at 0:12'), findsWidgets);
+      expect(player.playing, isFalse, reason: 'the take played on while he typed');
+
+      await tester.enterText(
+        find.byKey(const Key('moment_note_body')),
+        'lovely, and a shade early',
+      );
+      await tester.tap(find.byKey(const Key('moment_note_pin')));
+      await tester.pumpAndSettle();
+
+      final notes = await studio.repository.loadMomentNotes(studio.herSong);
+      expect(notes.single.body, 'lovely, and a shade early');
+      expect(notes.single.layerId, studio.fromMaya);
+    });
+
+    testWidgets('and the answer is on the row in hand, and only that one',
+        (tester) async {
+      final studio = await _aStudio();
+      await _openTheDesk(tester, studio.repository, onKeyboard: false);
+
+      // One playhead, so one thing to say something about.
+      expect(find.byKey(Key('came_in_note_${studio.fromJaylen}')), findsOneWidget);
+      expect(find.byKey(Key('came_in_note_${studio.fromMaya}')), findsNothing);
     });
 
     testWidgets('and a tap plays the row it was on', (tester) async {
@@ -413,6 +508,40 @@ void main() {
       expect(find.text('Maya'), findsOneWidget);
     });
 
+    testWidgets('and still has one when every link has been turned off',
+        (tester) async {
+      final studio = await _aStudio();
+      // He took the poster down once his students had all scanned it, so
+      // there is no link left and the screen is the "make your first link"
+      // form. He still teaches them, and 0151 still lists what they send.
+      expect(await studio.repository.myLessonLinks(), isEmpty);
+
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LessonLinkScreen(repository: studio.repository),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('lesson_what_came_in')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WhatCameInScreen), findsOneWidget);
+      expect(find.text('Maya'), findsOneWidget);
+    });
+
+    testWidgets('and says nothing about it to somebody who teaches nobody',
+        (tester) async {
+      final repository = InMemoryMusicRepository.seeded();
+
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LessonLinkScreen(repository: repository),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('lesson_what_came_in')), findsNothing);
+    });
+
     testWidgets('Home says something arrived, once, and opening it answers it',
         (tester) async {
       final studio = await _aStudio();
@@ -437,6 +566,11 @@ void main() {
       // the app asking again. Kept on this phone, and nothing reaches the
       // student.
       expect(SetAside.has(SetAside.cameIn, studio.fromMaya), isTrue);
+      // Everything that was on the desk, not only the newest: a teacher who
+      // has been to the desk has seen all of it. Otherwise Maya deleting
+      // hers to re-record would put Jaylen's week-old take back on Home as
+      // though it had just arrived.
+      expect(SetAside.has(SetAside.cameIn, studio.fromJaylen), isTrue);
     });
 
     testWidgets('and says nothing to somebody who teaches nobody',

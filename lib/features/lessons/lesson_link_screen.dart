@@ -59,6 +59,14 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
   bool _loading = true;
   bool _busy = false;
 
+  /// Whether this person teaches anybody at all.
+  ///
+  /// Not the same question as "has an open link", which is why it is asked
+  /// separately: a teacher whose nine students have all joined turns the
+  /// link off and goes on teaching nine people. What came in is about the
+  /// students, so it follows the students.
+  bool _teaches = false;
+
   @override
   void initState() {
     super.initState();
@@ -74,9 +82,12 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
   Future<void> _load() async {
     try {
       final links = await widget.repository.myLessonLinks();
+      // Asked alongside the links, and separately from them: see [_teaches].
+      final taught = await widget.repository.lessonRoomsTaught();
       if (!mounted) return;
       setState(() {
         _links = links;
+        _teaches = taught.isNotEmpty;
         _loading = false;
         // The one on screen, as it is now.
         final open = _open;
@@ -229,7 +240,18 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
     if (open != null) {
       children = _code(open);
     } else if (_links.isEmpty || _making) {
-      children = _start();
+      // Above the form, for a teacher who has turned every link off: they
+      // still teach the people who scanned it, 0151 still lists what those
+      // people send, and this is the only screen in the app that is about
+      // teaching. Without it their only way in is Home's card, which goes
+      // once it has been opened.
+      children = <Widget>[
+        if (_teaches && !_making) ...<Widget>[
+          _whatCameInTile(),
+          const SizedBox(height: 20),
+        ],
+        ..._start(),
+      ];
     } else {
       children = _list();
     }
@@ -353,8 +375,7 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
   ///
   /// Here because this is the teacher's screen: everything else on it is
   /// about getting students into rooms, and this is what happens once they
-  /// are. Home puts a card up when something arrives, which is how a
-  /// teacher who has no open link left still reaches it.
+  /// are.
   void _whatCameIn() {
     unawaited(Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -364,28 +385,34 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
     ));
   }
 
+  /// The way in to the desk, drawn wherever this screen is about teaching:
+  /// above the list of links, and above the form when every link is off.
+  Widget _whatCameInTile() {
+    return Material(
+      color: AppColors.raised,
+      borderRadius: BorderRadius.circular(14),
+      child: ListTile(
+        key: const Key('lesson_what_came_in'),
+        onTap: _whatCameIn,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        leading: const Icon(Icons.inbox_rounded, color: AppColors.cyan),
+        title: const Text(
+          'What came in',
+          style: TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        subtitle: const Text(
+          'Takes your students have sent you.',
+          style: TextStyle(color: AppColors.muted, fontSize: 13),
+        ),
+        trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+      ),
+    );
+  }
+
   List<Widget> _list() {
     return <Widget>[
-      Material(
-        color: AppColors.raised,
-        borderRadius: BorderRadius.circular(14),
-        child: ListTile(
-          key: const Key('lesson_what_came_in'),
-          onTap: _whatCameIn,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          leading: const Icon(Icons.inbox_rounded, color: AppColors.cyan),
-          title: const Text(
-            'What came in',
-            style: TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          subtitle: const Text(
-            'Takes your students have sent you.',
-            style: TextStyle(color: AppColors.muted, fontSize: 13),
-          ),
-          trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
-        ),
-      ),
+      _whatCameInTile(),
       const SizedBox(height: 14),
       for (final link in _links) ...<Widget>[
         _LinkRow(link: link, onTap: () => setState(() => _open = link)),

@@ -610,19 +610,25 @@ class _SongsScreenState extends State<SongsScreen> {
     // an inbox, and the desk itself is the list. It names the newest
     // arrival, because that is the one the teacher has not heard.
     //
-    // Closed by the id of the take that was newest at the time, so a later
-    // hand-in brings the card back and this one stays closed -- exactly as
-    // a brief's card does. Nothing about closing it reaches the student.
+    // Closed by every take that was on the desk at the time, not only by the
+    // newest one: once a teacher has been to the desk they have seen all of
+    // it. Closing only the newest means that when that take is deleted --
+    // a student re-recording it -- the one behind it has never been set
+    // aside, and Home says "what came in" about something heard last week.
+    // A hand-in that arrives after this is a new id and a new card.
     final newest = controller.sentTakes.lastOrNull;
     if (newest != null && !SetAside.has(SetAside.cameIn, newest.takeId)) {
+      final heard = <String>[
+        for (final take in controller.sentTakes) take.takeId,
+      ];
       items.add(WaitingItem(
         id: 'came-in-${newest.takeId}',
         kind: WaitingKind.cameIn,
         who: newest.studentName,
         line: newest.songTitle,
         actionLabel: 'Listen',
-        onAction: () => unawaited(_openWhatCameIn(newest.takeId)),
-        onDismiss: () => unawaited(_setAside(SetAside.cameIn, newest.takeId)),
+        onAction: () => unawaited(_openWhatCameIn(heard)),
+        onDismiss: () => unawaited(_setAsideAll(SetAside.cameIn, heard)),
       ));
     }
 
@@ -996,7 +1002,6 @@ class _SongsScreenState extends State<SongsScreen> {
     );
   }
 
-  /// Said no, and remembered.
   /// The listening desk (0151), from the card that says something arrived.
   ///
   /// Opening it answers the card, the way a hint is answered by being
@@ -1005,9 +1010,9 @@ class _SongsScreenState extends State<SongsScreen> {
   /// newer arriving is a new id and a new card. Kept on this phone and
   /// nowhere else -- nothing here tells a student their take has been
   /// opened, and nothing ever will.
-  Future<void> _openWhatCameIn(String newest) async {
+  Future<void> _openWhatCameIn(List<String> heard) async {
     final controller = BetaScope.of(context, listen: false);
-    await _setAside(SetAside.cameIn, newest);
+    await _setAsideAll(SetAside.cameIn, heard);
     if (!mounted) return;
     await Navigator.of(context).push(MaterialPageRoute<void>(
       settings: const RouteSettings(name: 'What came in'),
@@ -1015,8 +1020,17 @@ class _SongsScreenState extends State<SongsScreen> {
     ));
   }
 
+  /// Said no, and remembered.
   Future<void> _setAside(String kind, String id) async {
     await SetAside.add(kind, id);
+    if (mounted) setState(() {});
+  }
+
+  /// The same, for a card that answers for a handful of things at once.
+  Future<void> _setAsideAll(String kind, List<String> ids) async {
+    for (final id in ids) {
+      await SetAside.add(kind, id);
+    }
     if (mounted) setState(() {});
   }
 

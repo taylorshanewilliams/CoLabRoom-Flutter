@@ -20,12 +20,16 @@ import '../layers/moment_notes.dart';
 /// students has been opening nine rooms to hear nine hand-ins; this is the
 /// same hand-ins, read once, in the order they arrived.
 ///
-/// What is on a row is the whole of what is on a row: who played it, and
-/// what the song is. No date — the server sends none, so there is nothing
-/// here to print. No count of what has come in, no list of who has not sent
+/// What a row says is the whole of what a row says: who played it, and what
+/// the song is. No date — the server sends none, so there is nothing here to
+/// print. No count of what has come in, no list of who has not sent
 /// anything, no duration, and nowhere to put a mark. Every one of those is
 /// forbidden by the plan, and the way to go on forbidding them is to have
 /// nowhere to put one.
+///
+/// The row in hand carries one control that is not a fact about the take:
+/// the note button, which is the second half of the slice. Without it a
+/// phone can listen and cannot answer, and answering is the point.
 ///
 /// Web first, because the pass is a desk job, and it works on a phone
 /// because a teacher between lessons has one in their hand.
@@ -214,15 +218,22 @@ class _WhatCameInScreenState extends State<WhatCameInScreen> {
     await widget.listening.play(take);
   }
 
-  /// N: words at this moment of this take (0141).
+  /// N, and the note button: words at this moment of this take (0141).
   ///
   /// Playback stops first, so the moment stays where the teacher heard it
   /// while they are typing — and so the thing they are writing about is not
   /// still going in their ear.
+  ///
+  /// The moment is put on the song's clock before anything else happens. The
+  /// desk plays the take's own file; a moment note is a place in the song,
+  /// which is what the Takes screen draws marks against and what the student
+  /// will tap to hear it again. A take punched in at the last chorus starts
+  /// at 1:30 of the song and at 0:00 of its file, so "five seconds in" is
+  /// 1:35 of the song and not 0:05 of it. See [SentTake.songMsFor].
   Future<void> _pinNote() async {
     final take = _inHand;
     if (take == null) return;
-    final at = _isSounding(take) ? widget.listening.atMs : 0;
+    final at = take.songMsFor(_isSounding(take) ? widget.listening.atMs : 0);
     if (widget.listening.playing) await widget.listening.pause();
     if (!mounted) return;
     final draft = await showMomentNoteSheet(
@@ -347,6 +358,13 @@ class _WhatCameInScreenState extends State<WhatCameInScreen> {
             sounding: _isSounding(_came[index]),
             playing: _isSounding(_came[index]) && widget.listening.playing,
             onTap: () => unawaited(_hear(index)),
+            // The answer, on the row it is about. On a phone there is no N
+            // to press, and a teacher between lessons with the app in their
+            // hand is exactly who this page is for — without this they can
+            // hear Maya's take and then have to leave, find her room among
+            // nine, open the song and find the moment again. One control,
+            // on the one row in hand, so the list stays a list.
+            onNote: index == _at ? () => unawaited(_pinNote()) : null,
           ),
           const SizedBox(height: 8),
         ],
@@ -405,6 +423,7 @@ class _TakeRow extends StatelessWidget {
     required this.sounding,
     required this.playing,
     required this.onTap,
+    required this.onNote,
   });
 
   final SentTake take;
@@ -416,6 +435,10 @@ class _TakeRow extends StatelessWidget {
   final bool sounding;
   final bool playing;
   final VoidCallback onTap;
+
+  /// Words at this moment, for the row in hand. Null on every other row:
+  /// one answer at a time, because there is one playhead.
+  final VoidCallback? onNote;
 
   @override
   Widget build(BuildContext context) {
@@ -477,6 +500,18 @@ class _TakeRow extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onNote != null)
+                IconButton(
+                  key: Key('came_in_note_${take.takeId}'),
+                  onPressed: onNote,
+                  tooltip: 'Note at this moment',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(
+                    Icons.edit_note_rounded,
+                    size: 22,
+                    color: AppColors.muted,
+                  ),
+                ),
             ],
           ),
         ),
