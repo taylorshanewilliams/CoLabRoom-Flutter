@@ -737,9 +737,16 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
   late String? _songKey = widget.songKey;
   late bool _overridden = widget.overridden;
 
-  /// The capo this song's own chords ask for, worked out once: it depends on
-  /// the chords and on nothing this sheet can change.
-  late final CapoThatHelps? _helpfulCapo = capoThatHelps(widget.chords);
+  /// The instrument this person reads shapes on. Read on every build rather
+  /// than held, because the chips that change it are on this very sheet and
+  /// tapping one rebuilds it.
+  ShapeReading get _shapes => ShapeReadingStore.held;
+
+  /// The capo this song's own chords ask for. It depends on the chords, which
+  /// this sheet cannot change, and on the instrument, which it can — so it is
+  /// worked out with the rows it stands among rather than once at the top.
+  CapoThatHelps? get _helpfulCapo =>
+      capoThatHelps(widget.chords, reading: _shapes);
 
   /// True while a key is on its way to the room. One write at a time, so two
   /// quick taps cannot land in the wrong order and leave the room in the key
@@ -757,7 +764,7 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
   /// bass, which have no capo on them (Every Musician, Same Song, 17
   /// September 2026).
   bool get _capoApplies =>
-      _reading == HornReading.concert && ShapeReadingStore.held.takesACapo;
+      _reading == HornReading.concert && _shapes.takesACapo;
 
   int get _capoOffset => _capoApplies ? _capo : 0;
 

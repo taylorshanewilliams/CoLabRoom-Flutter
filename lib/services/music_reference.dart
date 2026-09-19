@@ -11,6 +11,8 @@
 /// names, which is why it can be unit-tested on a machine with no device.
 library;
 
+import 'shape_reading.dart';
+
 const List<String> _sharpNames = <String>[
   'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B',
 ];
@@ -816,15 +818,10 @@ List<BassPosition> bassPositionsFor(String label) {
     ),
   ];
 
-  // Whatever this chord calls a fifth: 6, 7 or 8 semitones, taken from the
-  // chord's own notes rather than assumed.
-  int? fifth;
-  for (final interval in quality.intervals) {
-    if (interval >= 6 && interval <= 8) {
-      fifth = interval;
-      break;
-    }
-  }
+  // Whatever this chord calls a fifth, taken from the chord's own notes
+  // rather than assumed. The same reading the moves under the neck go by, so
+  // the two cannot drift apart.
+  final fifth = _fifthInterval(quality);
   if (fifth != null) {
     // The strings are a fourth apart, so a note is on the next string up at
     // five frets less: the fifth sits two frets above the root on it, which is
@@ -923,21 +920,39 @@ List<PianoKey> pianoKeysFor(String label) {
   return keys;
 }
 
+/// Where the root can move without leaving the chord.
+///
+/// Every Musician, Same Song, 17 September 2026 draws the line these stay on
+/// the right side of: chord tones and shapes *describe*, a line you are told
+/// to play *composes*. A "Walking" row used to sit here, under the bass neck,
+/// with a four-note line in it — and two of its notes, the 4th over a minor
+/// chord and the 6th over a major one, were not in the chord at all. It
+/// composed a bass part, and it composed one that did not fit. It is gone
+/// rather than corrected, because writing the line is not this app's job
+/// (reported three times over #398, 19 September 2026).
+///
+/// What is left is the moves that are nothing but the chord's own notes, and
+/// the fifth in them is the chord's own fifth — flat on a diminished chord,
+/// sharp on an augmented one — which is the rule the neck above them already
+/// follows.
 List<(String, String)> _bassMovesFor(int rootPitch, _Quality quality, bool flats) {
   final root = noteName(rootPitch, flats: flats);
-  final minor = quality.intervals.contains(3);
-  final third = noteName(rootPitch + (minor ? 3 : 4), flats: flats);
-  final fourth = noteName(rootPitch + 5, flats: flats);
-  final fifth = noteName(rootPitch + 7, flats: flats);
-  final sixth = noteName(rootPitch + 9, flats: flats);
+  final fifth = _fifthInterval(quality);
   return <(String, String)>[
-    ('Root–fifth', '$root  $fifth'),
+    if (fifth != null)
+      ('Root–fifth', '$root  ${noteName(rootPitch + fifth, flats: flats)}'),
     ('Root–octave', '$root  $root'),
-    if (minor)
-      ('Walking', '$root  $third  $fourth  $fifth')
-    else
-      ('Walking', '$root  $third  $fifth  $sixth'),
   ];
+}
+
+/// Whatever this chord calls a fifth — 6, 7 or 8 semitones — taken from the
+/// chord's own notes rather than assumed, or null for a chord with no fifth
+/// in it at all.
+int? _fifthInterval(_Quality quality) {
+  for (final interval in quality.intervals) {
+    if (interval >= 6 && interval <= 8) return interval;
+  }
+  return null;
 }
 
 /// The triad each quality is built on, for the chords that have something
@@ -1068,7 +1083,19 @@ class CapoThatHelps {
 /// barre chords that a capo cannot help is told nothing rather than sent up
 /// the neck for one chord. Seven frets, like the chart beside it — past that
 /// a guitar is a mandolin.
-CapoThatHelps? capoThatHelps(List<String> chords) {
+///
+/// [reading] is the instrument in this person's hands, and the shapes are
+/// counted on that instrument. This scored against the six-string table
+/// whoever was reading, so somebody who had said Ukulele was offered a capo
+/// for the guitar shapes it would leave — four of which their instrument has
+/// not got. And it says nothing at all to a pianist or a bass player, the
+/// same decision [ShapeReading.takesACapo] already makes on the sheet
+/// (reported three times over #398, 19 September 2026).
+CapoThatHelps? capoThatHelps(
+  List<String> chords, {
+  required ShapeReading reading,
+}) {
+  if (!reading.takesACapo) return null;
   final distinct = <(int, String)>[];
   for (final label in chords) {
     final parts = _chordParts(label);
@@ -1088,7 +1115,8 @@ CapoThatHelps? capoThatHelps(List<String> chords) {
     final shapes = <String>[];
     var barres = 0;
     for (final (pitch, quality) in distinct) {
-      final open = _openShapeName(((pitch - fret) % 12 + 12) % 12, quality);
+      final open =
+          _openShapeName(((pitch - fret) % 12 + 12) % 12, quality, reading);
       if (open != null) {
         shapes.add(open);
       } else if (_qualities[quality]?.shapeFamily != null) {
@@ -1110,12 +1138,33 @@ CapoThatHelps? capoThatHelps(List<String> chords) {
   return CapoThatHelps(fret: bestFret, shapes: bestShapes);
 }
 
-/// The name of the open shape a chord falls on, or null when it has none.
-String? _openShapeName(int pitch, String qualityId) {
+/// The name of the open shape a chord falls on for [reading], or null when it
+/// has none on that instrument.
+///
+/// Open means the same thing on both necks: a grip with a string still
+/// ringing in it. Every entry of [_openShapes] is one by definition; a good
+/// third of the ukulele's first-position grips are not — a Bm there is a full
+/// barre at the 2nd fret — so a capo is never offered on the strength of one
+/// of those, and the row above it would be calling a barre an open shape if
+/// it were.
+String? _openShapeName(int pitch, String qualityId, ShapeReading reading) {
   final short = _shortForms[qualityId];
   if (short == null) return null;
-  final name = '${noteName(pitch, flats: false)}$short';
-  return _openShapes.containsKey(name) ? name : null;
+  final sharp = '${noteName(pitch, flats: false)}$short';
+  if (reading != ShapeReading.ukulele) {
+    return _openShapes.containsKey(sharp) ? sharp : null;
+  }
+  // The uke table is keyed by both spellings where a uke chart uses both, so
+  // the name that found the grip is the name to say it by: a uke player is
+  // told to play an E♭, not a D♯.
+  final flat = '${noteName(pitch, flats: true)}$short';
+  final name = _ukuleleShapes.containsKey(sharp)
+      ? sharp
+      : _ukuleleShapes.containsKey(flat)
+          ? flat
+          : null;
+  if (name == null) return null;
+  return _ukuleleShapes[name]!.contains(0) ? name : null;
 }
 
 /// Where a degree sits, as (the number, the accidental in front of it).
