@@ -93,6 +93,44 @@ class ReferenceTrack {
   final Melody? melody;
 
   bool get hasTranscript => (transcriptText?.trim().isNotEmpty ?? false);
+
+  /// Just the counting: what a passage of this song needs to be given a name.
+  SongGrid get grid => SongGrid(
+        beatsMs: beatsMs,
+        downbeatsMs: downbeatsMs,
+        sections: structureSections,
+      );
+}
+
+/// What a song is counted on, without the rest of the analysis.
+///
+/// A recording's grid and the parts the analysis named: the three things a
+/// stretch of milliseconds needs before anybody can say it is "Chorus 2" or
+/// "Bars 9–12". It is its own small thing because a screen that only wants
+/// to *name* a passage should not have to load a transcript, a melody and
+/// every chord cue to do it — Home names the passage on a practice card and
+/// has no other use for a sheet (Every Musician, Same Song, 17 September
+/// 2026; see SongAnalysisService.gridsFor).
+class SongGrid {
+  const SongGrid({
+    this.beatsMs = const <int>[],
+    this.downbeatsMs = const <int>[],
+    this.sections = const <StructureSection>[],
+  });
+
+  /// Every beat, which is what a cycle is counted in (0162).
+  final List<int> beatsMs;
+
+  /// The first beat of each bar, which is what bars are counted in (0161).
+  final List<int> downbeatsMs;
+
+  /// The parts the analysis found, so a passage with a part's own two edges
+  /// keeps the part's name rather than being called a run of bars.
+  final List<StructureSection> sections;
+
+  /// Whether there is anything here to name a passage with. A recording the
+  /// beat tracker found nothing in has no bars, and then nothing is renamed.
+  bool get isEmpty => downbeatsMs.isEmpty && sections.isEmpty;
 }
 
 /// Note names with sharps, C first, so `midiNoteNames[midi % 12]`.

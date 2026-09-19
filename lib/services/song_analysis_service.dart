@@ -318,6 +318,61 @@ class SongAnalysisService {
     }
   }
 
+  /// Just the counting for several songs at once: what each one's passages
+  /// are named from, and nothing else.
+  ///
+  /// Home has the songs but not their grids, so a practice card could only
+  /// repeat the words the mark was kept under, and those go stale the moment
+  /// somebody says where bar 1 is (#385's known limit). This is the cheapest
+  /// honest way to fix that: four columns of one row per song, in one
+  /// request, rather than [load]'s four round trips a song for a transcript,
+  /// a melody and every chord cue that no card will ever draw.
+  ///
+  /// A song kept on this phone answers from the phone, so the cards read
+  /// right in the van as well. Songs with no row, or a request that fails,
+  /// are simply absent: a card with no grid behind it keeps its own words
+  /// rather than guessing at new ones.
+  Future<Map<String, SongGrid>> gridsFor(Iterable<String> projectIds) async {
+    final wanted = projectIds.toSet();
+    if (wanted.isEmpty) return const <String, SongGrid>{};
+    final grids = <String, SongGrid>{};
+    try {
+      final rows = await client
+          .from('project_audio_references')
+          .select('project_id, beats_ms, downbeats_ms, structure_sections')
+          .inFilter('project_id', wanted.toList(growable: false));
+      for (final value in rows as List<dynamic>) {
+        final row = Map<String, dynamic>.from(value as Map);
+        final id = row['project_id'] as String?;
+        if (id == null) continue;
+        grids[id] = SongGrid(
+          beatsMs: _msList(row['beats_ms']),
+          downbeatsMs: _msList(row['downbeats_ms']),
+          sections: (row['structure_sections'] as List<dynamic>? ??
+                  const <dynamic>[])
+              .map((section) =>
+                  StructureSection.fromJson(Map<String, dynamic>.from(section as Map)))
+              .toList(growable: false),
+        );
+      }
+    } catch (_) {
+      // Left to the phone's own copies below. A card that could not be
+      // renamed says what it always said, which is never a reason to put an
+      // error in front of somebody looking at their own songs.
+    }
+    for (final id in wanted) {
+      if (grids.containsKey(id)) continue;
+      try {
+        final here = await kept.load(id);
+        final reference = here?.sheet.reference;
+        if (reference != null) grids[id] = reference.grid;
+      } catch (_) {
+        // Nothing kept for this one, or nothing readable. Same bargain.
+      }
+    }
+    return grids;
+  }
+
   /// Resolved on use rather than at construction, so building this service
   /// somewhere Supabase isn't initialized (previews, widget tests) doesn't
   /// throw before a single call has been made.
