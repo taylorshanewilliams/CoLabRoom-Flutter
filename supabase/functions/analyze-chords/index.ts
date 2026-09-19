@@ -555,9 +555,22 @@ Deno.serve(async (req) => {
 
   // Both halves of this call need it: `start` decides with it whether a
   // transcript already on file is the right words for this song, and `poll`
-  // files the answer under the language it was heard in. Read once, after
-  // the project has been confirmed to be the caller's to analyse.
-  const declaredLanguage = await declaredSongLanguage(adminClient, projectId);
+  // files the answer under the language it was heard in.
+  //
+  // Read once and only when something asks. `poll` is called every few
+  // seconds for as long as a GPU job runs, and all but the last of those
+  // calls are answered "still going" without ever reaching a transcript —
+  // reading the song on each of them would be thirty queries to learn the
+  // same thing thirty times.
+  let languageAsked = false;
+  let languageRead = '';
+  async function declaredLanguage(): Promise<string> {
+    if (!languageAsked) {
+      languageAsked = true;
+      languageRead = await declaredSongLanguage(adminClient, projectId);
+    }
+    return languageRead;
+  }
 
 
   // Stems live beside the reference recording:
@@ -859,8 +872,9 @@ Deno.serve(async (req) => {
     // analysis heard in the right language beats a full one heard in the
     // wrong one. Being wrong about the words is worse than being without
     // the sections.
+    const declared = await declaredLanguage();
     const usable = rows.filter((row) =>
-      cachedTranscriptFits(declaredLanguage, row.transcript_language)
+      cachedTranscriptFits(declared, row.transcript_language)
     );
     if (usable.length === 0) return null;
     const preferred = cacheVersionsFor(depth);
@@ -1036,7 +1050,7 @@ Deno.serve(async (req) => {
         mixUpload,
         depth === 'quick',
         lyricsHint,
-        declaredLanguage,
+        await declaredLanguage(),
       );
       return json({ status: 'started', jobId: startedJobId });
     } catch (error) {
@@ -1116,10 +1130,11 @@ Deno.serve(async (req) => {
     // language declared would then be analysed from scratch on every open,
     // for ever, because no cached row could ever be shown to fit it. That is
     // real money leaving quietly, and nothing else would say so.
-    if (declaredLanguage.length > 0 && separation.transcriptLanguage !== declaredLanguage) {
+    const declaredForThisSong = await declaredLanguage();
+    if (declaredForThisSong.length > 0 && separation.transcriptLanguage !== declaredForThisSong) {
       await noteWorkerSilence(
         'lyrics',
-        `The song says it is sung in ${declaredLanguage} and the worker's transcript was ` +
+        `The song says it is sung in ${declaredForThisSong} and the worker's transcript was ` +
           `heard in ${separation.transcriptLanguage ?? 'a language it would not name'}. ` +
           'Either the image that ran this job predates the language parameter and ignored ' +
           'it (the rollout has not reached this worker), or the transcription raised. ' +
