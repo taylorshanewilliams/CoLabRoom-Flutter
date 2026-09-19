@@ -43,6 +43,7 @@ class ReferenceTrack {
     this.beatsPerBar,
     this.transcriptText,
     this.transcriptWords = const <TranscriptWord>[],
+    this.transcriptLanguage,
     this.analysisWarning,
     this.lastError,
     this.bpm,
@@ -82,6 +83,18 @@ class ReferenceTrack {
   int? get barCount => downbeatsMs.isEmpty ? null : downbeatsMs.length;
   final String? transcriptText;
   final List<TranscriptWord> transcriptWords;
+
+  /// The language these words were heard in, as the transcriber reports it:
+  /// the one the song declared (0163) or the one Whisper decided on when
+  /// nobody had said. Null when nothing said which — an analysis from before
+  /// the transcriber reported it, or one that guessed — and that is read as
+  /// "not known", never as any particular language.
+  ///
+  /// Nothing on the page shows it. It exists so the sheet can tell whether
+  /// the words already on a song were heard in the language somebody has
+  /// just declared, and stay quiet instead of offering to pay to hear the
+  /// same thing again (Every Musician, Same Song, 17 September 2026).
+  final String? transcriptLanguage;
   final String? analysisWarning;
   final String? lastError;
   final double? bpm;

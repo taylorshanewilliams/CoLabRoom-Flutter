@@ -458,16 +458,27 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   /// call that returns the cached result. Compared as the transcriber sees
   /// it — the first subtag — because ar-EG and ar are the same instruction
   /// to Whisper (review, 18 September 2026).
+  ///
+  /// And only when the words on the song were not already heard in it. The
+  /// first listen is told the language now (0167), so a song analysed after
+  /// its room answered already has words heard in that language, and a song
+  /// analysed before it may have been detected as it anyway. Either way
+  /// there is nothing to re-hear, and asking would spend money to replace
+  /// the words with the same words. A transcript that cannot say what it was
+  /// heard in — every one made before this — is offered exactly as before.
   Future<String?> _sayTheLanguage(String? tag) async {
     final write = widget.onSetLanguage;
     if (write == null) return null;
-    final heardIn = languageOf(widget.project.language);
+    final said = languageOf(widget.project.language);
+    final reference = _bundle.reference;
+    final heardIn = languageOf(reference?.transcriptLanguage);
     try {
       await write(tag);
       if (mounted &&
           tag != null &&
+          languageOf(tag) != said &&
           languageOf(tag) != heardIn &&
-          (_bundle.reference?.hasTranscript ?? false)) {
+          (reference?.hasTranscript ?? false)) {
         setState(() => _offerToListenAgain = tag);
       }
       return null;

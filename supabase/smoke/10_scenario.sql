@@ -12121,6 +12121,138 @@ begin
   end if;
 end $$;
 
+-- What the words on a song were heard in (0167).
+--
+-- The language a room declares (0163) now reaches the first listen as well
+-- as the fallback, and the transcript comes back knowing what it was heard
+-- in. Two places keep that: the song's own recording, so the sheet can tell
+-- whether the words are already in the language somebody has just declared,
+-- and the analysis cache, so a transcript made in one language is never
+-- handed to a song sung in another.
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('1a4e0167-0000-0000-0000-000000000170', 'heardit@smoke.test',
+   '{"display_name": "Heard It"}'),
+  ('1a4e0167-0000-0000-0000-000000000171', 'listeningin0167@smoke.test',
+   '{"display_name": "Just Listening"}');
+
+insert into public.rooms (id, account_id, name)
+values ('1a4e0167-0000-0000-0000-000000000172',
+        '1a4e0167-0000-0000-0000-000000000170', 'The Heard In Room');
+
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('1a4e0167-0000-0000-0000-000000000172', '1a4e0167-0000-0000-0000-000000000170',
+   'Heard It', 'owner', 4294937167),
+  ('1a4e0167-0000-0000-0000-000000000172', '1a4e0167-0000-0000-0000-000000000171',
+   'Just Listening', 'viewer', 4283215667);
+
+insert into public.projects (id, room_id, account_id, title, created_by, language)
+values ('1a4e0167-0000-0000-0000-000000000173',
+        '1a4e0167-0000-0000-0000-000000000172',
+        '1a4e0167-0000-0000-0000-000000000170', 'A Song Sung In Portuguese',
+        '1a4e0167-0000-0000-0000-000000000170', 'pt-BR');
+
+insert into public.files (id, project_id, uploaded_by, storage_path, display_name, mime_type)
+values ('1a4e0167-0000-0000-0000-000000000174',
+        '1a4e0167-0000-0000-0000-000000000173',
+        '1a4e0167-0000-0000-0000-000000000170',
+        'smoke/heardin/reference.mp3', 'reference.mp3', 'audio/mpeg');
+
+insert into public.project_audio_references
+  (project_id, file_id, uploaded_by, analysis_state)
+values ('1a4e0167-0000-0000-0000-000000000173',
+        '1a4e0167-0000-0000-0000-000000000174',
+        '1a4e0167-0000-0000-0000-000000000170', 'ready');
+
+-- One finished analysis of some recording, filed under the language its
+-- words were heard in. Written as the service role, which is the only thing
+-- that ever writes this table.
+insert into public.analysis_cache
+  (audio_sha256, pipeline_version, cues, transcript, transcript_language)
+values ('0167000000000000000000000000000000000000000000000000000000000167',
+        'smoke+fw-turbo.4',
+        '[{"startMs": 0, "endMs": 2000, "chord": "A:min", "confidence": 0.8}]'::jsonb,
+        '{"text": "a noite passa", "words": []}'::jsonb,
+        'pt');
+
+set local request.jwt.claims = '{"sub": "1a4e0167-0000-0000-0000-000000000170"}';
+set local role authenticated;
+
+do $$
+declare
+  heard_in text;
+  cached integer;
+begin
+  -- Nothing said, which is what every recording analysed before today says
+  -- and what the app reads as "not known" rather than as any language.
+  select r.transcript_language into heard_in
+  from public.project_audio_references r
+  where r.project_id = '1a4e0167-0000-0000-0000-000000000173';
+  if heard_in is not null then
+    raise exception 'a new recording arrived already knowing what it was heard in (got %)',
+      heard_in;
+  end if;
+
+  -- Whoever ran the analysis writes it, under the policies this table has
+  -- always had for everything else the analysis writes here.
+  update public.project_audio_references
+  set transcript_text = 'a noite passa', transcript_language = 'pt'
+  where project_id = '1a4e0167-0000-0000-0000-000000000173';
+  select r.transcript_language into heard_in
+  from public.project_audio_references r
+  where r.project_id = '1a4e0167-0000-0000-0000-000000000173';
+  if heard_in is distinct from 'pt' then
+    raise exception 'the analysis could not say what the words were heard in (got %)',
+      coalesce(heard_in, '<null>');
+  end if;
+
+  -- And the cache stays what it has always been: written and read by the
+  -- Edge Function with the service role and by nothing else. It now holds
+  -- one more fact about somebody's song, which is one more reason a client
+  -- that could read it could say whose recording this is. Refused at the
+  -- grant, before any policy is consulted, which is where 0024 left it.
+  begin
+    select count(*) into cached from public.analysis_cache;
+    raise exception
+      'the analysis cache answered a signed-in account (% rows); it is service role only',
+      cached;
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Somebody who can only look can see what the words were heard in, and
+-- cannot change it -- the same rule as every other thing the analysis writes
+-- on a song, and the reason this is a column rather than something a person
+-- declares.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0167-0000-0000-0000-000000000171"}';
+set local role authenticated;
+
+do $$
+declare
+  heard_in text;
+begin
+  select r.transcript_language into heard_in
+  from public.project_audio_references r
+  where r.project_id = '1a4e0167-0000-0000-0000-000000000173';
+  if heard_in is distinct from 'pt' then
+    raise exception 'somebody in the room could not see what the words were heard in (got %)',
+      coalesce(heard_in, '<null>');
+  end if;
+
+  update public.project_audio_references
+  set transcript_language = 'es'
+  where project_id = '1a4e0167-0000-0000-0000-000000000173';
+  select r.transcript_language into heard_in
+  from public.project_audio_references r
+  where r.project_id = '1a4e0167-0000-0000-0000-000000000173';
+  if heard_in is distinct from 'pt' then
+    raise exception 'somebody who can only look rewrote what the words were heard in (got %)',
+      coalesce(heard_in, '<null>');
+  end if;
+end $$;
+
 reset role;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';

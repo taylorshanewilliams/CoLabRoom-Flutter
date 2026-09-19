@@ -23,6 +23,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { crypto as stdCrypto } from 'jsr:@std/crypto@1';
 import { encodeHex } from 'jsr:@std/encoding@1/hex';
 import { hallucinationSuspicion } from '../_shared/transcript_guard.ts';
+import { whisperLanguage } from '../_shared/whisper_languages.ts';
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -67,65 +68,10 @@ async function sha256OfText(value: string): Promise<string> {
   return encodeHex(new Uint8Array(digest));
 }
 
-/// The language the song is sung in, as Whisper wants it, or '' when the
-/// room has not said (migration 0163).
-///
-/// Whisper's `language` takes an ISO-639-1 code and nothing after it, so the
-/// BCP-47 tag the song carries is cut back to its first subtag: 'ar' from
-/// 'ar-EG', 'zh' from 'zh-Hans'. Anything that is not a plausible code is
-/// dropped rather than forwarded — an unknown code is a 400 from OpenAI, and
-/// a transcription must not fail because somebody typed a tag oddly.
-///
-/// This is worth passing on. Left to guess, Whisper decides the language
-/// from the first few seconds, and a sung vocal over an instrumental intro
-/// is exactly where it guesses wrong: an Arabic song transcribed as English
-/// comes back as fluent nonsense, which is the failure the hallucination
-/// guard below exists for. Being told the language removes the guess.
-/// The codes Whisper itself knows, which is the list the API validates
-/// `language` against. Anything else comes back as a 400, and a 400 here is a
-/// failed transcription — so a language Whisper has never heard of has to be
-/// left out rather than forwarded.
-const WHISPER_LANGUAGES = new Set<string>([
-  'af', 'am', 'ar', 'as', 'az', 'ba', 'be', 'bg', 'bn', 'bo', 'br', 'bs',
-  'ca', 'cs', 'cy', 'da', 'de', 'el', 'en', 'es', 'et', 'eu', 'fa', 'fi',
-  'fo', 'fr', 'gl', 'gu', 'ha', 'haw', 'he', 'hi', 'hr', 'ht', 'hu', 'hy',
-  'id', 'is', 'it', 'ja', 'jw', 'ka', 'kk', 'km', 'kn', 'ko', 'la', 'lb',
-  'ln', 'lo', 'lt', 'lv', 'mg', 'mi', 'mk', 'ml', 'mn', 'mr', 'ms', 'mt',
-  'my', 'ne', 'nl', 'nn', 'no', 'oc', 'pa', 'pl', 'ps', 'pt', 'ro', 'ru',
-  'sa', 'sd', 'si', 'sk', 'sl', 'sn', 'so', 'sq', 'sr', 'su', 'sv', 'sw',
-  'ta', 'te', 'tg', 'th', 'tk', 'tl', 'tr', 'tt', 'uk', 'ur', 'uz', 'vi',
-  'yi', 'yo', 'zh',
-]);
-
-/// Tags the app can store that Whisper spells differently.
-///
-/// Norwegian is the one that matters in practice: the language list stores
-/// the Bokmål tag, and Whisper only knows 'no'. Cantonese is not a separate
-/// language to whisper-1 at all, and asking for Chinese is much closer than
-/// asking for nothing.
-const WHISPER_ALIASES: Record<string, string> = {
-  nb: 'no',
-  nn: 'no',
-  fil: 'tl',
-  yue: 'zh',
-  iw: 'he',
-  ji: 'yi',
-  in: 'id',
-  mo: 'ro',
-};
-
-function whisperLanguage(raw: unknown): string {
-  if (typeof raw !== 'string') return '';
-  const first = raw.trim().split('-')[0].toLowerCase();
-  if (!/^[a-z]{2,3}$/.test(first)) return '';
-  const code = WHISPER_ALIASES[first] ?? first;
-  // A language Whisper does not know is dropped rather than forwarded, so the
-  // request goes out exactly as it did before anybody said anything and the
-  // transcription still happens with Whisper detecting the language itself.
-  // Saying what a song is sung in must never be the reason it stops working
-  // (review, 18 September 2026).
-  return WHISPER_LANGUAGES.has(code) ? code : '';
-}
+// The language a song is sung in, as Whisper wants it, lives in _shared now:
+// the first listen happens inside analyze-chords rather than here, and the
+// same tag has to become the same code on both paths or one song would be
+// heard in two languages depending on which one ran.
 
 
 Deno.serve(async (req) => {
@@ -254,6 +200,10 @@ Deno.serve(async (req) => {
         words: cached.words ?? [],
         // Informational only; the app reads text and words exactly as before.
         cached: true,
+        // Part of the key this row was found by, so it is exactly what this
+        // transcript was heard in. Null when nobody had said and Whisper
+        // decided for itself — which is not the same as knowing.
+        language: language.length > 0 ? language : null,
       });
     }
   }
@@ -365,5 +315,10 @@ Deno.serve(async (req) => {
     : null;
   await recordUsage(false, audioSha256, audioMs);
 
-  return json({ text, words });
+  // What Whisper was told, rather than what it decided: verbose_json names a
+  // detected language in English ("portuguese"), which is not a code and not
+  // something to file a transcript under. Null means nobody said and it
+  // guessed, which is the honest answer and the one the app checks before
+  // offering to listen again.
+  return json({ text, words, language: language.length > 0 ? language : null });
 });

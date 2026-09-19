@@ -27,6 +27,11 @@ import handler as separation
 
 CLIP_SECONDS = 15
 PORT = 8009
+# The language this run says the clip is sung in. Any real code would do —
+# what is being proved is that the handler takes one, hands it to the model,
+# and reports back what the words were heard in, which is what the analysis
+# cache files them under.
+SUNG_IN = "en"
 
 
 def make_clip(path: str) -> None:
@@ -99,6 +104,40 @@ def check_melody_stage(tmp: str) -> list[str]:
     return failures
 
 
+def check_language_mapping() -> list[str]:
+    """Checks the cut from a BCP-47 tag to the code the model takes.
+
+    The room declares a tag — 'pt-BR', 'zh-Hans' — and faster-whisper takes a
+    bare code. Getting that cut wrong is not a crash: the language is quietly
+    dropped and the song is transcribed by guesswork, which is the exact
+    failure this whole parameter exists to remove, and nothing downstream can
+    tell. So it is checked here, in the image, where the model's own list of
+    languages is importable.
+    """
+    failures: list[str] = []
+    cases = {
+        "pt-BR": "pt",  # a region is not part of the answer
+        "  AR  ": "ar",  # typed by hand, with a shift key and a thumb
+        "zh-Hans": "zh",  # nor is a script
+        "Arabic": None,  # the word is what a person reads, not a code
+        "": None,
+        None: None,  # nobody has said, which is most songs
+        12: None,
+    }
+    for raw, expected in cases.items():
+        got = separation._whisper_language(raw)  # noqa: SLF001 - the cut under test
+        if got != expected:
+            failures.append(f"language {raw!r} became {got!r}, expected {expected!r}")
+    known = separation._known_languages()  # noqa: SLF001 - see above
+    if known is None:
+        print("  languages: faster-whisper would not name its own list (the retry covers it)")
+    elif "en" not in known:
+        failures.append("faster-whisper's language list does not contain 'en', which cannot be right")
+    else:
+        print(f"  languages: {len(known)} known to this build")
+    return failures
+
+
 def serve(directory: str) -> http.server.ThreadingHTTPServer:
     """The handler takes a URL, not a path — serve the clip so the test
     exercises the real download path rather than a special-cased local one.
@@ -130,11 +169,30 @@ def main() -> int:
                         # mean the one path this test exists to protect is the
                         # one path it never runs.
                         "transcribe": True,
+                        # And told a language, because that is the whole point
+                        # of the parameter: a build whose faster-whisper will
+                        # not take one, or takes it and will not say what it
+                        # heard in, must fail here rather than on the first
+                        # song whose room said what it is sung in.
+                        "language": SUNG_IN,
                     }
                 }
             )
         finally:
             server.shutdown()
+
+        # And once with nothing declared at all, because that is still the
+        # path nearly every song takes: a room that has never said what its
+        # song is sung in, and every Studio idea. The handler run above now
+        # always declares one, so without this the image would stop proving
+        # that auto-detect works — and faster-whisper is unpinned, so it is
+        # the path most likely to move under a rebuild (review, 19 September
+        # 2026). Cheap: the weights are already loaded and the VAD filter
+        # finds no speech in sine waves.
+        detected = None
+        if "error" not in result:
+            print("Listening once more with no language declared…")
+            detected = separation._transcribe(clip)
 
     if "error" in result:
         print(f"FAIL: handler returned an error: {result['error']}")
@@ -142,9 +200,25 @@ def main() -> int:
 
     failures: list[str] = []
 
+    if detected is None:
+        failures.append("transcription with no language declared returned nothing")
+    elif detected.get("error"):
+        failures.append(
+            f"transcription with no language declared raised: {detected['error']}"
+        )
+    else:
+        # Printed, not asserted: what the model makes of fifteen seconds of
+        # sine waves is its business, and on a clip the VAD empties it may
+        # honestly name nothing. The failure this catches is the call itself
+        # breaking.
+        print(f"  with no language declared: heard {detected.get('language')!r}")
+
     print("Running the pitch tracker on a voice by itself…")
     with tempfile.TemporaryDirectory() as tmp:
         failures.extend(check_melody_stage(tmp))
+
+    print("Checking what a declared language becomes…")
+    failures.extend(check_language_mapping())
 
     # No mix_upload was supplied, so the handler must fall back to inlining
     # the mix. This is the step the ffmpeg filter change broke.
@@ -222,7 +296,21 @@ def main() -> int:
                 if not isinstance(word.get("start_ms"), int) or not isinstance(word.get("end_ms"), int):
                     failures.append('transcript words need integer millisecond timings')
                     break
-        print(f"  transcript: {len(words or [])} words, {len(transcript.get('text') or '')} chars")
+        # Told a language above, so this must come back as that language and
+        # not as whatever the model would have guessed from four sine waves.
+        # It is what analyze-chords files the transcript under: a worker that
+        # quietly ignores the language, or names none, makes every song whose
+        # room has answered un-cacheable and pays for the GPU again on every
+        # open, with nothing on the outside to show for it.
+        heard_in = transcript.get("language")
+        if heard_in != SUNG_IN:
+            failures.append(
+                f"asked for a transcript in {SUNG_IN!r} and the worker says it heard {heard_in!r}"
+            )
+        print(
+            f"  transcript: {len(words or [])} words, "
+            f"{len(transcript.get('text') or '')} chars, heard in {heard_in!r}"
+        )
 
     key = result.get("key")
     if key is not None and not isinstance(key, str):

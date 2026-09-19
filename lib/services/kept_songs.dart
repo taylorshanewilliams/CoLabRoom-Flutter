@@ -616,6 +616,7 @@ class KeptSongs {
               'transcript_words': <Map<String, dynamic>>[
                 for (final word in reference.transcriptWords) word.toJson(),
               ],
+              'transcript_language': reference.transcriptLanguage,
               'analysis_warning': reference.analysisWarning,
               'last_error': reference.lastError,
               'bpm': reference.bpm,
@@ -682,6 +683,7 @@ class KeptSongs {
           for (final value in row['transcript_words'] as List<dynamic>? ?? const <dynamic>[])
             TranscriptWord.fromJson(Map<String, dynamic>.from(value as Map)),
         ],
+        transcriptLanguage: row['transcript_language'] as String?,
         analysisWarning: row['analysis_warning'] as String?,
         lastError: row['last_error'] as String?,
         bpm: (row['bpm'] as num?)?.toDouble(),

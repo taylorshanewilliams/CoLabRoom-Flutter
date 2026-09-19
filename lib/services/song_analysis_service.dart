@@ -431,6 +431,7 @@ class SongAnalysisService {
         transcriptWords: (row['transcript_words'] as List<dynamic>? ?? const <dynamic>[])
             .map((value) => TranscriptWord.fromJson(Map<String, dynamic>.from(value as Map)))
             .toList(growable: false),
+        transcriptLanguage: row['transcript_language'] as String?,
         analysisWarning: row['analysis_warning'] as String?,
         lastError: row['last_error'] as String?,
         bpm: (row['bpm'] as num?)?.toDouble(),
@@ -837,6 +838,56 @@ class SongAnalysisService {
         .toList(growable: false);
   }
 
+  /// The two ways a database says "there is no such column": PostgREST's
+  /// schema cache has never seen it, and Postgres itself does not have it.
+  static const Set<String> _unknownColumnCodes = <String>{'PGRST204', '42703'};
+
+  /// Saves a row of the reference track, and saves the rest of it anyway if
+  /// the database does not know the columns named in [ifKnown] yet.
+  ///
+  /// PostgREST refuses a whole update for naming one column it has never
+  /// heard of, so a single new column can cost an analysis everything else
+  /// it just spent a GPU job learning. transcript_language (0167) is
+  /// bookkeeping — all it decides is whether the sheet offers to listen
+  /// again — and it must never be the reason a finished analysis is written
+  /// down as failed on a build that reached a database before the migration
+  /// did: the debug APK that builds on every push to main, a rollback, a
+  /// migration still waiting to be applied. The words, chords and structure
+  /// land; the offer is the only thing lost, and only until the column
+  /// exists (review, 19 September 2026).
+  Future<void> _saveReference(
+    String projectId,
+    Map<String, dynamic> values, {
+    Set<String> ifKnown = const <String>{},
+  }) async {
+    try {
+      await client
+          .from('project_audio_references')
+          .update(values)
+          .eq('project_id', projectId);
+    } on PostgrestException catch (error) {
+      final optional = ifKnown.where(values.containsKey).toList(growable: false);
+      if (optional.isEmpty || !_unknownColumnCodes.contains(error.code)) rethrow;
+      await client
+          .from('project_audio_references')
+          .update(
+            Map<String, dynamic>.of(values)
+              ..removeWhere((column, _) => optional.contains(column)),
+          )
+          .eq('project_id', projectId);
+      // Worth a row: from the outside this looks like an ordinary analysis,
+      // and the only sign that a migration has not landed is that nobody is
+      // ever offered a second listen.
+      await _reporter.reportWarning(
+        service: 'analysis',
+        stage: 'lyrics',
+        message: 'Saved the analysis without ${optional.join(', ')}: '
+            'the database does not have that column yet (${error.code}).',
+        projectId: projectId,
+      );
+    }
+  }
+
   /// Overwrites the saved transcript itself (not the manual workspace) —
   /// used by the lyric review screen so corrections show up on the Song
   /// Sheet and in Live Performance's "Song Sheet" source, both of which
@@ -844,11 +895,20 @@ class SongAnalysisService {
   Future<SongAnalysisBundle> updateTranscript({
     required String projectId,
     required List<TranscriptWord> words,
+    String? heardIn,
   }) async {
-    await client.from('project_audio_references').update(<String, dynamic>{
-      'transcript_words': words.map((word) => word.toJson()).toList(growable: false),
-      'transcript_text': words.map((word) => word.word).join(' '),
-    }).eq('project_id', projectId);
+    await _saveReference(
+      projectId,
+      <String, dynamic>{
+        'transcript_words': words.map((word) => word.toJson()).toList(growable: false),
+        'transcript_text': words.map((word) => word.word).join(' '),
+        // Only when the transcriber is the one writing. A correction typed on
+        // the lyric review screen changes the words, not the language they
+        // were heard in, so it leaves this alone rather than blanking it.
+        if (heardIn != null) 'transcript_language': heardIn,
+      },
+      ifKnown: const <String>{'transcript_language'},
+    );
     return load(projectId);
   }
 
@@ -915,7 +975,16 @@ class SongAnalysisService {
         'is still there.',
       );
     }
-    return updateTranscript(projectId: project.id, words: words);
+    // What it was heard in this time, from the transcriber rather than from
+    // what it was asked for: a tag the transcriber does not know is dropped
+    // on the way, and recording it as though it had been used would stop the
+    // sheet ever offering to listen again for that song.
+    final heardIn = result['language'];
+    return updateTranscript(
+      projectId: project.id,
+      words: words,
+      heardIn: heardIn is String && heardIn.isNotEmpty ? heardIn : null,
+    );
   }
 
   /// Calls the `transcribe-audio` Supabase Edge Function, which forwards
@@ -1224,6 +1293,13 @@ class SongAnalysisService {
       final vocalStemPath = chordResult['vocalStemPath'] as String?;
       List<TranscriptWord> transcriptWords = const <TranscriptWord>[];
       String? transcriptText;
+      // What the words were heard in, as the transcriber reports it. Both
+      // paths below answer this the same way — the worker names it inside the
+      // transcript it returns, and transcribe-audio names it beside the words
+      // — so one variable covers a first listen, a cached one and the API
+      // fallback. Null when nothing said, which is what every analysis before
+      // this said and is read as "not known" (0167).
+      String? transcriptLanguage;
       // The analysis job transcribes the vocal stem itself now, on the GPU
       // that just separated it, with a model already resident in the worker
       // image. Measured against the lyrics these songs' writers typed, that
@@ -1314,6 +1390,11 @@ class SongAnalysisService {
               .where((word) => word.word.isNotEmpty)
               .toList(growable: false);
           transcriptText = transcriptWords.map((word) => word.word).join(' ');
+          // Beside the words rather than instead of anything: nothing on the
+          // page says it, and the sheet reads it only to know whether these
+          // words were already heard in a language somebody declares later.
+          final heardIn = cloudResult['language'];
+          transcriptLanguage = heardIn is String && heardIn.isNotEmpty ? heardIn : null;
         }
       } on _TranscriptionSkipped {
         // Already reported before the block was entered. Nothing to add,
@@ -1401,9 +1482,9 @@ class SongAnalysisService {
       final melody = usedFallback || chordResult['melody'] is! Map
           ? null
           : Melody.fromJson(Map<String, dynamic>.from(chordResult['melody'] as Map));
-      await client
-          .from('project_audio_references')
-          .update(<String, dynamic>{
+      await _saveReference(
+          project.id,
+          <String, dynamic>{
             'analysis_state': 'ready',
             'duration_ms': durationMs,
             'bpm': bpm,
@@ -1426,6 +1507,7 @@ class SongAnalysisService {
             'beats_per_bar': usedFallback ? null : chordResult['beatsPerBar'],
             'transcript_text': transcriptText,
             'transcript_words': transcriptWords.map((word) => word.toJson()).toList(growable: false),
+            'transcript_language': transcriptLanguage,
             'structure_sections': structureSections.map((s) => s.toJson()).toList(growable: false),
             'instruments': instruments?.toJson() ?? <String, dynamic>{},
             'melody': melody?.toJson(),
@@ -1433,8 +1515,8 @@ class SongAnalysisService {
             'melody_high_midi': melody?.highMidi,
             'analysis_warning': lyricsWarning,
             'last_error': null,
-          })
-          .eq('project_id', project.id);
+          },
+          ifKnown: const <String>{'transcript_language'});
       // Collected. Nothing left to resume.
       await _rememberJob(project.id, null);
       onProgress?.call(const SongAnalysisProgress('Ready', 1));
