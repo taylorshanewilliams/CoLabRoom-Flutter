@@ -395,6 +395,32 @@ class SongProject {
 /// in `copyWith` methods that need to support clearing a nullable field.
 const Object _unset = Object();
 
+/// A chart somebody brought into a song (0168).
+///
+/// One per song, kept as normalised ChordPro whichever of the three shapes it
+/// arrived in — see lib/services/brought_chart.dart, which is where it is
+/// read and where the reasons are written down. It is never turned into
+/// [ChordCue]s: those are timed against a recording, and a chart has no
+/// timings.
+class SongChart {
+  const SongChart({
+    required this.projectId,
+    required this.body,
+    required this.broughtAt,
+    this.broughtBy,
+  });
+
+  final String projectId;
+
+  /// The chart as ChordPro.
+  final String body;
+
+  /// Who brought it, or null once that account is gone. The band's chart
+  /// outlives whoever typed it out.
+  final String? broughtBy;
+  final DateTime broughtAt;
+}
+
 /// Something a song is asking for.
 ///
 /// Two shapes, one object, and the difference is whether [part] is null.

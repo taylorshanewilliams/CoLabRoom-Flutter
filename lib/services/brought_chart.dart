@@ -30,6 +30,13 @@ library;
 
 import 'music_reference.dart';
 
+/// How long a chart is allowed to be, in characters.
+///
+/// The same number as the check on `brought_charts.body` (0168), here as well
+/// so somebody who pasted a whole songbook is told before the round trip
+/// rather than after it. A very long song is a few thousand characters.
+const int chartBodyLimit = 65536;
+
 /// What one line of a brought chart is.
 enum ChartLineKind {
   /// The name of a part: "Verse 1", "Chorus". A `{comment}` in ChordPro, a

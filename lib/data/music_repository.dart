@@ -412,6 +412,21 @@ abstract interface class MusicRepository {
   /// null [cycle] hands the song back to the analysed bars.
   Future<void> setSongCycle(String projectId, SongCycle? cycle);
 
+  /// The chart somebody brought for this song, or null because nobody has.
+  ///
+  /// Readable by the people in the room (0168). Nothing here fetches a chart
+  /// from anywhere: a chart is in this app because a person pasted or opened
+  /// one they already had.
+  Future<SongChart?> broughtChart(String projectId);
+
+  /// Keeps [body] as this song's chart, replacing any chart already there.
+  ///
+  /// Owner or editor, and shared with the room like the key and bar 1: a
+  /// chart is the page everybody in the room reads off, so somebody who can
+  /// only look cannot replace it. [body] is normalised ChordPro — see
+  /// lib/services/brought_chart.dart.
+  Future<void> bringChart(String projectId, String body);
+
   /// The room a recording lands in when nobody has said where it goes.
   ///
   /// Created on first use rather than at signup, so an account that never

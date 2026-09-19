@@ -12520,6 +12520,206 @@ end $$;
 
 reset role;
 
+-- ---------------------------------------------------------------------
+-- A chart you brought (0168).
+--
+-- The room's owner or an editor brings one, everybody in the room reads it,
+-- somebody who can only look cannot replace it, and somebody who is not in
+-- the room can neither read it nor write it. Bringing a second one replaces
+-- the first, because that is what "Replace the chart" means in the app.
+--
+-- Nothing in this block fetches a chart from anywhere: the body is a chart
+-- typed out here, in the public-domain words of Amazing Grace.
+
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('1a4e0168-0000-0000-0000-000000000164', 'thechartwriter@smoke.test',
+   '{"display_name": "The Chart Writer"}'),
+  ('1a4e0168-0000-0000-0000-000000000165', 'onlylooking0168@smoke.test',
+   '{"display_name": "Only Looking"}'),
+  -- Never inserted into room_members, so room_role_for is null for this
+  -- account: the case the `is distinct from` pair exists for.
+  ('1a4e0168-0000-0000-0000-000000000166', 'notfromhere0168@smoke.test',
+   '{"display_name": "Not From Here"}');
+
+insert into public.rooms (id, account_id, name)
+values ('1a4e0168-0000-0000-0000-000000000160',
+        '11111111-1111-1111-1111-111111111111', 'The Chart Room');
+
+-- Distinct colours, as every other room in this file has
+-- (room_members_room_color_unique, 0006).
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('1a4e0168-0000-0000-0000-000000000160', '11111111-1111-1111-1111-111111111111',
+   'The Writer', 'owner', 4294937168),
+  ('1a4e0168-0000-0000-0000-000000000160', '1a4e0168-0000-0000-0000-000000000164',
+   'The Chart Writer', 'editor', 4283215668),
+  ('1a4e0168-0000-0000-0000-000000000160', '1a4e0168-0000-0000-0000-000000000165',
+   'Only Looking', 'viewer', 4284000168);
+
+insert into public.projects (id, room_id, account_id, title, created_by) values
+  ('1a4e0168-0000-0000-0000-000000000161', '1a4e0168-0000-0000-0000-000000000160',
+   '11111111-1111-1111-1111-111111111111', 'A Song With A Chart',
+   '11111111-1111-1111-1111-111111111111');
+
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+begin
+  -- Nothing to start with: a song has no chart until somebody brings one.
+  if exists (select 1 from public.brought_charts
+               where project_id = '1a4e0168-0000-0000-0000-000000000161') then
+    raise exception 'a new song arrived with a chart nobody brought';
+  end if;
+
+  perform public.bring_a_chart(
+    '1a4e0168-0000-0000-0000-000000000161',
+    '{title: Amazing Grace}' || chr(10) || '[G]Amazing [C]grace');
+
+  if (select body from public.brought_charts
+        where project_id = '1a4e0168-0000-0000-0000-000000000161')
+     not like '%[G]Amazing%' then
+    raise exception 'the owner could not bring a chart';
+  end if;
+
+  -- An empty chart is not a chart, and neither is a box of spaces.
+  begin
+    perform public.bring_a_chart('1a4e0168-0000-0000-0000-000000000161', '   ');
+    raise exception 'a blank was kept as a chart';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+-- An editor can bring one, and the second replaces the first rather than
+-- leaving the song with two.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0168-0000-0000-0000-000000000164"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.bring_a_chart(
+    '1a4e0168-0000-0000-0000-000000000161',
+    '{title: Amazing Grace}' || chr(10) || '[D]Amazing [G]grace');
+
+  if (select count(*) from public.brought_charts
+        where project_id = '1a4e0168-0000-0000-0000-000000000161') <> 1 then
+    raise exception 'a song ended up with two charts';
+  end if;
+  if (select body from public.brought_charts
+        where project_id = '1a4e0168-0000-0000-0000-000000000161')
+     not like '%[D]Amazing%' then
+    raise exception 'an editor could not replace the chart';
+  end if;
+  if (select brought_by from public.brought_charts
+        where project_id = '1a4e0168-0000-0000-0000-000000000161')
+     is distinct from '1a4e0168-0000-0000-0000-000000000164' then
+    raise exception 'the chart did not record who brought it';
+  end if;
+
+  -- Even somebody the guard would let through goes through the guard.
+  -- `authenticated` holds select and nothing else on this table (review, 19
+  -- September 2026: Supabase grants ALL on a new public table by default, and
+  -- leaving that would put only the absence of a policy between PostgREST and
+  -- a write that skips the 64 KB sentence and the owner-or-editor check).
+  begin
+    insert into public.brought_charts (project_id, body)
+    values ('1a4e0168-0000-0000-0000-000000000161', '[C]Straight in');
+    raise exception 'an editor wrote to the table around bring_a_chart';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    delete from public.brought_charts
+    where project_id = '1a4e0168-0000-0000-0000-000000000161';
+    if found then
+      raise exception 'an editor deleted the chart around bring_a_chart';
+    end if;
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Somebody who can only look reads it and cannot replace it.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0168-0000-0000-0000-000000000165"}';
+set local role authenticated;
+
+do $$
+begin
+  if not exists (select 1 from public.brought_charts
+                   where project_id = '1a4e0168-0000-0000-0000-000000000161') then
+    raise exception 'somebody in the room could not read the room''s chart';
+  end if;
+
+  begin
+    perform public.bring_a_chart('1a4e0168-0000-0000-0000-000000000161', '[C]No');
+    raise exception 'somebody who can only look replaced the room''s chart';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- And not straight at the table either: there is no insert, update or
+  -- delete policy on it at all, so a write through PostgREST finds nothing
+  -- to allow it.
+  begin
+    update public.brought_charts set body = '[C]No'
+    where project_id = '1a4e0168-0000-0000-0000-000000000161';
+    if found then
+      raise exception 'a plain update changed the room''s chart';
+    end if;
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Somebody who is not in the room cannot read it or write it. This is what
+-- the null-safety in the guard is for: the viewer above has a role, so
+-- `not in ('owner', 'editor')` would still refuse them -- this account has no
+-- role at all.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0168-0000-0000-0000-000000000166"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.brought_charts
+               where project_id = '1a4e0168-0000-0000-0000-000000000161') then
+    raise exception 'a stranger read a chart out of a room they are not in';
+  end if;
+
+  begin
+    perform public.bring_a_chart('1a4e0168-0000-0000-0000-000000000161', '[C]No');
+    raise exception 'a stranger brought a chart into somebody else''s room';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Nobody at all cannot ask either. A chart is never public.
+reset role;
+set local request.jwt.claims = '{"role": "anon"}';
+set local role anon;
+
+do $$
+begin
+  perform 1 from public.brought_charts;
+  raise exception 'anon read the brought charts';
+exception when insufficient_privilege then null;
+end $$;
+
+do $$
+begin
+  perform public.bring_a_chart('1a4e0168-0000-0000-0000-000000000161', '[C]No');
+  raise exception 'anon brought a chart';
+exception when insufficient_privilege then null;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select body from public.brought_charts
+        where project_id = '1a4e0168-0000-0000-0000-000000000161')
+     not like '%[D]Amazing%' then
+    raise exception 'somebody who cannot edit changed the room''s chart';
+  end if;
+end $$;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;
