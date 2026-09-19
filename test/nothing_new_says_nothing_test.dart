@@ -74,6 +74,7 @@ const Map<String, Type> _screens = <String, Type>{
   'the first screen': SongsScreen,
   'the inbox': NotificationsScreen,
   'your account': AccountScreen,
+  'your music': SongsScreen,
   'a song': SongWorkspaceScreen,
   'the takes': SongLayersScreen,
   'the open mic': OpenMicScreen,
@@ -107,6 +108,38 @@ Future<bool> _tapKey(WidgetTester tester, String key) async {
   await tester.tap(finder.last, warnIfMissed: false);
   await _frames(tester);
   return true;
+}
+
+/// One transparent pixel, as a PNG.
+///
+/// The rule reads the widget rather than the pixels, so the smallest real
+/// picture that decodes is the right size for this.
+const String _onePixel =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYA'
+    'AjCB0C8AAAAASUVORK5CYII=';
+
+/// A face, a cover and a room logo, put there before the walk starts.
+///
+/// Nobody in the seeded repository has ever uploaded a photograph, and every
+/// picture in this app is drawn only when there are bytes to draw — the
+/// fallback is initials or a glyph. So without this the walk builds no
+/// `Image` at all, the rule judges none, and the empty list that comes back
+/// reads exactly like an app whose pictures are all labelled. That is the
+/// difference between a gate and something that has never once been asked the
+/// question, which is why [paintedCensus] is asserted on below as well.
+Future<void> _seedPhotographs(
+  InMemoryMusicRepository repository,
+  MusicBetaController controller,
+) async {
+  final bytes = base64Decode(_onePixel);
+  await repository.setAvatar(bytes);
+  for (final room in controller.rooms) {
+    await repository.setRoomLogo(room: room, bytes: bytes);
+  }
+  for (final project in controller.projects.toList()) {
+    await repository.setProjectCover(project: project, bytes: bytes);
+  }
+  await controller.load();
 }
 
 /// A control by the label the `Semantics` widget was given.
@@ -148,32 +181,37 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
-    final controller = MusicBetaController(InMemoryMusicRepository.seeded());
+    final repository = InMemoryMusicRepository.seeded();
+    final controller = MusicBetaController(repository);
     await controller.load();
     addTearDown(controller.dispose);
+    await _seedPhotographs(repository, controller);
 
     await tester.pumpWidget(CoLabRoomApp.preview(controller: controller));
     await _frames(tester);
 
     final found = <SilentThing>[];
     final walked = <String>[];
-    // How many painted widgets each screen actually put in front of the rule.
+    // What each screen actually put in front of the rule, and what the walk
+    // as a whole did.
     //
     // The way a list like this goes quietly wrong is by being empty for the
-    // wrong reason: a screen that did not draw, or a walk that photographed
-    // a modal barrier, considers nothing and reports nothing, and a clean
-    // sheet is what somebody reads. So what was looked at is counted, and a
-    // screen that offered nothing to judge fails rather than passing.
+    // wrong reason: a screen that did not draw, or a walk that photographed a
+    // modal barrier, considers nothing and reports nothing, and a clean sheet
+    // is what somebody reads. Counted per kind as well as per screen, because
+    // a walk can show the rule two hundred icons and not a single picture and
+    // still look thorough.
     final painted = <String, int>{};
+    final judged = <String, int>{for (final kind in SilentThing.kinds) kind: 0};
     void look(String screen) {
       // Only if this is actually the screen. A look that is really a second
       // look at the last one is worse than a missing look, because it is
       // counted.
       if (find.byType(_screens[screen]!).evaluate().isEmpty) return;
       walked.add(screen);
-      painted[screen] = find.byType(CustomPaint).evaluate().length +
-          find.byType(Image).evaluate().length +
-          find.byType(Icon).evaluate().length;
+      final census = paintedCensus(tester);
+      painted[screen] = census.values.fold(0, (sum, count) => sum + count);
+      census.forEach((kind, count) => judged[kind] = judged[kind]! + count);
       for (final thing in silentPaint(tester)) {
         thing.screen = screen;
         found.add(thing);
@@ -197,6 +235,7 @@ void main() {
     // The shelf is where the app opens, so "the first screen" is already it;
     // this is here because the account screen was pushed over the top of it.
     await _tapText(tester, 'Your music');
+    look('your music');
     if (await _tapText(tester, 'Midnight Signal')) {
       look('a song');
       if (await _tapKey(tester, 'workspace_layers_button')) {
@@ -220,6 +259,14 @@ void main() {
       isEmpty,
       reason: 'these screens drew nothing this rule can judge, so finding '
           'nothing silent on them proves nothing',
+    );
+    expect(
+      judged.entries.where((e) => e.value == 0).map((e) => e.key),
+      isEmpty,
+      reason: 'the rule was never once shown one of these on the whole walk, '
+          'so an empty list says nothing about that kind. A picture is only '
+          'built when somebody has uploaded one, which is what '
+          '_seedPhotographs is for',
     );
 
     // Taken down before the test ends: screens that started a player or a

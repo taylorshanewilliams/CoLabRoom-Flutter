@@ -44,6 +44,15 @@ final List<Finding> _findings = <Finding>[];
 /// actually work from.
 final List<SilentThing> _silent = <SilentThing>[];
 
+/// How many painted things of each kind the walk put in front of that rule.
+///
+/// Kept because an empty list has two readings and only one of them is good
+/// news. Nobody in the seeded repository has uploaded a photograph, and every
+/// picture in this app is drawn only where there are bytes to draw, so this
+/// walk builds no `Image` at all and cannot have an opinion about one. Said
+/// out loud in `SILENT.md` rather than left to be assumed.
+final Map<String, int> _judged = <String, int>{};
+
 /// The one finding this walk is a gate for.
 ///
 /// Everything else here is a survey: it is written down, a human weighs it up,
@@ -300,7 +309,8 @@ void main() {
   tearDownAll(() async {
     await _writeDensity();
     final report = await writeReport(_findings, path: 'build/eyes/REPORT.md');
-    final silent = await writeSilentPaint(_silent, path: 'build/eyes/SILENT.md');
+    final silent = await writeSilentPaint(_silent,
+        path: 'build/eyes/SILENT.md', judged: _judged);
     // ignore: avoid_print
     print('\neyes: ${_findings.length} findings → ${report.path}');
     // Printed rather than asserted, even though the list is empty today.
@@ -405,6 +415,9 @@ void main() {
           thing.device = device.name;
         }
         _silent.addAll(silent);
+        paintedCensus(tester).forEach((kind, count) {
+          _judged[kind] = (_judged[kind] ?? 0) + count;
+        });
 
         final found = <Finding>[
           // Drained first, so a screen that threw is reported against the

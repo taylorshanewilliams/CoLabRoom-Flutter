@@ -16,8 +16,9 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
-// Material rather than widgets, for InkResponse: an icon-only button in this
-// app is one, and widgets.dart has never heard of it.
+// Material rather than widgets, for the button classes an icon-only control
+// in this app is made of — InkResponse, IconButton, FloatingActionButton —
+// which widgets.dart has never heard of.
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -422,18 +423,51 @@ List<SilentThing> silentPaint(
   WidgetTester tester, {
   Set<String>? painters,
 }) {
-  final owned = painters ?? appPainters();
   final found = <SilentThing>[];
   final seen = <String>{};
-
-  void add(String kind, String what, Element element) {
+  _eachPainted(tester, painters ?? appPainters(),
+      (kind, what, element, silent) {
+    if (!silent) return;
     final box = element.renderObject;
     final size = box is RenderBox && box.hasSize ? box.size : Size.zero;
     final key = '$kind|$what|${size.width.round()}x${size.height.round()}';
     if (!seen.add(key)) return;
     found.add(SilentThing(kind: kind, what: what, size: size));
-  }
+  });
+  return found;
+}
 
+/// How many painted things of each kind this screen put in front of the rule.
+///
+/// Silent or not: this counts what was *judged*. A list of defects goes
+/// quietly wrong by being empty for the wrong reason, and this is the one
+/// that matters here — the seeded repository has no photograph in it, so
+/// until one is put there no `Image` is ever built, the rule never judges
+/// one, and an empty list reads exactly like an app whose pictures are all
+/// labelled. A walk that wants to be believed asserts on this too.
+Map<String, int> paintedCensus(
+  WidgetTester tester, {
+  Set<String>? painters,
+}) {
+  final counts = <String, int>{for (final kind in SilentThing.kinds) kind: 0};
+  _eachPainted(tester, painters ?? appPainters(), (kind, what, element, _) {
+    counts[kind] = counts[kind]! + 1;
+  });
+  return counts;
+}
+
+/// Every painted thing on this screen the rule can have an opinion about,
+/// with that opinion.
+///
+/// One walk, two readers: [silentPaint] keeps the ones that say nothing and
+/// [paintedCensus] counts them all. They have to agree about what counts as a
+/// subject in the first place, or the count that is supposed to prove the
+/// list was looked for would be counting something else.
+void _eachPainted(
+  WidgetTester tester,
+  Set<String> owned,
+  void Function(String kind, String what, Element element, bool silent) visit,
+) {
   for (final element in find.byType(CustomPaint).evaluate()) {
     final paint = element.widget as CustomPaint;
     final mine = <String>[
@@ -445,12 +479,10 @@ List<SilentThing> silentPaint(
     // A painter can carry its own semantics rather than being wrapped in
     // them, which is the right answer for a drawing with several meaningful
     // parts, and counts.
-    if (paint.painter?.semanticsBuilder != null ||
-        paint.foregroundPainter?.semanticsBuilder != null) {
-      continue;
-    }
-    if (_namedOrExcluded(element)) continue;
-    add(SilentThing.painting, mine.join(' and '), element);
+    final speaks = paint.painter?.semanticsBuilder != null ||
+        paint.foregroundPainter?.semanticsBuilder != null ||
+        _namedOrExcluded(element);
+    visit(SilentThing.painting, mine.join(' and '), element, !speaks);
   }
 
   for (final element in find.byType(Image).evaluate()) {
@@ -458,34 +490,32 @@ List<SilentThing> silentPaint(
     // Two ways an Image settles the question itself, and both are on the
     // widget rather than above it: a label of its own, or a declaration that
     // it is decoration and contributes nothing.
-    if ((picture.semanticLabel ?? '').trim().isNotEmpty) continue;
-    if (picture.excludeFromSemantics) continue;
-    if (_namedOrExcluded(element)) continue;
-    add(SilentThing.image, picture.image.runtimeType.toString(), element);
+    final speaks = (picture.semanticLabel ?? '').trim().isNotEmpty ||
+        picture.excludeFromSemantics ||
+        _namedOrExcluded(element);
+    visit(SilentThing.image, picture.image.runtimeType.toString(), element,
+        !speaks);
   }
 
   for (final element in find.byType(Icon).evaluate()) {
     final icon = element.widget as Icon;
-    // `Icon` builds its own `Semantics` *below* itself, so the label it was
-    // given is not something a walk up the tree can see.
-    if ((icon.semanticLabel ?? '').trim().isNotEmpty) continue;
-    if (_namedOrExcluded(element)) continue;
     // A decorative icon beside words is not a defect — it is the normal way
     // to draw a list row, and flagging every one of them would bury the
     // handful that matter. What is being looked for is the icon that *is* the
-    // control: nothing above it says a word, and there is nothing else inside
-    // the control to read.
+    // control: nothing else inside the control to read. An icon that is not
+    // one is not a subject at all, which is why this comes before the
+    // question of whether it is named — a decorative icon nobody labelled is
+    // not a thing this rule has an opinion about.
     final control = _tappableAbove(element);
     if (control == null) continue;
     if (_holdsWords(control)) continue;
-    add(
-      SilentThing.iconControl,
-      '${icon.icon} in ${control.widget.runtimeType}',
-      element,
-    );
+    // `Icon` builds its own `Semantics` *below* itself, so the label it was
+    // given is not something a walk up the tree can see.
+    final speaks = (icon.semanticLabel ?? '').trim().isNotEmpty ||
+        _namedOrExcluded(element);
+    visit(SilentThing.iconControl, '${icon.icon} in ${_controlName(control)}',
+        element, !speaks);
   }
-
-  return found;
 }
 
 /// Paintings a screen reader is told nothing about, as findings.
@@ -542,7 +572,27 @@ bool _namedOrExcluded(Element element) {
       return false;
     }
     if (widget is Semantics) {
+      // Excluding its own subtree settles it the way `ExcludeSemantics` does:
+      // nothing below contributes a node, so there is nothing for a screen
+      // reader to land on and be told nothing about.
+      if (widget.excludeSemantics) {
+        settled = true;
+        return false;
+      }
       final properties = widget.properties;
+      // A route's label names the route, not what is inside it, so the walk
+      // carries on past it. The framework wraps every sheet, dialog and
+      // drawer in `Semantics(scopesRoute: true, namesRoute: true, label:
+      // 'Bottom sheet' / 'Alert' / 'Navigation menu', explicitChildNodes:
+      // true)` — announced once on the way in, and saying nothing whatsoever
+      // about the close button or the waveform underneath it. Letting that
+      // settle the question hid every painted thing in all of this app's
+      // sheets and dialogs from this rule, including the one sheet the eyes
+      // harness walks, which then reported a clean sheet in the wrong sense.
+      if ((properties.namesRoute ?? false) ||
+          (properties.scopesRoute ?? false)) {
+        return true;
+      }
       // Hint and value as well as label and tooltip: a control announced as
       // "82 beats per minute" is not silent, and neither is one whose only
       // words are the hint saying what pressing it does.
@@ -563,10 +613,9 @@ bool _namedOrExcluded(Element element) {
 
 /// The control [element] is the face of, if it is the face of one.
 ///
-/// The first tappable ancestor, which for an `IconButton` is the `InkResponse`
-/// the button builds rather than the button itself — the element tree runs
-/// through what was built, and naming that is honest and still enough to find
-/// the thing in the source.
+/// The nearest tappable ancestor, which settles whether this icon is a
+/// control at all. What to *call* it is a different question, and a worse
+/// one: see [_controlName].
 Element? _tappableAbove(Element element) {
   Element? control;
   element.visitAncestorElements((ancestor) {
@@ -580,6 +629,65 @@ Element? _tappableAbove(Element element) {
   });
   return control;
 }
+
+/// What to call the control [_tappableAbove] found.
+///
+/// Not the tappable's own type. `InkResponse` builds a `GestureDetector`
+/// below itself, so the nearest tappable above an `IconButton`'s icon is a
+/// `GestureDetector` — and so it is above an `InkWell`, a
+/// `FloatingActionButton` and a raw gesture. A worklist line that says
+/// "GestureDetector" about all four tells the person paying the debt down
+/// nothing at all.
+///
+/// So the walk carries on for the widget somebody actually wrote, and stops
+/// when it leaves the control: an ancestor drawing a box more than
+/// [_tapTargetSlack] bigger than the tappable is the thing *around* the
+/// button rather than the button. The slack is there because a Material
+/// button pads itself out to the 48-pixel tap target, so an `IconButton` is
+/// drawn a little larger than the ink it builds. Widgets with no box of
+/// their own — `FloatingActionButton` is one — are passed straight through.
+///
+/// The outermost match wins, because the inner ones are the framework's
+/// scaffolding: the chain above an `IconButton`'s icon runs `GestureDetector`,
+/// `InkWell`, `_IconButtonM3`, `IconButton`, and only the last of those is a
+/// thing to search the source for. Private names are skipped for the same
+/// reason.
+String _controlName(Element tappable) {
+  final drawn = tappable.renderObject;
+  final inside = drawn is RenderBox && drawn.hasSize ? drawn.size : null;
+  var name = tappable.widget.runtimeType.toString();
+  var steps = 0;
+  tappable.visitAncestorElements((ancestor) {
+    if ((steps += 1) > 60) return false;
+    final box = ancestor.renderObject;
+    if (inside != null && box is RenderBox && box.hasSize) {
+      if (box.size.width > inside.width + _tapTargetSlack ||
+          box.size.height > inside.height + _tapTargetSlack) {
+        return false;
+      }
+    }
+    final widget = ancestor.widget;
+    if (widget is IconButton ||
+        widget is FloatingActionButton ||
+        widget is ButtonStyleButton ||
+        widget is MaterialButton ||
+        widget is InkResponse) {
+      final type = widget.runtimeType.toString();
+      if (!type.startsWith('_')) name = type;
+    }
+    return true;
+  });
+  return name;
+}
+
+/// How much bigger than its ink a button is allowed to be drawn.
+///
+/// Material pads a 40-pixel `IconButton` out to the 48-pixel minimum tap
+/// target, and a `FloatingActionButton` sits inside a little more again, so a
+/// walk that stopped at the first ancestor of a different size would never
+/// reach the button. Wide enough for that padding, narrow enough that the
+/// card a button sits in is never mistaken for the button.
+const double _tapTargetSlack = 24;
 
 /// Whether anything under [root] is words rather than a glyph.
 ///
@@ -1249,6 +1357,7 @@ List<String> silentPaintLines(Iterable<SilentThing> things) {
 Future<File> writeSilentPaint(
   List<SilentThing> things, {
   required String path,
+  Map<String, int> judged = const <String, int>{},
 }) async {
   // One row per distinct thing, carrying the screens it was seen on. The same
   // unlabelled avatar on six screens across nine devices is one job, not
@@ -1277,6 +1386,26 @@ Future<File> writeSilentPaint(
 
   if (rows.isEmpty) {
     out.writeln('Nothing painted on this walk is silent.');
+  }
+
+  // What the walk actually showed the rule, alongside what it found. An empty
+  // list means one of two things and they are not at all the same — every
+  // picture is labelled, or no picture was ever built. A photograph in this
+  // app only exists where somebody has uploaded one, and nobody in the seeded
+  // repository has, so on this walk that number is honestly zero. The gate in
+  // `test/nothing_new_says_nothing_test.dart` seeds a face, a cover and a
+  // logo for exactly that reason, and fails if any kind is never judged.
+  if (judged.isNotEmpty) {
+    out
+      ..writeln()
+      ..writeln('## What was judged')
+      ..writeln();
+    for (final kind in SilentThing.kinds) {
+      final count = judged[kind] ?? 0;
+      out.writeln('- $kind: $count looked at'
+          '${count == 0 ? ', so an empty list above says nothing about this '
+              'kind' : ''}');
+    }
   }
 
   for (final kind in SilentThing.kinds) {
