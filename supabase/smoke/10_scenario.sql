@@ -11959,11 +11959,12 @@ end $$;
 
 -- Somebody who has left the band cannot still write on its Home.
 --
--- Nothing removes a setlist_projects row when a person leaves a room or is
--- removed from it -- 0005 checks membership as the row goes in and never
--- again -- so an old set of theirs is still joined to the room's song.
--- Re-dating it must not put their sentence back on every member's Home. The
--- set below is made while they are in the room, which is the only way it
+-- 0166 now takes a room's songs out of a departed member's sets, so the row
+-- this block was written against is gone by the time the read runs. 0164's
+-- own check stays and is asserted here anyway: it is what holds if a row
+-- ever survives leaving again, and a read that carries somebody's sentence
+-- to a whole room should not depend on a trigger elsewhere having fired.
+-- The set below is made while they are in the room, which is the only way it
 -- could have been made, and their membership then goes.
 reset role;
 insert into auth.users (id, email, raw_user_meta_data) values
@@ -12250,6 +12251,251 @@ begin
   if heard_in is distinct from 'pt' then
     raise exception 'somebody who can only look rewrote what the words were heard in (got %)',
       coalesce(heard_in, '<null>');
+  end if;
+end $$;
+
+reset role;
+
+-- ---------------------------------------------------------------------
+-- Leaving a room takes its songs out of your sets (0166).
+--
+-- A setlist_projects row has outlived its owner's membership since sets
+-- shipped: 0005 asks that the owner be in the song's room as the row goes
+-- in and never asks again. The songs could not be opened, and 0164 already
+-- refuses to hand out a set whose owner has left the room, but the rows
+-- stayed -- with everything 0157 writes on them. The rule now is the one a
+-- person would predict: stop being a member, and that room's songs leave
+-- your sets at that moment.
+--
+-- Two rooms, so that "this room's songs" means something. Three people: one
+-- in both bands, one in the weekday band only, and the person who runs both
+-- and does the removing.
+
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('1a4e0166-0000-0000-0000-000000000001', 'playsinboth@smoke.test',
+   '{"display_name": "Plays In Both"}'),
+  ('1a4e0166-0000-0000-0000-000000000002', 'staysput@smoke.test',
+   '{"display_name": "Stays Put"}'),
+  ('1a4e0166-0000-0000-0000-000000000003', 'runsbothbands@smoke.test',
+   '{"display_name": "Runs Both Bands"}');
+
+insert into public.rooms (id, account_id, name) values
+  ('1a4e0166-0000-0000-0000-000000000010',
+   '11111111-1111-1111-1111-111111111111', 'The Weekday Band'),
+  ('1a4e0166-0000-0000-0000-000000000011',
+   '11111111-1111-1111-1111-111111111111', 'The Weekend Band');
+
+-- Distinct colours within each room, as every other room in this file has
+-- (room_members_room_color_unique, 0006).
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('1a4e0166-0000-0000-0000-000000000010', '1a4e0166-0000-0000-0000-000000000003',
+   'Runs Both Bands', 'owner', 4294937164),
+  ('1a4e0166-0000-0000-0000-000000000010', '1a4e0166-0000-0000-0000-000000000001',
+   'Plays In Both', 'editor', 4283215664),
+  ('1a4e0166-0000-0000-0000-000000000010', '1a4e0166-0000-0000-0000-000000000002',
+   'Stays Put', 'editor', 4278239141),
+  ('1a4e0166-0000-0000-0000-000000000011', '1a4e0166-0000-0000-0000-000000000003',
+   'Runs Both Bands', 'owner', 4294937164),
+  ('1a4e0166-0000-0000-0000-000000000011', '1a4e0166-0000-0000-0000-000000000001',
+   'Plays In Both', 'editor', 4283215664);
+
+insert into public.projects (id, room_id, account_id, title, created_by) values
+  ('1a4e0166-0000-0000-0000-000000000020', '1a4e0166-0000-0000-0000-000000000010',
+   '11111111-1111-1111-1111-111111111111', 'A Weekday Song',
+   '1a4e0166-0000-0000-0000-000000000003'),
+  ('1a4e0166-0000-0000-0000-000000000021', '1a4e0166-0000-0000-0000-000000000011',
+   '11111111-1111-1111-1111-111111111111', 'A Weekend Song',
+   '1a4e0166-0000-0000-0000-000000000003'),
+  ('1a4e0166-0000-0000-0000-000000000022', '1a4e0166-0000-0000-0000-000000000010',
+   '11111111-1111-1111-1111-111111111111', 'A Song That Moves',
+   '1a4e0166-0000-0000-0000-000000000003');
+
+insert into public.setlists (id, owner_id, name, for_day) values
+  -- One set, songs from two rooms, dated so the card (0164) is in play.
+  ('1a4e0166-0000-0000-0000-000000000030', '1a4e0166-0000-0000-0000-000000000001',
+   'Everything I play', current_date + 3),
+  ('1a4e0166-0000-0000-0000-000000000031', '1a4e0166-0000-0000-0000-000000000002',
+   'The weekday list', current_date + 3),
+  ('1a4e0166-0000-0000-0000-000000000032', '1a4e0166-0000-0000-0000-000000000003',
+   'What we are doing', current_date + 3);
+
+-- The weekday row carries what 0157 writes on one, so that "the row went" is
+-- also "the key, the tempo and the line for the stand-in went".
+insert into public.setlist_projects
+  (setlist_id, project_id, position, played_key, bpm, note) values
+  ('1a4e0166-0000-0000-0000-000000000030',
+   '1a4e0166-0000-0000-0000-000000000020', 0, 'G', 96, 'Straight into the next one'),
+  ('1a4e0166-0000-0000-0000-000000000030',
+   '1a4e0166-0000-0000-0000-000000000021', 1, null, null, null),
+  ('1a4e0166-0000-0000-0000-000000000031',
+   '1a4e0166-0000-0000-0000-000000000020', 0, null, null, null),
+  ('1a4e0166-0000-0000-0000-000000000031',
+   '1a4e0166-0000-0000-0000-000000000022', 1, null, null, null),
+  ('1a4e0166-0000-0000-0000-000000000032',
+   '1a4e0166-0000-0000-0000-000000000022', 0, null, null, null);
+
+-- Both songs are in the set and on the card while they are in both bands, so
+-- what follows is about leaving and not about something else.
+set local request.jwt.claims = '{"sub": "1a4e0166-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+begin
+  if (select count(*) from public.sets_for_the_day()
+        where set_id = '1a4e0166-0000-0000-0000-000000000030') <> 2 then
+    raise exception 'the card did not offer both bands'' songs to begin with';
+  end if;
+
+  -- Leaving is theirs to do, without asking anybody (0062).
+  perform public.leave_room('1a4e0166-0000-0000-0000-000000000010');
+end $$;
+
+reset role;
+do $$
+begin
+  if exists (
+    select 1 from public.setlist_projects
+    where setlist_id = '1a4e0166-0000-0000-0000-000000000030'
+      and project_id = '1a4e0166-0000-0000-0000-000000000020'
+  ) then
+    raise exception 'the room they left kept a song in their set';
+  end if;
+
+  -- And only that room's. The weekend song is still theirs to play.
+  if not exists (
+    select 1 from public.setlist_projects
+    where setlist_id = '1a4e0166-0000-0000-0000-000000000030'
+      and project_id = '1a4e0166-0000-0000-0000-000000000021'
+  ) then
+    raise exception 'leaving one band took the other band''s song too';
+  end if;
+
+  -- The set is their own list and stays, with its name and its day on it.
+  if (select for_day from public.setlists
+        where id = '1a4e0166-0000-0000-0000-000000000030')
+     is distinct from current_date + 3 then
+    raise exception 'leaving a room changed the set itself';
+  end if;
+
+  -- Nobody else's set is touched: Stays Put is still in the weekday band and
+  -- still has both of its songs.
+  if (select count(*) from public.setlist_projects
+        where setlist_id = '1a4e0166-0000-0000-0000-000000000031') <> 2 then
+    raise exception 'one person leaving emptied another member''s set';
+  end if;
+end $$;
+
+-- The card is the other half of it: the song they can no longer open is not
+-- offered, and the one they can still is.
+set local request.jwt.claims = '{"sub": "1a4e0166-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  offered uuid[];
+begin
+  select array_agg(s.project_id order by s.running_order) into offered
+  from public.sets_for_the_day() s
+  where s.set_id = '1a4e0166-0000-0000-0000-000000000030';
+  if offered is distinct from
+     array['1a4e0166-0000-0000-0000-000000000021'::uuid] then
+    raise exception 'the card still offered the songs of the room they left';
+  end if;
+end $$;
+
+-- Coming back brings nothing back with it. The rows are gone, and adding the
+-- songs again is the same two taps it was the first time.
+reset role;
+insert into public.room_members (room_id, user_id, display_name, role, color_value)
+values ('1a4e0166-0000-0000-0000-000000000010',
+        '1a4e0166-0000-0000-0000-000000000001', 'Plays In Both', 'editor', 4283215664);
+
+do $$
+begin
+  if exists (
+    select 1 from public.setlist_projects
+    where setlist_id = '1a4e0166-0000-0000-0000-000000000030'
+      and project_id = '1a4e0166-0000-0000-0000-000000000020'
+  ) then
+    raise exception 'rejoining the band put the song back in the set';
+  end if;
+end $$;
+
+-- A song that changes rooms, rather than a person who does. moveProjects
+-- updates projects.room_id (0041), so a song can arrive somewhere a set's
+-- owner is not without their membership changing at all. Runs Both Bands is
+-- in the weekend room, so their set keeps it; Stays Put is not, so theirs
+-- loses it.
+set local request.jwt.claims = '{"sub": "1a4e0166-0000-0000-0000-000000000003"}';
+set local role authenticated;
+
+do $$
+declare
+  moved integer;
+begin
+  update public.projects set room_id = '1a4e0166-0000-0000-0000-000000000011'
+  where id = '1a4e0166-0000-0000-0000-000000000022';
+  get diagnostics moved = row_count;
+  if moved <> 1 then
+    raise exception 'the song never moved rooms, so nothing below was tested';
+  end if;
+end $$;
+
+reset role;
+do $$
+begin
+  if exists (
+    select 1 from public.setlist_projects
+    where setlist_id = '1a4e0166-0000-0000-0000-000000000031'
+      and project_id = '1a4e0166-0000-0000-0000-000000000022'
+  ) then
+    raise exception
+      'a song that moved stayed in the set of somebody not in the new room';
+  end if;
+  if not exists (
+    select 1 from public.setlist_projects
+    where setlist_id = '1a4e0166-0000-0000-0000-000000000032'
+      and project_id = '1a4e0166-0000-0000-0000-000000000022'
+  ) then
+    raise exception 'a song that moved left the set of somebody who followed it';
+  end if;
+end $$;
+
+-- Being removed is the other way out, and the same rule. The room's owner
+-- removes Stays Put, whose set is left holding nothing -- and is still there,
+-- holding nothing.
+set local request.jwt.claims = '{"sub": "1a4e0166-0000-0000-0000-000000000003"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.remove_room_member(
+    '1a4e0166-0000-0000-0000-000000000010',
+    '1a4e0166-0000-0000-0000-000000000002');
+end $$;
+
+reset role;
+do $$
+begin
+  if exists (
+    select 1 from public.setlist_projects
+    where setlist_id = '1a4e0166-0000-0000-0000-000000000031'
+  ) then
+    raise exception 'being removed left the room''s songs in their set';
+  end if;
+  if not exists (
+    select 1 from public.setlists
+    where id = '1a4e0166-0000-0000-0000-000000000031'
+      and name = 'The weekday list'
+  ) then
+    raise exception 'being removed from a room deleted somebody''s set';
+  end if;
+  -- And the two sets that had nothing to do with it are where they were.
+  if (select count(*) from public.setlist_projects
+        where setlist_id = '1a4e0166-0000-0000-0000-000000000030') <> 1
+     or (select count(*) from public.setlist_projects
+           where setlist_id = '1a4e0166-0000-0000-0000-000000000032') <> 1 then
+    raise exception 'removing one person from one room reached other people''s sets';
   end if;
 end $$;
 

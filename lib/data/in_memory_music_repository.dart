@@ -876,6 +876,19 @@ class InMemoryMusicRepository implements MusicRepository {
       projects: <SongProject>[...currentTarget.projects, ...moved],
       updatedAt: DateTime.now(),
     ));
+    // 0166 from the other side. A song can arrive in a room somebody is not
+    // in without their membership changing at all, and a set holding it
+    // would be holding a song its owner cannot open. Whoever is in the room
+    // it moved to keeps it.
+    final inTheNewRoom =
+        currentTarget.members.map((member) => member.userId).toSet();
+    for (final setlist in List<Setlist>.from(_setlists)) {
+      if (inTheNewRoom.contains(setlist.ownerId)) continue;
+      if (!setlist.projectIds.any(selectedIds.contains)) continue;
+      _replaceSetlist(setlist.withOrder(
+        setlist.projectIds.where((id) => !selectedIds.contains(id)),
+      ));
+    }
   }
 
   @override
@@ -1170,6 +1183,35 @@ class InMemoryMusicRepository implements MusicRepository {
           .where((m) => m.userId != userId)
           .toList(growable: false),
     ));
+    // And the room's songs leave that person's sets, the way 0166's trigger
+    // takes them out. Both ways out come through here, as they do in the
+    // database: leave_room calls remove_room_member.
+    _takeARoomsSongsOutOfSets(room, userId);
+  }
+
+  /// Takes [room]'s songs out of [userId]'s sets, because they are not in it
+  /// any more.
+  ///
+  /// 0166. A `setlist_projects` row only ever went in while the set's owner
+  /// was in the song's room (0005 checks that as it goes in and never asks
+  /// again), and from 0166 it is asked again the moment they stop being a
+  /// member. Nothing lingers about a room you have left; coming back adds
+  /// the songs again.
+  ///
+  /// The set itself stays, with its name and its day: an empty set is a set
+  /// with nothing in it, not a set somebody deleted. And `updated_at` does
+  /// not move, because in the database this is a delete of child rows and
+  /// `setlists_set_updated_at` only fires on an update of the set.
+  void _takeARoomsSongsOutOfSets(MusicRoom room, String userId) {
+    final songIds = room.projects.map((project) => project.id).toSet();
+    if (songIds.isEmpty) return;
+    for (final setlist in List<Setlist>.from(_setlists)) {
+      if (setlist.ownerId != userId) continue;
+      if (!setlist.projectIds.any(songIds.contains)) continue;
+      _replaceSetlist(setlist.withOrder(
+        setlist.projectIds.where((id) => !songIds.contains(id)),
+      ));
+    }
   }
 
   @override
