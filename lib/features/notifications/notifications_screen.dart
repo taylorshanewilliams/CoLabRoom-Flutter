@@ -309,9 +309,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     // size this phone asks for. Measured rather than switched on a scale
     // factor, because whether two words fit depends on the words, the font
     // and the phone, and a threshold guesses at all three.
-    // Reading something was never the same as being done with it, and until
-    // this existed there was no way to say the second thing at all: an inbox
-    // could only grow.
     final wordActions = <(Key, String, VoidCallback)>[
       if (notifications.any((n) => !n.isRead))
         (
@@ -319,6 +316,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           'Mark all read',
           () => controller.markAllNotificationsRead(),
         ),
+      // Reading something was never the same as being done with it, and
+      // until this existed there was no way to say the second thing at all:
+      // an inbox could only grow.
       if (notifications.any((n) => n.isRead))
         (
           const Key('inbox_clear_read'),
@@ -326,13 +326,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           () => unawaited(controller.deleteReadNotifications()),
         ),
     ];
-    final labelStyle = Theme.of(context).textTheme.labelLarge ??
+    final theme = Theme.of(context);
+    final labelStyle = theme.textTheme.labelLarge ??
         const TextStyle(fontSize: 14, fontWeight: FontWeight.w500);
+    final titleStyle = theme.appBarTheme.titleTextStyle ??
+        theme.textTheme.titleLarge ??
+        const TextStyle(fontSize: 22);
     // A back arrow and the key icon are 48 apiece and do not grow with text;
-    // a TextButton pads its label by 16 on each side.
+    // a TextButton pads its label by 16 on each side, and so does the title.
     final roomForWords = MediaQuery.sizeOf(context).width -
         96 -
-        textWidthOf(context, 'Inbox', labelStyle) -
+        textWidthOf(context, 'Inbox', titleStyle) -
         32;
     final wordsNeed = wordActions.fold<double>(
       0,

@@ -68,10 +68,13 @@ double textWidthOf(BuildContext context, String text, TextStyle style) {
 /// How much bigger this phone draws [fontSize] than the layout around it was
 /// drawn for, never below 1.
 ///
-/// For the widths that have to grow with the text as well as the heights. A
-/// 58-pixel column under a face is enough for a first name at 11px and enough
-/// for one letter and an ellipsis at 22px, and a row of faces with nothing
-/// readable under them is not a row of people.
+/// Two jobs. The widths that have to grow with the text as well as the
+/// heights do — a 58-pixel column under a face is enough for a first name at
+/// 11px and enough for one letter and an ellipsis at 22px, and a row of faces
+/// with nothing readable under them is not a row of people. And the handful of
+/// headers that are laid out one way while the words fit beside each other and
+/// another way when they do not; those switch at 1.5, so that a reader who
+/// nudged their text size one step does not find the screen rearranged.
 ///
 /// Never below 1 because a reader who has turned their text *down* has asked
 /// for smaller text, not for a narrower app.

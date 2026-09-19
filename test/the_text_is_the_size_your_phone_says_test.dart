@@ -20,7 +20,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 ///
 /// So the two halves of it are asserted here. That the app passes the
 /// reader's scale through untouched, and that the screens in this slice — the
-/// three tabs, the inbox, Messages, the account screen and sign-in — can be
+/// three tabs, the inbox, the account screen, a profile and sign-in — can be
 /// drawn at twice normal without Flutter complaining. Overflow is an
 /// exception in a widget test, so `takeException` catches the yellow stripes
 /// as well as the crashes.
