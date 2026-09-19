@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../domain/song_analysis_models.dart';
+import '../domain/song_cycle.dart';
 
 /// Putting the chord map back on the song's grid.
 ///
@@ -128,6 +129,99 @@ int? barNumberAt(int ms, List<int> downbeatsMs, {int barOne = 1}) {
     }
   }
   return low - first + 1;
+}
+
+/// The grid a song is counted on once the band has counted a cycle of its
+/// own, and where cycle 1 sits in it.
+///
+/// A cycle replaces the analysed bars outright rather than sitting beside
+/// them: a player counting in sevens has no use for a number that means four
+/// beats of something else (Every Musician, Same Song, 17 September 2026,
+/// decision 20). It is the same shape as the analysed grid -- a list of the
+/// moments a count begins, and which of them is number 1 -- so everything
+/// that names, loops or counts bars works on it unchanged.
+class CycleGrid {
+  const CycleGrid({required this.downbeatsMs, required this.barOne});
+
+  /// Where each cycle begins, ascending, with whatever is played ahead of
+  /// cycle 1 as one entry in front of it.
+  final List<int> downbeatsMs;
+
+  /// Which of those entries is cycle 1: two when something is played ahead
+  /// of it, one when the cycle starts where the grid does.
+  final int barOne;
+}
+
+/// How many beats there are from bar 1 to the end of the recording.
+///
+/// What a cycle has to fit inside twice over: one cycle on its own cannot be
+/// counted from, because there is no second one for a count to come round
+/// to, and the picker has nothing to choose a run between.
+int beatsFromBarOne(
+  List<int> beatsMs, {
+  List<int> downbeatsMs = const <int>[],
+  int barOne = 1,
+}) {
+  if (beatsMs.isEmpty) return 0;
+  final from = downbeatsMs.isEmpty
+      ? beatsMs.first
+      : downbeatsMs[barOneIndex(barOne, downbeatsMs.length)];
+  return beatsMs.length - _nearestIndex(from, beatsMs);
+}
+
+/// The longest cycle this song has the beats to count, or a number below
+/// [SongCycle.minBeats] when it has none.
+///
+/// A song the beat tracker found nothing in offers no cycle at all, which is
+/// the honest answer: a cycle is a count of beats, and there are none to
+/// count.
+int longestCycle(
+  List<int> beatsMs, {
+  List<int> downbeatsMs = const <int>[],
+  int barOne = 1,
+}) =>
+    math.min(
+      SongCycle.maxBeats,
+      beatsFromBarOne(beatsMs, downbeatsMs: downbeatsMs, barOne: barOne) ~/ 2,
+    );
+
+/// The cycle laid over this song's beats, or null when there is no cycle or
+/// no beat grid to lay it on.
+///
+/// Cycle 1 begins where bar 1 does -- the downbeat the band said to count
+/// from (0161), or the first one the analysis found -- and every cycle after
+/// it is [SongCycle.beats] beats further along the beat grid. The downbeats
+/// themselves are used for nothing else: a seven laid over a recording the
+/// tracker heard in fours will not land on them, and it is not supposed to.
+///
+/// Whatever is played ahead of cycle 1 goes in front as a single entry, the
+/// way the analysed grid carries a pickup, so it can be asked for by name
+/// rather than vanishing off the top of the count.
+CycleGrid? cycleGridFor(
+  SongCycle? cycle, {
+  required List<int> beatsMs,
+  List<int> downbeatsMs = const <int>[],
+  int barOne = 1,
+}) {
+  if (cycle == null || beatsMs.isEmpty) return null;
+  final from = downbeatsMs.isEmpty
+      ? beatsMs.first
+      : downbeatsMs[barOneIndex(barOne, downbeatsMs.length)];
+  final first = _nearestIndex(from, beatsMs);
+  final starts = <int>[
+    for (var at = first; at < beatsMs.length; at += cycle.beats) beatsMs[at],
+  ];
+  // One cycle is not a count. Rather than draw a grid of one the picker
+  // cannot choose a run from, the song keeps its analysed bars.
+  if (starts.length < 2) return null;
+  final ahead = beatsMs.first;
+  if (ahead < starts.first) {
+    return CycleGrid(
+      downbeatsMs: List<int>.unmodifiable(<int>[ahead, ...starts]),
+      barOne: 2,
+    );
+  }
+  return CycleGrid(downbeatsMs: List<int>.unmodifiable(starts), barOne: 1);
 }
 
 /// Moves every chord change onto the nearest beat it could plausibly have

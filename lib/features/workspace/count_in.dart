@@ -1,4 +1,5 @@
 import '../../domain/song_analysis_models.dart';
+import '../../domain/song_cycle.dart';
 import '../../services/chord_beat_grid.dart'
     show barNumberAt, barOneIndex, medianBeatIntervalMs;
 import 'practice_rules.dart' show maxBpm, minBpm;
@@ -81,14 +82,31 @@ int? downbeatAtOrBefore(int ms, List<int> downbeatsMs) {
 
 /// One bar of the song's own time: how many beats are in it, and how fast.
 class CountIn {
-  const CountIn({required this.beats, required this.bpm});
+  const CountIn({required this.beats, required this.bpm, this.cycle});
 
-  /// Beats in the bar — four in common time, three in a waltz.
+  /// Beats in the bar — four in common time, three in a waltz, and the whole
+  /// of the cycle when the band has counted one.
   final int beats;
 
   /// The tempo the bar is counted at: the song's own, at the speed it is
   /// about to be played at.
   final double bpm;
+
+  /// The cycle being counted, when the band has counted one. Null is the
+  /// ordinary song, whose count-in is even apart from its first beat.
+  final SongCycle? cycle;
+
+  /// How hard the count strikes this beat. Without a cycle every beat of the
+  /// count is the same weight, which is what the count-in has always been:
+  /// the click already marks its first beat, and a phone that suddenly
+  /// thumped on the one of every song would be this slice reaching songs
+  /// nobody counted a cycle for.
+  CycleStroke strokeAt(int beat) =>
+      cycle == null ? CycleStroke.beat : cycle!.strokeAt(beat);
+
+  /// The beats of the cycle that are stressed, for the click to strike
+  /// harder. Empty without a cycle.
+  List<int> get accents => cycle?.accents ?? const <int>[];
 
   Duration get beat => beatLength(bpm);
 
@@ -135,16 +153,27 @@ Duration countInBeatAt(CountIn countIn, int beat) => countIn.beat * (beat - 1);
 /// a defence against a count-in the tracker read as bars of its own, and four
 /// bars of a two-beat count on the front of a short recording will outvote
 /// the song and count the band in on two.
+/// [cycle] is the cycle the band counted for itself, when it counted one, and
+/// then the count-in is one whole cycle of it: being counted in on four
+/// before playing a seven is the count telling you the wrong thing about the
+/// song you are about to play (Every Musician, Same Song, 17 September 2026,
+/// decision 20). The analysis's own metre is not consulted at all in that
+/// case -- the whole point of counting a cycle is that the tracker's answer
+/// was not the one being played.
 CountIn? countInFor({
   double? bpm,
   int? beatsPerBar,
   List<int> downbeatsMs = const <int>[],
   double rate = 1,
   int barOne = 1,
+  SongCycle? cycle,
 }) {
   if (bpm == null || rate <= 0) return null;
   if (bpm < minBpm || bpm > maxBpm) return null;
   if (downbeatsMs.isEmpty) return null;
+  if (cycle != null) {
+    return CountIn(beats: cycle.beats, bpm: bpm * rate, cycle: cycle);
+  }
   final first = barOneIndex(barOne, downbeatsMs.length);
   final song = first == 0 ? downbeatsMs : downbeatsMs.sublist(first);
   return CountIn(
@@ -159,6 +188,7 @@ CountIn? countInForSong(
   ReferenceTrack? reference, {
   double rate = 1,
   int barOne = 1,
+  SongCycle? cycle,
 }) =>
     reference == null
         ? null
@@ -168,4 +198,5 @@ CountIn? countInForSong(
             downbeatsMs: reference.downbeatsMs,
             rate: rate,
             barOne: barOne,
+            cycle: cycle,
           );

@@ -17,11 +17,17 @@ abstract class ClickPlayer {
   ///
   /// [loop] keeps it going round, which is a metronome. Without it the bars
   /// play once and stop, which is a count-in.
+  ///
+  /// [accents] are the beats inside each bar, numbered from one, that a band
+  /// counting a cycle of its own stresses: a seven counted 3+2+2 has 4 and 6
+  /// in here. Empty is the ordinary click, which marks the first beat and
+  /// leaves the rest even.
   Future<void> play({
     required double bpm,
     required int beatsPerBar,
     int bars = 8,
     bool loop = true,
+    List<int> accents = const <int>[],
   });
 
   Future<void> stop();
@@ -52,19 +58,24 @@ class WavClickPlayer implements ClickPlayer {
     required int beatsPerBar,
     int bars = 8,
     bool loop = true,
+    List<int> accents = const <int>[],
   }) async {
     final generation = ++_generation;
     final directory = await getTemporaryDirectory();
     // The bar count is part of the name because audioplayers keys its cache
     // on the path: a one-bar count-in and an eight-bar metronome at the same
     // tempo sharing a filename would hand back whichever was written first.
+    // The stresses are in it for the same reason -- a seven counted 3+2+2 and
+    // the same seven counted evenly are two different clicks.
+    final stressed = accents.isEmpty ? '' : '_${accents.join('-')}';
     final path =
-        '${directory.path}/click_${bpm.round()}_${beatsPerBar}_$bars.wav';
+        '${directory.path}/click_${bpm.round()}_${beatsPerBar}_$bars$stressed.wav';
     await Multitrack.writeClickOnly(
       bpm: bpm,
       outputPath: path,
       beatsPerBar: beatsPerBar,
       bars: bars,
+      accents: accents,
     );
     // A slower tap arrived while this file was being written.
     if (generation != _generation) return;

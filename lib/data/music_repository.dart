@@ -10,6 +10,7 @@ import '../domain/practice_mark.dart';
 import '../domain/sealed_take.dart';
 import '../domain/sent_take.dart';
 import '../domain/song_brief.dart';
+import '../domain/song_cycle.dart';
 import '../domain/tonight_models.dart';
 
 abstract interface class MusicRepository {
@@ -382,6 +383,15 @@ abstract interface class MusicRepository {
   /// again, which lays the song out the way a song nobody has answered for
   /// is laid out.
   Future<void> setSongLanguage(String projectId, String? language);
+  /// Counts the cycle this song goes round in: how many beats, and which of
+  /// them the band stresses.
+  ///
+  /// Owner or editor, and shared with the room for the same reason the key
+  /// and bar 1 are. Half the music in the world is not in bars of four, and
+  /// the alternative to this was a library of named cycles nobody here has
+  /// reviewed (Every Musician, Same Song, 17 September 2026, decision 20). A
+  /// null [cycle] hands the song back to the analysed bars.
+  Future<void> setSongCycle(String projectId, SongCycle? cycle);
 
   /// The room a recording lands in when nobody has said where it goes.
   ///

@@ -12,6 +12,7 @@ import '../../widgets/song_sheet_button.dart';
 import '../../domain/music_models.dart';
 import '../../domain/practice_mark.dart';
 import '../../domain/song_analysis_models.dart';
+import '../../domain/song_cycle.dart';
 import '../../services/song_analysis_service.dart';
 import '../../widgets/analysis_depth_sheet.dart';
 import 'instrument_chips.dart';
@@ -207,6 +208,17 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     } catch (_) {
       // Only the order of a list. Nothing to say and nothing to retry.
     }
+  }
+
+  /// Counts the cycle the band goes round in, or hands the song back to the
+  /// analysed bars with a null. The same two people again, for the same
+  /// reason again (0162).
+  Future<void> _countCycle(SongCycle? cycle) async {
+    final controller = BetaScope.of(context, listen: false);
+    await controller.repository.setSongCycle(_project.id, cycle);
+    if (!mounted) return;
+    setState(() => _project = _project.copyWith(cycle: cycle));
+    unawaited(controller.refreshProject(_project.id));
   }
 
   /// Takes what was sung into one written line: the recording's words for
@@ -527,6 +539,12 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                       ?.canEditSongs(me) ??
                   false)
               ? _setBarOne
+              : null,
+          // And the cycle the band counts, on the same terms (0162).
+          onCountCycle: (controller.roomById(_project.roomId)
+                      ?.canEditSongs(me) ??
+                  false)
+              ? _countCycle
               : null,
         ),
         fullscreenDialog: true,

@@ -1392,6 +1392,15 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                       await controller.refreshProject(project.id);
                     }
                   : null,
+          // And the cycle the band counts, on the same terms (0162).
+          onCountCycle:
+              (controller.roomById(project.roomId)?.canEditSongs(me) ?? false)
+                  ? (cycle) async {
+                      await controller.repository
+                          .setSongCycle(project.id, cycle);
+                      await controller.refreshProject(project.id);
+                    }
+                  : null,
         ),
         fullscreenDialog: true,
       ),

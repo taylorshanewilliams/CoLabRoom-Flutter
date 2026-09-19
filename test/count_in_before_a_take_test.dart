@@ -39,6 +39,7 @@ class _Click implements ClickPlayer {
     required int beatsPerBar,
     int bars = 8,
     bool loop = true,
+    List<int> accents = const <int>[],
   }) async {
     log.add('play ${bpm.round()}/$beatsPerBar x$bars${loop ? ' looped' : ''}');
     if (startsAfter > Duration.zero) {
