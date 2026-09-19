@@ -3382,6 +3382,11 @@ class InMemoryMusicRepository implements MusicRepository {
         songOrigin: song.songOrigin,
         keyOverride: song.keyOverride,
         barOneDownbeat: song.barOneDownbeat,
+        // And the cycle, as 0162 now copies it: a teacher who counts a seven
+        // and sends the song has to be sending the seven with it, or the
+        // class counts the analysed bars while the teacher says "from cycle
+        // nine".
+        cycle: song.cycle,
       );
       _copiedFrom[copyId] = song.id;
       _replaceRoom(room.copyWith(

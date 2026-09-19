@@ -8,10 +8,12 @@ import 'package:colabroom/features/workspace/count_in.dart';
 import 'package:colabroom/features/workspace/live_performance_screen.dart';
 import 'package:colabroom/features/workspace/practice_rules.dart';
 import 'package:colabroom/services/chord_beat_grid.dart';
+import 'package:colabroom/services/follow_me.dart';
 import 'package:colabroom/services/multitrack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 
 /// Count your own cycle.
 ///
@@ -291,14 +293,98 @@ void main() {
       expect((await _song(repository, song.id)).cycle, isNull);
     });
 
-    test('a song that is not there is left alone', () async {
+    test('a song that is not there is refused rather than half-written',
+        () async {
       final repository = InMemoryMusicRepository.seeded();
-      await repository.setSongCycle('not-a-song', seven);
+      await expectLater(
+        repository.setSongCycle('not-a-song', seven),
+        throwsA(isA<PostgrestException>()
+            .having((e) => e.code, 'code', '22023')),
+      );
       final rooms = await repository.loadRooms();
       expect(
         rooms.expand((room) => room.projects).every((p) => p.cycle == null),
         isTrue,
       );
+    });
+
+    // 0162 lets the owner and the editors count, and nobody else. This
+    // repository said yes to all four until the review of 18 September 2026:
+    // the refusal Perform is written to handle was a branch no test could
+    // reach, and a test group called "who may count it" proved nothing of
+    // the kind.
+    test('an editor may count it and somebody who can only look may not',
+        () async {
+      final repository = InMemoryMusicRepository.seeded();
+      repository.addToRoom(
+        'room-1',
+        const RoomMember(
+          userId: 'vee',
+          displayName: 'Vee',
+          role: RoomRole.viewer,
+          colorValue: 0xFFE3B34D,
+        ),
+      );
+      final rooms = await repository.loadRooms();
+      final song = rooms
+          .firstWhere((room) => room.id == 'room-1')
+          .projects
+          .firstWhere((_) => true);
+
+      // The editor: usually the person actually playing the thing, which is
+      // the reason the gate is owner-or-editor rather than owner.
+      repository.currentUserId = 'preview-jess';
+      await repository.setSongCycle(song.id, seven);
+      expect((await _song(repository, song.id)).cycle, seven);
+
+      Matcher refused() => throwsA(
+            isA<PostgrestException>()
+                .having((e) => e.code, 'code', '42501')
+                .having((e) => e.message, 'message', contains('can edit')),
+          );
+
+      repository.currentUserId = 'vee';
+      await expectLater(repository.setSongCycle(song.id, SongCycle(5)), refused());
+      // And clearing is a write like any other: somebody who may only look
+      // cannot hand the room back to the analysed bars either.
+      await expectLater(repository.setSongCycle(song.id, null), refused());
+
+      repository.currentUserId = 'nobody-at-all';
+      await expectLater(repository.setSongCycle(song.id, SongCycle(5)), refused());
+
+      // Through all of that the song still counts what the editor said.
+      expect((await _song(repository, song.id)).cycle, seven);
+
+      repository.currentUserId = 'preview-user';
+      await repository.setSongCycle(song.id, null);
+      expect((await _song(repository, song.id)).cycle, isNull);
+    });
+
+    test('a song a teacher sends carries the cycle to every student',
+        () async {
+      // 0162 restates send_song_to_students for this, as 0161 did for bar 1:
+      // a teacher who counts a seven and then says "from cycle nine" has to
+      // be saying it about the copy on the student's stand.
+      final repository = InMemoryMusicRepository.seeded();
+      final studio = (await repository.loadRooms())
+          .firstWhere((room) => room.name == 'Acoustic Ideas');
+      final song = await repository.createSong(room: studio, title: 'A Seven');
+      await repository.setSongCycle(song.id, seven);
+      final lesson =
+          repository.teachALesson(studentId: 'student-1', studentName: 'Jess');
+
+      final sent = await repository.sendSongToStudents(
+        projectId: song.id,
+        roomIds: <String>[lesson.id],
+      );
+      expect(sent, isNotEmpty, reason: 'the song reached the lesson');
+
+      final copy = (await repository.loadRooms())
+          .firstWhere((room) => room.id == lesson.id)
+          .projects
+          .firstWhere((_) => true);
+      expect(copy.cycle, seven,
+          reason: 'the student counts what the teacher counts');
     });
   });
 
@@ -541,6 +627,273 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a long cycle is counted in without running off the phone',
+        (tester) async {
+      // A bar of the song's own metre is at most twelve dots and has always
+      // fitted across a phone in one row. A cycle counts a whole cycle, and
+      // sixteen dots in a row is 406 logical pixels: wider than the 360dp
+      // phone most of the people this is for are holding, so every count-in
+      // ended in a RenderFlex overflow with dots clipped off the right edge
+      // (review, 18 September 2026).
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'live_countdown_enabled': true,
+        'live_countdown_seconds': 5,
+      });
+      // The narrowest phone in real use here, in portrait.
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project.copyWith(cycle: SongCycle(16, const <int>[5, 9, 13])),
+          analysis: sheet(),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('live_play_pause')));
+      await tester.pump();
+
+      // The whole cycle is counted, and every dot of it is on the screen.
+      expect(find.byKey(const Key('live_count_in_dot_16')), findsOneWidget);
+      expect(find.byKey(const Key('live_count_in_dot_17')), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('bar 1 is only offered where the cycle starts on a downbeat',
+        (tester) async {
+      // bar_one_downbeat can only name a downbeat the analysis found (0161),
+      // and a seven laid over a recording heard in fours begins most of its
+      // cycles between two of them. The build this replaces wrote the
+      // nearest: the player pointed at the sam and the room's numbers moved
+      // to a beat nobody chose (review, 18 September 2026).
+      //
+      // Cycle 1 is at 0ms, which is a downbeat. Cycle 2 is at 3500ms, and
+      // the nearest downbeat is 4000 — a whole beat away, so there is
+      // nothing honest to write and the button is not there.
+      await sized(tester);
+      final said = <int?>[];
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project.copyWith(cycle: seven, barOneDownbeat: 1),
+          analysis: sheet(),
+          onSayBarOne: (downbeat) async => said.add(downbeat),
+          onCountCycle: (_) async {},
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('live_loop_bars')));
+      await tester.pumpAndSettle();
+      expect(find.text('Cycles 1–4'), findsOneWidget);
+      // Said in the count the sheet is printing, not in bars.
+      expect(find.text('This is cycle 1'), findsOneWidget);
+      expect(find.text('This is bar 1'), findsNothing);
+      // And the cycle sheet owns "Use the detected bars" while cycles are
+      // counted: two buttons with those words in one sheet, one of which
+      // left the song in cycles, is the sheet contradicting itself.
+      expect(find.byKey(const Key('live_use_detected_bars')), findsNothing);
+
+      // On to cycle 2, which begins between two downbeats.
+      await tester.tap(find.byKey(const Key('live_bar_first_on')));
+      await tester.pumpAndSettle();
+      expect(find.text('Cycles 2–4'), findsOneWidget);
+      expect(find.byKey(const Key('live_this_is_bar_one')), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the analysed bars still say bar 1 in bars', (tester) async {
+      // Nothing about the cycle changes the sheet a song nobody has counted
+      // one for.
+      await sized(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project.copyWith(barOneDownbeat: 2),
+          analysis: sheet(),
+          onSayBarOne: (_) async {},
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('live_loop_bars')));
+      await tester.pumpAndSettle();
+      expect(find.text('This is bar 1'), findsOneWidget);
+      expect(find.byKey(const Key('live_use_detected_bars')), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('"from B" still lands on B, not on the top of its cycle',
+        (tester) async {
+      // A cycle changes what the numbers are called; it does not move the
+      // music. sectionDownbeatMs lands on the entry at or before a part's
+      // start, which over analysed bars costs at most a bar of lead-in — the
+      // reason it is written that way. Laid over the cycle grid the same
+      // rule cost a whole cycle: B at 6000 would have dropped the band at
+      // 3500, two and a half seconds early, every time (review, 18 September
+      // 2026).
+      await sized(tester);
+      final withParts = SongAnalysisBundle(
+        reference: ReferenceTrack(
+          projectId: 'song-cycle',
+          fileId: 'file',
+          storagePath: 'room/song-cycle/reference.m4a',
+          displayName: 'Three Two Two.m4a',
+          state: SongAnalysisState.ready,
+          durationMs: 16000,
+          bpm: 120,
+          beatsMs: beats,
+          downbeatsMs: downbeats,
+          transcriptText: 'turning in the wind',
+          structureSections: const <StructureSection>[
+            StructureSection(startMs: 0, endMs: 6000, label: 'A'),
+            StructureSection(startMs: 6000, endMs: 16000, label: 'B'),
+          ],
+        ),
+        lyricCues: const <LyricSyncCue>[],
+        chordCues: const <ChordCue>[],
+      );
+
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project.copyWith(cycle: seven),
+          analysis: withParts,
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // The song is counted in sevens: the chip says so.
+      expect(find.text('Cycles'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('live_letter_1')));
+      await tester.pump();
+      // 6000 of 16000. The cycle grid's nearest entry at or before it is
+      // 3500, which is 0.219 and is what this used to do.
+      expect(
+        tester.widget<Slider>(find.byKey(const Key('live_seek'))).value,
+        closeTo(0.375, 0.005),
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a refused count puts the bars back on the chip',
+        (tester) async {
+      // What 0162 does to somebody who may only look, and what this screen
+      // does about it: the numbers move first because the room is where this
+      // is decided, and a refusal puts them back with the reason on screen.
+      await sized(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: sheet(),
+          onCountCycle: (_) async => throw PostgrestException(
+            message: 'Only somebody who can edit this song can count its '
+                'cycle.',
+            code: '42501',
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('live_loop_bars')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('live_count_a_cycle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('live_cycle_count')));
+      await tester.pumpAndSettle();
+
+      // Back on the bars the analysis found, and told so — the sentence a
+      // refused write gets everywhere else in this app (describeForUser).
+      expect(find.text('Bars'), findsOneWidget);
+      expect(find.text('Cycles'), findsNothing);
+      expect(find.text("You don't have access to do that."), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('follow me carries the cycle', () {
+    // 0161 put bar 1 on the heartbeat for exactly this reason, and the cycle
+    // is the same kind of fact. Perform is handed its copy of the song when
+    // it is pushed, so a cycle counted mid-lesson reaches a follower no
+    // other way: without this the leader's chip reads "Cycles 4–5" and the
+    // follower's reads "Bars 22–25" for the rest of the hour, and the
+    // practice mark kept for the student is labelled in a count nobody said
+    // out loud (review, 18 September 2026).
+    FollowState leading({int? beats, List<int>? accents}) => FollowState(
+          sheet: false,
+          synced: true,
+          playing: true,
+          positionMs: 3500,
+          rate: 1,
+          sentAt: 1000,
+          barOne: 0,
+          cycleBeats: beats,
+          cycleAccents: accents,
+        );
+
+    test('the count and its stresses survive the wire', () {
+      final there = FollowState.fromJson(
+        leading(beats: 7, accents: const <int>[4, 6]).toJson(),
+      );
+      expect(there, isNotNull);
+      expect(there!.cycleBeats, 7);
+      expect(there.cycleAccents, <int>[4, 6]);
+      expect(there.cycle, seven);
+    });
+
+    test('a cleared cycle reaches the room as 0, the way bar 1 does', () {
+      final there = FollowState.fromJson(
+        leading(beats: 0, accents: const <int>[]).toJson(),
+      );
+      expect(there!.cycleBeats, 0);
+      // Below two is not a cycle anybody counts, so it reads as the analysed
+      // bars rather than as a broken message.
+      expect(there.cycle, isNull);
+    });
+
+    test('a build that says nothing leaves the follower alone', () {
+      // An older leader sends no cycle at all, and null is how the follower
+      // knows to keep what its own copy of the song says.
+      final there = FollowState.fromJson(leading().toJson());
+      expect(there!.cycleBeats, isNull);
+      expect(there.cycleAccents, isNull);
+      expect(there.cycle, isNull);
+    });
+
+    test('counting one is a decision, and goes at once', () {
+      final bars = leading(beats: 0, accents: const <int>[]);
+      final sevens = leading(beats: 7, accents: const <int>[4, 6]);
+      expect(bars.sameDecisions(sevens), isFalse);
+      expect(sevens.sameDecisions(sevens), isTrue);
+      // And a stress moved is a decision too: the follower's count-in has to
+      // strike where the leader's does.
+      expect(
+        sevens.sameDecisions(leading(beats: 7, accents: const <int>[3, 6])),
+        isFalse,
+      );
     });
   });
 }

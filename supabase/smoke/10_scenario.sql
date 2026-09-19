@@ -11732,6 +11732,50 @@ end $$;
 
 reset role;
 
+-- And the copy a teacher sends a student carries the cycle, the way 0161
+-- made it carry where bar 1 is. Same flow, same reason: a teacher counts a
+-- seven on a song, sends it to the class, and "from cycle nine" has to mean
+-- cycle nine on the copy in front of the student rather than bar nine of
+-- something the beat tracker heard. Ms Rivera and her lessons are 0149's,
+-- set up far above; this is a further song of hers under an id of this
+-- block's own, so the send makes a fresh copy rather than finding one.
+insert into public.projects (id, room_id, account_id, title, created_by,
+                             cycle_beats, cycle_accents)
+values ('c4c1e162-0000-0000-0000-00000000016b',
+        'a5049149-0000-0000-0000-000000000010',
+        'a5049149-0000-0000-0000-000000000001', 'Seven For The Class',
+        'a5049149-0000-0000-0000-000000000001', 7, array[4, 6]);
+
+set local request.jwt.claims = '{"sub": "a5049149-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  copy_id uuid;
+  counted integer;
+  stressed integer[];
+begin
+  select song_copy into copy_id
+  from public.send_song_to_students(
+    'c4c1e162-0000-0000-0000-00000000016b',
+    array['a5049149-0000-0000-0000-000000000011']::uuid[]);
+  if copy_id is null then
+    raise exception 'the seven never reached the student';
+  end if;
+  select p.cycle_beats, p.cycle_accents into counted, stressed
+  from public.projects p where p.id = copy_id;
+  if counted is distinct from 7 then
+    raise exception 'the student''s copy did not carry the count (got %)',
+      coalesce(counted::text, '<null>');
+  end if;
+  if stressed is distinct from array[4, 6] then
+    raise exception 'the student''s copy did not carry the stresses (got %)',
+      coalesce(stressed::text, '<null>');
+  end if;
+end $$;
+
+reset role;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;

@@ -1631,6 +1631,11 @@ class SupabaseMusicRepository implements MusicRepository {
         // takes the answer away, which is a real answer and not a missing
         // argument.
         'in_language': languageTagTyped(language),
+      },
+    );
+  }
+
+  @override
   Future<void> setSongCycle(String projectId, SongCycle? cycle) async {
     await client.rpc<dynamic>(
       'set_song_cycle',

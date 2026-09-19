@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../domain/song_cycle.dart';
+
 /// Follow me: one person leads, and everybody else's song moves with them.
 ///
 /// Taylor, 16 September 2026: teachers starting lesson rooms, bandmates in a
@@ -37,6 +39,8 @@ class FollowState {
     this.loopEndMs,
     this.lineKey,
     this.barOne,
+    this.cycleBeats,
+    this.cycleAccents,
   });
 
   /// Reading the song sheet (true) or the words as typed in the song.
@@ -73,8 +77,32 @@ class FollowState {
   /// September 2026).
   final int? barOne;
 
+  /// How many beats the cycle the band counts goes round in, or 0 when
+  /// nobody is counting one and the analysed bars stand (0162). Null only
+  /// from a build that predates this, and then the follower keeps whatever
+  /// its own copy of the song says.
+  ///
+  /// Here for the reason [barOne] is here, and not a reading for the same
+  /// reason either: what the room counts is a fact about the song, and the
+  /// likeliest moment for it to be said is in the middle of the lesson it
+  /// fixes. Without it the teacher's chip reads "Cycles 4-5" while the
+  /// student's reads "Bars 22-25" for the rest of the hour, the loop the
+  /// teacher sends is named in the wrong count on the other phone, and the
+  /// practice mark kept for the student is labelled in a count nobody said
+  /// out loud (review, 18 September 2026).
+  final int? cycleBeats;
+
+  /// Which beats of that cycle after the first are stressed, so the
+  /// follower's count-in strikes where the leader's does. Empty is a cycle
+  /// with nothing said inside it; null is a build that does not say.
+  final List<int>? cycleAccents;
+
   /// The leader's wall clock, in milliseconds since the epoch.
   final int sentAt;
+
+  /// The cycle this state is counting, or null for the analysed bars.
+  SongCycle? get cycle =>
+      cycleBeats == null ? null : SongCycle.of(cycleBeats, cycleAccents);
 
   bool get looping => loopStartMs != null && loopEndMs != null && loopEndMs! > loopStartMs!;
 
@@ -87,7 +115,18 @@ class FollowState {
       rate == other.rate &&
       loopStartMs == other.loopStartMs &&
       loopEndMs == other.loopEndMs &&
-      barOne == other.barOne;
+      barOne == other.barOne &&
+      cycleBeats == other.cycleBeats &&
+      _sameAccents(cycleAccents, other.cycleAccents);
+
+  static bool _sameAccents(List<int>? a, List<int>? b) {
+    if (a == null || b == null) return a == b;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i += 1) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
         'sheet': sheet,
@@ -104,6 +143,11 @@ class FollowState {
         // say, which leaves the follower counting from the bar 1 that was
         // just cleared.
         if (barOne != null) 'bar1': barOne,
+        // And the cycle, on the same terms and for the same reason: 0 is the
+        // leader saying "use the detected bars" in the cycle sheet, and it
+        // has to reach the room or half of it goes on counting sevens.
+        if (cycleBeats != null) 'cyc': cycleBeats,
+        if (cycleBeats != null) 'cycacc': cycleAccents ?? const <int>[],
       };
 
   /// Null for anything that does not read as a state. A message from a
@@ -128,6 +172,8 @@ class FollowState {
     }
     final line = json['line'];
     final bar1 = json['bar1'];
+    final counted = json['cyc'];
+    final stressed = json['cycacc'];
     return FollowState(
       sheet: json['sheet'] == true,
       synced: json['synced'] == true,
@@ -142,6 +188,16 @@ class FollowState {
       // and a negative one is nonsense: both read as nothing said rather
       // than as a reason to drop the whole message.
       barOne: bar1 is num ? math.max(0, bar1.round()) : null,
+      // Read the same way, and the stresses only if there is a count for
+      // them to sit in. SongCycle.of tidies whatever arrives, so a message
+      // from a build that counted differently costs the follower nothing.
+      cycleBeats: counted is num ? math.max(0, counted.round()) : null,
+      cycleAccents: counted is num && stressed is List
+          ? <int>[
+              for (final beat in stressed)
+                if (beat is num) beat.round(),
+            ]
+          : null,
     );
   }
 }

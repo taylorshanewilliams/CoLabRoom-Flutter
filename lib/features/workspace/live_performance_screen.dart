@@ -16,6 +16,7 @@ import '../../services/chord_beat_grid.dart'
         cycleGridFor,
         downbeatIndexOfBar,
         longestCycle,
+        medianBeatIntervalMs,
         numberedBarCount;
 import '../../services/click_player.dart';
 import '../../services/copy_text.dart';
@@ -794,6 +795,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       // bar 1 (0161). Sent as 0 when nobody has said, so that clearing it
       // reaches the followers too.
       barOne: _barOneSaid ?? 0,
+      // And what the room counts, for exactly the same reason (0162). The
+      // cycle said here is the one this screen is actually counting, so a
+      // cycle the song's own beats cannot hold is not handed on as though it
+      // were. Sent as 0 when nobody is counting one, so that putting the
+      // detected bars back reaches the followers too.
+      cycleBeats: _countingCycle?.beats ?? 0,
+      cycleAccents: _countingCycle?.accents ?? const <int>[],
     );
   }
 
@@ -823,6 +831,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final saidBarOne = state.barOne;
     if (saidBarOne != null) {
       _barOneSaid = saidBarOne < 1 ? null : saidBarOne;
+    }
+    // And the cycle beside it, before anything is named, for the same reason
+    // again: the teacher counts a seven mid-lesson, and without this the
+    // student's chip goes on saying "Bars 22-25" at a leader saying "from
+    // cycle nine" for the rest of the hour (review, 18 September 2026).
+    final saidCycle = state.cycleBeats;
+    if (saidCycle != null) {
+      _cycleSaid = saidCycle < SongCycle.minBeats ? null : state.cycle;
     }
     final source = state.sheet && _sheetLines.isNotEmpty
         ? LiveLyricSource.songSheet
@@ -2473,7 +2489,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   void _jumpToLetter(RehearsalLetter letter) {
     _takeOver();
     _cancelCountdown();
-    final at = sectionDownbeatMs(letter.startMs, _downbeats);
+    // The analysed bars, not the counted cycle. sectionDownbeatMs lands on
+    // the entry at or before the part's start, which costs at most a bar of
+    // lead-in — the whole reason it is written that way. Over a cycle grid
+    // the same rule costs a whole cycle, and a sixteen at 80bpm is twelve
+    // seconds: tapping B would drop the band three bars before B for no
+    // reason anybody could see. A cycle changes what the numbers are called,
+    // not where the music is (review, 18 September 2026).
+    final at = sectionDownbeatMs(letter.startMs, _analysedDownbeats);
     setState(() {
       _loop = null;
       _controlsVisible = true;
@@ -2532,6 +2555,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         // A cycle is only offered on a song with beats enough to count one
         // round twice; a song the tracker heard no beat in offers nothing.
         canCount: _longestCycle >= SongCycle.minBeats,
+        // Whether the number on the slider right now is one the song can be
+        // told about. Asked per number rather than once, because counting a
+        // cycle it is true of some and not of others.
+        canSayOneAt: _oneCanBeSaidAt,
         // The sheet counts in printed bar numbers; the song is told in
         // downbeats, which is the one thing that does not move when bar 1
         // does. Null goes straight through: it is "use the detected bars".
@@ -2583,12 +2610,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// from one, so "This is bar 1" writes down a place in the recording rather
   /// than a number that moves the moment it is written.
   ///
-  /// Counting a cycle, the picker's numbers are cycles laid over the beats
-  /// and need not land on an analysed downbeat at all -- a seven over a
-  /// recording heard in fours will not. `bar_one_downbeat` is an ordinal into
-  /// that list (0161), so the nearest downbeat to where the person is
-  /// pointing is what gets written: the closest true answer to a question
-  /// asked in another grid's numbers.
+  /// Counting a cycle, the picker's numbers are cycles laid over the beats,
+  /// and only the ones that begin on an analysed downbeat can be written down
+  /// at all -- `bar_one_downbeat` is an ordinal into that list (0161) and
+  /// there is nothing else for it to name. [_oneCanBeSaidAt] is what keeps
+  /// the button off the others, so by the time this is asked the two
+  /// coincide.
   int _analysedDownbeatOf(int bar) {
     final grid = _downbeats;
     final at = downbeatIndexOfBar(bar, _countOne, grid.length);
@@ -2596,6 +2623,38 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final analysed = _analysedDownbeats;
     if (analysed.isEmpty || grid.isEmpty) return 1;
     return (beatIndexAt(grid[at], analysed) ?? 0) + 1;
+  }
+
+  /// Whether the number the picker is showing can honestly be called 1.
+  ///
+  /// Always, on the analysed bars: every one of them is a downbeat the
+  /// analysis found, so every one can be named.
+  ///
+  /// Counting a cycle, only where that cycle begins on an analysed downbeat.
+  /// A seven laid over a recording the tracker heard in fours starts most of
+  /// its cycles between downbeats, and the build this replaces wrote the
+  /// *nearest* one: the player pointed at the sam, the song was told about a
+  /// beat somewhere else, and from then on every cycle number and every loop
+  /// edge in the room sat a beat off the sam with nothing on the screen to
+  /// say so (review, 18 September 2026). Offering the button only where it
+  /// does what it says is the honest half of the fix; being able to put the
+  /// sam on any beat needs somewhere to keep that beat, which is a column
+  /// and a slice of its own.
+  bool _oneCanBeSaidAt(int bar) {
+    final counted = _count;
+    if (counted == null) return true;
+    final grid = counted.downbeatsMs;
+    final analysed = _analysedDownbeats;
+    if (grid.isEmpty || analysed.isEmpty) return false;
+    final start = grid[downbeatIndexOfBar(bar, _countOne, grid.length)];
+    final nearest = beatIndexAt(start, analysed);
+    if (nearest == null) return false;
+    // Half a beat, the window everything else on this screen snaps by. The
+    // beats a cycle is laid on and the downbeats are both the analysis's
+    // own, so where they agree they agree exactly; the window is for a grid
+    // whose downbeats were rounded somewhere else.
+    final beat = medianBeatIntervalMs(_beatsMs);
+    return (analysed[nearest] - start).abs() <= (beat > 0 ? beat ~/ 2 : 0);
   }
 
   /// Count a cycle of your own: how many beats it goes round in, and which
@@ -2999,6 +3058,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                           ? _countInBeat ?? 0
                           : _countdownRemaining!,
                       beatsInBar: _countInBar?.beats,
+                      // So a seven being counted reads as 3+2+2 while it is
+                      // happening, and so a sixteen has somewhere to put its
+                      // dots.
+                      groups: _countInBar?.cycle?.groups,
                       onCancel: _cancelCountdown,
                     ),
                   ),
@@ -3379,6 +3442,7 @@ class _CountdownOverlay extends StatelessWidget {
     required this.count,
     required this.onCancel,
     this.beatsInBar,
+    this.groups,
     super.key,
   });
 
@@ -3392,7 +3456,29 @@ class _CountdownOverlay extends StatelessWidget {
   /// Beats in the bar, when the count is on the song's own beat.
   final int? beatsInBar;
 
+  /// How the cycle breaks at its stresses — 3+2+2 for a seven — so the dots
+  /// can be read in the groups the band counts them in. Null for a song
+  /// nobody has counted a cycle for, whose bar is one even group.
+  final List<int>? groups;
+
   final VoidCallback onCancel;
+
+  /// Which beats begin a group of the cycle: 4 and 6 in a seven counted
+  /// 3+2+2. Beat 1 is never one of them — nothing sits to its left to be set
+  /// apart from — and a group that runs off the end of the count is ignored,
+  /// which is what a stale stress on a shortened cycle looks like from here.
+  Set<int> _groupStarts(int beats) {
+    final lengths = groups;
+    if (lengths == null) return const <int>{};
+    final starts = <int>{};
+    var at = 1;
+    for (final length in lengths) {
+      at += length;
+      if (at > beats) break;
+      starts.add(at);
+    }
+    return starts;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3430,25 +3516,48 @@ class _CountdownOverlay extends StatelessWidget {
             else ...<Widget>[
               number,
               const SizedBox(height: 18),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  for (var beat = 1; beat <= beats; beat += 1)
-                    Container(
-                      key: Key('live_count_in_dot_$beat'),
-                      width: beat == count ? 17 : 11,
-                      height: beat == count ? 17 : 11,
-                      margin: const EdgeInsets.symmetric(horizontal: 7),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: beat == count
-                            ? AppColors.gold
-                            : beat < count
-                                ? AppColors.gold.withValues(alpha: 0.35)
-                                : Colors.white.withValues(alpha: 0.18),
-                      ),
+              // Wrapped and scrollable rather than one row. A bar of the
+              // song's own metre is at most twelve dots and has always fitted
+              // across a phone, but a cycle counts a whole cycle (0162) and
+              // that can be sixty-four: a plain row put sixteen dots off the
+              // right-hand edge of a 360dp phone, in the middle of counting
+              // the band in (review, 18 September 2026). Neither direction
+              // can overflow now, whatever the count and whatever text size
+              // the phone is set to.
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Wrap(
+                      alignment: WrapAlignment.center,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      runSpacing: 8,
+                      children: <Widget>[
+                        for (var beat = 1; beat <= beats; beat += 1)
+                          Container(
+                            key: Key('live_count_in_dot_$beat'),
+                            width: beat == count ? 17 : 11,
+                            height: beat == count ? 17 : 11,
+                            // A gap before the beat that starts a group, so a
+                            // seven counted 3+2+2 is read in threes and twos
+                            // rather than as seven even dots.
+                            margin: EdgeInsets.only(
+                              left: _groupStarts(beats).contains(beat) ? 16 : 7,
+                              right: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: beat == count
+                                  ? AppColors.gold
+                                  : beat < count
+                                      ? AppColors.gold.withValues(alpha: 0.35)
+                                      : Colors.white.withValues(alpha: 0.18),
+                            ),
+                          ),
+                      ],
                     ),
-                ],
+                  ),
+                ),
               ),
             ],
             const SizedBox(height: 14),
@@ -4366,6 +4475,7 @@ class _BarLoopSheet extends StatefulWidget {
     this.barOneSaid = false,
     this.cycle,
     this.canCount = false,
+    this.canSayOneAt = _anyBarCanBeOne,
     this.onSayBarOne,
     this.onCountCycle,
     this.onPickup,
@@ -4377,6 +4487,14 @@ class _BarLoopSheet extends StatefulWidget {
 
   /// Whether this song has the beats for a cycle at all.
   final bool canCount;
+
+  /// Whether the number shown can be called 1. Always true of an analysed
+  /// bar; counting a cycle, true only of the cycles that begin on a downbeat
+  /// the analysis found, because that is all the song can be told
+  /// (LivePerformanceScreen._oneCanBeSaidAt).
+  final bool Function(int bar) canSayOneAt;
+
+  static bool _anyBarCanBeOne(int bar) => true;
 
   /// Opens the cycle. Null for somebody who may only look, and for a song
   /// with no beats to count one on.
@@ -4532,7 +4650,13 @@ class _BarLoopSheetState extends State<_BarLoopSheet> {
                 Wrap(
                   spacing: 6,
                   children: <Widget>[
-                    if (widget.onSayBarOne != null)
+                    // Counting a cycle, only on a cycle that begins where an
+                    // analysed downbeat does: that is the only place the song
+                    // can be told about, and offering it anywhere else would
+                    // quietly write down a beat nobody pointed at (review,
+                    // 18 September 2026).
+                    if (widget.onSayBarOne != null &&
+                        widget.canSayOneAt(_first))
                       TextButton(
                         key: const Key('live_this_is_bar_one'),
                         onPressed: () => widget.onSayBarOne!(_first),
@@ -4544,12 +4668,24 @@ class _BarLoopSheetState extends State<_BarLoopSheet> {
                         // replaces the resolved text style outright and takes
                         // the font family with it (see
                         // button_labels_keep_their_font_test).
-                        child: const Text(
-                          'This is bar 1',
-                          style: TextStyle(fontSize: 12),
+                        child: Text(
+                          // Said in the count the sheet is printing. "This is
+                          // bar 1" under a heading that says Loop cycles is
+                          // two counts in one sentence.
+                          widget.cycle == null
+                              ? 'This is bar 1'
+                              : 'This is cycle 1',
+                          style: const TextStyle(fontSize: 12),
                         ),
                       ),
-                    if (widget.barOneSaid && widget.onSayBarOne != null)
+                    // And not while a cycle is counted: the cycle sheet has a
+                    // button with these exact words, and there it stops the
+                    // counting. Two buttons saying "Use the detected bars" in
+                    // one sheet, one of which leaves the song in cycles,
+                    // is the sheet contradicting itself.
+                    if (widget.barOneSaid &&
+                        widget.cycle == null &&
+                        widget.onSayBarOne != null)
                       TextButton(
                         key: const Key('live_use_detected_bars'),
                         onPressed: () => widget.onSayBarOne!(null),
