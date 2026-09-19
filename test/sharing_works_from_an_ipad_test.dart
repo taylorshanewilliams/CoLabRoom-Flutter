@@ -156,7 +156,13 @@ void main() {
         for (final args
             in _argumentsOf('Printing.sharePdf(', entity.readAsStringSync())) {
           calls += 1;
-          if (!args.contains('bounds:')) offenders.add(path);
+          // `bounds: null` is the bug spelled out longhand -- printing fills
+          // the same ten-pixel circle in either way -- so naming the
+          // parameter is not enough to pass.
+          if (!args.contains('bounds:') ||
+              RegExp(r'bounds:\s*null').hasMatch(args)) {
+            offenders.add(path);
+          }
         }
       }
 

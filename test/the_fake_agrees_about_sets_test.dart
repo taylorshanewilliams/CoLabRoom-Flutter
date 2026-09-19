@@ -181,6 +181,25 @@ void main() {
           set.projectIds);
     });
 
+    test('but neither of those two speaks when there is nothing to write',
+        () async {
+      // Both loud refusals sit behind a write the Supabase repository
+      // decides not to send at all: it builds its insert rows first and
+      // returns when every song asked for is already in the set, and it
+      // returns on an empty order before the upsert. No statement reaches
+      // Postgres, so no policy refuses, so nobody hears anything -- and the
+      // fake has to be just as quiet, or a test asserts a refusal that never
+      // happens. Nothing offers either of these in the app; this is here so
+      // that the next test written against the fake is not told a story.
+      final (repository, set) = await aSetOfTheLeaders();
+
+      await repository.addProjectsToSetlist(set, set.projectIds);
+      await repository.reorderSetlistProjects(set, const <String>[]);
+
+      expect((await asTheLeaderHasThem(repository)).single.projectIds,
+          set.projectIds);
+    });
+
     test('while the owner can still do all five', () async {
       final (repository, set) = await aSetOfTheLeaders();
       repository.currentUserId = leader;

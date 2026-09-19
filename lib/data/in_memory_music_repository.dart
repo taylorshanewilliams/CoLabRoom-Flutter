@@ -639,6 +639,12 @@ class InMemoryMusicRepository implements MusicRepository {
     // inserting nothing, so this says no out loud where a rename below says
     // nothing at all.
     if (setlist.ownerId != currentUserId) {
+      // Except when there is nothing to insert: the Supabase repository
+      // builds its rows first and returns before touching the table when
+      // every song asked for is already in the set, so nobody hears a policy
+      // at all. Silence here too, so a test cannot assert a refusal the
+      // database would never make.
+      if (projectIds.every(setlist.projectIds.contains)) return;
       throw StateError(MusicRepository.notYourSet);
     }
     final knownIds = _allProjects.map((project) => project.id).toSet();
@@ -693,6 +699,10 @@ class InMemoryMusicRepository implements MusicRepository {
     // row and raises when it fails rather than skipping the row, and the
     // insert branch would fail its `with check` just as loudly.
     if (setlist.ownerId != currentUserId) {
+      // The same empty corner as `addProjectsToSetlist`: the Supabase
+      // repository returns on an empty order before the upsert, so no policy
+      // is reached and nothing is said.
+      if (orderedProjectIds.isEmpty) return;
       throw StateError(MusicRepository.notYourSet);
     }
     final current = setlist.projectIds.toSet();
