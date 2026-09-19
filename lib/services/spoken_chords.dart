@@ -7,7 +7,7 @@
 /// (Every Musician, Same Song, 17 September 2026, "feel the beat, hear the
 /// chords coming").
 ///
-/// Whatever reading the chord arrived in. This takes what [chordAsRead] gives
+/// Whatever reading the chord arrived in. This takes what chordAsRead gives
 /// the page — letters in this person's key, their instrument's written pitch,
 /// their capo's shapes, or the number the chord is of the song's key — and
 /// says that, so what is heard is what is printed and never a second opinion

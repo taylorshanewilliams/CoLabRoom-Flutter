@@ -140,6 +140,16 @@ const String cutHasNoAudio =
 /// Clamped, because the first lines of a song cannot be pushed below the top
 /// of the content and the last cannot be pulled past the end — near both
 /// edges the line simply sits where it can.
+double scrollToPutLineAtAnchor({
+  required double lineOffset,
+  required double viewportHeight,
+  required double maxExtent,
+}) {
+  final target = lineOffset - viewportHeight * kSingingLineFraction;
+  final limit = maxExtent > 0 ? maxExtent : 0.0;
+  return target.clamp(0.0, limit).toDouble();
+}
+
 /// What the sound button says is behind it: "Count-in and drone" on a song
 /// that offers neither of the other two, up to "Count-in, beat, chords and
 /// drone" on one that offers both.
@@ -147,7 +157,7 @@ const String cutHasNoAudio =
 /// It is the tooltip and it is what a screen reader reads out, which is the
 /// whole reason it is built rather than written once: the two players these
 /// settings are for are reading this button with their ears and their hands,
-/// and neither will go looking underneath a word that says count-in.
+/// and neither will go looking underneath a word that only says count-in.
 String soundSheetTooltip({
   required bool canFeelTheBeat,
   required bool canHearTheChords,
@@ -158,16 +168,6 @@ String soundSheetTooltip({
     if (canHearTheChords) 'chords',
   ];
   return '${parts.join(', ')} and drone';
-}
-
-double scrollToPutLineAtAnchor({
-  required double lineOffset,
-  required double viewportHeight,
-  required double maxExtent,
-}) {
-  final target = lineOffset - viewportHeight * kSingingLineFraction;
-  final limit = maxExtent > 0 ? maxExtent : 0.0;
-  return target.clamp(0.0, limit).toDouble();
 }
 
 class LivePerformanceScreen extends StatefulWidget {
@@ -3615,8 +3615,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   }
 
   /// What a player sets up for themselves before they start: the bar they are
-  /// counted in over, whether they feel the beat in their hand, and the note
-  /// they come in on.
+  /// counted in over, whether they feel the beat in their hand, whether the
+  /// next chord is said out loud, and the note they come in on.
   ///
   /// All of them in one sheet because they are wanted at the same moment, and
   /// because the bar across the top already carries seven controls — an eighth
