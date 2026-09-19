@@ -97,6 +97,19 @@ class PlayerFace extends StatelessWidget {
                           size: size * 0.55, color: AppColors.muted)
                       : Text(
                           initials,
+                          // At the size of the circle, not the size of the
+                          // reader's text. Every Musician, Same Song,
+                          // 17 September 2026: the phone's own text size is
+                          // honoured, never clamped — but these letters are a
+                          // drawing of a person, like the icon on the line
+                          // above, and they are deliberately never read out:
+                          // the name is announced by the Semantics around
+                          // this and written beside the face wherever it
+                          // matters, and that is the text that grows. Left
+                          // scaling, the letters simply overran the circle
+                          // and were cut off, which is neither a face nor a
+                          // name.
+                          textScaler: TextScaler.noScaling,
                           style: TextStyle(
                             color: letters,
                             fontSize: size * 0.40,

@@ -1311,28 +1311,28 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
                   child: editChords,
                 ),
               const SizedBox(height: 3),
-              if (grown)
-                Wrap(
-                  spacing: 4,
-                  runSpacing: 2,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: <Widget>[
-                    viewToggle,
-                    if (_view == SongSheetView.sheet) chordsOnOff,
-                    smallerText,
-                    largerText,
-                  ],
-                )
-              else
-                Row(
-                  children: <Widget>[
-                    viewToggle,
-                    if (_view == SongSheetView.sheet) chordsOnOff,
-                    const Spacer(),
-                    smallerText,
-                    largerText,
-                  ],
-                ),
+              // The Wrap at every size, never a Row with a Spacer in it. The
+              // fold above happens at 1.5, and this row runs off a 320-wide
+              // phone from about 1.3 — one step below it — so between the two
+              // there was a band of ordinary iOS text sizes where the view
+              // toggle and the text-size buttons still overflowed. A row that
+              // folds when it has to needs no threshold to be right, which is
+              // the argument text_measures.dart itself makes. While
+              // everything fits, spaceBetween puts the toggle at one end and
+              // the text-size buttons at the other, which is what the Spacer
+              // was there to do.
+              Wrap(
+                spacing: 4,
+                runSpacing: 2,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: <Widget>[
+                  viewToggle,
+                  if (_view == SongSheetView.sheet) chordsOnOff,
+                  smallerText,
+                  largerText,
+                ],
+              ),
             ],
           ),
         ),

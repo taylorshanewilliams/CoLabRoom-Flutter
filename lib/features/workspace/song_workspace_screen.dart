@@ -2214,6 +2214,67 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
 
     final middle = panel ?? editor;
 
+    // Everything the portrait layout puts above the words, in order.
+    final aboveTheWords = <Widget>[
+      _PortraitProjectHeader(
+        project: project,
+        room: room,
+        compact: keyboardOpen,
+        onBack: widget.embedded ? null : () => Navigator.maybePop(context),
+        onRename: () => _rename(project),
+        onExport: (action) => _exportSong(project, action),
+        leavePracticeFor: _leaveFor?.name,
+        keptHere: _keptHere,
+        keepingHere: _keepingHere,
+        sendToStudents: _sendTo.isNotEmpty,
+      ),
+      _WorkspaceToolbar(
+        onOpenLayers: () => _openLayers(project),
+        onOpenLive: () => _openLivePerformance(project),
+        onAnalyze: () => _openAnalysis(project),
+        onRecord: () => _openAnalysis(project, autoRecord: true),
+        hasRecording: _analysisBundle?.reference != null,
+        onOpenCowork: () => _scaffoldKey.currentState?.openEndDrawer(),
+        onAskTheSong: () => unawaited(showAskTheSong(
+          context,
+          repository: BetaScope.of(context, listen: false).repository,
+          projectId: widget.projectId,
+          songTitle: project.title,
+        )),
+        othersHere: _othersHere,
+      ),
+      // Above who can hear it: somebody leading this song right now is the
+      // most time-bound thing on the screen.
+      if (_followBanner(project) case final banner?) banner,
+      // The first thing under the toolbar, because it is the thing somebody
+      // most needs to know and never could: who can hear this. Above the asks
+      // and above the words.
+      AudienceDial(
+        audience: _audience,
+        onTap: () => unawaited(_openAudience(project)),
+      ),
+      // What a teacher asked for on this song (0150). Out of the way while
+      // somebody is mid-line, like the asks below it.
+      if (!keyboardOpen)
+        if (_briefOnTheSong(project) case final brief?) brief,
+      // Under the toolbar, above the words. High enough that somebody sees
+      // what the song is asking for without scrolling, and out of the way
+      // when it is asking nothing — which is most songs, most of the time,
+      // and is fine.
+      //
+      // Hidden while the keyboard is up: somebody mid-line does not need the
+      // room's requests competing for the space their lyrics are in.
+      if (!keyboardOpen)
+        AskBar(
+          projectId: widget.projectId,
+          repository: controller.repository,
+        ),
+      if (panel == null &&
+          !keyboardOpen &&
+          wordsLiveOnTheSheet(project, _analysisBundle))
+        _WordsOnTheSheet(onOpen: () => unawaited(_openAnalysis(project))),
+    ];
+
     final Widget sheet = Scaffold(
       key: _scaffoldKey,
       resizeToAvoidBottomInset: true,
@@ -2245,70 +2306,38 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
                 keepingHere: _keepingHere,
                 sendToStudents: _sendTo.isNotEmpty,
               )
-            : Column(
-                children: <Widget>[
-                  _PortraitProjectHeader(
-                    project: project,
-                    room: room,
-                    compact: keyboardOpen,
-                    onBack: widget.embedded
-                        ? null
-                        : () => Navigator.maybePop(context),
-                    onRename: () => _rename(project),
-                    onExport: (action) => _exportSong(project, action),
-                    leavePracticeFor: _leaveFor?.name,
-                    keptHere: _keptHere,
-                    keepingHere: _keepingHere,
-                    sendToStudents: _sendTo.isNotEmpty,
-                  ),
-                  _WorkspaceToolbar(
-                    onOpenLayers: () => _openLayers(project),
-                    onOpenLive: () => _openLivePerformance(project),
-                    onAnalyze: () => _openAnalysis(project),
-                    onRecord: () => _openAnalysis(project, autoRecord: true),
-                    hasRecording: _analysisBundle?.reference != null,
-                    onOpenCowork: () => _scaffoldKey.currentState?.openEndDrawer(),
-                    onAskTheSong: () => unawaited(showAskTheSong(
-                      context,
-                      repository:
-                          BetaScope.of(context, listen: false).repository,
-                      projectId: widget.projectId,
-                      songTitle: project.title,
-                    )),
-                    othersHere: _othersHere,
-                  ),
-                  // Above who can hear it: somebody leading this song right
-                  // now is the most time-bound thing on the screen.
-                  if (_followBanner(project) case final banner?) banner,
-                  // The first thing under the toolbar, because it is the
-                  // thing somebody most needs to know and never could: who
-                  // can hear this. Above the asks and above the words.
-                  AudienceDial(
-                    audience: _audience,
-                    onTap: () => unawaited(_openAudience(project)),
-                  ),
-                  // What a teacher asked for on this song (0150). Out of the
-                  // way while somebody is mid-line, like the asks below it.
-                  if (!keyboardOpen)
-                    if (_briefOnTheSong(project) case final brief?) brief,
-                  // Under the toolbar, above the words. High enough that
-                  // somebody sees what the song is asking for without
-                  // scrolling, and out of the way when it is asking nothing —
-                  // which is most songs, most of the time, and is fine.
-                  //
-                  // Hidden while the keyboard is up: somebody mid-line does
-                  // not need the room's requests competing for the space their
-                  // lyrics are in.
-                  if (!keyboardOpen)
-                    AskBar(
-                      projectId: widget.projectId,
-                      repository: controller.repository,
+            : LayoutBuilder(
+                builder: (context, portrait) => Column(
+                  children: <Widget>[
+                    // Everything above the words, in a block that scrolls
+                    // once it would take more than two thirds of the phone.
+                    //
+                    // Every Musician, Same Song, 17 September 2026: the
+                    // phone's own text size is honoured, never clamped. The
+                    // four blocks above the words — the song's name, the
+                    // toolbar, who can hear it, what it is asking for — come
+                    // to 699 pixels on a 690-pixel phone at the largest iOS
+                    // size, which left the words no room at all and then
+                    // overflowed. Not a measurement that can go stale but a
+                    // rule: the words keep at least a third of the screen,
+                    // and whatever is above them scrolls if it no longer
+                    // fits. At any ordinary text size the block is well
+                    // inside that and nothing moves.
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: portrait.maxHeight * 2 / 3,
+                      ),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: aboveTheWords,
+                        ),
+                      ),
                     ),
-                  if (panel == null && !keyboardOpen && wordsLiveOnTheSheet(project, _analysisBundle))
-                    _WordsOnTheSheet(onOpen: () => unawaited(_openAnalysis(project))),
-                  const Divider(height: 1),
-                  Expanded(child: middle),
-                ],
+                    const Divider(height: 1),
+                    Expanded(child: middle),
+                  ],
+                ),
               ),
       ),
       // A drawer rather than a literal half-screen. On a phone, splitting the
@@ -3180,7 +3209,7 @@ class _WorkspaceToolbar extends StatelessWidget {
       ),
     ];
     return SizedBox(
-      height: 48,
+      height: _ToolPill.bandHigh(context),
       // Only the gutters are padding now. The three pixels above each pill and
       // the five below belong to the pill itself, so they can be tapped rather
       // than being a dead border around a 33-pixel target (audit,
@@ -3213,6 +3242,28 @@ class _ToolPill extends StatelessWidget {
     super.key,
   });
 
+  /// The label under the icon, at whatever size this phone draws 12 at.
+  static const TextStyle _labelStyle = TextStyle(
+    fontSize: 12,
+    fontWeight: FontWeight.w700,
+  );
+
+  /// How tall a pill, and the band it sits in, have to be here.
+  ///
+  /// Every Musician, Same Song, 17 September 2026: the phone's own text size
+  /// is honoured, never clamped. 48 was a thumb's height at the text size
+  /// somebody measured it at, and the padding inside it leaves the label
+  /// exactly 24 pixels: enough at 1.3, and eight short of what a 12-pixel
+  /// label needs at twice normal. RenderParagraph clips rather than
+  /// overflows, so the bottom third of every letter simply went missing and
+  /// nothing anywhere complained — on the only way into Perform and Takes.
+  ///
+  /// Measured with the style the label is drawn in, 48 kept as a floor so
+  /// nothing moves for anybody who has not turned their text up. The 24 is
+  /// the pill's 8 and 8 inside and the toolbar's 3 and 5 outside.
+  static double bandHigh(BuildContext context) =>
+      math.max(48, linesOfTextHigh(context, _labelStyle) + 24);
+
   final IconData icon;
   final String label;
   final bool active;
@@ -3243,10 +3294,8 @@ class _ToolPill extends StatelessWidget {
                 const SizedBox(width: 6),
                 Text(
                   label,
-                  style: TextStyle(
+                  style: _labelStyle.copyWith(
                     color: active ? AppColors.text : AppColors.muted,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
@@ -3266,7 +3315,7 @@ class _ToolPill extends StatelessWidget {
     // The padding here is the three and five the toolbar used to hold, so the
     // pill sits where it always did.
     return SizedBox(
-      height: 48,
+      height: bandHigh(context),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,

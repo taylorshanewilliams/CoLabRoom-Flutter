@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -10,8 +11,16 @@ import '../../services/pitch.dart';
 import '../../services/pitch_listener.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
+import '../../widgets/text_measures.dart';
 import 'drone_controls.dart';
 import 'tuner_reference_store.dart';
+
+/// The note the tuner is hearing, at whatever size this phone draws 78 at.
+const TextStyle _noteStyle = TextStyle(
+  fontSize: 78,
+  fontWeight: FontWeight.w900,
+  height: 1,
+);
 
 /// A tuner, on the sheet you record from.
 ///
@@ -268,25 +277,27 @@ class _TunerSheetState extends State<TunerSheet> {
                 ),
               ),
               const SizedBox(height: 26),
-              // The note, large enough to read from where the guitar is.
+              // The note, large enough to read from where the guitar is — and
+              // larger still for somebody who has asked for larger text.
+              //
+              // Every Musician, Same Song, 17 September 2026: the phone's own
+              // text size is honoured, never clamped. This was a RichText,
+              // which ignores that setting outright, inside a box of 96 that
+              // did not move either. 78 is already big, but a reader who has
+              // turned their text up has asked for bigger, and this is the
+              // one thing on the screen they are reading from across a room.
               SizedBox(
-                height: 96,
+                height: math.max(96, linesOfTextHigh(context, _noteStyle) + 8),
                 child: Center(
                   child: reading == null
                       ? Icon(Icons.hearing_rounded,
                           size: 44, color: AppColors.muted.withValues(alpha: 0.6))
-                      : RichText(
-                          key: const Key('tuner_note'),
-                          text: TextSpan(
+                      : Text.rich(
+                          TextSpan(
                             children: <InlineSpan>[
                               TextSpan(
                                 text: name,
-                                style: TextStyle(
-                                  color: accent,
-                                  fontSize: 78,
-                                  fontWeight: FontWeight.w900,
-                                  height: 1,
-                                ),
+                                style: _noteStyle.copyWith(color: accent),
                               ),
                               TextSpan(
                                 text: '$octave',
@@ -298,6 +309,7 @@ class _TunerSheetState extends State<TunerSheet> {
                               ),
                             ],
                           ),
+                          key: const Key('tuner_note'),
                         ),
                 ),
               ),

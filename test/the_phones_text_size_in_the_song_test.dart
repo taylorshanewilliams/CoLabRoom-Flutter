@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:math' as math;
+import 'dart:typed_data';
+
 import 'package:colabroom/app/beta_scope.dart';
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
@@ -12,9 +16,11 @@ import 'package:colabroom/features/openmic/open_mic_song_screen.dart';
 import 'package:colabroom/features/rooms/setlist_detail_screen.dart';
 import 'package:colabroom/features/workspace/live_performance_screen.dart';
 import 'package:colabroom/features/workspace/song_sheet_panel.dart';
+import 'package:colabroom/features/workspace/song_workspace_screen.dart';
 import 'package:colabroom/features/workspace/tuner_sheet.dart';
 import 'package:colabroom/services/click_player.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -112,6 +118,64 @@ Future<bool> _tapKey(WidgetTester tester, String key) async {
   return true;
 }
 
+/// Nothing on screen is drawing words into a box too small for them.
+///
+/// Overflow — the yellow stripes — is an exception, so `takeException` sees
+/// it. Text in a fixed-size box is not: RenderParagraph paints the lines that
+/// fit and drops the rest, silently, which is how a label can lose the bottom
+/// third of its letters while every test in this file and the whole render
+/// harness stay green. The rule this slice asserts is "nothing is clipped", so
+/// it is measured rather than inferred from the absence of a complaint.
+///
+/// Each paragraph is laid out again with its own spans, scaler, maxLines and
+/// wrapping, at the width it was given, and compared with the box it was drawn
+/// into. A paragraph that asked for an ellipsis or a fade has chosen to
+/// shorten itself and says so on screen, so it is left alone; one that did
+/// not, and does not fit, is cut off.
+void _noTextIsClipped(WidgetTester tester, String where) {
+  final cut = <String>[];
+  for (final paragraph in tester.allRenderObjects.whereType<RenderParagraph>()) {
+    if (!paragraph.hasSize) continue;
+    final words = paragraph.text.toPlainText(
+      includeSemanticsLabels: false,
+      includePlaceholders: false,
+    );
+    if (words.trim().isEmpty) continue;
+    // An icon is a RichText too, drawn in a private-use glyph nobody reads.
+    if (words.runes.every((rune) => rune >= 0xE000 && rune <= 0xF8FF)) continue;
+    if (paragraph.overflow == TextOverflow.ellipsis ||
+        paragraph.overflow == TextOverflow.fade) {
+      continue;
+    }
+    final painter = TextPainter(
+      text: paragraph.text,
+      textAlign: paragraph.textAlign,
+      textDirection: paragraph.textDirection,
+      textScaler: paragraph.textScaler,
+      maxLines: paragraph.maxLines,
+      strutStyle: paragraph.strutStyle,
+      textWidthBasis: paragraph.textWidthBasis,
+      textHeightBehavior: paragraph.textHeightBehavior,
+      locale: paragraph.locale,
+    )..layout(
+        maxWidth: paragraph.softWrap ? paragraph.size.width : double.infinity,
+      );
+    final needsHigh = painter.height;
+    final needsWide = painter.width;
+    painter.dispose();
+    if (needsHigh > paragraph.size.height + 0.5 ||
+        needsWide > paragraph.size.width + 0.5) {
+      cut.add('  "$words" is drawn in a box '
+          '${paragraph.size.width.toStringAsFixed(1)} by '
+          '${paragraph.size.height.toStringAsFixed(1)} and needs '
+          '${needsWide.toStringAsFixed(1)} by '
+          '${needsHigh.toStringAsFixed(1)}');
+    }
+  }
+  expect(cut, isEmpty,
+      reason: 'words are cut off on $where:\n${cut.join('\n')}');
+}
+
 /// Pops whatever sheet or dialog is open, if one is.
 Future<void> _dismiss(WidgetTester tester) async {
   if (find.byType(Navigator).evaluate().isEmpty) return;
@@ -202,6 +266,25 @@ SongAnalysisBundle _analysis(String id) {
   );
 }
 
+/// One note, as the microphone would hand it over: a sine wave at [hz], and
+/// then the same thing as the 16-bit samples the ear reads.
+Float64List _tone(double hz, {int samples = 4096, int rate = 44100}) {
+  final out = Float64List(samples);
+  for (var i = 0; i < samples; i += 1) {
+    out[i] = math.sin(2 * math.pi * hz * i / rate) * 0.4;
+  }
+  return out;
+}
+
+Uint8List _pcm16(Float64List floats) {
+  final bytes = ByteData(floats.length * 2);
+  for (var i = 0; i < floats.length; i += 1) {
+    bytes.setInt16(
+        i * 2, (floats[i].clamp(-1.0, 1.0) * 32767).round(), Endian.little);
+  }
+  return bytes.buffer.asUint8List();
+}
+
 /// A count-in that makes no sound, because there is no audio here.
 class _SilentClick implements ClickPlayer {
   @override
@@ -210,6 +293,7 @@ class _SilentClick implements ClickPlayer {
     required int beatsPerBar,
     int bars = 8,
     bool loop = true,
+    List<int> accents = const <int>[],
   }) async {}
 
   @override
@@ -234,6 +318,7 @@ void main() {
       textScale: 2.0,
     );
     expect(tester.takeException(), isNull, reason: _why('Perform'));
+    _noTextIsClipped(tester, 'Perform');
 
     // And the words themselves are still there: a line that "fits" because
     // every word after the third was dropped is not a line that wrapped.
@@ -318,6 +403,7 @@ void main() {
     ]) {
       expect(await _tapKey(tester, key), isTrue, reason: '$key is gone');
       expect(tester.takeException(), isNull, reason: _why(key));
+      _noTextIsClipped(tester, key);
       await _dismiss(tester);
       expect(tester.takeException(), isNull, reason: _why('closing $key'));
     }
@@ -378,6 +464,7 @@ void main() {
       textScale: 2.0,
     );
     expect(tester.takeException(), isNull, reason: _why('the song sheet'));
+    _noTextIsClipped(tester, 'the song sheet');
 
     // The key badge opens the key sheet, which is also where the readings
     // live — numbers, a horn's part, a capo, sargam. "Read as" opens the same
@@ -390,6 +477,7 @@ void main() {
     ]) {
       expect(await _tapKey(tester, key), isTrue, reason: '$key is gone');
       expect(tester.takeException(), isNull, reason: _why(key));
+      _noTextIsClipped(tester, key);
       await _dismiss(tester);
     }
 
@@ -401,6 +489,7 @@ void main() {
     await tester.tap(chord, warnIfMissed: false);
     await _frames(tester);
     expect(tester.takeException(), isNull, reason: _why('a chord reference'));
+    _noTextIsClipped(tester, 'a chord reference');
     await _close(tester);
   });
 
@@ -430,6 +519,7 @@ void main() {
       ));
       await _frames(tester);
       expect(tester.takeException(), isNull, reason: _why('Perform'));
+      _noTextIsClipped(tester, 'Perform at 3.12');
       await _close(tester);
 
       _phone(tester, textScale: 3.12, size: phone.value);
@@ -448,6 +538,7 @@ void main() {
       ));
       await _frames(tester);
       expect(tester.takeException(), isNull, reason: _why('the song sheet'));
+      _noTextIsClipped(tester, 'the song sheet at 3.12');
       await _close(tester);
 
       final controller = MusicBetaController(InMemoryMusicRepository.seeded());
@@ -468,6 +559,7 @@ void main() {
       ));
       await _frames(tester);
       expect(tester.takeException(), isNull, reason: _why('Takes'));
+      _noTextIsClipped(tester, 'Takes at 3.12');
       await _close(tester);
     }, timeout: const Timeout(Duration(minutes: 2)));
   }
@@ -488,6 +580,7 @@ void main() {
       controller: controller,
     );
     expect(tester.takeException(), isNull, reason: _why('Takes'));
+    _noTextIsClipped(tester, 'Takes');
     await _close(tester);
   });
 
@@ -509,6 +602,7 @@ void main() {
       controller: controller,
     );
     expect(tester.takeException(), isNull, reason: _why('a set'));
+    _noTextIsClipped(tester, 'a set');
     await _close(tester);
   });
 
@@ -525,6 +619,7 @@ void main() {
       textScale: 2.0,
     );
     expect(tester.takeException(), isNull, reason: _why('an Open Mic song'));
+    _noTextIsClipped(tester, 'an Open Mic song');
     expect(find.text('Offer to play on this'), findsOneWidget,
         reason: 'the ask card had no way to answer it');
     await _close(tester);
@@ -573,6 +668,7 @@ void main() {
       textScale: 2.0,
     );
     expect(tester.takeException(), isNull, reason: _why('the moment notes'));
+    _noTextIsClipped(tester, 'the moment notes');
     await _close(tester);
   });
 
@@ -584,6 +680,7 @@ void main() {
       textScale: 2.0,
     );
     expect(tester.takeException(), isNull, reason: _why('the lesson link'));
+    _noTextIsClipped(tester, 'the lesson link');
     await _close(tester);
   });
 
@@ -606,6 +703,96 @@ void main() {
     await tester.tap(find.text('Tuner'));
     await _frames(tester);
     expect(tester.takeException(), isNull, reason: _why('the tuner'));
+    _noTextIsClipped(tester, 'the microphone sentence');
     await _close(tester);
+  });
+
+  testWidgets('the tuner holds with a note on it at the largest text size',
+      (tester) async {
+    // The dialog above is only the way in. What a player actually stands in
+    // front of is this: one enormous note, a needle, and the reference row
+    // under it. Fed a real A so the note is drawn rather than the ear icon.
+    // A fresh stream each time: a tuner listens once, and a stream that has
+    // already been listened to hands the second sheet nothing.
+    Future<double> noteHeightAt(double textScale) async {
+      final strings = StreamController<Uint8List>();
+      addTearDown(strings.close);
+      await _bootScreen(
+        tester,
+        Scaffold(body: TunerSheet(openStream: () async => strings.stream)),
+        textScale: textScale,
+      );
+      // Three frames, so the median has something to be the median of.
+      for (var frame = 0; frame < 3; frame += 1) {
+        strings.add(_pcm16(_tone(440)));
+        await tester.pump();
+      }
+      await _frames(tester);
+      expect(find.byKey(const Key('tuner_note')), findsOneWidget,
+          reason: 'the tuner heard an A at $textScale and drew nothing');
+      expect(tester.takeException(), isNull, reason: _why('the tuner'));
+      _noTextIsClipped(tester, 'the tuner with a note on it at $textScale');
+      final high = tester.getRect(find.byKey(const Key('tuner_note'))).height;
+      await _close(tester);
+      return high;
+    }
+
+    final large = await noteHeightAt(2.0);
+    // And the note grew with the reader's text size rather than staying at
+    // the 78 pixels it was drawn at: it was a RichText, which ignores the
+    // phone's setting outright.
+    final small = await noteHeightAt(1.0);
+    expect(large, greaterThan(small * 1.6),
+        reason: 'the note was $small tall at 1x and $large at 2x');
+  });
+
+  testWidgets('the song workspace and its toolbar hold at the largest sizes',
+      (tester) async {
+    // The band of pills under the song's name is the only way into Perform
+    // and Takes, and its labels sat in a box of exactly 24 pixels. Nothing
+    // ever complained: a fixed box clips rather than overflows.
+    for (final scale in <double>[2.0, 3.12]) {
+      final controller = MusicBetaController(InMemoryMusicRepository.seeded());
+      await controller.load();
+      addTearDown(controller.dispose);
+      final song = await controller.createSong(
+        controller.rooms.first,
+        'Weathervane In The Rain',
+      );
+      await controller.load();
+      await controller.repository.addContribution(
+        project: controller.projectById(song.id)!,
+        body: _longLine,
+      );
+      await controller.load();
+      await _bootScreen(
+        tester,
+        SongWorkspaceScreen(projectId: song.id),
+        textScale: scale,
+        controller: controller,
+      );
+      expect(tester.takeException(), isNull, reason: _why('the workspace'));
+      _noTextIsClipped(tester, 'the song workspace at $scale');
+      expect(find.byKey(const Key('workspace_live_button')), findsOneWidget,
+          reason: 'the way into Perform is gone at $scale');
+      await _close(tester);
+    }
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('the words scroll at the same lines a minute at every text size', () {
+    // Not a layout test. The three manual speeds are lines a minute written
+    // down as pixels, so they have to be multiplied by how much bigger the
+    // words are — and "how much bigger" used to be only this person's own
+    // plus and minus buttons in Perform, never the size their phone is set
+    // to. With the clamp gone that is a factor of up to 3.12, so a reader at
+    // the largest iOS size scrolled at a third of everybody else's speed.
+    expect(manualScrollSpeed(LiveScrollMode.medium, words: 1), 17.0);
+    expect(manualScrollSpeed(LiveScrollMode.medium, words: 2), 34.0);
+    expect(manualScrollSpeed(LiveScrollMode.slow, words: 3.12),
+        closeTo(9.5 * 3.12, 0.001));
+    // Synced follows the recording and timed re-derives its own speed from
+    // the distance left and the time left, so neither is scaled here.
+    expect(manualScrollSpeed(LiveScrollMode.synced, words: 2), 0.0);
+    expect(manualScrollSpeed(LiveScrollMode.timed, words: 2), 0.0);
   });
 }
