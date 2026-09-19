@@ -7,9 +7,9 @@ import 'package:flutter/widgets.dart';
 /// On an iPad the system share sheet is a popover, and UIKit hangs a popover
 /// off a rectangle in the window: the control that was tapped. share_plus
 /// carries that rectangle as `ShareParams.sharePositionOrigin`, and until
-/// this was written not one of the app's seven share calls passed one. Every
-/// other platform ignores it, so there is nothing to guard on `kIsWeb` here
-/// and nothing that changes on a phone.
+/// this was written not one of the app's seven share calls passed one. A Mac
+/// uses it the same way and every other platform ignores it, so there is
+/// nothing to guard on `kIsWeb` here and nothing that changes on a phone.
 ///
 /// Pass the context of the control itself rather than the screen's. A
 /// `Builder` wrapped around the button gives exactly that for nothing: an

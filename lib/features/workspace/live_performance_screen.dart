@@ -2687,6 +2687,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   ///
   /// Nothing is written back to the room and nothing is kept: the files go
   /// into a directory of their own that the next cut empties.
+  ///
   /// [origin] is the chip that was tapped, which an iPad hangs the share
   /// sheet off. See services/share_origin.dart. Read at the tap rather than
   /// here: the controls hide themselves while the cut is being written, and a
