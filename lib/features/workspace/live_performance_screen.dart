@@ -21,6 +21,7 @@ import '../../domain/song_analysis_models.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../services/horn_reading.dart';
+import '../../services/melody_reading.dart';
 import '../../services/multitrack.dart';
 import '../../services/music_reference.dart' show noteInKey;
 import '../../services/number_reading.dart';
@@ -258,6 +259,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// has it on stage (Every Musician, Same Song, 17 September 2026).
   int _capo = 0;
   NumberReading _numbers = NumberReading.letters;
+
+  /// The language the notes under the words are read in, and the 1 they are
+  /// counted from, both as this person left them on the sheet. Personal like
+  /// the rest, and read back here so somebody who set the song up in sargam
+  /// before rehearsal is still reading sargam on stage (Every Musician, Same
+  /// Song, 17 September 2026).
+  MelodyReading _melodyReading = MelodyReading.letters;
+  int? _sa;
   double _fontScale = 1;
   Duration _songDuration = const Duration(minutes: 3, seconds: 30);
   Duration _elapsed = Duration.zero;
@@ -535,6 +544,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     unawaited(_loadReading());
     unawaited(_loadCapo());
     unawaited(_loadNumbers());
+    unawaited(_loadMelodyReading());
     final missing = widget.missing;
     if (missing != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _say(missing));
@@ -890,6 +900,21 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     setState(() => _numbers = kept);
     // A chord name changes width when it becomes a number, which can move
     // where a line wraps and so where the synced scroll thinks it is.
+    _markOffsetsDirty();
+  }
+
+  /// The language the sung notes are read in, chosen on the song sheet and
+  /// read back here for the same reason the instrument's part is.
+  Future<void> _loadMelodyReading() async {
+    final reading = await MelodyReadingStore.load(widget.project.id);
+    final sa = await MelodySaStore.load(widget.project.id);
+    if (!mounted || (reading == _melodyReading && sa == _sa)) return;
+    setState(() {
+      _melodyReading = reading;
+      _sa = sa;
+    });
+    // "Sa" is wider than "G4" and "1" is narrower, and the row under the
+    // words sets how tall a line is.
     _markOffsetsDirty();
   }
 
@@ -2247,6 +2272,19 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     // it is absent when there is no chord row to label, while a note under a
     // word is still spelled by the key the singer is in.
     final spellingKey = songKey == null || songKey.isEmpty ? null : songKey;
+    // How this person reads the notes under the words: null for letters,
+    // which is what Perform has always drawn. Counted from the song's own
+    // key, or from the Sa they picked on the sheet.
+    final spelling = MelodySpelling.forSong(
+      reading: _melodyReading,
+      melody: _melody,
+      key: spellingKey,
+      transpose: readTranspose,
+      sa: _sa,
+      // The same answer that numbers the chords over the words: which note a
+      // minor song counts from is one question, asked once.
+      minor: _numbers.minor,
+    );
     // If a layout-affecting input changed since the last measurement, the
     // line offsets used by synced-scroll need to be recaptured post-frame.
     // Chords on or off is one: it adds or removes a row over every line, and
@@ -2348,6 +2386,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                                     _lineKey(i) == _activeLineKey
                                 ? widget.analysis?.reference?.melody
                                 : null,
+                            spelling: spelling,
                           ),
                         SizedBox(height: media.size.height * 0.52),
                       ],
@@ -2503,6 +2542,7 @@ class _PerformanceLine extends StatelessWidget {
     this.active = false,
     this.elapsedMs,
     this.melody,
+    this.spelling,
     this.musicalKey,
     super.key,
   });
@@ -2535,6 +2575,10 @@ class _PerformanceLine extends StatelessWidget {
   /// What the line is sung to, when this is the line being sung. See
   /// MusicianChordLyricLine.melody.
   final Melody? melody;
+
+  /// The language the notes under the words are read in, when it is not
+  /// letters. See MusicianChordLyricLine.spelling.
+  final MelodySpelling? spelling;
 
   @override
   Widget build(BuildContext context) {
@@ -2616,6 +2660,7 @@ class _PerformanceLine extends StatelessWidget {
               active: active,
               elapsedMs: elapsedMs,
               melody: melody,
+              spelling: spelling,
             ),
           ),
         ],

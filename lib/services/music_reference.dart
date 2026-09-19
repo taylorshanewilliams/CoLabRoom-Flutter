@@ -43,13 +43,34 @@ const Map<String, int> _pitchValues = <String, int>{
 /// six-accidental keys stay sharp (F♯ major, D♯ minor), which is how they are
 /// usually written.
 bool keyUsesFlats(String? key) {
-  final match = key == null ? null : RegExp(r'^([A-G][#b]?)\s*(.*)$').firstMatch(key.trim());
-  if (match == null) return false;
-  final pitch = _pitchValues[match.group(1)!];
+  final pitch = keyRootPitch(key);
   if (pitch == null) return false;
-  return keyIsMinor(key)
-      ? const <int>{2, 7, 0, 5, 10}.contains(pitch)
-      : const <int>{5, 10, 3, 8, 1}.contains(pitch);
+  return pitchUsesFlats(pitch, minor: keyIsMinor(key));
+}
+
+/// The same rule as [keyUsesFlats], asked of a root that has no name yet.
+///
+/// A reading that has moved a key -- fixed do naming the sounding pitch of a
+/// song somebody dropped a tone -- knows the root it landed on and not what
+/// to call it, which is the question this answers.
+bool pitchUsesFlats(int pitch, {required bool minor}) {
+  final root = ((pitch % 12) + 12) % 12;
+  return minor
+      ? const <int>{2, 7, 0, 5, 10}.contains(root)
+      : const <int>{5, 10, 3, 8, 1}.contains(root);
+}
+
+/// The pitch class a key counts from: 0 for C up to 11 for B, or null when
+/// [key] is not a key this can read.
+///
+/// Public so there is one table and one reading of a key's root. The numbers
+/// over the words, the transpose between two keys and the syllables under
+/// them all have to agree about where the 1 of a key is.
+int? keyRootPitch(String? key) {
+  final match = key == null
+      ? null
+      : RegExp(r'^([A-G][#b]?)').firstMatch(key.trim());
+  return match == null ? null : _pitchValues[match.group(1)!];
 }
 
 /// Whether a key is a minor one, by the mode written after its root: "A

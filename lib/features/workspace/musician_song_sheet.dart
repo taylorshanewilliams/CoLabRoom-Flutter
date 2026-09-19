@@ -1,7 +1,9 @@
+import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/music_reference_sheets.dart';
 import 'package:colabroom/features/workspace/musician_sheet_line.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/services/horn_reading.dart';
+import 'package:colabroom/services/melody_reading.dart';
 import 'package:colabroom/services/number_reading.dart';
 import 'package:flutter/material.dart';
 
@@ -25,6 +27,12 @@ class MusicianSongSheet extends StatelessWidget {
     this.onNumbers,
     this.capo = 0,
     this.onCapo,
+    this.melody,
+    this.melodyReading = MelodyReading.letters,
+    this.onMelodyReading,
+    this.sa,
+    this.onSa,
+    this.spelling,
     this.onKey,
     this.keyOverridden = false,
     this.editableChords = false,
@@ -59,6 +67,29 @@ class MusicianSongSheet extends StatelessWidget {
   /// pitch — see the capo rows in the key sheet.
   final int capo;
   final ValueChanged<int>? onCapo;
+
+  /// The tune the recording sang, and how this person reads it.
+  ///
+  /// [spelling] is the prepared answer — the language, the 1 and the middle
+  /// octave, worked out once by the caller — and it is also the switch: null
+  /// means the notes stay off the page, which is what the sheet has always
+  /// done. [melody] is the tune itself, and the rest is for the picker on the
+  /// key badge (Every Musician, Same Song, 17 September 2026).
+  final Melody? melody;
+  final MelodyReading melodyReading;
+  final ValueChanged<MelodyReading>? onMelodyReading;
+  final int? sa;
+  final ValueChanged<int?>? onSa;
+  final MelodySpelling? spelling;
+
+  /// Whether there is a tune to offer a language for: one worth reading, and
+  /// at least one line whose words are timed. The row is laid out word by
+  /// word, so on a song whose transcription came back as text with no timings
+  /// the chips would name a row that is drawn nowhere (review, 18 September
+  /// 2026).
+  bool get _hasReadableTune =>
+      (melody?.worthReading ?? false) &&
+      lines.any((line) => line.wordStartsMs != null);
 
   /// Where the 1 is, which is the one thing on this badge that belongs to the
   /// room rather than to this device. Null on a sheet whose caller cannot
@@ -189,6 +220,11 @@ class MusicianSongSheet extends StatelessWidget {
                         onNumbers: onNumbers,
                         capo: capo,
                         onCapo: onCapo,
+                        melody: melodyReading,
+                        onMelody: onMelodyReading,
+                        sa: sa,
+                        onSa: onSa,
+                        hasTune: _hasReadableTune,
                         songKey: key,
                         overridden: keyOverridden,
                         onKey: onKey,
@@ -293,6 +329,8 @@ class MusicianSongSheet extends StatelessWidget {
                               fontScale: fontScale,
                               showChords: showChords,
                               editable: editableChords,
+                              melody: melody,
+                              spelling: spelling,
                               selectedChordStartMs: selectedChordStartMs,
                               onEditChord: onEditChord,
                               onAddChord: onAddChord,

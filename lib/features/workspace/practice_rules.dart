@@ -1,6 +1,7 @@
 import '../../domain/song_analysis_models.dart';
 import '../../services/chord_beat_grid.dart'
     show barNumberAt, barOneIndex, downbeatIndexOfBar, numberedBarCount;
+import '../../services/melody_reading.dart';
 import 'musician_sheet_logic.dart' show noteAsPlayed;
 
 /// The rules of practising a song, kept out of the screen so they can be
@@ -388,6 +389,15 @@ double? tapTempo(List<DateTime> taps) {
 /// follow the chords over the words rather than staying in the recording's
 /// key. Asked for rather than defaulted, because a silent zero here is the
 /// bug itself.
+///
+/// [spelling] is the language this person reads notes in, when it is not
+/// letters: do-re-mi, fixed do, sargam or jianpu. It carries its own move
+/// and its own 1, so [transpose] and [key] are only used for the letters
+/// (Every Musician, Same Song, 17 September 2026).
+///
+/// A tune too thin to read carries no notes at all. A vocal stem exists for
+/// every song, including the ones nobody sang on, and a tracker finds
+/// something in all of them -- see Melody.worthReading.
 List<String?> notesForWords(
   Melody? melody,
   List<int>? wordStartsMs,
@@ -395,8 +405,9 @@ List<String?> notesForWords(
   int wordCount, {
   required int transpose,
   String? key,
+  MelodySpelling? spelling,
 }) {
-  if (melody == null || melody.isEmpty || wordStartsMs == null) {
+  if (melody == null || !melody.worthReading || wordStartsMs == null) {
     return const <String?>[];
   }
   if (wordCount <= 0 || wordStartsMs.length != wordCount) {
@@ -410,7 +421,12 @@ List<String?> notesForWords(
     if (end <= start) continue;
     final note = melody.noteWithin(start, end);
     if (note != null) {
-      notes[index] = noteAsPlayed(note.midi, transpose: transpose, key: key);
+      // Every word with a note under it gets that note spelled out, two words
+      // sung on one held note included. See MelodySpelling.of for why jianpu's
+      // dash is not used in a row laid out by words.
+      notes[index] = spelling == null
+          ? noteAsPlayed(note.midi, transpose: transpose, key: key)
+          : spelling.of(note);
       anyNote = true;
     }
   }

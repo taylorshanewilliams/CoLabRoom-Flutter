@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/horn_reading.dart';
+import '../../services/melody_reading.dart';
 import '../../services/number_reading.dart';
 
 /// Which instrument somebody reads a song for, remembered on this device.
@@ -185,6 +186,85 @@ abstract final class SongNumbersStore {
         await prefs.remove(_key(projectId));
       } else {
         await prefs.setString(_key(projectId), style.stored);
+      }
+    } catch (_) {
+      // Not remembered this time; the sheet on screen is still right.
+    }
+  }
+}
+
+/// Which language somebody reads the sung notes in, remembered on this
+/// device.
+///
+/// Per song, like the other readings: the same person can read their own
+/// songs in letters and the ones they are learning in sargam. Never written
+/// to the room and never carried by Follow me — a class following one teacher
+/// can be reading the same tune in five languages at once (Every Musician,
+/// Same Song, 17 September 2026).
+abstract final class MelodyReadingStore {
+  static const String _prefix = 'melody_reading_';
+
+  static String _key(String projectId) => '$_prefix$projectId';
+
+  static Future<MelodyReading> load(String projectId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return MelodyReading.fromStored(prefs.getString(_key(projectId)));
+    } catch (_) {
+      return MelodyReading.letters;
+    }
+  }
+
+  static Future<void> save(String projectId, MelodyReading reading) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Letters are the absence of a choice, so they are stored as nothing
+      // rather than as a row kept forever for every song ever opened.
+      if (reading == MelodyReading.letters) {
+        await prefs.remove(_key(projectId));
+      } else {
+        await prefs.setString(_key(projectId), reading.stored);
+      }
+    } catch (_) {
+      // Not remembered this time; the sheet on screen is still right.
+    }
+  }
+}
+
+/// Where this person counts the sung notes from, when it is not the song's
+/// own key — Sa, in sargam's word for it. A pitch class, 0 for C up to 11.
+///
+/// Personal and per song, like the reading it belongs to. A singer who keeps
+/// a tanpura on C♯ reads the tune against C♯ whatever key the band put the
+/// recording in, and nobody else in the room sees anything change: where the
+/// 1 is *for the room* is a shared fact, set from "Where the 1 is" and kept
+/// on the song (Every Musician, Same Song, 17 September 2026).
+abstract final class MelodySaStore {
+  static const String _prefix = 'melody_sa_';
+
+  static String _key(String projectId) => '$_prefix$projectId';
+
+  /// The kept Sa, or null for the song's own key.
+  static Future<int?> load(String projectId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final kept = prefs.getInt(_key(projectId));
+      // A value this version cannot read is no answer at all, and the song's
+      // own key is the honest fallback.
+      if (kept == null || kept < 0 || kept > 11) return null;
+      return kept;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> save(String projectId, int? sa) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (sa == null || sa < 0 || sa > 11) {
+        await prefs.remove(_key(projectId));
+      } else {
+        await prefs.setInt(_key(projectId), sa);
       }
     } catch (_) {
       // Not remembered this time; the sheet on screen is still right.
