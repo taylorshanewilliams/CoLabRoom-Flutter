@@ -864,11 +864,15 @@ class _KeyReferenceSheetState extends State<_KeyReferenceSheet> {
     final reference = keyReference(_written)!;
     // The band's key, never dropped from a transposed or capo'd part: it is
     // what this player has to say out loud to everybody else.
-    final concert = keyReference(_concertKey)?.display ?? _concertKey;
+    final sounding = keyReference(_concertKey);
+    final concert = sounding?.display ?? _concertKey;
     // The capo chart is about the key that is sounding, not the shapes, so it
-    // is worked out from the concert key however this sheet is being read.
-    final capoRows =
-        keyReference(_concertKey)?.capo ?? const <(int, String)>[];
+    // is worked out from the concert key however this sheet is being read —
+    // and on the instrument in this person's hands, because which keys a capo
+    // is used to reach is the ukulele's own answer (#405, 19 September 2026).
+    final capoRows = sounding == null
+        ? const <(int, String)>[]
+        : capoChart(sounding, reading: _shapes);
     // The chart's own rows, with the one this song's chords ask for standing
     // in for the row on its fret: "Capo 3 makes these open shapes: G, C, D"
     // is the same fret saying something about this song rather than about
