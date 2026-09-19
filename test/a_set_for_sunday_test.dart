@@ -56,9 +56,20 @@ Future<(InMemoryMusicRepository, Setlist, SongProject)> _theSetForSunday({
 }) async {
   final repository = InMemoryMusicRepository.seeded();
   if (now != null) repository.clock = () => now;
-  final second = await repository.createSong(
-    room: (await repository.loadRooms()).first,
-    title: 'Cornerstone',
+  final room = (await repository.loadRooms()).first;
+  final second = await repository.createSong(room: room, title: 'Cornerstone');
+
+  // Whoever leads is in the band. A set only reaches a room through somebody
+  // who is in that room (0164), so the fake has to hold the membership the
+  // database would.
+  repository.addToRoom(
+    room.id,
+    const RoomMember(
+      userId: _leader,
+      displayName: 'The leader',
+      role: RoomRole.editor,
+      colorValue: 0xFF7BE0C9,
+    ),
   );
 
   // Made by whoever leads, which is what makes this a set somebody else is
@@ -82,8 +93,9 @@ Future<(InMemoryMusicRepository, Setlist, SongProject)> _theSetForSunday({
 /// Home, with the card row on it.
 Future<MusicBetaController> _openHome(
   WidgetTester tester,
-  InMemoryMusicRepository repository,
-) async {
+  InMemoryMusicRepository repository, {
+  _Sheets? sheets,
+}) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   await SetAside.load();
   final controller = MusicBetaController(repository);
@@ -103,7 +115,7 @@ Future<MusicBetaController> _openHome(
           displayName: 'Taylor',
           onOpenAccount: () {},
           onOpenNotifications: () {},
-          analysisService: _Sheets(),
+          analysisService: sheets ?? _Sheets(),
         ),
       ),
     ),
@@ -119,8 +131,8 @@ List<WaitingItem> _setCards(WidgetTester tester) => tester
     .toList();
 
 /// Finds the set's card in the row -- which scrolls sideways, so it may not
-/// be built yet -- and taps it.
-Future<void> _tapTheCard(WidgetTester tester) async {
+/// be built yet -- and brings it where it can be tapped.
+Future<Finder> _theCard(WidgetTester tester) async {
   final card = find.byKey(Key('waiting_card_${_setCards(tester).single.id}'));
   await tester.scrollUntilVisible(
     card,
@@ -134,7 +146,11 @@ Future<void> _tapTheCard(WidgetTester tester) async {
   // the card exists, which can be with half of it past the right edge.
   await tester.ensureVisible(card);
   await tester.pumpAndSettle();
-  await tester.tap(card);
+  return card;
+}
+
+Future<void> _tapTheCard(WidgetTester tester) async {
+  await tester.tap(await _theCard(tester));
   await tester.pumpAndSettle();
 }
 
@@ -249,6 +265,41 @@ void main() {
       expect(await repository.setsForTheDay(), isEmpty);
     });
 
+    test('somebody who has left the band cannot still write on its Home',
+        () async {
+      final (repository, set, _) =
+          await _theSetForSunday(day: _sunday, now: _theMondayBefore);
+      expect(await repository.setsForTheDay(), isNotEmpty);
+
+      // Removed from the room, the way somebody is after a falling-out. What
+      // joins their set to the band's songs is a row nothing takes away
+      // (0005 checks membership as it goes in and never again), so the set
+      // is still joined and would still arrive if the join were the only
+      // rule — and its name is eighty characters of theirs, on every
+      // member's Home, every week they re-date it.
+      final room = (await repository.loadRooms()).first;
+      await repository.removeRoomMember(roomId: room.id, userId: _leader);
+
+      expect(await repository.setsForTheDay(), isEmpty);
+      // The set itself is untouched. It is theirs and it still says Sunday;
+      // it is simply no longer anything to do with that room.
+      expect((await repository.loadSetlists())
+          .firstWhere((held) => held.id == set.id)
+          .forDay, _sunday);
+    });
+
+    test('and neither does somebody you have blocked', () async {
+      final (repository, _, __) =
+          await _theSetForSunday(day: _sunday, now: _theMondayBefore);
+      expect(await repository.setsForTheDay(), isNotEmpty);
+
+      await repository.blockUser(_leader);
+      expect(await repository.setsForTheDay(), isEmpty);
+
+      await repository.unblockUser(_leader);
+      expect(await repository.setsForTheDay(), isNotEmpty);
+    });
+
     testWidgets('the owner says the day on the set itself', (tester) async {
       final (repository, set, _) =
           await _theSetForSunday(now: _theMondayBefore);
@@ -286,6 +337,44 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('set_day_line')), findsNothing);
       expect(controller.setlistById(set.id)?.forDay, isNull);
+    });
+
+    testWidgets('a set dated long ago can still be re-dated', (tester) async {
+      final (repository, set, _) = await _theSetForSunday();
+      repository.currentUserId = _leader;
+      final controller = MusicBetaController(repository);
+      await controller.load();
+      addTearDown(controller.dispose);
+
+      // 'Morning service' after a summer off: the set still says a day two
+      // months back, which is further behind than the picker offers.
+      await controller.setSetlistDay(set, _inDays(-60));
+
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(BetaScope(
+        controller: controller,
+        child: MaterialApp(
+          theme: CoLabRoomTheme.dark(),
+          home: SetlistDetailScreen(
+            setlistId: set.id,
+            loadAnalysis: (_) async => null,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('set_day_line')));
+      await tester.pumpAndSettle();
+
+      // The picker opens on today rather than throwing on a day outside its
+      // own window, and the day the set says is untouched until a new one is
+      // picked.
+      expect(find.byType(DatePickerDialog), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(controller.setlistById(set.id)?.forDay, _inDays(-60));
     });
   });
 
@@ -354,6 +443,49 @@ void main() {
       expect(find.byType(WaitingOnYou), findsOneWidget);
     });
 
+    testWidgets('the next song is read while this one is open', (tester) async {
+      final (repository, _, second) = await _theSetForSunday(day: _inDays(3));
+      final sheets = _Sheets();
+      await _openHome(tester, repository, sheets: sheets);
+
+      await _tapTheCard(tester);
+
+      // The first song is on the screen and the second has already been
+      // asked for. Asking only once Perform closes would drop the player
+      // back onto Home in the middle of the set for as long as the read
+      // takes -- which on a church wifi is long enough to think the set
+      // ended and tap something else.
+      expect(find.byType(LivePerformanceScreen), findsOneWidget);
+      expect(sheets.asked, <String>[second.id, 'song-1']);
+    });
+
+    testWidgets('tapping the card twice does not open the set twice',
+        (tester) async {
+      final (repository, _, __) = await _theSetForSunday(day: _inDays(3));
+      await _openHome(tester, repository, sheets: _SlowSheets());
+
+      // Two taps while the first song's sheet is still being read: the card
+      // is on Home and Home is what is on the screen until Perform opens.
+      final card = await _theCard(tester);
+      await tester.tap(card);
+      await tester.pump(const Duration(milliseconds: 10));
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+
+      // One Perform, not a second set walking underneath it -- which would
+      // show later as a stale song appearing when this one is closed.
+      expect(find.byType(LivePerformanceScreen, skipOffstage: false),
+          findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('close_live_mode')));
+      await tester.pumpAndSettle();
+      expect(find.byType(LivePerformanceScreen, skipOffstage: false),
+          findsNothing);
+      // The read asked for ahead of a set that is now closed still has to
+      // land somewhere, and nothing is waiting for it.
+      await tester.pump(const Duration(milliseconds: 100));
+    });
+
     testWidgets('opening it records nothing at all', (tester) async {
       final (repository, set, _) = await _theSetForSunday(day: _inDays(3));
       await _openHome(tester, repository);
@@ -407,6 +539,12 @@ void main() {
     // of the schema rather than a rule about reading it.
     expect(migration, contains('stable'));
     expect(migration, contains('revoke all on function public.sets_for_the_day() from public, anon'));
+
+    // And the read asks for both memberships, not just the caller's: a set
+    // of somebody who has left the room is joined to its songs by a row
+    // nothing removes, and it must not reach the room.
+    expect(migration, contains('from public.room_members m'));
+    expect(migration, contains('blocked_between'));
   });
 }
 
@@ -434,8 +572,15 @@ Setlist _dated(
 class _Sheets extends SongAnalysisService {
   _Sheets() : super(client: null, kept: _NothingKept());
 
+  /// Every song this service has been asked for, in the order it was asked.
+  final List<String> asked = <String>[];
+
   @override
-  Future<SongAnalysisBundle> load(String projectId) async => SongAnalysisBundle(
+  Future<SongAnalysisBundle> load(String projectId) async => _sheetIn(projectId);
+
+  SongAnalysisBundle _sheetIn(String projectId) {
+    asked.add(projectId);
+    return SongAnalysisBundle(
         reference: ReferenceTrack(
           projectId: projectId,
           fileId: 'file-$projectId',
@@ -453,10 +598,21 @@ class _Sheets extends SongAnalysisService {
           ChordCue(id: 1, startMs: 5000, endMs: 7000, chord: 'G:maj', confidence: 0.9),
         ],
       );
+  }
 
   @override
   Future<String> ensureLocalReference(ReferenceTrack reference) async =>
       throw StateError('No recording in a widget test.');
+}
+
+/// The same sheets, a beat later — which is what a read over a church wifi
+/// is, and what a service answering in the same microtask cannot show.
+class _SlowSheets extends _Sheets {
+  @override
+  Future<SongAnalysisBundle> load(String projectId) async {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    return _sheetIn(projectId);
+  }
 }
 
 /// Nothing is kept on this phone, answered without touching a disk.

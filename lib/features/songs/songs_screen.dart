@@ -1056,6 +1056,12 @@ class _SongsScreenState extends State<SongsScreen> {
   /// than to the occasion — it is said on the song, by somebody who may
   /// write on it.
   Future<void> _performSet(Setlist set) async {
+    // One set at a time. The card is on Home, and Home is what the player is
+    // looking at while the first song's sheet is being read, so a second tap
+    // there would otherwise start a second walk through the same set and
+    // stack its Perform under this one.
+    if (_walkingASet) return;
+    _walkingASet = true;
     final controller = BetaScope.of(context, listen: false);
     final me = controller.meOrNobody;
     final songs = <SongProject>[];
@@ -1063,40 +1069,63 @@ class _SongsScreenState extends State<SongsScreen> {
       final song = _songById(controller, id);
       if (song != null) songs.add(song);
     }
-    for (var index = 0; index < songs.length; index += 1) {
-      final song = songs[index];
-      // The sheet as the server has it, or as this phone kept it, or a word
-      // about why neither — the same door every other way into Perform uses,
-      // which is also what makes the set work in a basement once it has been
-      // kept on this phone.
-      final sheet = await _analysis.sheetForPerform(song);
-      if (!mounted) return;
-      final entry = set.songFor(song.id);
-      // Read through the one call the set's screen and its printed pack read
-      // the key through, so the page on the stand and the screen in somebody's
-      // hand cannot disagree about what key Sunday is in. Null when the set
-      // says nothing about the song, which leaves this phone's own key alone:
-      // an undated preference of the singer's is not overruled by silence.
-      final facts = setSongFacts(entry, song, sheet.bundle);
-      final onward = await Navigator.of(context).push<bool>(
-        MaterialPageRoute<bool>(
-          settings: RouteSettings(name: AppRoutes.songLive(song.id)),
-          builder: (_) => LivePerformanceScreen(
-            project: song,
-            analysis: sheet.bundle,
-            missing: sheet.missing,
-            analysisService: widget.analysisService,
-            me: me,
-            transpose: entry?.key == null ? null : facts.transpose,
-            nextInSet:
-                index + 1 < songs.length ? songs[index + 1].title : null,
+    // The next song's sheet, asked for while this one is still on the
+    // screen. sheetForPerform is a read over the network, and asking for it
+    // only once Perform has closed drops the player onto Home for as long as
+    // it takes — on a church wifi that is a second or three of looking at
+    // the wrong screen in the middle of a set, wondering whether it ended.
+    Future<PerformSheet>? ahead;
+    try {
+      for (var index = 0; index < songs.length; index += 1) {
+        final song = songs[index];
+        // The sheet as the server has it, or as this phone kept it, or a word
+        // about why neither — the same door every other way into Perform uses,
+        // which is also what makes the set work in a basement once it has been
+        // kept on this phone.
+        final sheet = await (ahead ?? _analysis.sheetForPerform(song));
+        if (!mounted) return;
+        ahead = index + 1 < songs.length
+            ? _analysis.sheetForPerform(songs[index + 1])
+            : null;
+        final entry = set.songFor(song.id);
+        // Read through the one call the set's screen and its printed pack read
+        // the key through, so the page on the stand and the screen in somebody's
+        // hand cannot disagree about what key Sunday is in. Null when the set
+        // says nothing about the song, which leaves this phone's own key alone:
+        // an undated preference of the singer's is not overruled by silence.
+        final facts = setSongFacts(entry, song, sheet.bundle);
+        final onward = await Navigator.of(context).push<bool>(
+          MaterialPageRoute<bool>(
+            settings: RouteSettings(name: AppRoutes.songLive(song.id)),
+            builder: (_) => LivePerformanceScreen(
+              project: song,
+              analysis: sheet.bundle,
+              missing: sheet.missing,
+              analysisService: widget.analysisService,
+              me: me,
+              transpose: entry?.key == null ? null : facts.transpose,
+              nextInSet:
+                  index + 1 < songs.length ? songs[index + 1].title : null,
+            ),
+            fullscreenDialog: true,
           ),
-          fullscreenDialog: true,
-        ),
-      );
-      if (onward != true || !mounted) return;
+        );
+        if (onward != true || !mounted) return;
+      }
+    } finally {
+      _walkingASet = false;
+      // A sheet asked for ahead of a set that has since been closed: nobody
+      // is going to open it, so its answer is dropped here rather than left
+      // to surface later as a failure nothing is waiting on.
+      final abandoned = ahead;
+      if (abandoned != null) {
+        unawaited(abandoned.then((_) {}, onError: (_) {}));
+      }
     }
   }
+
+  /// Whether a set for a day is being walked through right now (0164).
+  bool _walkingASet = false;
 
   /// The listening desk (0151), from the card that says something arrived.
   ///

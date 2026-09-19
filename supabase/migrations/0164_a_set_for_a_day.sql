@@ -69,6 +69,22 @@ comment on column public.setlists.for_day is
 -- Somebody in none of the rooms is handed nothing at all, including the
 -- set's name.
 --
+-- **And whoever made the set has to still be in the room.** A set is joined
+-- to a room's song by a row in `setlist_projects`, and nothing takes those
+-- rows away when somebody leaves a band or is removed from it: 0005 checks
+-- membership as the row goes in and never again. Without the check below, a
+-- person who had been removed from a room could still put a line of their
+-- own writing -- the set's name -- on every member's Home, every week, by
+-- re-dating an old set of theirs. Being removed from a room is supposed to
+-- end what you can put in front of it, so the set of somebody who is no
+-- longer in the room is not handed to anybody, and the room stops hearing
+-- from them the moment they are out.
+--
+-- Blocking counts too, the way it does in every other read that carries
+-- somebody's words (0063's `blocked_between`, either direction). Somebody
+-- you have blocked does not get a card on your Home with their sentence on
+-- it, even if the two of you are still in the same room.
+--
 -- From yesterday onwards, not from today: the day is a calendar date and
 -- `current_date` here is the server's, which can be tomorrow already for a
 -- phone in Auckland and still yesterday for one in Honolulu. The phone
@@ -103,6 +119,11 @@ as $fn$
   where s.for_day is not null
     and s.for_day >= current_date - 1
     and private.is_room_member(p.room_id)
+    and exists (
+      select 1 from public.room_members m
+      where m.room_id = p.room_id and m.user_id = s.owner_id
+    )
+    and not private.blocked_between((select auth.uid()), s.owner_id)
   order by s.for_day, s.id, sp.position, sp.project_id;
 $fn$;
 

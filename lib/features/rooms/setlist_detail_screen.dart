@@ -215,15 +215,26 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
 
     Future<void> sayTheDay() async {
       final today = dayOf(DateTime.now());
+      // A month back, because a set is sometimes dated after the fact, and
+      // two years on, which is further ahead than anybody plans a Sunday. A
+      // picker that only offered the future could not say what last Sunday's
+      // set was for.
+      final earliest = DateTime(today.year, today.month, today.day - 31);
+      final latest = DateTime(today.year + 2, today.month, today.day);
+      // The day it already says, unless that day is outside the window — a
+      // set kept from the summer and re-used in the autumn still says August,
+      // and showDatePicker asserts its initial date is inside its own range.
+      // Opening on today is then the only honest answer: the picker is being
+      // used to move the day, and the day it is being moved to is near now.
+      final kept = setlist.forDay;
+      final start = kept == null || kept.isBefore(earliest) || kept.isAfter(latest)
+          ? today
+          : kept;
       final day = await showDatePicker(
         context: context,
-        initialDate: setlist.forDay ?? today,
-        // A month back, because a set is sometimes dated after the fact, and
-        // two years on, which is further ahead than anybody plans a Sunday.
-        // A picker that only offers the future could not say what last
-        // Sunday's set was for.
-        firstDate: DateTime(today.year, today.month, today.day - 31),
-        lastDate: DateTime(today.year + 2, today.month, today.day),
+        initialDate: start,
+        firstDate: earliest,
+        lastDate: latest,
         helpText: 'The day this set is for',
       );
       if (day == null) return;

@@ -11957,6 +11957,87 @@ begin
   end if;
 end $$;
 
+-- Somebody who has left the band cannot still write on its Home.
+--
+-- Nothing removes a setlist_projects row when a person leaves a room or is
+-- removed from it -- 0005 checks membership as the row goes in and never
+-- again -- so an old set of theirs is still joined to the room's song.
+-- Re-dating it must not put their sentence back on every member's Home. The
+-- set below is made while they are in the room, which is the only way it
+-- could have been made, and their membership then goes.
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('1a4e0164-0000-0000-0000-000000000167', 'wholeft@smoke.test',
+   '{"display_name": "Who Left"}');
+
+insert into public.room_members (room_id, user_id, display_name, role, color_value)
+values ('1a4e0164-0000-0000-0000-000000000160',
+        '1a4e0164-0000-0000-0000-000000000167', 'Who Left', 'editor', 4278239141);
+
+insert into public.setlists (id, owner_id, name, for_day) values
+  ('1a4e0164-0000-0000-0000-000000000173', '1a4e0164-0000-0000-0000-000000000167',
+   'Read this instead', current_date + 2);
+insert into public.setlist_projects (setlist_id, project_id, position, played_key)
+values ('1a4e0164-0000-0000-0000-000000000173',
+        '1a4e0164-0000-0000-0000-000000000161', 0, 'G');
+
+-- While they are still in the band it is an ordinary set and the player is
+-- handed it, so the refusal below is about membership and not about
+-- something else this row happens to say.
+set local request.jwt.claims = '{"sub": "1a4e0164-0000-0000-0000-000000000165"}';
+set local role authenticated;
+
+do $$
+begin
+  if not exists (select 1 from public.sets_for_the_day()
+                   where set_id = '1a4e0164-0000-0000-0000-000000000173') then
+    raise exception 'a set made by somebody in the band was not handed to the band';
+  end if;
+end $$;
+
+reset role;
+delete from public.room_members
+where room_id = '1a4e0164-0000-0000-0000-000000000160'
+  and user_id = '1a4e0164-0000-0000-0000-000000000167';
+
+set local request.jwt.claims = '{"sub": "1a4e0164-0000-0000-0000-000000000165"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.sets_for_the_day()
+               where set_id = '1a4e0164-0000-0000-0000-000000000173') then
+    raise exception 'somebody who has left the room still had a card on its Home';
+  end if;
+  -- And the band's own set is untouched by any of that.
+  if not exists (select 1 from public.sets_for_the_day()
+                   where set_id = '1a4e0164-0000-0000-0000-000000000170') then
+    raise exception 'the band''s own set went missing';
+  end if;
+end $$;
+
+-- And somebody you have blocked does not get a card on your Home either,
+-- which is the predicate every read carrying somebody's words asks (0063).
+reset role;
+insert into public.user_blocks (blocker_id, blocked_id) values
+  ('1a4e0164-0000-0000-0000-000000000165', '1a4e0164-0000-0000-0000-000000000164');
+
+set local request.jwt.claims = '{"sub": "1a4e0164-0000-0000-0000-000000000165"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.sets_for_the_day()
+               where set_id = '1a4e0164-0000-0000-0000-000000000170') then
+    raise exception 'a blocked person''s set was still on the blocker''s Home';
+  end if;
+end $$;
+
+reset role;
+delete from public.user_blocks
+where blocker_id = '1a4e0164-0000-0000-0000-000000000165'
+  and blocked_id = '1a4e0164-0000-0000-0000-000000000164';
+
 -- Nobody at all cannot ask.
 reset role;
 set local request.jwt.claims = '{"role": "anon"}';

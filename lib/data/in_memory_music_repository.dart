@@ -690,22 +690,39 @@ class InMemoryMusicRepository implements MusicRepository {
     // whether its own card is still for a day to come, and this only stops a
     // year of old sets coming back.
     final from = DateTime(now.year, now.month, now.day - 1);
-    final known = _allProjects.map((project) => project.id).toSet();
+    final hidden = _blocked.map((person) => person.id).toSet();
     final waiting = <Setlist>[];
     for (final setlist in _setlists) {
       final day = setlist.forDay;
       if (day == null || day.isBefore(from)) continue;
-      // Only the songs this person can see, which is every song this fake
-      // holds: there is one library here and everybody is in all of it.
+      // Somebody you have blocked does not get a card on your Home with
+      // their sentence on it. One direction only here — this fake knows who
+      // this phone has blocked and cannot know who has blocked it, where
+      // 0164 asks `blocked_between` and so counts both.
+      if (hidden.contains(setlist.ownerId)) continue;
       final songs = <SetlistSong>[
         for (final song in setlist.songs)
-          if (known.contains(song.projectId))
+          if (_bothInTheRoom(song.projectId, setlist.ownerId))
             SetlistSong(projectId: song.projectId, key: song.key),
       ];
       if (songs.isEmpty) continue;
       waiting.add(setlist.copyWith(songs: songs));
     }
     return List<Setlist>.unmodifiable(waiting);
+  }
+
+  /// Whether both this person and [ownerId] are in the room a song lives in.
+  ///
+  /// 0164 asks for both. This person, because being handed a set is not
+  /// being handed the songs in it. And whoever made the set, because nothing
+  /// takes a `setlist_projects` row away when somebody leaves a band, so an
+  /// old set of theirs would otherwise keep a line of their writing on the
+  /// room's Home for as long as they kept re-dating it.
+  bool _bothInTheRoom(String projectId, String ownerId) {
+    final room = _roomOf(projectId);
+    if (room == null) return false;
+    return _memberOf(room, currentUserId) != null &&
+        _memberOf(room, ownerId) != null;
   }
 
   /// Unheard counts the fake simply holds, so a badge can be exercised in a
