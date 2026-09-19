@@ -52,6 +52,13 @@ dependencies:
   # than ranged because it is a platform plugin and how a voice queues is the
   # kind of thing a minor bump changes; a test speaks through ChordVoice
   # instead, and never through this.
+  #
+  # It speaks on the web through the browser's own speech synthesis, and
+  # `flutter build web` — what build-web.yml ships — builds with it, so the
+  # desk keeps its voice. Its web file does trip the WebAssembly dry run's
+  # interop lint, which is a warning today and would be a wall the day this
+  # app is built with --wasm: something to settle then, not a reason to leave
+  # a blind player at the desk without the calls now.
   flutter_tts: 4.2.5
 
 dev_dependencies:

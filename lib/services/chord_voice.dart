@@ -85,11 +85,23 @@ class TtsChordVoice implements ChordVoice {
     await _tts.speak(words);
   }
 
+  /// Both of these swallow whatever the platform says, because both are
+  /// called while something else is being taken down.
+  ///
+  /// [stop] runs on every pause and every seek, and [dispose] runs off the
+  /// back of it as Perform closes -- so a `stop` that threw would take the
+  /// `dispose` after it with it and leave the engine running, and there is
+  /// nobody left to tell either way. A device with no voice on it must not be
+  /// able to stop the song, and leaving the song is when that matters most.
   @override
-  Future<void> stop() => _tts.stop();
+  Future<void> stop() async {
+    try {
+      await _tts.stop();
+    } catch (_) {
+      // Nothing was being said, or nothing is listening.
+    }
+  }
 
   @override
-  Future<void> dispose() async {
-    await _tts.stop();
-  }
+  Future<void> dispose() => stop();
 }

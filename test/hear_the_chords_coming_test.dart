@@ -358,12 +358,14 @@ void main() {
       bool countIn = false,
       String? numbers,
       String? horn,
+      int? capo,
     }) async {
       SharedPreferences.setMockInitialValues(<String, Object>{
         'live_countdown_enabled': countIn,
         if (hear) 'live_hear_the_chords': HearTheChords.on.stored,
         if (numbers != null) 'song_numbers_song-hear': numbers,
         if (horn != null) 'song_reading_song-hear': horn,
+        if (capo != null) 'song_capo_song-hear': capo,
       });
       tester.view.physicalSize = const Size(400, 800);
       tester.view.devicePixelRatio = 1.0;
@@ -516,6 +518,35 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 3500));
       expect(horn.said, <String>['D', 'E seven']);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a capo is heard where the hand goes, not where it sounds',
+        (tester) async {
+      // Capo 2 on a song in G: the shapes on the page are F, B♭, C7, F, and
+      // those are the shapes the hand makes. What is said out loud has to be
+      // the same chord as what is printed over the word, or a player is
+      // being told one thing and shown another.
+      await sized(tester, hear: true, capo: 2);
+      final voice = _WrittenDown();
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project,
+          analysis: withChords,
+          now: clockOf(tester),
+          chordVoice: voice,
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('live_play_pause')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 3500));
+      expect(voice.said, <String>['B flat', 'C seven']);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
