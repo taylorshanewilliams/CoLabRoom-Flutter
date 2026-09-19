@@ -340,6 +340,36 @@ class LatencyProbe {
     return data.buffer.asUint8List();
   }
 
+  /// How many samples a second a RIFF file holds, or 0 when it does not say.
+  ///
+  /// [fromWav] does not resample and does not report this, which is safe for
+  /// everything it was written for: the probe compares a file with itself,
+  /// and every wav this app writes it writes at [sampleRate]. It is not safe
+  /// for a file somebody else made. A band that attaches its 48 kHz bounce as
+  /// the reference gets a file whose samples are 8.8% closer together than
+  /// 44.1 kHz, so anything that turns a moment in the song into a sample
+  /// index has to ask this first or it lands in the wrong bar (see
+  /// PassageExport.write).
+  ///
+  /// Only the header is needed, so a caller may hand over the first kilobyte
+  /// of the file rather than all of it.
+  static int rateOfWav(Uint8List bytes) {
+    final data = ByteData.sublistView(bytes);
+    if (bytes.length < 12) return 0;
+    var offset = 12;
+    while (offset + 8 <= bytes.length) {
+      final id = String.fromCharCodes(bytes.sublist(offset, offset + 4));
+      final size = data.getUint32(offset + 4, Endian.little);
+      final body = offset + 8;
+      if (id == 'fmt ' && body + 16 <= bytes.length) {
+        return data.getUint32(body + 4, Endian.little);
+      }
+      // Chunks are word-aligned; an odd size is followed by a pad byte.
+      offset = body + size + (size.isOdd ? 1 : 0);
+    }
+    return 0;
+  }
+
   /// Mono doubles out of a 16-bit RIFF file.
   ///
   /// Walks the chunk list rather than assuming the header is 44 bytes. It
@@ -347,6 +377,10 @@ class LatencyProbe {
   /// here would produce a recording that reads as noise with no explanation —
   /// `record` is free to emit a LIST or fact chunk, and some Android encoders
   /// do.
+  ///
+  /// The samples come back at whatever rate the file holds them at, which is
+  /// not always [sampleRate]: ask [rateOfWav] before counting in
+  /// milliseconds.
   static Float64List fromWav(Uint8List bytes) {
     final data = ByteData.sublistView(bytes);
     if (bytes.length < 12) return Float64List(0);

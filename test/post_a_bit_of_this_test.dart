@@ -84,14 +84,14 @@ Float64List _source({
   required int durationMs,
   int? markAtMs,
   double mark = -0.75,
+  int rate = Multitrack.rate,
 }) {
-  final samples =
-      Float64List((durationMs * Multitrack.rate / 1000).round());
+  final samples = Float64List((durationMs * rate / 1000).round());
   for (var i = 0; i < samples.length; i += 1) {
     samples[i] = 0.5;
   }
   if (markAtMs != null) {
-    samples[(markAtMs * Multitrack.rate / 1000).round()] = mark;
+    samples[(markAtMs * rate / 1000).round()] = mark;
   }
   return samples;
 }
@@ -388,6 +388,47 @@ void main() {
       expect(text, isNot(contains(PassageExport.recordingStaysHome)));
     });
 
+    test('a song nobody has been asked about hands over the chart only',
+        () async {
+      // Whose song this is gets asked the first time a song's audience moves
+      // past "Only you", so every song somebody is still working on alone
+      // has no answer on it. A cut is made to be posted, and it is the one
+      // way out of the app that does not pass the dial that asks — so an
+      // unanswered question is not an answer here either, the same rule
+      // sending a song to a lesson already keeps.
+      final audio = _wavFile(directory, _source(durationMs: 12000));
+      final files = await PassageExport.write(
+        directory: directory,
+        project: _song(),
+        cut: const PassageCut(startMs: 2000, endMs: 4000, label: 'Bars 2–3'),
+        lines: lines,
+        transcriptWords: words,
+        musicalKey: 'C major',
+        audioPath: audio.path,
+      );
+
+      expect(files.length, 1);
+      expect(files.single.path, endsWith('.cho'));
+      final text = files.single.readAsStringSync();
+      expect(text, contains(PassageExport.whoseSongUnanswered));
+      expect(text, contains('[C]'));
+      // The printed chart's own rule is untouched: it carries the words of a
+      // song nobody has been asked about, as it always has. What waits for
+      // an answer is the clip and the subtitles that would go on it.
+      expect(text, contains('Kestrel'));
+      expect(
+        directory
+            .listSync()
+            .whereType<File>()
+            .map((file) => file.uri.pathSegments.last)
+            .where((name) =>
+                name.endsWith('.wav') ||
+                name.endsWith('.srt') ||
+                name.endsWith('.lrc')),
+        <String>['recording.wav'],
+      );
+    });
+
     test('a song with no words exports the audio and the chords only',
         () async {
       final audio = _wavFile(directory, _source(durationMs: 12000));
@@ -420,6 +461,114 @@ void main() {
       expect(text, contains('[F]'));
       // A placeholder is not a word, on paper or in a file.
       expect(text, isNot(contains(instrumentalMark)));
+    });
+  });
+
+  group('the clip is the point, so the cut says when it has none', () {
+    final lines = <MusicianSheetLine>[
+      _sung('Kestrel weather', startMs: 2400, chords: <ChordCue>[
+        _cue('C:maj', 2000),
+      ]),
+    ];
+
+    test('a recording that will not read leaves a cut that knows it', () async {
+      // A 24-bit wav is the everyday version of this: fromWav reads 16-bit
+      // and nothing else, so the decode comes back with nothing. So does a
+      // recording that has not finished fetching, and one that failed.
+      final broken = File('${directory.path}/broken.wav');
+      broken.writeAsBytesSync(
+        Uint8List.fromList(<int>[82, 73, 70, 70, 0, 0, 0, 0]),
+        flush: true,
+      );
+      final project = _song(origin: SongOrigin.ours);
+      final files = await PassageExport.write(
+        directory: directory,
+        project: project,
+        cut: const PassageCut(startMs: 2000, endMs: 4000, label: 'Bars 2–3'),
+        lines: lines,
+        musicalKey: 'C major',
+        audioPath: broken.path,
+      );
+
+      // The chart still goes: it is the room's own work either way.
+      expect(files.map((file) => file.path.endsWith('.cho')), <bool>[true]);
+      // And the screen has something to say rather than handing over a text
+      // file and calling it a clip.
+      expect(PassageExport.audioMissing(project, files), isTrue);
+    });
+
+    test('a cut that has its clip says nothing about it', () async {
+      final project = _song(origin: SongOrigin.ours);
+      final files = await PassageExport.write(
+        directory: directory,
+        project: project,
+        cut: const PassageCut(startMs: 2000, endMs: 4000, label: 'Bars 2–3'),
+        lines: lines,
+        musicalKey: 'C major',
+        audioPath: _wavFile(directory, _source(durationMs: 12000)).path,
+      );
+      expect(PassageExport.audioMissing(project, files), isFalse);
+    });
+
+    test("a cover was never going to have one, so it is not missing", () async {
+      final project = _song(origin: SongOrigin.cover);
+      final files = await PassageExport.write(
+        directory: directory,
+        project: project,
+        cut: const PassageCut(startMs: 2000, endMs: 4000, label: 'Bars 2–3'),
+        lines: lines,
+        musicalKey: 'C major',
+        audioPath: _wavFile(directory, _source(durationMs: 12000)).path,
+      );
+      expect(PassageExport.audioMissing(project, files), isFalse);
+    });
+  });
+
+  group('the cut is at the rate the recording is at', () {
+    test('a 48 kHz bounce is cut where the bars are', () async {
+      // A band's own DAW bounce is commonly 48 kHz, and a wav never goes
+      // near the decoder that would otherwise hand everything back at 44.1.
+      // Believing 44.1 of it would start this cut at 18.4 s instead of 20 s
+      // -- on no bar line at all -- and play it a tone and a half flat under
+      // a chart that says the band's key.
+      const rate = 48000;
+      final bounce = File('${directory.path}/bounce.wav');
+      bounce.writeAsBytesSync(
+        LatencyProbe.toWav(
+          _source(durationMs: 30000, markAtMs: 22000, rate: rate),
+          rate: rate,
+        ),
+        flush: true,
+      );
+      expect(await PassageExport.rateOf(bounce.path), rate);
+
+      final files = await PassageExport.write(
+        directory: directory,
+        project: _song(origin: SongOrigin.ours, title: 'Long Way Round'),
+        cut: const PassageCut(startMs: 20000, endMs: 28000, label: 'Bars 9–12'),
+        lines: const <MusicianSheetLine>[],
+        musicalKey: 'C major',
+        audioPath: bounce.path,
+      );
+
+      final bytes = files
+          .firstWhere((file) => file.path.endsWith('.wav'))
+          .readAsBytesSync();
+      // Written at the rate it was read at, so it plays at the pitch it was
+      // played at.
+      expect(LatencyProbe.rateOfWav(bytes), rate);
+      final samples = LatencyProbe.fromWav(bytes);
+      expect(samples.length, (8000 * rate / 1000).round());
+      // Twenty-two seconds of the song is two seconds into a cut that starts
+      // at twenty, whatever rate the file holds its samples at.
+      expect(samples[(2000 * rate / 1000).round()], closeTo(-0.75, 0.001));
+    });
+
+    test('anything compressed is at the rate the decoder was asked for', () {
+      // m4a, mp3, opus: Multitrack.samplesFor asks the decoder for
+      // Multitrack.rate, so there is nothing to read off a header.
+      expect(PassageExport.rateOf('song.m4a'), completion(Multitrack.rate));
+      expect(PassageExport.rateOf('song.mp3'), completion(Multitrack.rate));
     });
   });
 
@@ -531,6 +680,34 @@ void main() {
 
       expect(find.byKey(const Key('live_save_cut')), findsOneWidget);
       expect(find.text('Save this bit'), findsOneWidget);
+    });
+
+    testWidgets('a song nobody has been asked about is asked first',
+        (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        // No answer on it, which is every song still at "Only you".
+        home: LivePerformanceScreen(project: _song(), analysis: bundle),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.tap(find.byKey(const Key('live_loop_bars')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('live_bar_loop_apply')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('live_save_cut')));
+      await tester.pumpAndSettle();
+
+      // The question is asked here, at the moment it matters, exactly as the
+      // audience dial asks it -- because a cut is the one export that
+      // reaches strangers without passing the dial.
+      expect(find.text('Who wrote this song?'), findsOneWidget);
+      expect(find.byKey(const Key('whose_song_ours')), findsOneWidget);
     });
   });
 }

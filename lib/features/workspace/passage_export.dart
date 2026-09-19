@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import '../../domain/music_models.dart';
 import '../../domain/song_analysis_models.dart';
+import '../../services/audio_analysis_utils.dart';
 import '../../services/latency_probe.dart';
 import '../../services/multitrack.dart';
 import '../../services/project_export_service.dart';
@@ -31,19 +32,55 @@ import 'musician_sheet_logic.dart';
 /// them: it is a thing the person takes away, not a thing the room keeps.
 /// No video is rendered here, and nothing on screen mentions one.
 ///
-/// Whose-song (0142) decides what travels. A song the room did not write
-/// hands over its chords and neither its words nor its audio, and the file
-/// says so in a plain line rather than leaving somebody to work out what is
-/// missing — the same stance [ProjectExportService.wordsTravel] already takes
-/// for the chart and the ChordPro, extended to the recording because a
-/// passage of somebody else's record is the part of this that is least ours
-/// to hand out.
+/// Whose-song (0142) decides what travels, and here it is asked strictly. A
+/// song the room did not write hands over its chords and neither its words
+/// nor its audio, and so does a song nobody has been asked about yet: an
+/// unanswered question is not an answer, which is the rule the recording
+/// already travels under when a song is sent to a lesson
+/// (MusicRepository.sendSongToStudents) and when a teacher points at a
+/// passage (whereToPoint). A cut is the one export made to be posted to
+/// strangers, and it is the only one that reaches them without first passing
+/// the audience dial, where the question would otherwise be asked.
+///
+/// The file says which of those it is in a plain line rather than leaving
+/// somebody to work out what is missing.
 abstract final class PassageExport {
   /// What the cut's own file says about the recording, on a song the room did
   /// not write. Read under [ProjectExportService.wordsStayHome], which the
   /// ChordPro writes first.
   static const String recordingStaysHome =
       'The recording stays here too — the chords are the part that travels.';
+
+  /// What the cut's own file says when nobody has been asked whose song this
+  /// is. The chart is still the room's own work and still goes.
+  static const String whoseSongUnanswered =
+      'Nobody has said whose song this is, so only the chart travels. The '
+      'song menu asks.';
+
+  /// Whether the recording and the words go out with the chords.
+  ///
+  /// Stricter than [ProjectExportService.wordsTravel], which lets a song
+  /// nobody has been asked about print its words: that question is asked the
+  /// first time a song's audience widens, so every song still sitting at
+  /// "Only you" has no answer on it, and a cut of one is on its way to
+  /// strangers without the dial ever having had the chance to ask. Only a
+  /// plain "we did" or "it's old enough to be anyone's" lets a recording
+  /// leave — the same two answers sendSongToStudents requires.
+  static bool cutTravels(SongProject project) =>
+      project.songOrigin == SongOrigin.ours ||
+      project.songOrigin == SongOrigin.publicDomain;
+
+  /// Whether [written] is a cut that should have had a clip in it and has
+  /// not, which is the one failure here that says nothing for itself.
+  ///
+  /// [write] hands back the chart whatever happens, so a recording still
+  /// fetching, one that failed, and one in a container this app cannot read
+  /// all look from the outside like a cut that worked: three text files
+  /// arriving at the share sheet with no clip and no word about why. The
+  /// audio is the point, so the screen says a sentence about it.
+  static bool audioMissing(SongProject project, List<File> written) =>
+      cutTravels(project) &&
+      !written.any((file) => file.path.endsWith('.wav'));
 
   /// How long the ramp at each end of the cut is.
   ///
@@ -67,6 +104,11 @@ abstract final class PassageExport {
   /// kept as it is. That case is the end of a cut over the final bars, where
   /// [barEndMs] returns the end of the recording: pulling that back to the
   /// last downbeat would drop the very bar that was asked for.
+  ///
+  /// Before the first downbeat, the same, and for the same kind of reason: an
+  /// intro that the analysis says begins at zero on a song whose first bar
+  /// line is a moment later begins with a pickup, and pushing the cut forward
+  /// onto the bar line would cut the pickup off the front of it.
   static PassageCut? cutFor({
     required int startMs,
     required int endMs,
@@ -269,9 +311,13 @@ abstract final class PassageExport {
       bpm: bpm,
       // The reason first, so it reads as one paragraph under the sentence
       // ChordPro already writes about the words, and the passage's own name
-      // under it where a chart puts a heading.
+      // under it where a chart puts a heading. Two different reasons: a song
+      // somebody else wrote is a decision that has been taken, and a song
+      // nobody has been asked about is a question still open, which is worth
+      // saying differently because one of them can be changed in a tap.
       notes: <String>[
-        if (!ProjectExportService.wordsTravel(project)) recordingStaysHome,
+        if (project.songOrigin == SongOrigin.cover) recordingStaysHome,
+        if (project.songOrigin == null) whoseSongUnanswered,
         cut.label,
       ],
     );
@@ -287,6 +333,9 @@ abstract final class PassageExport {
   ///
   /// Always at least the ChordPro: a passage of a song somebody else wrote is
   /// still a passage whose chords are the room's own work.
+  ///
+  /// [rate] is what the samples behind [audioPath] are held at, and is only
+  /// the fallback: a wav says so itself and is believed (see [rateOf]).
   static Future<List<File>> write({
     required Directory directory,
     required SongProject project,
@@ -299,7 +348,7 @@ abstract final class PassageExport {
     int audioZeroMs = 0,
     int rate = Multitrack.rate,
   }) async {
-    final travels = ProjectExportService.wordsTravel(project);
+    final travels = cutTravels(project);
     final stem = fileStem(project, cut);
     final written = <File>[];
 
@@ -311,7 +360,7 @@ abstract final class PassageExport {
           wavFor(
             source: source,
             cut: cut,
-            rate: rate,
+            rate: await rateOf(audioPath, fallback: rate),
             sourceZeroMs: audioZeroMs,
           ),
           flush: true,
@@ -344,6 +393,43 @@ abstract final class PassageExport {
       ),
     );
     return written;
+  }
+
+  /// How many samples a second the audio behind [path] is held at.
+  ///
+  /// Everything compressed comes back from [Multitrack.samplesFor] at
+  /// [Multitrack.rate], because that is the rate the decoder is asked for. A
+  /// wav never goes near the decoder — it is read as it lies — and a band
+  /// that attaches its own 48 kHz bounce as the reference has an ordinary
+  /// thing, not a strange one. Believing 44.1 kHz of a 48 kHz file puts every
+  /// moment of the song 8.8% too early in it: a cut asked for at 20 s starts
+  /// at 18.4 s, on no bar line at all, and plays a tone and a half flat
+  /// against a chart that says the band's key. So the header is read and its
+  /// answer used for the offset, the length and the header written back out,
+  /// which keeps all three saying the same thing.
+  ///
+  /// A file this cannot read is a file the decode is about to fail on as
+  /// well, where the caller says so; [fallback] keeps that the one place it
+  /// is reported.
+  static Future<int> rateOf(
+    String path, {
+    int fallback = Multitrack.rate,
+  }) async {
+    if (audioFileExtension(path) != 'wav') return fallback;
+    try {
+      final handle = await File(path).open();
+      try {
+        // The header, not the audio: fmt comes before data in every wav
+        // anybody writes, and a kilobyte holds far more chunk list than one
+        // ever has.
+        final said = LatencyProbe.rateOfWav(await handle.read(1024));
+        return said > 0 ? said : fallback;
+      } finally {
+        await handle.close();
+      }
+    } catch (_) {
+      return fallback;
+    }
   }
 
   /// What every file of one cut is called, without its extension: the song

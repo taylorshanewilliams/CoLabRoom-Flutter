@@ -54,6 +54,7 @@ import 'practice_rules.dart';
 import 'song_reading_store.dart';
 import 'song_transpose_store.dart';
 import 'tuner_reference_store.dart';
+import 'whose_song_sheet.dart';
 
 enum LiveScrollMode { off, synced, slow, medium, fast, timed }
 
@@ -85,6 +86,16 @@ const Duration kPerformTick = Duration(milliseconds: 50);
 /// What Perform says when the song's recording could not be fetched.
 const String recordingNotLoaded =
     'The recording could not be loaded. The words are here; the song is not.';
+
+/// What Perform says when a cut is handed over without its audio in it.
+///
+/// The clip is the point of a cut, so the one thing that must not happen is
+/// three text files arriving at the share sheet as though that were the whole
+/// of it. Said plainly and without a reason nobody can act on: the recording
+/// may still be fetching, may have failed, or may be a file this app cannot
+/// read.
+const String cutHasNoAudio =
+    'The recording could not be read, so there is no audio in this one.';
 
 /// The scroll offset that puts the line at [lineOffset] on the anchor.
 ///
@@ -1950,6 +1961,39 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     );
   }
 
+  /// Whose song this is, asked once and kept.
+  ///
+  /// The same sheet and the same order as the audience dial (see
+  /// song_workspace_screen): ask, save, and only then do the thing that was
+  /// tapped. Null means the question is still open — dismissed, or the
+  /// answer did not reach the room — and whatever asked does nothing.
+  Future<SongOrigin?> _askWhoseSong() async {
+    final controller = BetaScope.maybeOf(context, listen: false);
+    final answer =
+        await showWhoseSongSheet(context, songTitle: widget.project.title);
+    if (answer == null || !mounted) return null;
+    // No controller above this screen is a widget test, not a phone. The
+    // answer still decides this one cut; there is simply nowhere to keep it.
+    if (controller == null) return answer;
+    try {
+      await controller.repository.setSongOrigin(widget.project.id, answer);
+      // The song behind this screen reads the answer off the project — the
+      // chart, the dial and the next cut all do — so the local copy is given
+      // the chance to catch up, the way saving it from the song menu does.
+      await controller.refreshProject(widget.project.id);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _mixNote = reportAndDescribe(error,
+            service: 'app',
+            stage: 'set_song_origin',
+            projectId: widget.project.id,
+            route: 'Perform'));
+      }
+      return null;
+    }
+    return answer;
+  }
+
   /// The passage on repeat, as files to keep.
   ///
   /// Every Musician, Same Song, 17 September 2026, creators item 2: the room
@@ -1962,7 +2006,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// Nothing is written back to the room and nothing is kept: the files go
   /// into a directory of their own that the next cut empties.
   Future<void> _saveCut() async {
-    if (_savingCut) return;
+    // A mix being built is the one thing that can pull the file out from
+    // under this: _defaultPartMixer deletes the mix it replaces the moment
+    // the new one exists, and a cut reading that file gets no samples and no
+    // explanation. The tap waits rather than half-working.
+    if (_savingCut || _mixing) return;
     final loop = _loop;
     if (loop == null) return;
     final cut = PassageExport.cutFor(
@@ -1972,10 +2020,25 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       downbeatsMs: _downbeats,
     );
     if (cut == null) return;
-    // Read while this context is certainly still here, before the first
-    // await, the way the takes export reads the key before it starts.
+    // Whose song this is, asked here if nobody has been asked yet, exactly
+    // the way the audience dial asks it before a song widens: a cut is made
+    // to be posted, and it is the only way out of the app that does not pass
+    // the dial (0142, and Every Musician, Same Song, 17 September 2026). An
+    // unanswered question is not an answer, so the recording and the words
+    // wait for one.
+    var project = widget.project;
+    if (project.songOrigin == null) {
+      final answer = await _askWhoseSong();
+      // Dismissed, or the answer did not save. The cut waits rather than
+      // happening on an assumption, and the question comes back next tap.
+      if (answer == null || !mounted) return;
+      project = project.copyWith(songOrigin: answer);
+    }
+    // Read here, once the question above has been answered and before any of
+    // the writing starts: what is under the player at the moment the cut
+    // begins is what the cut is of.
     final reference = widget.analysis?.reference;
-    final songKey = widget.project.songKey(reference?.musicalKey);
+    final songKey = project.songKey(reference?.musicalKey);
     final playing = _playingPath;
     setState(() {
       _savingCut = true;
@@ -1995,7 +2058,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       await directory.create(recursive: true);
       final files = await PassageExport.write(
         directory: directory,
-        project: widget.project,
+        project: project,
         cut: cut,
         lines: _sheetLines,
         transcriptWords:
@@ -2010,7 +2073,16 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         audioPath:
             playing == null || isRemoteAudio(playing) ? null : playing,
       );
-      if (files.isEmpty || !mounted) return;
+      if (!mounted) return;
+      // The audio is the point of this, so a cut that leaves without it says
+      // so. It can: the recording may not have finished fetching, or may
+      // have failed, or may be a container this app cannot read (24-bit wav
+      // is the common one). Every one of those used to hand over three text
+      // files and no clip without a word, which reads as the feature simply
+      // not working.
+      if (PassageExport.audioMissing(project, files)) {
+        setState(() => _mixNote = cutHasNoAudio);
+      }
       await SharePlus.instance.share(ShareParams(
         subject: widget.project.title,
         files: <XFile>[for (final file in files) XFile(file.path)],
