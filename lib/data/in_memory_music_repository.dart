@@ -1215,6 +1215,11 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> removeAllGalleryPictures() async {
+    _galleries.remove(currentUserId);
+  }
+
+  @override
   Future<Uint8List> loadGalleryImage(String storagePath) async {
     // Nothing to download without a server, and a page of initials-coloured
     // blocks is a perfectly good preview of a gallery.
@@ -2492,13 +2497,14 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
-  Future<void> checkPicture({
-    required String bucket,
-    required String path,
+  Future<bool> checkPicture({
     required String kind,
     required String subject,
+    String? bucket,
+    String? path,
   }) async {
-    // Nothing to call in the preview.
+    // Nothing to call in the preview, so nothing is ever refused by it.
+    return false;
   }
 
   @override

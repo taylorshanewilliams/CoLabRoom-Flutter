@@ -71,6 +71,17 @@ class _Reported extends InMemoryMusicRepository {
   }
 }
 
+/// A repository that cannot take a picture off, so the sentence about it has
+/// somewhere to go.
+class _WillNotRemove extends InMemoryMusicRepository {
+  _WillNotRemove() : super.from(InMemoryMusicRepository.seeded());
+
+  @override
+  Future<void> removeGalleryPicture(String pictureId) async {
+    throw StateError('That did not go through.');
+  }
+}
+
 Uint8List _somePicture() => Uint8List.fromList(<int>[1, 2, 3, 4]);
 
 void main() {
@@ -248,6 +259,91 @@ void main() {
     expect(repository.pictureId, 'preview-picture-2',
         reason: 'a report has to name the picture, not the person: a takedown '
             'that removed the whole profile would be the wrong answer');
+
+    // And the person who reported it is told so somewhere they can read it.
+    // The thank-you used to be raised from inside the full-screen picture,
+    // which meant the page underneath drew it behind a near-black barrier:
+    // the picture stayed open, unchanged, and nothing acknowledged the
+    // report at all.
+    expect(find.byKey(const Key('report_gallery_picture')), findsNothing,
+        reason: 'the picture closes, so the note is not behind it');
+    expect(
+        find.text('Report sent. Thank you — somebody reads every one of these.'),
+        findsOneWidget);
+  });
+
+  testWidgets('a picture that will not come off says so on the picture',
+      (tester) async {
+    final repository = _WillNotRemove();
+    await repository.addGalleryPicture(
+      bytes: _somePicture(),
+      caption: 'The pedalboard',
+    );
+    final mine = await repository.loadGallery(repository.currentUserId);
+
+    await _boot(
+      tester,
+      MusicianProfileScreen(
+        profileId: repository.currentUserId,
+        repository: repository,
+      ),
+    );
+
+    await tester.tap(await _reveal(
+        tester, find.byKey(Key('gallery_picture_${mine.single.id}'))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('remove_gallery_picture')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('gallery_picture_problem')), findsOneWidget,
+        reason: 'a sentence raised from inside the full-screen picture is '
+            'drawn by the page underneath it, behind the barrier, where '
+            'nobody can read it');
+    expect(find.byKey(const Key('remove_gallery_picture')), findsOneWidget,
+        reason: 'and the picture stays open, because nothing happened to it');
+  });
+
+  testWidgets('a full gallery says so rather than opening a picker',
+      (tester) async {
+    final repository = InMemoryMusicRepository.seeded();
+    for (var i = 0; i < 8; i += 1) {
+      await repository.addGalleryPicture(bytes: _somePicture());
+    }
+
+    await _boot(
+      tester,
+      MusicianProfileScreen(
+        profileId: repository.currentUserId,
+        repository: repository,
+      ),
+    );
+
+    // The door is still there on a full gallery. What it says changes; that
+    // it exists does not.
+    await tester.tap(
+        await _reveal(tester, find.byKey(const Key('add_gallery_pictures'))));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+
+    expect(find.text('You can show up to 8 pictures. Take one off to add another.'),
+        findsOneWidget,
+        reason: 'opening a picker to refuse the picture afterwards would '
+            'waste somebody\'s time to say the same thing');
+  });
+
+  test('leaving takes your photographs with you', () async {
+    // delete_my_account takes the rows, but SQL cannot delete a stored
+    // object — so the app has to ask for the files while the account whose
+    // files they are still exists. Without this they stay in the bucket
+    // forever with nothing left pointing at them.
+    final repository = InMemoryMusicRepository.seeded();
+    await repository.addGalleryPicture(bytes: _somePicture(), caption: 'One');
+    await repository.addGalleryPicture(bytes: _somePicture(), caption: 'Two');
+
+    await repository.removeAllGalleryPictures();
+    expect(await repository.loadGallery(repository.currentUserId), isEmpty);
+    expect(await repository.loadGallery('preview-mara'), isNotEmpty,
+        reason: 'leaving takes your own pictures, and only your own');
   });
 
   testWidgets('your own picture can be taken off from the picture itself',

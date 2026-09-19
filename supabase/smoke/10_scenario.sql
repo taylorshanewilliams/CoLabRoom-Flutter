@@ -12922,6 +12922,123 @@ begin
   end;
 end $$;
 
+-- The file, and not only the row.
+--
+-- Everything above is about profile_pictures. A picture is also an object in
+-- a bucket, and until 0171 replaced avatars_read_authenticated that object
+-- was readable by every signed-in account: `for select to authenticated
+-- using (bucket_id = 'avatars')`, which is also the policy the Storage list
+-- endpoint runs under. A stranger could list `<uid>/gallery/` and download a
+-- gallery whose page they could not open -- including a minor's, where not
+-- being discoverable is the only thing keeping it away from them.
+--
+-- Only reading is exercised here. The shim grants insert on storage.objects
+-- to service_role alone, so a write as `authenticated` is refused on the
+-- grant before a policy is consulted at all, and asserting that would be
+-- asserting the shim rather than the policy.
+reset role;
+insert into storage.objects (bucket_id, name, owner) values
+  ('avatars', '1a4e0171-0000-0000-0000-000000000001/gallery/one.png',
+   '1a4e0171-0000-0000-0000-000000000001'),
+  ('avatars', '1a4e0171-0000-0000-0000-000000000001/gallery/2.png',
+   '1a4e0171-0000-0000-0000-000000000001'),
+  ('avatars', '1a4e0171-0000-0000-0000-000000000001/gallery/orphan.png',
+   '1a4e0171-0000-0000-0000-000000000001'),
+  ('avatars', '1a4e0171-0000-0000-0000-000000000001/avatar-1.png',
+   '1a4e0171-0000-0000-0000-000000000001');
+
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+begin
+  -- The one that passed. Its row says a stranger may see it, so the file
+  -- says the same thing.
+  if not exists (
+    select 1 from storage.objects
+    where name = '1a4e0171-0000-0000-0000-000000000001/gallery/one.png'
+  ) then
+    raise exception 'the file behind a picture that passed could not be read';
+  end if;
+
+  -- One nobody has looked at yet, and one no row points at at all.
+  if exists (
+    select 1 from storage.objects
+    where name = '1a4e0171-0000-0000-0000-000000000001/gallery/2.png'
+  ) then
+    raise exception 'the file behind an unchecked picture was readable';
+  end if;
+  if exists (
+    select 1 from storage.objects
+    where name = '1a4e0171-0000-0000-0000-000000000001/gallery/orphan.png'
+  ) then
+    raise exception 'a gallery file nothing points at was readable';
+  end if;
+
+  -- And an avatar is exactly as readable as 0027 made it.
+  if not exists (
+    select 1 from storage.objects
+    where name = '1a4e0171-0000-0000-0000-000000000001/avatar-1.png'
+  ) then
+    raise exception 'an avatar stopped being readable';
+  end if;
+end $$;
+
+-- Your own files are yours either way. The second between the upload and the
+-- insert has no row in it to ask about.
+reset role;
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  mine integer;
+begin
+  select count(*) into mine from storage.objects
+  where name like '1a4e0171-0000-0000-0000-000000000001/gallery/%';
+  if mine <> 3 then
+    raise exception 'somebody could read % of their own 3 gallery files', mine;
+  end if;
+end $$;
+
+-- A profile that is not listed, asked about by somebody with no shared room,
+-- no connection and no block.
+--
+-- This is the branch the minors rule rests on, and the one thing the rest of
+-- this section cannot prove: the gallerist is discoverable throughout, so
+-- private.profile_page_visible has only ever been shown true, or false
+-- because of a block. Drop its discoverable test or invert a clause and
+-- every other assertion here still holds while hidden galleries are served
+-- to strangers.
+reset role;
+update public.profiles set discoverable = false
+where id = '1a4e0171-0000-0000-0000-000000000001';
+
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.gallery_for(
+               '1a4e0171-0000-0000-0000-000000000001')) then
+    raise exception 'a hidden profile''s gallery was handed to a stranger';
+  end if;
+  if exists (select 1 from public.profile_pictures
+               where profile_id = '1a4e0171-0000-0000-0000-000000000001') then
+    raise exception 'a hidden profile''s pictures were readable from the table';
+  end if;
+  if exists (
+    select 1 from storage.objects
+    where name = '1a4e0171-0000-0000-0000-000000000001/gallery/one.png'
+  ) then
+    raise exception 'a hidden profile''s picture file was readable';
+  end if;
+end $$;
+
+reset role;
+update public.profiles set discoverable = true
+where id = '1a4e0171-0000-0000-0000-000000000001';
+
 -- Reporting one, and taking it down.
 reset role;
 set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000002"}';
@@ -13022,6 +13139,55 @@ begin
   if removed <> 0 then
     raise exception 'a stranger removed % pictures from somebody else''s profile',
       removed;
+  end if;
+end $$;
+
+-- A photograph counts towards repeat infringement.
+--
+-- copyright_strikes (0064) counted actioned copyright reports against a
+-- profile, a song, a layer and a link. A photograph is the likeliest
+-- copyrighted thing anybody will ever put in this app, and take_down_image
+-- now resolves those reports as actioned against target_picture, which none
+-- of those four branches can see: three copyright takedowns of one account's
+-- pictures would have counted as none and the published repeat-infringer
+-- policy would never have fired for the one kind of content it was written
+-- about.
+reset role;
+insert into public.profile_pictures (id, profile_id, storage_path, passed_at)
+values ('1a4e0171-0000-0000-0000-0000000000c1',
+        '1a4e0171-0000-0000-0000-000000000001',
+        '1a4e0171-0000-0000-0000-000000000001/gallery/somebody-elses.png',
+        now());
+
+set local request.jwt.claims = '{"sub": "1a4e0171-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+begin
+  perform public.report_content(
+    in_kind => 'gallery_picture',
+    in_reason => 'copyright',
+    in_detail => 'That is my photograph.',
+    in_picture => '1a4e0171-0000-0000-0000-0000000000c1');
+end $$;
+
+reset role;
+
+do $$
+declare
+  strikes bigint;
+begin
+  perform public.take_down_image(
+    (select id from public.content_reports
+      where target_picture = '1a4e0171-0000-0000-0000-0000000000c1'
+      order by created_at desc limit 1),
+    'Smoke.');
+  select public.copyright_strikes('1a4e0171-0000-0000-0000-000000000001')
+    into strikes;
+  if strikes <> 1 then
+    raise exception
+      'an actioned copyright takedown of a photograph counted % strikes',
+      strikes;
   end if;
 end $$;
 

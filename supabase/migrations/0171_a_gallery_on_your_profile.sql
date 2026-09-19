@@ -30,18 +30,26 @@
 -- that gets switched off, and the report path still catches what it misses.
 --
 -- **Whose gallery a stranger sees.** Exactly the profiles whose page they can
--- already open: the rule in musician_profile (0063, widened by 0137) rather
+-- already open: the rule in musician_profile (0063, widened by 0137, last
+-- restated by 0156) rather
 -- than a second rule invented here. That is what keeps a minor's gallery away
 -- from strangers without this migration having to know anything about age —
 -- if the profile is hidden the gallery is hidden with it, and it stays true
 -- the next time the profile rule changes.
 --
--- **The bucket is `avatars`, and that is on purpose.** Its four policies key
--- on the first path segment being the owner's id, so `<uid>/gallery/<name>`
--- is already exactly what they read: the owner writes their own and nobody
--- else's, and take_down.py deletes from a bucket it already knows. A bucket
--- of its own would mean four more storage policies with no local Postgres to
--- try them on, to hold the same pictures of the same person.
+-- **The bucket is `avatars`, and that is on purpose.** Its write and delete
+-- policies key on the first path segment being the owner's id, so
+-- `<uid>/gallery/<name>` is already exactly what they read, and take_down.py
+-- deletes from a bucket it already knows. A bucket of its own would mean
+-- four more storage policies, with no local Postgres to try them on, to hold
+-- the same pictures of the same person.
+--
+-- Its *read* policy is a different matter, and this migration replaces it.
+-- 0027 made the bucket readable bucket-wide because an avatar is meant to be
+-- seen by anybody signed in; eight personal photographs are not, and a read
+-- policy is also what the Storage list endpoint runs under. See the block
+-- further down: a gallery object is now readable only by whoever the row
+-- says may see it.
 
 -- ---------------------------------------------------------------------
 -- Who can see a profile at all
@@ -50,10 +58,12 @@
 -- The same question `musician_profile` asks before it returns a row, as a
 -- predicate other things can ask too.
 --
--- musician_profile is left exactly as 0137 wrote it. This is deliberately a
--- second reader of the same rule rather than a rewrite of it: restating that
+-- musician_profile is left exactly as 0156, its latest definition, wrote it,
+-- and this is word for word the predicate it ends with. Deliberately a second
+-- reader of the same rule rather than a rewrite of it: restating that whole
 -- function to call this one would put a wave of concurrent migrations in each
--- other's way for no behaviour change at all.
+-- other's way for no behaviour change at all. The duplication is the price,
+-- and the smoke block proves both halves say the same thing.
 create or replace function private.profile_page_visible(target uuid)
 returns boolean
 language sql
@@ -182,6 +192,83 @@ grant insert (id, profile_id, storage_path, caption, project_id, position)
   on table public.profile_pictures to authenticated;
 grant update (caption, project_id, position)
   on table public.profile_pictures to authenticated;
+
+-- ---------------------------------------------------------------------
+-- Where the picture itself lives
+-- ---------------------------------------------------------------------
+
+-- Everything above is a rule about a row. A picture is also a file, and the
+-- file had rules of its own that said something different.
+--
+-- 0027 made the whole bucket readable: `for select to authenticated using
+-- (bucket_id = 'avatars')`. That was the right answer for avatars — one per
+-- person, chosen to be seen, and a stranger who guesses a uuid sees a face
+-- somebody put on a profile on purpose. It is the wrong answer for eight
+-- personal photographs. A select policy is also what the Storage *list*
+-- endpoint runs under, so as it stood any account a minute old could list
+-- `<uid>/gallery/` and download everything in it: pictures check-picture has
+-- not looked at yet, pictures it refused whose objects are still waiting for
+-- tools/take_down.py, the gallery of a profile that is not discoverable —
+-- which is the only thing keeping a minor's pictures away from strangers —
+-- and the gallery of somebody who blocked them. The random file name the app
+-- chooses does not help: a listable folder hands the names out.
+--
+-- So a gallery object follows its row. The `exists` below is evaluated as
+-- whoever is asking, which means `profile_pictures_read` is what answers it:
+-- passed, not taken down, a page they could already open, no block either
+-- way. One rule, asked twice.
+drop policy if exists avatars_read_authenticated on storage.objects;
+create policy avatars_read_authenticated on storage.objects
+for select to authenticated using (
+  bucket_id = 'avatars'
+  and (
+    -- An avatar, exactly as before: `foldername` of '<uid>/avatar-1.png' is
+    -- one element long, so the second is null, and null is distinct from
+    -- 'gallery'.
+    (storage.foldername(name))[2] is distinct from 'gallery'
+    -- Your own, always — including the second between the upload and the
+    -- insert, when there is no row yet to ask about.
+    or (storage.foldername(name))[1] = (select auth.uid())::text
+    or exists (
+      select 1 from public.profile_pictures g
+      where g.storage_path = objects.name
+    )
+  )
+);
+
+-- And a picture that has passed cannot become a different picture afterwards.
+--
+-- `avatars_update_own` allowed an upsert over any name in your own folder,
+-- and delete-then-upload at the same name came to the same thing: the row
+-- would still say `passed_at` while the bytes behind it were something
+-- nobody had looked at. A gallery object is written once, under a name
+-- nothing else points at, and taken off by deleting it. Avatars are
+-- untouched: they have been written under a fresh name every time since the
+-- cache-busting suffix went in.
+drop policy if exists avatars_update_own on storage.objects;
+create policy avatars_update_own on storage.objects
+for update to authenticated using (
+  bucket_id = 'avatars'
+  and (storage.foldername(name))[1] = (select auth.uid())::text
+  and (storage.foldername(name))[2] is distinct from 'gallery'
+);
+
+drop policy if exists avatars_write_own on storage.objects;
+create policy avatars_write_own on storage.objects
+for insert to authenticated with check (
+  bucket_id = 'avatars'
+  and (storage.foldername(name))[1] = (select auth.uid())::text
+  -- The other half of the same thought: nothing may be written at a name a
+  -- picture already points at.
+  and not exists (
+    select 1 from public.profile_pictures g
+    where g.storage_path = objects.name
+  )
+);
+
+-- `avatars_delete_own` is left as 0027 wrote it. Deleting your own object
+-- while its row survives leaves an empty frame on your own page, which is
+-- something you did to yourself, and writing over it is refused above.
 
 -- ---------------------------------------------------------------------
 -- What a picture may point at
@@ -487,3 +574,53 @@ comment on function public.take_down_image(uuid, text) is
   'then returns the bucket and path the caller must delete through the '
   'Storage API — SQL is not allowed to delete a stored object. Not a '
   'complete takedown on its own: use tools/take_down.py. Service key only.';
+
+-- ---------------------------------------------------------------------
+-- A photograph counts towards repeat infringement
+-- ---------------------------------------------------------------------
+
+-- Restated from 0064, which is still its latest definition, with one more
+-- branch and nothing else changed.
+--
+-- A photograph is the likeliest copyrighted thing anybody will put in this
+-- app, and take_down_image now resolves a picture's report as 'actioned'
+-- against `target_picture` — which 0064's four branches cannot see. Three
+-- actioned copyright takedowns of one account's pictures would have counted
+-- as none, and the published repeat-infringer policy would never have fired
+-- for the one kind of content it was written about. Counting works here for
+-- the same reason the takedown marks rather than deletes: the row is still
+-- there to join to.
+create or replace function public.copyright_strikes(target_person uuid)
+returns bigint
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select count(*)
+  from public.content_reports r
+  where r.status = 'actioned'
+    and r.reason = 'copyright'
+    and (
+      r.target_profile = target_person
+      or exists (
+        select 1 from public.projects p
+        where p.id = r.target_project and p.account_id = target_person
+      )
+      or exists (
+        select 1 from public.song_layers l
+        where l.id = r.target_layer and l.recorded_by = target_person
+      )
+      or exists (
+        select 1 from public.profile_links pl
+        where pl.id = r.target_link and pl.profile_id = target_person
+      )
+      or exists (
+        select 1 from public.profile_pictures g
+        where g.id = r.target_picture and g.profile_id = target_person
+      )
+    );
+$$;
+
+revoke all on function public.copyright_strikes(uuid)
+  from public, anon, authenticated;

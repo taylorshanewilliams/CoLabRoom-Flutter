@@ -160,7 +160,7 @@ class _ProfileGalleryState extends State<ProfileGallery> {
   }
 
   Future<void> _open(GalleryPicture picture) async {
-    final removed = await showDialog<bool>(
+    final outcome = await showDialog<_PictureOutcome>(
       context: context,
       barrierColor: Colors.black87,
       builder: (_) => _PictureFullScreen(
@@ -171,8 +171,20 @@ class _ProfileGalleryState extends State<ProfileGallery> {
         ownerName: widget.ownerName,
       ),
     );
-    if (removed != true || !mounted) return;
-    await widget.onChanged();
+    if (!mounted) return;
+    switch (outcome) {
+      case _PictureOutcome.removed:
+        await widget.onChanged();
+      case _PictureOutcome.reported:
+        // Said from the page, after the picture has closed. A note shown
+        // while the full-screen dialog is still up is drawn by the Scaffold
+        // underneath it, behind a near-black barrier — so somebody who had
+        // just reported a photograph saw the photograph, unchanged, and no
+        // acknowledgement at all.
+        _say('Report sent. Thank you — somebody reads every one of these.');
+      case null:
+        break;
+    }
   }
 
   @override
@@ -374,8 +386,11 @@ class _PlaysASongMark extends StatelessWidget {
   }
 }
 
+/// What happened while a picture was open, if anything did.
+enum _PictureOutcome { removed, reported }
+
 /// A picture, the size of the screen, with whatever belongs to it.
-class _PictureFullScreen extends StatelessWidget {
+class _PictureFullScreen extends StatefulWidget {
   const _PictureFullScreen({
     required this.repository,
     required this.picture,
@@ -390,42 +405,50 @@ class _PictureFullScreen extends StatelessWidget {
   final bool isMine;
   final String ownerName;
 
-  Future<void> _remove(BuildContext context) async {
+  @override
+  State<_PictureFullScreen> createState() => _PictureFullScreenState();
+}
+
+class _PictureFullScreenState extends State<_PictureFullScreen> {
+  /// Shown here rather than in a note. A snackbar raised from inside this
+  /// dialog belongs to the page underneath it and is drawn behind the
+  /// barrier, where it is as good as invisible.
+  String? _problem;
+
+  Future<void> _remove() async {
     try {
-      await repository.removeGalleryPicture(picture.id);
-      if (context.mounted) Navigator.pop(context, true);
+      await widget.repository.removeGalleryPicture(widget.picture.id);
+      if (mounted) Navigator.pop(context, _PictureOutcome.removed);
     } catch (error) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showNote(reportAndDescribe(
+      if (!mounted) return;
+      setState(() {
+        _problem = reportAndDescribe(
           error,
           service: 'app',
           stage: 'remove_gallery_picture',
           route: 'Profile',
-        ));
+        );
+      });
     }
   }
 
-  Future<void> _report(BuildContext context) async {
+  Future<void> _report() async {
     final sent = await showReportSheet(
       context,
-      repository: repository,
+      repository: widget.repository,
       kind: 'gallery_picture',
       about: 'this picture',
-      pictureId: picture.id,
+      pictureId: widget.picture.id,
     );
-    if (sent && context.mounted) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showNote(
-            'Report sent. Thank you — somebody reads every one of these.');
-    }
+    // Closed, so the page can say so where it can be read.
+    if (sent && mounted) Navigator.pop(context, _PictureOutcome.reported);
   }
 
   @override
   Widget build(BuildContext context) {
-    final bytes = image;
+    final picture = widget.picture;
+    final isMine = widget.isMine;
+    final bytes = widget.image;
     final caption = picture.caption.trim();
     return Dialog(
       insetPadding: const EdgeInsets.all(12),
@@ -477,7 +500,7 @@ class _PictureFullScreen extends StatelessWidget {
                             storagePath: picture.songStoragePath,
                             durationMs: picture.songDurationMs,
                             title: picture.songTitle,
-                            byline: ownerName,
+                            byline: widget.ownerName,
                             songId: picture.songId,
                             size: 38,
                           ),
@@ -506,6 +529,15 @@ class _PictureFullScreen extends StatelessWidget {
                             color: AppColors.muted, fontSize: 12.5, height: 1.45),
                       ),
                     ],
+                    if (_problem != null) ...<Widget>[
+                      const SizedBox(height: 12),
+                      Text(
+                        _problem!,
+                        key: const Key('gallery_picture_problem'),
+                        style: const TextStyle(
+                            color: AppColors.orange, fontSize: 12.5, height: 1.4),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -516,7 +548,7 @@ class _PictureFullScreen extends StatelessWidget {
                     if (isMine)
                       TextButton.icon(
                         key: const Key('remove_gallery_picture'),
-                        onPressed: () => unawaited(_remove(context)),
+                        onPressed: () => unawaited(_remove()),
                         icon: const Icon(Icons.delete_outline_rounded, size: 17),
                         label: const Text('Take it off'),
                         style:
@@ -525,7 +557,7 @@ class _PictureFullScreen extends StatelessWidget {
                     else
                       TextButton.icon(
                         key: const Key('report_gallery_picture'),
-                        onPressed: () => unawaited(_report(context)),
+                        onPressed: () => unawaited(_report()),
                         icon: const Icon(Icons.flag_outlined, size: 17),
                         label: const Text('Report'),
                         style:
@@ -533,7 +565,7 @@ class _PictureFullScreen extends StatelessWidget {
                       ),
                     const Spacer(),
                     TextButton(
-                      onPressed: () => Navigator.pop(context, false),
+                      onPressed: () => Navigator.pop(context),
                       style: TextButton.styleFrom(
                           foregroundColor: AppColors.text),
                       child: const Text('Close'),
@@ -611,6 +643,17 @@ class _AddPictureSheetState extends State<_AddPictureSheet> {
         songId: _songId,
       );
       if (mounted) Navigator.pop(context, true);
+    } on PictureRefused catch (refusal) {
+      // A picture that was looked at and turned down. Without this the sheet
+      // closed like a success and the picture was simply not on the page: a
+      // classifier will sometimes refuse an innocent photograph of a gig, and
+      // somebody told nothing tries the same one again, leaving another
+      // stored object behind each time.
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _problem = refusal.toString();
+      });
     } catch (error) {
       if (!mounted) return;
       // The cap is raised with the same code a full Room uses, so without

@@ -27,13 +27,22 @@
 // Required secrets:
 //   OPENAI_API_KEY             for the moderation endpoint
 //   SUPABASE_URL               provided by the platform
+//   SUPABASE_ANON_KEY          provided by the platform, to read who is asking
 //   SUPABASE_SERVICE_ROLE_KEY  provided by the platform
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
 
 // The categories that mean a picture cannot be on a profile. Deliberately
 // short: harassment and hate are about text and produce noise on images, and
@@ -46,6 +55,7 @@ const REFUSE = [
 ];
 
 type Body = {
+  // Ignored for a gallery picture: see below, where the row is asked instead.
   bucket?: string;
   path?: string;
   kind?: 'profile' | 'room_logo' | 'gallery_picture';
@@ -64,24 +74,75 @@ Deno.serve(async (request: Request) => {
   try {
     body = await request.json();
   } catch {
-    return new Response(JSON.stringify({ error: 'bad request' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return json({ error: 'bad request' }, 400);
   }
 
-  const bucket = body.bucket;
-  const path = body.path;
   const kind = body.kind ?? 'profile';
   const subject = body.subject;
-  if (!bucket || !path || !subject) {
-    return new Response(JSON.stringify({ error: 'missing bucket, path or subject' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
+  if (!subject) return json({ error: 'missing subject' }, 400);
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+  // Who is asking.
+  //
+  // This function is deployed with JWT verification on, which the public anon
+  // key satisfies — so until this block "verified" meant only that the caller
+  // had read the key out of the app. Everything below it acts on a row with
+  // the service key, which is the one thing a phone must never be able to
+  // aim. The migration goes to the length of column-level grants so that a
+  // phone cannot set `passed_at`; a function that set `passed_at` on any row
+  // named in a POST body would have handed that back.
+  const authHeader = request.headers.get('Authorization');
+  let caller: string | null = null;
+  if (authHeader) {
+    const asCaller = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: userData } = await asCaller.auth.getUser();
+    caller = userData?.user?.id ?? null;
+  }
+
+  // What is actually being looked at.
+  //
+  // For a gallery picture the row decides, not the caller. Taking the bucket
+  // and path from the body meant the object that was moderated and the row
+  // that was marked could be two different pictures: a harmless one to be
+  // looked at, an unexamined one to be passed — or somebody else's picture
+  // marked as refused on the strength of an image the reporter uploaded
+  // themselves, with a report filed in the victim's name.
+  let bucket = body.bucket;
+  let path = body.path;
+  let owner = subject;
+
+  if (kind === 'gallery_picture') {
+    const picture = await supabase
+      .from('profile_pictures')
+      .select('storage_path, profile_id')
+      .eq('id', subject)
+      .maybeSingle();
+    if (!picture.data?.storage_path) {
+      return json({ error: 'no such picture' }, 404);
+    }
+    owner = picture.data.profile_id as string;
+    if (!caller || caller !== owner) return json({ error: 'not yours' }, 403);
+    bucket = 'avatars';
+    path = picture.data.storage_path as string;
+  } else if (kind === 'profile') {
+    // The same hole, one row over, and it was here before the gallery was:
+    // `subject` is the profile whose `avatar_path` gets cleared and who the
+    // automatic report is filed against, so anybody could have had anybody
+    // else's face taken off and a report filed in their name by pointing this
+    // at a picture of their own. Closed here because this is the request that
+    // made the caller readable at all (19 September 2026). A room logo is
+    // left as it was: who may set one is a question about room membership
+    // rather than about one id matching another, and getting it wrong would
+    // silently stop logos being checked at all.
+    if (!caller || caller !== subject) return json({ error: 'not yours' }, 403);
+  }
+
+  if (!bucket || !path) {
+    return json({ error: 'missing bucket or path' }, 400);
+  }
 
   // A gallery picture (0171) is the one kind that is invisible to everybody
   // but its owner until this runs, so every way out of here that is not a
@@ -176,19 +237,11 @@ Deno.serve(async (request: Request) => {
   //
   // A gallery picture is marked rather than deleted, for 0171's reason: the
   // row is what the report about to be filed points at, and every target on
-  // content_reports cascades.
-  let owner = subject;
+  // content_reports cascades. `owner` — who the report is filed under — was
+  // read further up, from the same row that gave the path.
   if (kind === 'profile') {
     await supabase.from('profiles').update({ avatar_path: null }).eq('id', subject);
   } else if (kind === 'gallery_picture') {
-    // Read before writing: the report needs a reporter, and for a gallery
-    // picture the subject is the row rather than a person.
-    const picture = await supabase
-      .from('profile_pictures')
-      .select('profile_id')
-      .eq('id', subject)
-      .maybeSingle();
-    if (picture.data?.profile_id) owner = picture.data.profile_id as string;
     await supabase
       .from('profile_pictures')
       .update({ taken_down_at: new Date().toISOString() })
