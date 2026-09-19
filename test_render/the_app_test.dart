@@ -7,6 +7,8 @@
 //   * one PNG per screen per device, at real pixel sizes with real fonts
 //   * `_sheet.png` per device — the whole walk on one page
 //   * `REPORT.md` — everything that missed a published threshold
+//   * `SILENT.md` — every painted thing that announces nothing, by widget
+//     type and by screen
 //
 // Not run by `flutter test`, which walks `test/` only. This is mostly a thing
 // you point at the app when you want to know how it is doing rather than a
@@ -30,6 +32,17 @@ import 'rules.dart';
 
 /// Everything measured across every device, collected for one report.
 final List<Finding> _findings = <Finding>[];
+
+/// Every painted thing on the walk that announces nothing.
+///
+/// Every Musician, Same Song, 17 September 2026: #357 gave the chord diagrams
+/// a reading, and the question straight after it is how the next silent
+/// drawing gets caught before it ships rather than after. So the walk keeps
+/// the list as well as the findings — a `CustomPaint`, an `Image` or an
+/// icon-only control with no label, hint or value — and writes it out by
+/// widget type and by screen, which is the shape somebody paying it down can
+/// actually work from.
+final List<SilentThing> _silent = <SilentThing>[];
 
 /// The one finding this walk is a gate for.
 ///
@@ -287,8 +300,16 @@ void main() {
   tearDownAll(() async {
     await _writeDensity();
     final report = await writeReport(_findings, path: 'build/eyes/REPORT.md');
+    final silent = await writeSilentPaint(_silent, path: 'build/eyes/SILENT.md');
     // ignore: avoid_print
     print('\neyes: ${_findings.length} findings → ${report.path}');
+    // Printed rather than asserted. The list is not empty today and a walk
+    // that failed on it would be a walk nobody runs; the gate against it
+    // growing is test/nothing_new_says_nothing_test.dart, which holds the
+    // same list and is run by the full suite.
+    // ignore: avoid_print
+    print('eyes: ${silentPaintLines(_silent).length} painted things say '
+        'nothing → ${silent.path}');
   });
 
   for (final device in kDevices) {
@@ -372,6 +393,15 @@ void main() {
         shots.add(Shot(name, image));
         if (pixels == null) return;
 
+        // Gathered once and used twice: as findings for the report, and as
+        // the list itself for SILENT.md.
+        final silent = silentPaint(tester);
+        for (final thing in silent) {
+          thing.screen = name;
+          thing.device = device.name;
+        }
+        _silent.addAll(silent);
+
         final found = <Finding>[
           // Drained first, so a screen that threw is reported against the
           // screen rather than against whatever comes next.
@@ -379,7 +409,7 @@ void main() {
           ...auditContrast(tester, pixels, image.width, image.height),
           ...auditTapTargets(tester),
           ...auditLabels(tester),
-          ...auditPaintedMeaning(tester),
+          ...paintedMeaning(silent),
           ...auditMeasure(tester, device.size),
           ...auditInk(pixels, image.width, image.height, device: device.name),
         ];

@@ -16,8 +16,10 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+// Material rather than widgets, for InkResponse: an icon-only button in this
+// app is one, and widgets.dart has never heard of it.
+import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'eyes.dart' show isOverflow;
@@ -288,6 +290,19 @@ List<Finding> auditLabels(WidgetTester tester) {
         data.hasAction(SemanticsAction.scrollLeft)) {
       return;
     }
+    // A node merged into its parent is never announced on its own: the parent
+    // is the thing a screen reader lands on, and it carries this node's
+    // actions along with its own words.
+    //
+    // Without this the rule accused every FloatingActionButton in the app of
+    // saying nothing. `FloatingActionButton` ends its build with
+    // `MergeSemantics`, so the tooltip sits on the parent and the tap action
+    // on the child — and reading the child alone reported the Record button,
+    // which announces "Record something", as a silent 56x56 square on four
+    // screens of every walk. That is the worst kind of finding: confidently
+    // wrong, about the most prominent control in the app, in a report whose
+    // whole value is that people believe it.
+    if (node.isMergedIntoParent) return;
     if (data.label.trim().isNotEmpty) return;
     if (data.tooltip.trim().isNotEmpty) return;
     // A node whose children carry the text — a card wrapping a Text — is
@@ -318,15 +333,76 @@ List<Finding> auditLabels(WidgetTester tester) {
 
 // --------------------------------------------------- what a painting says
 
-/// Paintings a screen reader is told nothing about.
+/// One painted thing a screen reader is told nothing about.
+///
+/// Kept as a record rather than turned straight into a [Finding], because the
+/// same list is wanted twice and read two different ways. By widget type, so
+/// the debt reads as "one waveform and eleven icon-only controls" rather than
+/// as fifty rows nobody counts. And by screen, so somebody paying it down
+/// knows which screen to open.
+///
+/// Every Musician, Same Song, 17 September 2026: #357 made the chord diagrams
+/// speak, and this is the part that stops the next one shipping silent.
+class SilentThing {
+  SilentThing({
+    required this.kind,
+    required this.what,
+    required this.size,
+    this.screen = '',
+    this.device = '',
+  });
+
+  /// Which of [kinds] painted it.
+  final String kind;
+
+  /// Which one — the painter's class, the image's provider, or the icon and
+  /// the control it sits in. Enough to find it in the source.
+  final String what;
+
+  final Size size;
+  String screen;
+  String device;
+
+  /// How the snapshot names it.
+  ///
+  /// The size is deliberately left out. The same silent control is a
+  /// different number of pixels on every device and at every text size, so a
+  /// list keyed on pixels would churn on a font change and teach people to
+  /// re-record it without reading it.
+  String get line => '$kind · $what';
+
+  /// Drawn by one of the app's own [CustomPainter]s.
+  static const String painting = 'CustomPaint';
+
+  /// An `Image` with no `semanticLabel`, announced as a blank image.
+  static const String image = 'Image';
+
+  /// A control whose whole face is an icon, and which nobody named.
+  static const String iconControl = 'Icon-only control';
+
+  /// Every kind, in the order a report should read them.
+  static const List<String> kinds = <String>[painting, image, iconControl];
+}
+
+/// Everything painted on this screen that announces nothing.
 ///
 /// WCAG 2.1 SC 1.1.1 (Non-text Content, A): anything that is not text and
 /// carries meaning needs a text alternative, and anything that is pure
 /// decoration has to be marked so an assistive technology can skip it. A
 /// `CustomPaint` is neither by default — it contributes no semantics
 /// whatsoever, so a chord diagram, a tuner needle and a waveform are all, to
-/// VoiceOver and TalkBack, the same blank rectangle. Nothing throws and
-/// nothing looks wrong, which is why this class of defect survives review.
+/// VoiceOver and TalkBack, the same blank rectangle. An `Image` is announced,
+/// and announced as nothing: `RawImage` always builds a semantics node with
+/// whatever label it was given, and the default is the empty string. An icon
+/// with nothing else in the button is the third, and the commonest. Nothing
+/// throws and nothing looks wrong, which is why this class of defect survives
+/// review.
+///
+/// Read off the widget tree rather than the semantics tree, because the thing
+/// being measured is what is *missing* from the semantics tree: a silent
+/// `CustomPaint` leaves no node to find. So every painted widget is asked the
+/// question a screen reader answers — land here, and is anything said? — by
+/// walking up until some ancestor settles it.
 ///
 /// **Only this app's own painters are judged.** The framework paints too —
 /// Scrollbar and CircularProgressIndicator are both a `CustomPaint` — and
@@ -338,18 +414,25 @@ List<Finding> auditLabels(WidgetTester tester) {
 ///
 /// A painting passes by being **named** or by being **declared decoration**,
 /// and it has to be one of the two: silence is the thing being measured. The
-/// walk up the tree stops at the first ancestor that settles it, which is the
-/// same question a screen reader answers — land here, and is anything said? —
-/// and is why it is not capped at some number of ancestors. A painting inside
-/// a labelled card is therefore credited to the card, which is true, and is
-/// the one place this rule is deliberately generous.
-List<Finding> auditPaintedMeaning(
+/// walk up stops at the first ancestor that settles it, which is why it is
+/// not capped at some number of ancestors. A painting inside a labelled card
+/// is therefore credited to the card, which is true, and is the one place
+/// this rule is deliberately generous.
+List<SilentThing> silentPaint(
   WidgetTester tester, {
   Set<String>? painters,
 }) {
   final owned = painters ?? appPainters();
-  final findings = <Finding>[];
+  final found = <SilentThing>[];
   final seen = <String>{};
+
+  void add(String kind, String what, Element element) {
+    final box = element.renderObject;
+    final size = box is RenderBox && box.hasSize ? box.size : Size.zero;
+    final key = '$kind|$what|${size.width.round()}x${size.height.round()}';
+    if (!seen.add(key)) return;
+    found.add(SilentThing(kind: kind, what: what, size: size));
+  }
 
   for (final element in find.byType(CustomPaint).evaluate()) {
     final paint = element.widget as CustomPaint;
@@ -367,18 +450,76 @@ List<Finding> auditPaintedMeaning(
       continue;
     }
     if (_namedOrExcluded(element)) continue;
+    add(SilentThing.painting, mine.join(' and '), element);
+  }
 
-    final box = element.renderObject;
-    final size = box is RenderBox && box.hasSize ? box.size : Size.zero;
-    final key = '${mine.join('+')}|${size.width.round()}x${size.height.round()}';
-    if (!seen.add(key)) continue;
+  for (final element in find.byType(Image).evaluate()) {
+    final picture = element.widget as Image;
+    // Two ways an Image settles the question itself, and both are on the
+    // widget rather than above it: a label of its own, or a declaration that
+    // it is decoration and contributes nothing.
+    if ((picture.semanticLabel ?? '').trim().isNotEmpty) continue;
+    if (picture.excludeFromSemantics) continue;
+    if (_namedOrExcluded(element)) continue;
+    add(SilentThing.image, picture.image.runtimeType.toString(), element);
+  }
 
+  for (final element in find.byType(Icon).evaluate()) {
+    final icon = element.widget as Icon;
+    // `Icon` builds its own `Semantics` *below* itself, so the label it was
+    // given is not something a walk up the tree can see.
+    if ((icon.semanticLabel ?? '').trim().isNotEmpty) continue;
+    if (_namedOrExcluded(element)) continue;
+    // A decorative icon beside words is not a defect — it is the normal way
+    // to draw a list row, and flagging every one of them would bury the
+    // handful that matter. What is being looked for is the icon that *is* the
+    // control: nothing above it says a word, and there is nothing else inside
+    // the control to read.
+    final control = _tappableAbove(element);
+    if (control == null) continue;
+    if (_holdsWords(control)) continue;
+    add(
+      SilentThing.iconControl,
+      '${icon.icon} in ${control.widget.runtimeType}',
+      element,
+    );
+  }
+
+  return found;
+}
+
+/// Paintings a screen reader is told nothing about, as findings.
+///
+/// An icon-only control is left out on purpose: [auditLabels] already reports
+/// it, from the semantics side, as a tappable that announces nothing, and two
+/// headings for one button is how a report gets ignored. It stays in
+/// [silentPaint], where naming the icon and the control it sits in is the
+/// whole point.
+List<Finding> auditPaintedMeaning(
+  WidgetTester tester, {
+  Set<String>? painters,
+}) =>
+    paintedMeaning(silentPaint(tester, painters: painters));
+
+/// The same findings, from a list already gathered.
+///
+/// The walk gathers [silentPaint] once per screen and needs it twice — once
+/// as findings for the report, once as the list itself for the worklist and
+/// the snapshot — and walking the whole element tree a second time to answer
+/// the same question would be the harness being slow for no reason.
+List<Finding> paintedMeaning(List<SilentThing> things) {
+  final findings = <Finding>[];
+  for (final thing in things) {
+    if (thing.kind == SilentThing.iconControl) continue;
+    final drawn = '${thing.size.width.round()}x${thing.size.height.round()}';
+    final subject = thing.kind == SilentThing.painting
+        ? thing.what
+        : 'an Image (${thing.what})';
     findings.add(Finding(
       rule: 'A painting that says nothing',
       standard: 'WCAG 2.1 SC 1.1.1 (A)',
-      detail: '${mine.join(' and ')} draws '
-          '${size.width.round()}x${size.height.round()} with no semantics '
-          'label, and is not declared decoration',
+      detail: '$subject draws $drawn with no semantics label, and is not '
+          'declared decoration',
       severity: Severity.fails,
     ));
   }
@@ -402,10 +543,14 @@ bool _namedOrExcluded(Element element) {
     }
     if (widget is Semantics) {
       final properties = widget.properties;
+      // Hint and value as well as label and tooltip: a control announced as
+      // "82 beats per minute" is not silent, and neither is one whose only
+      // words are the hint saying what pressing it does.
       final named = <String?>[
         properties.label,
         properties.tooltip,
         properties.value,
+        properties.hint,
       ].any((text) => (text ?? '').trim().isNotEmpty);
       if (!named) return true;
       settled = true;
@@ -414,6 +559,49 @@ bool _namedOrExcluded(Element element) {
     return true;
   });
   return settled;
+}
+
+/// The control [element] is the face of, if it is the face of one.
+///
+/// The first tappable ancestor, which for an `IconButton` is the `InkResponse`
+/// the button builds rather than the button itself — the element tree runs
+/// through what was built, and naming that is honest and still enough to find
+/// the thing in the source.
+Element? _tappableAbove(Element element) {
+  Element? control;
+  element.visitAncestorElements((ancestor) {
+    final widget = ancestor.widget;
+    if ((widget is InkResponse && widget.onTap != null) ||
+        (widget is GestureDetector && widget.onTap != null)) {
+      control = ancestor;
+      return false;
+    }
+    return true;
+  });
+  return control;
+}
+
+/// Whether anything under [root] is words rather than a glyph.
+///
+/// `Text` builds a `RichText`, so one check covers both — and an `Icon` builds
+/// one too, holding a single character from the icon font, which is exactly
+/// what must not count as words here.
+bool _holdsWords(Element root) {
+  var words = false;
+  void walk(Element element) {
+    if (words) return;
+    final widget = element.widget;
+    if (widget is RichText &&
+        !_isIconOrEmpty(
+            widget.text.toPlainText(includeSemanticsLabels: false))) {
+      words = true;
+      return;
+    }
+    element.visitChildren(walk);
+  }
+
+  root.visitChildren(walk);
+  return words;
 }
 
 Set<String>? _appPainters;
@@ -1034,3 +1222,85 @@ String _mark(Severity s) => switch (s) {
       Severity.warns => 'Warns',
       Severity.notes => 'Notes',
     };
+
+// ------------------------------------------------ what says nothing, listed
+
+/// The silent-paint list as a snapshot: one sorted line per screen and thing.
+///
+/// This is the form that gets committed and compared, so everything in it has
+/// to be the same on every machine and at every text size. Screen and widget
+/// type and which thing it is; no pixels, no positions, no device — those
+/// belong in the report a person reads, not in a file a test compares.
+List<String> silentPaintLines(Iterable<SilentThing> things) {
+  final lines = <String>{
+    for (final thing in things)
+      '${thing.screen.isEmpty ? '(no screen)' : thing.screen} · ${thing.line}',
+  }.toList()
+    ..sort();
+  return lines;
+}
+
+/// The debt, by widget type and by screen.
+///
+/// A separate file from `REPORT.md` because it is read for a different reason.
+/// The report is "what is wrong with the app today"; this is a worklist, and
+/// the useful shape of a worklist is the one that says how many of each kind
+/// there are and where to open the app to find them.
+Future<File> writeSilentPaint(
+  List<SilentThing> things, {
+  required String path,
+}) async {
+  // One row per distinct thing, carrying the screens it was seen on. The same
+  // unlabelled avatar on six screens across nine devices is one job, not
+  // fifty-four rows.
+  final rows = <String, SilentThing>{};
+  final places = <String, Set<String>>{};
+  for (final thing in things) {
+    final key = '${thing.kind}|${thing.what}';
+    rows.putIfAbsent(key, () => thing);
+    if (thing.screen.isNotEmpty) {
+      places.putIfAbsent(key, () => <String>{}).add(thing.screen);
+    }
+  }
+
+  final out = StringBuffer()
+    ..writeln('# What says nothing')
+    ..writeln()
+    ..writeln('Painted things a screen reader is told nothing about: no '
+        'label, no hint, no value, and no declaration that they are '
+        'decoration. WCAG 2.1 SC 1.1.1 (A) and SC 4.1.2 (A).')
+    ..writeln()
+    ..writeln('This is a worklist, not a gate. The gate is '
+        '`test/nothing_new_says_nothing_test.dart`, which holds the same '
+        'list and fails when something is added to it.')
+    ..writeln();
+
+  if (rows.isEmpty) {
+    out.writeln('Nothing painted on this walk is silent.');
+  }
+
+  for (final kind in SilentThing.kinds) {
+    final mine = rows.entries.where((e) => e.value.kind == kind).toList()
+      ..sort((a, b) => a.value.what.compareTo(b.value.what));
+    if (mine.isEmpty) continue;
+    out
+      ..writeln()
+      ..writeln('## $kind — ${mine.length}')
+      ..writeln();
+    for (final entry in mine) {
+      final where = (places[entry.key] ?? const <String>{}).toList()..sort();
+      final screens = where.length <= 4
+          ? where.join(', ')
+          : '${where.take(4).join(', ')} and ${where.length - 4} more';
+      out.writeln('- ${entry.value.what}, '
+          '${entry.value.size.width.round()}x'
+          '${entry.value.size.height.round()}'
+          '${screens.isEmpty ? '' : '  \n  _($screens)_'}');
+    }
+  }
+
+  final file = File(path);
+  file.parent.createSync(recursive: true);
+  file.writeAsStringSync(out.toString(), flush: true);
+  return file;
+}

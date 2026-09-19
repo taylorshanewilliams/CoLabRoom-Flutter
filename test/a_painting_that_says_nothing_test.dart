@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/features/layers/take_lane.dart';
@@ -11,6 +10,7 @@ import 'package:colabroom/services/audio_analysis_utils.dart';
 import 'package:colabroom/services/multitrack.dart';
 import 'package:colabroom/widgets/brand_mark.dart';
 import 'package:colabroom/widgets/qr_code.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -53,6 +53,35 @@ Future<void> _pump(WidgetTester tester, Widget Function(Widget) wrap) {
 /// Judged as if `_MarkPainter` were one of the app's own.
 List<Finding> _audit(WidgetTester tester) =>
     auditPaintedMeaning(tester, painters: <String>{'_MarkPainter'});
+
+/// The same walk, as the list rather than as findings.
+List<SilentThing> _silent(WidgetTester tester) =>
+    silentPaint(tester, painters: <String>{'_MarkPainter'});
+
+/// An image that never arrives.
+///
+/// The rule reads the widget rather than the pixels, and a provider that
+/// resolves to nothing keeps a decode — and the real async zone a decode has
+/// to happen in — out of a widget test.
+class _NoPicture extends ImageProvider<_NoPicture> {
+  const _NoPicture();
+
+  @override
+  Future<_NoPicture> obtainKey(ImageConfiguration configuration) =>
+      SynchronousFuture<_NoPicture>(this);
+
+  @override
+  ImageStreamCompleter loadImage(_NoPicture key, ImageDecoderCallback decode) =>
+      OneFrameImageStreamCompleter(Completer<ImageInfo>().future);
+}
+
+/// One widget, centred, at a size the report can be checked against.
+Future<void> _pumpOne(WidgetTester tester, Widget child) {
+  return tester.pumpWidget(MaterialApp(
+    theme: CoLabRoomTheme.dark(),
+    home: Scaffold(body: Center(child: child)),
+  ));
+}
 
 void main() {
   group('the rule', () {
@@ -265,6 +294,226 @@ void main() {
         ),
       ));
       expect(auditPaintedMeaning(tester), isEmpty);
+    });
+  });
+
+  // The list, rather than the findings. The harness reports both: the
+  // findings go into REPORT.md beside the contrast and the tap targets, and
+  // the list goes into SILENT.md and into the snapshot that keeps it from
+  // growing — so what the list holds, and what it calls things, is part of
+  // the contract and not an implementation detail.
+  group('the list', () {
+    testWidgets('holds the painting nobody named and not the one somebody did',
+        (tester) async {
+      await tester.pumpWidget(Directionality(
+        textDirection: TextDirection.ltr,
+        child: Column(
+          children: <Widget>[
+            Semantics(
+              label: 'G major',
+              image: true,
+              child: const SizedBox(
+                width: 40,
+                height: 40,
+                child: CustomPaint(painter: _MarkPainter()),
+              ),
+            ),
+            const SizedBox(
+              width: 60,
+              height: 30,
+              child: CustomPaint(painter: _MarkPainter()),
+            ),
+          ],
+        ),
+      ));
+
+      final silent = _silent(tester);
+      expect(silent, hasLength(1));
+      expect(silent.single.kind, SilentThing.painting);
+      expect(silent.single.what, '_MarkPainter');
+      expect(silent.single.size, const Size(60, 30));
+      expect(silent.single.line, 'CustomPaint · _MarkPainter');
+    });
+
+    test('a line carries the screen and no pixels', () {
+      // The snapshot is compared, not looked at, so everything in it has to be
+      // the same on every device. A size in the line would churn on a font
+      // change and teach people to re-record without reading.
+      final lines = silentPaintLines(<SilentThing>[
+        SilentThing(
+          kind: SilentThing.painting,
+          what: '_WavePainter',
+          size: const Size(320, 64),
+          screen: 'the takes',
+        ),
+        SilentThing(
+          kind: SilentThing.painting,
+          what: '_WavePainter',
+          size: const Size(640, 64),
+          screen: 'the takes',
+        ),
+        SilentThing(
+          kind: SilentThing.image,
+          what: 'MemoryImage',
+          size: const Size(44, 44),
+          screen: 'a song',
+        ),
+      ]);
+      expect(lines, <String>[
+        'a song · Image · MemoryImage',
+        'the takes · CustomPaint · _WavePainter',
+      ]);
+    });
+  });
+
+  group('an image', () {
+    testWidgets('with no label is silent', (tester) async {
+      await _pumpOne(tester, const Image(image: _NoPicture(), width: 44, height: 44));
+
+      final silent = _silent(tester);
+      expect(silent, hasLength(1));
+      expect(silent.single.kind, SilentThing.image);
+      expect(silent.single.what, '_NoPicture');
+      expect(_audit(tester).single.detail, contains('an Image (_NoPicture)'));
+    });
+
+    testWidgets('with a label of its own is not', (tester) async {
+      await _pumpOne(
+        tester,
+        const Image(
+          image: _NoPicture(),
+          width: 44,
+          height: 44,
+          semanticLabel: 'Ruth',
+        ),
+      );
+      expect(_silent(tester), isEmpty);
+    });
+
+    testWidgets('declared decoration is not', (tester) async {
+      // A face beside a name that is already read out loud is decoration, and
+      // saying "image" after the name helps nobody.
+      await _pumpOne(
+        tester,
+        const Image(
+          image: _NoPicture(),
+          width: 44,
+          height: 44,
+          excludeFromSemantics: true,
+        ),
+      );
+      expect(_silent(tester), isEmpty);
+    });
+  });
+
+  group('an icon-only control', () {
+    testWidgets('with no tooltip is silent', (tester) async {
+      await _pumpOne(
+        tester,
+        IconButton(onPressed: () {}, icon: const Icon(Icons.mic_rounded)),
+      );
+
+      final silent = _silent(tester);
+      expect(silent, hasLength(1));
+      expect(silent.single.kind, SilentThing.iconControl);
+      expect(silent.single.what, contains('${Icons.mic_rounded}'));
+    });
+
+    testWidgets('with a tooltip is not', (tester) async {
+      await _pumpOne(
+        tester,
+        IconButton(
+          onPressed: () {},
+          tooltip: 'Record something',
+          icon: const Icon(Icons.mic_rounded),
+        ),
+      );
+      expect(_silent(tester), isEmpty);
+    });
+
+    testWidgets('is not a finding twice', (tester) async {
+      // auditLabels already reports it from the semantics side. A report that
+      // says the same thing under two headings is a report people stop
+      // reading, so the list carries it and the findings do not.
+      await _pumpOne(
+        tester,
+        IconButton(onPressed: () {}, icon: const Icon(Icons.mic_rounded)),
+      );
+      expect(_audit(tester), isEmpty);
+      expect(auditLabels(tester), hasLength(1));
+    });
+
+    testWidgets('an icon beside words is not a control that says nothing',
+        (tester) async {
+      // The commonest icon in any app: decoration at the head of a row whose
+      // words are the thing being read. Flagging those would bury the handful
+      // that matter under a hundred that do not.
+      await _pumpOne(
+        tester,
+        InkWell(
+          onTap: () {},
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[Icon(Icons.mic_rounded), Text('Record')],
+          ),
+        ),
+      );
+      expect(_silent(tester), isEmpty);
+    });
+
+    testWidgets('an icon in nothing tappable is not a control at all',
+        (tester) async {
+      await _pumpOne(tester, const Icon(Icons.mic_rounded));
+      expect(_silent(tester), isEmpty);
+    });
+
+    testWidgets('a hint is a name too', (tester) async {
+      await _pumpOne(
+        tester,
+        Semantics(
+          hint: 'Starts recording',
+          child: IconButton(
+            onPressed: () {},
+            icon: const Icon(Icons.mic_rounded),
+          ),
+        ),
+      );
+      expect(_silent(tester), isEmpty);
+    });
+  });
+
+  group('a button announced through its parent', () {
+    testWidgets('a FloatingActionButton with a tooltip is not silent',
+        (tester) async {
+      // FloatingActionButton ends its build with MergeSemantics, so the
+      // tooltip lands on the parent node and the tap action on the child.
+      // Reading the child on its own reported the Record button — the most
+      // prominent control in the app, which announces "Record something" —
+      // as a silent 56x56 square on four screens of every walk.
+      await _pumpOne(
+        tester,
+        FloatingActionButton(
+          onPressed: () {},
+          tooltip: 'Record something',
+          child: const Icon(Icons.mic_rounded),
+        ),
+      );
+
+      expect(auditLabels(tester), isEmpty);
+      expect(_silent(tester), isEmpty);
+    });
+
+    testWidgets('and one without a tooltip still is', (tester) async {
+      await _pumpOne(
+        tester,
+        FloatingActionButton(
+          onPressed: () {},
+          child: const Icon(Icons.mic_rounded),
+        ),
+      );
+
+      expect(auditLabels(tester), hasLength(1));
+      expect(_silent(tester).single.kind, SilentThing.iconControl);
     });
   });
 }
