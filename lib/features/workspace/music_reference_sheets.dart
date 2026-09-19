@@ -235,6 +235,7 @@ class _ReadingChoiceSheetState extends State<_ReadingChoiceSheet> {
   late HornReading _reading = widget.reading;
   late MelodyReading _melody = widget.melody;
   late int? _sa = widget.sa;
+  bool _simpler = SimplerShapesStore.held;
 
   @override
   Widget build(BuildContext context) {
@@ -284,6 +285,29 @@ class _ReadingChoiceSheetState extends State<_ReadingChoiceSheet> {
             songRoot: null,
           ),
         ],
+        // Here as well as on the key sheet, because a chord has a shape
+        // whether or not the analysis found a key — and this is the only
+        // readings sheet those songs, and the chart, ever open (review, 17
+        // September 2026, which found the same hole under the horn reading).
+        const SizedBox(height: 18),
+        _Section(
+          heading: 'Shapes',
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              _PickerChip(
+                label: 'Simpler shapes',
+                itemKey: const Key('simpler_shapes'),
+                selected: _simpler,
+                onTap: () {
+                  setState(() => _simpler = !_simpler);
+                  unawaited(SimplerShapesStore.save(_simpler));
+                },
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }

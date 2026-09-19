@@ -220,6 +220,45 @@ void main() {
     await tester.pump();
     SimplerShapesStore.resetForTesting();
   });
+
+  testWidgets('a song with no key can still be read with simpler shapes',
+      (tester) async {
+    // Key detection falls back on plenty of recordings, and the chart has no
+    // key badge at all. A chord has a shape either way, so the plain Read as
+    // sheet carries the same chip.
+    SimplerShapesStore.resetForTesting();
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    tester.view.physicalSize = const Size(520, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData.dark(),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: SongSheetPanel(
+            project: _project('song-nokey'),
+            bundle: _analysis('song-nokey', musicalKey: null),
+            onReviewLyrics: null,
+            onOpenLive: null,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('song_sheet_read_as')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('reading_choice_sheet')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('simpler_shapes')));
+    await tester.pumpAndSettle();
+    expect(await SimplerShapesStore.load(), isTrue);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    SimplerShapesStore.resetForTesting();
+  });
 }
 
 SongProject _project(String id) {
@@ -246,7 +285,8 @@ SongProject _project(String id) {
   );
 }
 
-SongAnalysisBundle _analysis(String id) => SongAnalysisBundle(
+SongAnalysisBundle _analysis(String id, {String? musicalKey = 'G'}) =>
+    SongAnalysisBundle(
       reference: ReferenceTrack(
         projectId: id,
         fileId: 'file',
@@ -254,7 +294,7 @@ SongAnalysisBundle _analysis(String id) => SongAnalysisBundle(
         displayName: 'Weathervane.m4a',
         state: SongAnalysisState.ready,
         durationMs: 20000,
-        musicalKey: 'G',
+        musicalKey: musicalKey,
         transcriptText: 'turning in the wind again',
         transcriptWords: const <TranscriptWord>[
           TranscriptWord(word: 'turning', startMs: 5000, endMs: 5800),
