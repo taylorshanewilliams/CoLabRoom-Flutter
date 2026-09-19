@@ -72,7 +72,15 @@ class ProfileFace extends StatelessWidget {
       padding: const EdgeInsets.all(3),
       child: ClipOval(
         child: image != null
-            ? Image.memory(image, fit: BoxFit.cover, gaplessPlayback: true)
+            // Whose face it is, is written beside it everywhere this is used —
+            // the musician's page, the add-person card, the call tile — so an
+            // announcement here would say the name twice. Unlabelled it said
+            // "image" instead, which is worse than either. Declared decoration.
+            // Every Musician, Same Song, 17 September 2026.
+            ? Image.memory(image,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                excludeFromSemantics: true)
             : DecoratedBox(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
