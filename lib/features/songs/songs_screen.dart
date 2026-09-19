@@ -239,8 +239,17 @@ class _SongsScreenState extends State<SongsScreen> {
   /// recording and does not move, and where bar 1 is comes off the song.
   final Map<String, SongGrid> _grids = <String, SongGrid>{};
 
-  /// Songs already asked about, answered or not, so a rebuilding strip asks
-  /// once rather than once a frame.
+  /// Songs already settled, so a rebuilding strip asks once rather than once
+  /// a frame.
+  ///
+  /// Settled means answered, or answered with "there is no recording": both
+  /// are final, and neither is worth another request. A song the request
+  /// *failed* on is taken back out again (see [_loadGrids]), because
+  /// remembering a tunnel as an answer would leave that card reading the
+  /// words its mark was kept under for the rest of the session — Home is a
+  /// tab rather than a route, so the session lasts until the app is killed,
+  /// and a card stuck on old bar numbers is the whole thing this exists to
+  /// stop (review, 19 September 2026).
   final Set<String> _gridsAsked = <String>{};
 
   /// How [song] counts itself now, or null while nothing has been read for
@@ -272,9 +281,16 @@ class _SongsScreenState extends State<SongsScreen> {
   }
 
   Future<void> _loadGrids(List<String> projectIds) async {
-    final grids = await _analysis.gridsFor(projectIds);
-    if (!mounted || grids.isEmpty) return;
-    setState(() => _grids.addAll(grids));
+    final answer = await _analysis.gridsFor(projectIds);
+    if (!mounted) return;
+    // Forgotten rather than remembered as asked, so the next ordinary
+    // rebuild of the strip — coming back from Perform, the controller
+    // refreshing, the app waking up — tries again once signal is back. This
+    // cannot spin: a miss changes nothing on screen, so it causes no rebuild
+    // of its own.
+    _gridsAsked.removeAll(answer.missed);
+    if (answer.grids.isEmpty) return;
+    setState(() => _grids.addAll(answer.grids));
   }
 
   void _keptSongsChanged() => unawaited(_loadKeptIds());

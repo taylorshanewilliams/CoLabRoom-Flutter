@@ -129,8 +129,41 @@ class SongGrid {
   final List<StructureSection> sections;
 
   /// Whether there is anything here to name a passage with. A recording the
-  /// beat tracker found nothing in has no bars, and then nothing is renamed.
-  bool get isEmpty => downbeatsMs.isEmpty && sections.isEmpty;
+  /// beat tracker found nothing in at all has nothing to count on, and then
+  /// nothing is renamed.
+  ///
+  /// The beats count, not only the downbeats: a cycle is laid over the beats
+  /// and needs no analysed bars at all (cycleGridFor starts from the first
+  /// beat when there are none), so a recording with beats and no downbeats
+  /// still counts itself in cycles the moment the band says what it counts.
+  /// Leaving the beats out here left Home calling that song's passage by the
+  /// words its mark was kept under while Perform called it "Cycles 3–4"
+  /// (review, 19 September 2026).
+  bool get isEmpty => beatsMs.isEmpty && downbeatsMs.isEmpty && sections.isEmpty;
+}
+
+/// What a batch of [SongGrid]s came back with: the songs that answered, and
+/// the songs nothing could be said about because the request itself failed.
+///
+/// The two are different and a caller has to be able to tell them apart. A
+/// song with no recording behind it is absent from [grids] and absent from
+/// [missed] — there is nothing there, and asking again would find nothing
+/// again. A song whose request threw, or that a phone out of signal could
+/// not be told about, is in [missed], so a screen that remembers what it has
+/// already asked for can forget that one and ask once more rather than
+/// keeping a dropped connection for the life of the session (review, 19
+/// September 2026).
+class SongGrids {
+  const SongGrids({
+    this.grids = const <String, SongGrid>{},
+    this.missed = const <String>{},
+  });
+
+  /// How each song that answered counts itself.
+  final Map<String, SongGrid> grids;
+
+  /// The songs the request could not answer for. Worth asking about again.
+  final Set<String> missed;
 }
 
 /// Note names with sharps, C first, so `midiNoteNames[midi % 12]`.

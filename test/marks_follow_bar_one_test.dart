@@ -119,6 +119,23 @@ void main() {
           reason: 'nothing read yet, so the mark speaks for itself');
     });
 
+    test('a recording with beats but no bars still counts its cycle', () {
+      // The beat tracker heard beats and never settled on a bar. A cycle is
+      // laid over the beats and needs no analysed bars at all, so Perform
+      // names this passage in cycles — and Home, which counted a grid with
+      // no downbeats as nothing to count on, went on saying the words the
+      // mark was kept under (review, 19 September 2026).
+      final noBars = SongGrid(beatsMs: beats);
+      expect(noBars.isEmpty, isFalse, reason: 'beats are something to count on');
+      expect(
+        practicePassage(worked,
+            counted: SongCount.of(noBars, cycle: SongCycle(7, const <int>[4, 6]))),
+        'Cycles 5–7',
+      );
+      expect(practicePassage(worked, counted: SongCount.of(noBars)), 'Bars 9–12',
+          reason: 'no cycle and no bars leaves nothing to rename it from');
+    });
+
     test('counting a cycle re-names it, and clearing the cycle puts it back', () {
       final seven = SongCycle(7, const <int>[4, 6]);
       expect(practicePassage(worked, counted: counting(cycle: seven)),
@@ -154,7 +171,12 @@ void main() {
   group('on Home', () {
     /// The practice card is the only list of marks there is: one card a song,
     /// in the strip at the top of Home.
-    Future<({MusicBetaController controller, String songId})> withAMark(
+    Future<
+        ({
+          MusicBetaController controller,
+          InMemoryMusicRepository repository,
+          String songId,
+        })> withAMark(
       WidgetTester tester, {
       int? barOne,
       SongCycle? cycle,
@@ -182,7 +204,11 @@ void main() {
       tester.view.physicalSize = const Size(390, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
-      return (controller: controller, songId: song.id);
+      return (
+        controller: controller,
+        repository: repository,
+        songId: song.id,
+      );
     }
 
     Future<void> pumpHome(
@@ -278,25 +304,119 @@ void main() {
           reason: 'the whole song is called that whatever the band counts');
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('a Home already open follows bar 1 moving under it',
+        (tester) async {
+      // The ordinary way this happens: Practise, say "this is bar 1" in the
+      // picker, close Perform. Home never went anywhere, and what it holds
+      // is the grid rather than a finished count, so the card is renamed
+      // from what it already has.
+      final home = await withAMark(tester);
+      final analysis = _Counting(<String, SongGrid>{home.songId: grid});
+      await pumpHome(tester, home.controller, analysis);
+      expect(detailOf('Bars 9–12 at 70%'), findsOneWidget);
+
+      await home.repository.setBarOne(home.songId, 2);
+      await home.controller.refreshProject(home.songId);
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(detailOf('Bars 8–11 at 70%'), findsOneWidget);
+      expect(analysis.asked, 1,
+          reason: 'where bar 1 is comes off the song, not off the network');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('and a cycle being counted under it, and then cleared',
+        (tester) async {
+      final home = await withAMark(tester);
+      final analysis = _Counting(<String, SongGrid>{home.songId: grid});
+      await pumpHome(tester, home.controller, analysis);
+      expect(detailOf('Bars 9–12 at 70%'), findsOneWidget);
+
+      await home.repository.setSongCycle(home.songId, SongCycle(7, const <int>[4, 6]));
+      await home.controller.refreshProject(home.songId);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(detailOf('Cycles 5–7 at 70%'), findsOneWidget);
+
+      await home.repository.setSongCycle(home.songId, null);
+      await home.controller.refreshProject(home.songId);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(detailOf('Bars 9–12 at 70%'), findsOneWidget,
+          reason: 'the cycle cleared, so the analysed bars count again');
+      expect(analysis.asked, 1);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a request that failed is asked again, not remembered',
+        (tester) async {
+      // The card's own words are a bar out and the phone is in a tunnel.
+      // Signal coming back has to be enough: a screen that took the first
+      // failure as the answer would read the stale numbers until the app
+      // was killed, which is the bug this whole slice is about.
+      final home = await withAMark(tester, barOne: 2);
+      final analysis = _Counting(
+        <String, SongGrid>{home.songId: grid},
+        failTimes: 1,
+      );
+      await pumpHome(tester, home.controller, analysis);
+
+      // Anything that redraws the strip: the controller came back with
+      // something, the app woke up, somebody returned from a song.
+      await home.controller.refreshProject(home.songId);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(analysis.asked, 2, reason: 'a tunnel is not an answer');
+      expect(detailOf('Bars 8–11 at 70%'), findsOneWidget);
+      expect(detailOf('Bars 9–12 at 70%'), findsNothing,
+          reason: 'a screen that filed the failure would still print these');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a song the server has no recording of is not asked twice',
+        (tester) async {
+      final home = await withAMark(tester, barOne: 2);
+      final analysis = _Counting(const <String, SongGrid>{});
+      await pumpHome(tester, home.controller, analysis);
+      expect(analysis.asked, 1);
+
+      await home.controller.refreshProject(home.songId);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(analysis.asked, 1,
+          reason: 'an answered "there is nothing there" is settled');
+      expect(detailOf('Bars 9–12 at 70%'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 }
 
 /// The grids of a handful of songs, without a network.
 class _Counting extends SongAnalysisService {
-  _Counting(this.grids) : super(client: null);
+  _Counting(this.grids, {this.failTimes = 0}) : super(client: null);
 
   final Map<String, SongGrid> grids;
+
+  /// How many of the first requests come back as a dropped connection
+  /// rather than as an answer — a phone in a basement, or a server that
+  /// said no.
+  int failTimes;
 
   /// How many times the screen has asked. One request covers every song with
   /// a card on it, and a song is asked about once.
   int asked = 0;
 
   @override
-  Future<Map<String, SongGrid>> gridsFor(Iterable<String> projectIds) async {
+  Future<SongGrids> gridsFor(Iterable<String> projectIds) async {
     asked += 1;
-    return <String, SongGrid>{
+    if (failTimes > 0) {
+      failTimes -= 1;
+      return SongGrids(missed: projectIds.toSet());
+    }
+    return SongGrids(grids: <String, SongGrid>{
       for (final id in projectIds)
         if (grids.containsKey(id)) id: grids[id]!,
-    };
+    });
   }
 }

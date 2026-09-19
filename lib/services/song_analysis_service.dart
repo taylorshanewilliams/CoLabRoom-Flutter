@@ -329,13 +329,20 @@ class SongAnalysisService {
   /// a melody and every chord cue that no card will ever draw.
   ///
   /// A song kept on this phone answers from the phone, so the cards read
-  /// right in the van as well. Songs with no row, or a request that fails,
-  /// are simply absent: a card with no grid behind it keeps its own words
-  /// rather than guessing at new ones.
-  Future<Map<String, SongGrid>> gridsFor(Iterable<String> projectIds) async {
+  /// right in the van as well. A card with no grid behind it keeps its own
+  /// words rather than guessing at new ones.
+  ///
+  /// A song with no recording simply is not in [SongGrids.grids]; a song the
+  /// request threw on is also in [SongGrids.missed], because a caller that
+  /// remembers what it has asked for has to be able to tell "there is
+  /// nothing there" from "the phone was in a tunnel". Nothing is put in
+  /// front of anybody either way: an error while looking at your own songs
+  /// is not news.
+  Future<SongGrids> gridsFor(Iterable<String> projectIds) async {
     final wanted = projectIds.toSet();
-    if (wanted.isEmpty) return const <String, SongGrid>{};
+    if (wanted.isEmpty) return const SongGrids();
     final grids = <String, SongGrid>{};
+    var threw = false;
     try {
       final rows = await client
           .from('project_audio_references')
@@ -358,7 +365,9 @@ class SongAnalysisService {
     } catch (_) {
       // Left to the phone's own copies below. A card that could not be
       // renamed says what it always said, which is never a reason to put an
-      // error in front of somebody looking at their own songs.
+      // error in front of somebody looking at their own songs. Remembered
+      // so the caller can come back for the ones the phone cannot cover.
+      threw = true;
     }
     for (final id in wanted) {
       if (grids.containsKey(id)) continue;
@@ -370,7 +379,17 @@ class SongAnalysisService {
         // Nothing kept for this one, or nothing readable. Same bargain.
       }
     }
-    return grids;
+    return SongGrids(
+      grids: grids,
+      // Only when the request itself failed. A song that answered, and a
+      // song the server says has no recording, are both settled.
+      missed: threw
+          ? <String>{
+              for (final id in wanted)
+                if (!grids.containsKey(id)) id,
+            }
+          : const <String>{},
+    );
   }
 
   /// Resolved on use rather than at construction, so building this service
