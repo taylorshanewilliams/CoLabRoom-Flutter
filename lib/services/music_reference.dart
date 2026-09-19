@@ -501,6 +501,12 @@ const Set<String> _chartSuffixes = <String>{
   'dim7', '°7', 'm7b5', 'm7♭5', 'ø', 'ø7',
   '6', 'maj6', 'm6', 'min6', '6/9', '69',
   'sus', 'sus2', 'sus4', '7sus4', '7sus', '9sus4', 'sus4add9',
+  // How a worship chart writes sus2 and sus4, and the shape every band in
+  // that world has on the page. Admitted because there is no line of words in
+  // which "C2" or "D4" is a word, and one of them on a row used to turn the
+  // whole row into lyrics and cost the line under it its chords (review, 19
+  // September 2026).
+  '2', '4',
   '5',
   'add9', 'add2', 'add4', 'add11', 'madd9',
   '9', 'm9', 'min9', 'maj9', 'M9',

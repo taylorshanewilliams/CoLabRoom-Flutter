@@ -987,6 +987,11 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
                       key: ValueKey<String>('chart-${_project.id}'),
                       project: _project,
                       canEdit: canEditTheSong,
+                      // A song with no recording has no key badge and no
+                      // song sheet, so the chart's readings panel is the only
+                      // place its key can be said — and the capo and the
+                      // numbers are both counted from one.
+                      onSetKey: canEditTheSong ? _setSongKey : null,
                     );
                   }),
                   if (ready) ...<Widget>[

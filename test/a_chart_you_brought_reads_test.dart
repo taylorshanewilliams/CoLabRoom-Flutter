@@ -308,4 +308,130 @@ void main() {
       expect(readChart('[G]Amazing\n').isEmpty, isFalse);
     });
   });
+
+  group('a chart that was copied out of a document', () {
+    test('alignment held by non-breaking spaces still lines up', () {
+      // HTML collapses ordinary spaces, so a chart copied out of an email, a
+      // Word document or a web page holds its columns with U+00A0 instead.
+      // Both rows have to be measured in the same kind of space, or the whole
+      // row of chords disappears (review, 19 September 2026).
+      const nbsp = ' ';
+      final chart = readChart(
+        'G${nbsp * 7}C\n'
+        'Amazing grace how sweet the sound\n',
+      );
+      expect(_shape(chart), <String>[
+        'words|Amazing grace how sweet the sound|G@0,C@8',
+      ]);
+    });
+
+    test('a zero-width character does not move a chord off its word', () {
+      final chart = readChart(
+        '﻿G       C\n'
+        'Amazing grace how sweet\n',
+      );
+      expect(_shape(chart), <String>[
+        'words|Amazing grace how sweet|G@0,C@8',
+      ]);
+    });
+  });
+
+  group('a row of chords written the way a band writes one', () {
+    test('bar lines between the chords are not tablature', () {
+      // "G | C | D | G" is an intro. Read as a string of a tab it stayed in
+      // the original key while every other chord on the page moved, with
+      // nothing to say that it had not (review, 19 September 2026).
+      final chart = readChart('[Intro]\nG | C | D | G\n');
+      expect(_shape(chart), <String>[
+        'heading|Intro|',
+        'chords||G@0,C@0,D@0,G@0',
+      ]);
+    });
+
+    test('real tablature is still kept character for character', () {
+      final chart = readChart('E|--0-2-4--\nA|--2-4-5--\n');
+      expect(
+          chart.lines.every((line) => line.kind == ChartLineKind.tab), isTrue);
+    });
+
+    test('a part named on the same line as its chords keeps both', () {
+      final chart = readChart('Intro: G  C  D\n');
+      expect(_shape(chart), <String>[
+        'heading|Intro|',
+        'chords||G@0,C@0,D@0',
+      ]);
+    });
+
+    test('a line of words with a colon in it is still words', () {
+      final chart = readChart('She said: go on without me\n');
+      expect(_shape(chart), <String>['words|She said: go on without me|']);
+    });
+
+    test('the suffix a worship chart writes does not cost the row its chords',
+        () {
+      // C2 and D4 are sus2 and sus4 as half the charts in the world spell
+      // them. One of them used to turn the whole row into words, and the line
+      // underneath lost every chord it had.
+      expect(isChordName('C2'), isTrue);
+      expect(isChordName('D4'), isTrue);
+      final chart = readChart(
+        'G  C2  D4\n'
+        'Amazing grace how sweet\n',
+      );
+      expect(_shape(chart), <String>[
+        'words|Amazing grace how sweet|G@0,C2@3,D4@7',
+      ]);
+    });
+  });
+
+  group('a fact the chart states twice', () {
+    test('a key change written later in the song is kept on the page', () {
+      final chart = readChart(
+        'Key: G\n'
+        '[G]Amazing grace\n'
+        'Key: A\n'
+        '[A]Amazing grace\n',
+      );
+      expect(chart.key, 'G', reason: "the first answer is the song's key");
+      expect(_shape(chart), <String>[
+        'words|Amazing grace|G@0',
+        'text|Key: A|',
+        'words|Amazing grace|A@0',
+      ]);
+    });
+
+    test('the same fact said twice is said once', () {
+      final chart = readChart('Capo 2\nCapo 2\n[G]Amazing\n');
+      expect(chart.capo, '2');
+      expect(_shape(chart), <String>['words|Amazing|G@0']);
+    });
+
+    test('a directive that really names the artist takes the slot back', () {
+      // A subtitle stands in for the artist because that is what most charts
+      // use it for — but not over one that says so. The displaced line stays
+      // on the page: nothing a chart said is thrown away.
+      final chart =
+          readChart('{subtitle: Live version}\n{artist: John Newton}\n[G]Oh\n');
+      expect(chart.artist, 'John Newton');
+      expect(_shape(chart), <String>[
+        'text|{subtitle: Live version}|',
+        'words|Oh|G@0',
+      ]);
+      final once = chart.chordPro;
+      expect(readChart(once).chordPro, once);
+    });
+
+    test('a chart with a second fact in it still round-trips', () {
+      const source = 'Key: G\n'
+          '\n'
+          '[Verse 1]\n'
+          'G          C\n'
+          'Amazing grace how sweet\n'
+          '\n'
+          'Key: A\n'
+          'Intro: G  C  D\n';
+      final once = readChart(source).chordPro;
+      expect(readChart(once).chordPro, once);
+    });
+  });
 }

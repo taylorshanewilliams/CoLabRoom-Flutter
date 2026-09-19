@@ -1,3 +1,5 @@
+import 'dart:io' show SocketException;
+
 import 'package:colabroom/app/beta_scope.dart';
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/app/music_beta_controller.dart';
@@ -188,6 +190,53 @@ void main() {
           reason: 'the door opens the flow rather than describing it');
     });
 
+    testWidgets('the song opens where the chart is', (tester) async {
+      // The chart has to be on the screen the flow lands on. Landing on the
+      // words editor instead put a new person in front of an empty lyric box
+      // with Record as the lit thing to do and no chords anywhere, one unlit
+      // pill away from what they had just pasted — so they believe it was
+      // lost (review, 19 September 2026).
+      _clipboardHolds(_asATabSite);
+      final controller = await _controllerFor(InMemoryMusicRepository.seeded());
+      addTearDown(controller.dispose);
+      await _boot(
+        tester,
+        Scaffold(
+          body: SongsScreen(
+            displayName: 'Taylor',
+            onOpenAccount: () {},
+            onOpenNotifications: () {},
+            onRecord: () {},
+            onFindMusicians: () {},
+          ),
+        ),
+        controller,
+      );
+
+      await tester.tap(find.byKey(const Key('songs_new_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('songs_new_learn')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('pick_room_room-1')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('learn_a_song_title')), 'Amazing Grace');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('learn_a_song_next')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bring_a_chart_paste')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bring_a_chart_read')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bring_a_chart_keep')));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(195, 20));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('brought_chart')), findsOneWidget,
+          reason: 'the chart is on the page the song opened on');
+    });
+
     testWidgets('New offers a song to learn', (tester) async {
       final controller = await _controllerFor(InMemoryMusicRepository.seeded());
       addTearDown(controller.dispose);
@@ -257,6 +306,34 @@ void main() {
         scrollable: find.byType(Scrollable).last,
       );
       expect(find.text('Bring a chart'), findsOneWidget);
+    });
+
+    testWidgets('a chart that could not be looked for is not offered over',
+        (tester) async {
+      // "Bring a chart" is an offer to write over whatever is there, and
+      // there is no history to get the old one back from. A select that timed
+      // out on a train looked exactly like a song with no chart, so the
+      // careful chart the owner typed out last week was one paste away from
+      // gone (review, 19 September 2026).
+      final controller = await _controllerFor(_CannotLook());
+      addTearDown(controller.dispose);
+      final project = controller.projects.first;
+      await _boot(tester, SongAnalysisScreen(project: project), controller);
+
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('bring_a_chart_door')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Could not look for the chart'), findsOneWidget);
+      expect(find.text('Bring a chart'), findsNothing);
+
+      // What it offers instead is looking again, and that is what it does.
+      await tester.tap(find.byKey(const Key('bring_a_chart_door')));
+      await tester.pumpAndSettle();
+      expect(find.text('Could not look for the chart'), findsOneWidget);
+      expect(find.byKey(const Key('bring_a_chart_paste')), findsNothing);
     });
   });
 
@@ -377,6 +454,81 @@ void main() {
       expect(find.text('G'), findsOneWidget);
     });
 
+    testWidgets('a chart that names no key is read in the band\'s',
+        (tester) async {
+      // The chart's own statement first, the room's key behind it. A chart
+      // with no Key line is most pasted charts, and a room that has already
+      // said what key the song is in said it about the song and not only
+      // about its recording — without which the capo and the numbers, both
+      // counted from a key, could not even be chosen (review, 19 September
+      // 2026).
+      final repository = InMemoryMusicRepository.seeded();
+      final controller = await _controllerFor(repository);
+      addTearDown(controller.dispose);
+      final project = controller.projects.first;
+      await repository.setSongKey(project.id, 'A minor');
+      await repository.bringChart(
+        project.id,
+        readChart('Am      C\nThere is a house\n').chordPro,
+      );
+      final said = (await repository.loadRooms())
+          .expand((room) => room.projects)
+          .firstWhere((p) => p.id == project.id);
+      expect(said.songKey(null), 'A minor');
+
+      await _boot(tester, SongAnalysisScreen(project: said), controller);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('chart_read_as')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byKey(const Key('chart_read_as')));
+      await tester.pumpAndSettle();
+
+      // The key sheet, not the keyless one: a capo can be put on and the
+      // numbers counted from the 1.
+      expect(find.byKey(const Key('reading_choice_sheet')), findsNothing);
+      expect(find.byKey(const Key('key_reference_sheet')), findsOneWidget);
+    });
+
+    testWidgets('a chart with no key anywhere can be given one',
+        (tester) async {
+      // A song with no recording has no key badge and no song sheet, so
+      // without this its key could never be said at all.
+      final repository = InMemoryMusicRepository.seeded();
+      final controller = await _controllerFor(repository);
+      addTearDown(controller.dispose);
+      final project = controller.projects.first;
+      await repository.bringChart(
+        project.id,
+        readChart('Am      C\nThere is a house\n').chordPro,
+      );
+
+      await _boot(tester, SongAnalysisScreen(project: project), controller);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('chart_read_as')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byKey(const Key('chart_read_as')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('reading_choice_sheet')), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('which_key_is_A')),
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.tap(find.byKey(const Key('which_key_is_A')));
+      await tester.pumpAndSettle();
+
+      final said = (await repository.loadRooms())
+          .expand((room) => room.projects)
+          .firstWhere((p) => p.id == project.id);
+      expect(said.songKey(null), 'A major',
+          reason: 'the key is the room\'s, said once and seen by everybody');
+    });
+
     test('the sheet reads the chart by column, not by a clock', () {
       final chart = readChart(_asATabSite);
       final line = chart.lines
@@ -441,6 +593,19 @@ void main() {
       // away from, which is the case that matters: an unanswered song made
       // out of somebody else's chart is somebody else's.
       expect(find.text('Who wrote this song?'), findsOneWidget);
+
+      // Already somebody else's while the question is still on the screen.
+      // Everything between keeping the chart and answering can end the flow —
+      // the phone reaped with the sheet open, a connection that drops — and
+      // each of those used to leave the song unanswered rather than a cover,
+      // which is a different thing in SQL: 0155 refuses the Open Mic to a
+      // song that `is not distinct from 'cover'` and lets a null through
+      // (review, 19 September 2026).
+      final duringTheQuestion = (await repository.loadRooms())
+          .expand((room) => room.projects)
+          .firstWhere((project) => project.title == 'Amazing Grace');
+      expect(duringTheQuestion.songOrigin, SongOrigin.cover);
+
       await tester.tapAt(const Offset(195, 20));
       await tester.pumpAndSettle();
 
@@ -463,4 +628,13 @@ class _NoSongs extends InMemoryMusicRepository {
 
   @override
   Future<List<MusicRoom>> loadRooms() async => const <MusicRoom>[];
+}
+
+/// A room that cannot be asked whether the song has a chart.
+class _CannotLook extends InMemoryMusicRepository {
+  _CannotLook() : super.from(InMemoryMusicRepository.seeded());
+
+  @override
+  Future<SongChart?> broughtChart(String projectId) async =>
+      throw const SocketException('offline');
 }

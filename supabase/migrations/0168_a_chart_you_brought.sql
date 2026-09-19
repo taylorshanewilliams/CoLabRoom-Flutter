@@ -77,7 +77,13 @@ for select to authenticated using (
   )
 );
 
-revoke all on table public.brought_charts from anon;
+-- Reading is the one thing a phone may do here, and the policy above decides
+-- for whom. `authenticated` is revoked from as well as anon, because Supabase
+-- grants ALL on a new public table to it by default: leaving that in place
+-- means only the absence of a write policy stands between PostgREST and this
+-- table, and a permissive policy added later for some other reason would open
+-- writes straight around bring_a_chart's guard (review, 19 September 2026).
+revoke all on table public.brought_charts from public, anon, authenticated;
 grant select on table public.brought_charts to authenticated;
 
 -- There is deliberately no insert, update or delete policy. Everything that

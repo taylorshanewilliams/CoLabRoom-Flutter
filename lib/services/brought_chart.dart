@@ -210,7 +210,7 @@ String writeLine(BroughtChartLine line) {
 BroughtChart readChart(String source) {
   // A file from a Windows machine, a paste from a browser and a file from a
   // phone are the same chart with three line endings.
-  final raw = source
+  final raw = _plainSpaces(source)
       .replaceAll('\r\n', '\n')
       .replaceAll('\r', '\n')
       .split('\n')
@@ -218,6 +218,9 @@ BroughtChart readChart(String source) {
 
   String? title;
   String? artist;
+  // Whether the artist came from a `{subtitle}` rather than from a directive
+  // that actually names one. A real `{artist}` takes the slot back off it.
+  var artistIsBorrowed = false;
   String? key;
   String? capo;
   String? tuning;
@@ -251,15 +254,53 @@ BroughtChart readChart(String source) {
     if (directive != null) {
       final (name, value) = directive;
       if (_titleNames.contains(name)) {
-        title ??= value;
+        if (_takesTheFact(title, value)) {
+          title = value;
+        } else {
+          lines.add(BroughtChartLine(kind: ChartLineKind.text, text: trimmed));
+        }
       } else if (_artistNames.contains(name)) {
-        artist ??= value;
+        // A `{subtitle}` sits in the artist's slot because that is what most
+        // charts use it for, but a directive that really does name the artist
+        // takes it back rather than being dropped as a second answer.
+        final borrowed = !const <String>{'artist', 'a'}.contains(name);
+        if (artist != null && artistIsBorrowed && !borrowed) {
+          // The subtitle that was standing in for the artist goes back on the
+          // page rather than being thrown away for having been displaced.
+          if (artist != value) {
+            lines.add(BroughtChartLine(
+              kind: ChartLineKind.text,
+              text: '{subtitle: ${_directiveSafe(artist)}}',
+            ));
+          }
+          artist = value;
+          artistIsBorrowed = false;
+        } else if (artist == null) {
+          artist = value;
+          artistIsBorrowed = borrowed;
+        } else if (_takesTheFact(artist, value)) {
+          artist = value;
+        } else {
+          lines.add(BroughtChartLine(kind: ChartLineKind.text, text: trimmed));
+        }
       } else if (_keyNames.contains(name)) {
-        key ??= value;
+        if (_takesTheFact(key, value)) {
+          key = value;
+        } else {
+          lines.add(BroughtChartLine(kind: ChartLineKind.text, text: trimmed));
+        }
       } else if (name == 'capo') {
-        capo ??= value;
+        if (_takesTheFact(capo, value)) {
+          capo = value;
+        } else {
+          lines.add(BroughtChartLine(kind: ChartLineKind.text, text: trimmed));
+        }
       } else if (name == 'tuning') {
-        tuning ??= value;
+        if (_takesTheFact(tuning, value)) {
+          tuning = value;
+        } else {
+          lines.add(BroughtChartLine(kind: ChartLineKind.text, text: trimmed));
+        }
       } else if (_tabStart.contains(name)) {
         inTab = true;
       } else if (_tabEnd.contains(name)) {
@@ -301,6 +342,31 @@ BroughtChart readChart(String source) {
       continue;
     }
 
+    // A chord row is read as one before tablature is looked for, because the
+    // two spellings overlap: "G | C | D" is a row of chords written with bar
+    // lines and not a string of a tab (review, 19 September 2026).
+    if (_isChordLine(trimmed)) {
+      final next = index + 1 < raw.length ? raw[index + 1] : null;
+      if (next != null && _isWordsUnder(next)) {
+        final married = _chordsOverWords(line, next);
+        if (married != null) {
+          lines.add(married);
+          index += 2;
+          continue;
+        }
+        // Nothing on that row came back as a chord, so it is kept as it was
+        // written rather than thrown away. No line is ever lost.
+        lines.add(BroughtChartLine(kind: ChartLineKind.text, text: trimmed));
+        index += 1;
+        continue;
+      }
+      final alone = _chordsAlone(trimmed);
+      lines.add(alone ??
+          BroughtChartLine(kind: ChartLineKind.text, text: trimmed));
+      index += 1;
+      continue;
+    }
+
     if (_looksLikeTab(trimmed)) {
       lines.add(BroughtChartLine(kind: ChartLineKind.tab, text: line.trimRight()));
       index += 1;
@@ -309,28 +375,48 @@ BroughtChart readChart(String source) {
 
     final fact = _factIn(trimmed);
     if (fact != null) {
-      switch (fact.$1) {
-        case 'capo':
-          capo ??= fact.$2;
-        case 'key':
-          key ??= fact.$2;
-        case 'tuning':
-          tuning ??= fact.$2;
+      final said = fact.$2;
+      final kept = switch (fact.$1) {
+        'capo' => _takesTheFact(capo, said),
+        'key' => _takesTheFact(key, said),
+        _ => _takesTheFact(tuning, said),
+      };
+      if (kept) {
+        switch (fact.$1) {
+          case 'capo':
+            capo = said;
+          case 'key':
+            key = said;
+          case 'tuning':
+            tuning = said;
+        }
+      } else {
+        // A written key change before the last chorus, a second capo: the
+        // chart already said one of these and this is a different answer, so
+        // it stays on the page where the player can see it.
+        lines.add(BroughtChartLine(kind: ChartLineKind.text, text: trimmed));
       }
       index += 1;
       continue;
     }
 
-    if (_isChordLine(trimmed)) {
-      final next = index + 1 < raw.length ? raw[index + 1] : null;
-      if (next != null && _isWordsUnder(next)) {
-        lines.add(_chordsOverWords(line, next));
-        index += 2;
+    // "Intro: G  C  D" — a name for the part and the chords of it on one
+    // line, which is how a tab site writes an intro. Read as the two things
+    // it is, so the chords move with every other chord on the page when
+    // somebody transposes (review, 19 September 2026).
+    final labelled = _labelledChordRow(trimmed);
+    if (labelled != null) {
+      final row = _chordsAlone(labelled.$2);
+      if (row != null) {
+        lines
+          ..add(BroughtChartLine(
+            kind: ChartLineKind.heading,
+            text: labelled.$1,
+          ))
+          ..add(row);
+        index += 1;
         continue;
       }
-      lines.add(_chordsAlone(trimmed));
-      index += 1;
-      continue;
     }
 
     lines.add(_wordsWithInlineChords(trimmed));
@@ -370,7 +456,9 @@ BroughtChart readChart(String source) {
 /// spelled out to a stop of eight first, because a chart written in a text
 /// editor lines its chords up with tabs and a tab counted as one character
 /// puts every chord in the line over the wrong word.
-BroughtChartLine _chordsOverWords(String chordLine, String wordLine) {
+/// Null when nothing on the row above came back as a chord, so the caller can
+/// keep that row as it was written instead of losing it.
+BroughtChartLine? _chordsOverWords(String chordLine, String wordLine) {
   final above = _tabsOut(chordLine);
   final below = _tabsOut(wordLine);
   final indent = below.length - below.trimLeft().length;
@@ -384,9 +472,7 @@ BroughtChartLine _chordsOverWords(String chordLine, String wordLine) {
       at: (token.$2 - indent).clamp(0, words.length).toInt(),
     ));
   }
-  if (chords.isEmpty) {
-    return BroughtChartLine(kind: ChartLineKind.words, text: words);
-  }
+  if (chords.isEmpty) return null;
   chords.sort((a, b) => a.at.compareTo(b.at));
   return BroughtChartLine(
     kind: ChartLineKind.words,
@@ -395,13 +481,15 @@ BroughtChartLine _chordsOverWords(String chordLine, String wordLine) {
   );
 }
 
-/// A row of chords with nothing under it.
-BroughtChartLine _chordsAlone(String line) {
+/// A row of chords with nothing under it, or null when none of it read as a
+/// chord after all.
+BroughtChartLine? _chordsAlone(String line) {
   final chords = <BroughtChord>[];
   for (final token in _tokensWithColumns(_tabsOut(line))) {
     final name = _chordIn(token.$1);
     if (name != null) chords.add(BroughtChord(chord: name, at: 0));
   }
+  if (chords.isEmpty) return null;
   return BroughtChartLine(kind: ChartLineKind.chords, chords: chords);
 }
 
@@ -495,8 +583,47 @@ bool _isWordsUnder(String line) {
 ///
 /// Six strings and a wall of dashes: read it or do not, but a reader that
 /// "tidied" it would destroy the one thing it is.
+///
+/// A string's letter and a bar line are not enough on their own, because that
+/// is also how a row of chords is written: "G | C | D | G" is an intro, and
+/// reading it as a tab froze it in the original key while every other chord on
+/// the page moved (review, 19 September 2026). A fret or a dash has to follow
+/// the bar for the line to be tablature.
 bool _looksLikeTab(String line) =>
     _tabLine.hasMatch(line) || _dashRun.hasMatch(line);
+
+/// "Intro: G  C  D" — a part's name and the chords of it on one line.
+///
+/// Returns the name and the row, or null when what follows the colon is not a
+/// row of chords, which is every ordinary line of words with a colon in it.
+(String, String)? _labelledChordRow(String line) {
+  final match = _labelled.firstMatch(line);
+  if (match == null) return null;
+  final rest = match.group(2)!.trim();
+  if (!_isChordLine(rest)) return null;
+  return (match.group(1)!.trim(), rest);
+}
+
+/// Whether a fact the chart has already stated can be written into its slot.
+///
+/// The first answer stays. A second one that says the same thing is absorbed,
+/// and a second one that says something different is refused here so the
+/// caller can keep it on the page: a key change written before the last
+/// chorus is a line, and losing it would break the one rule this reader has.
+bool _takesTheFact(String? already, String value) =>
+    already == null || already.trim() == value.trim();
+
+/// Every kind of space a paste can arrive with, written as the plain one.
+///
+/// A chart copied out of an email, a Word document or a web page keeps its
+/// alignment with non-breaking spaces, because HTML collapses ordinary ones.
+/// Every column here is counted in characters and one of these is one
+/// character, so this changes what the row is made of and not where anything
+/// sits (review, 19 September 2026). The zero-width ones are taken out
+/// instead, for the same reason: they occupy no column.
+String _plainSpaces(String source) => source
+    .replaceAll(RegExp(r'[​‌‍﻿]'), '')
+    .replaceAll(RegExp(r'[   -   　]'), ' ');
 
 /// What a chart says about itself on a line of its own.
 ///
@@ -628,7 +755,11 @@ const Map<String, String> _blockNames = <String, String>{
 };
 
 final RegExp _bracketedHeading = RegExp(r'^\[([^\[\]]{1,60})\]$');
-final RegExp _tabLine = RegExp(r'^[eEaAdDgGbB][#b]?\s*[|:]');
+// A string's letter, a bar, and then a fret or a dash — see [_looksLikeTab].
+final RegExp _tabLine = RegExp(r'^[eEaAdDgGbB][#b]?\s*[|:]\s*[-–\d]');
+// A short name, a colon, and something after it. Whether the something is a
+// row of chords is [_labelledChordRow]'s question, not this one's.
+final RegExp _labelled = RegExp(r"^([A-Za-z][A-Za-z0-9 '’.#\-]{0,24}):\s*(\S.*)$");
 final RegExp _dashRun = RegExp(r'[-–]{5,}');
 final RegExp _capoLine =
     RegExp(r'^capo\s*:?\s*(\d{1,2}[^,;]{0,20})$', caseSensitive: false);

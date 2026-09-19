@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -124,15 +126,42 @@ Future<String?> _pasteAChart(BuildContext context) async {
   return typed;
 }
 
+/// What a chart is saved as. ChordPro's own three, OnSong's, and the plain
+/// text file somebody typed a chart into.
+const List<String> _chartExtensions = <String>[
+  'cho', 'chopro', 'crd', 'pro', 'txt',
+];
+
+/// Whether the system picker can be asked for those extensions by name.
+///
+/// On Android it cannot, and asking is worse than not asking: the plugin
+/// turns each extension into a MIME type through `MimeTypeMap` and silently
+/// drops the ones it has never heard of (android_file_picker 1.1.1,
+/// `FileUtils.getMimeTypes`), falling back to `*/*` only when *none* of them
+/// resolve. `txt` resolves, so the filter that reaches the picker is
+/// `[text/plain]` alone and the .cho somebody exported from OnSong is greyed
+/// out in front of them — the one file they came to open (review, 19
+/// September 2026). So Android is shown everything and the name is checked
+/// here instead. Every other platform filters properly and keeps doing it.
+bool get _pickerCanFilter =>
+    kIsWeb || defaultTargetPlatform != TargetPlatform.android;
+
 Future<String?> _openAChartFile(BuildContext context) async {
   try {
     final file = await FilePicker.pickFile(
-      type: FileType.custom,
-      // What a chart is saved as. ChordPro's own three, OnSong's, and the
-      // plain text file somebody typed a chart into.
-      allowedExtensions: const <String>['cho', 'chopro', 'crd', 'pro', 'txt'],
+      type: _pickerCanFilter ? FileType.custom : FileType.any,
+      allowedExtensions: _pickerCanFilter ? _chartExtensions : null,
     );
     if (file == null) return null;
+    if (!_pickerCanFilter &&
+        !_chartExtensions.contains(file.extension?.toLowerCase())) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showNote(
+          'That is not a chart file. Open a .cho, .chopro, .crd, .pro or .txt.',
+        );
+      }
+      return null;
+    }
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty) {
       if (context.mounted) {

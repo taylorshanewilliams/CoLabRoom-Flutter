@@ -8,6 +8,7 @@ import '../../domain/music_models.dart';
 import '../../services/brought_chart.dart';
 import '../../services/horn_reading.dart';
 import '../../services/number_reading.dart';
+import '../../services/user_facing_error.dart';
 import 'bring_a_chart_flow.dart';
 import 'brought_chart_view.dart';
 import 'music_reference_sheets.dart';
@@ -31,6 +32,7 @@ class ChartOnTheSheet extends StatefulWidget {
   const ChartOnTheSheet({
     required this.project,
     required this.canEdit,
+    this.onSetKey,
     super.key,
   });
 
@@ -41,6 +43,16 @@ class ChartOnTheSheet extends StatefulWidget {
   /// reads the chart and is not offered a control the room would refuse.
   final bool canEdit;
 
+  /// Says what key the song is in (0144), for the owner and editors and
+  /// nobody else — null for somebody who may only read.
+  ///
+  /// A song with no recording has no key badge and no song sheet, so without
+  /// this the key of a chart that does not state one could never be said at
+  /// all — and the capo and the numbers, both counted from a key, would be
+  /// unreachable on exactly the songs this feature exists for (review, 19
+  /// September 2026).
+  final Future<void> Function(String? key)? onSetKey;
+
   @override
   State<ChartOnTheSheet> createState() => _ChartOnTheSheetState();
 }
@@ -49,6 +61,21 @@ class _ChartOnTheSheetState extends State<ChartOnTheSheet> {
   SongChart? _kept;
   BroughtChart? _read;
   bool _loading = true;
+
+  /// Whether the room was asked and could not answer.
+  ///
+  /// It matters because bringing a chart writes over whatever is there and
+  /// there is no history to get the old one back from. A select that timed
+  /// out on a train looks exactly like a song with no chart, so somebody
+  /// would paste a rough version over the careful one the owner typed out
+  /// last week (review, 19 September 2026). After a failure the offer is to
+  /// look again, not to replace something nobody has seen.
+  bool _failed = false;
+
+  /// The look that is going on now, so that bringing a chart can wait for it
+  /// rather than race it. Tapping the moment the page appears must not decide
+  /// "there is nothing here" from a question that has not come back yet.
+  Future<void>? _looking;
 
   /// The readings, kept on this device and never shared with the room — the
   /// same four the song sheet keeps, read from the same stores, so a person
@@ -128,8 +155,21 @@ class _ChartOnTheSheetState extends State<ChartOnTheSheet> {
     unawaited(_loadNumbers());
   }
 
-  Future<void> _load() async {
+  /// Asks the room whether this song has a chart, and remembers the asking.
+  Future<void> _load() {
+    final work = _lookForIt();
+    _looking = work;
+    return work;
+  }
+
+  Future<void> _lookForIt() async {
     final repository = BetaScope.of(context, listen: false).repository;
+    if (mounted && !_loading) {
+      setState(() {
+        _loading = true;
+        _failed = false;
+      });
+    }
     try {
       final kept = await repository.broughtChart(widget.project.id);
       if (!mounted) return;
@@ -137,12 +177,19 @@ class _ChartOnTheSheetState extends State<ChartOnTheSheet> {
         _kept = kept;
         _read = kept == null ? null : readChart(kept.body);
         _loading = false;
+        _failed = false;
       });
     } catch (_) {
-      // A chart that could not be read back leaves the door where it is.
       // Nothing about this song stops working because one extra row did not
-      // arrive, and a page full of error is worse than a page with a door.
-      if (mounted) setState(() => _loading = false);
+      // arrive, and a page full of error is worse than a page with a door —
+      // but the door that would be here writes over whatever it could not
+      // see, so what is offered after a failure is looking again.
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _failed = true;
+        });
+      }
     }
   }
 
@@ -215,9 +262,51 @@ class _ChartOnTheSheetState extends State<ChartOnTheSheet> {
           ? _capo
           : 0;
 
-  String? get _key => _read == null ? null : chartKey(_read!);
+  /// The key this chart is read in.
+  ///
+  /// What the chart says about itself first, because that is the page in
+  /// front of the person; the band's key (0144) behind it, because a room
+  /// that has said what key the song is in has said it about the song and not
+  /// only about its recording. Read through [SongProject.songKey] rather than
+  /// off `keyOverride`, so nothing here counts numbers from a key the rest of
+  /// the app is not using (review, 19 September 2026).
+  String? get _key {
+    final chart = _read;
+    return (chart == null ? null : chartKey(chart)) ??
+        widget.project.songKey(null);
+  }
+
+  /// Says the key for the whole room, and hands a refusal back to be said on
+  /// the sheet the person tapped in rather than underneath it.
+  Future<String?> _sayTheKey(String? key) async {
+    final write = widget.onSetKey;
+    if (write == null) return null;
+    try {
+      await write(key);
+      if (mounted) setState(() {});
+      return null;
+    } catch (error) {
+      return reportAndDescribe(
+        error,
+        service: 'app',
+        stage: 'set_song_key',
+        route: 'Bring a chart',
+        projectId: widget.project.id,
+      );
+    }
+  }
 
   Future<void> _bring() async {
+    // Never over a chart nobody has seen. The look that is going on now
+    // answers first, so a tap the moment the page appears cannot decide there
+    // is nothing here from a question that has not come back (review, 19
+    // September 2026).
+    await _looking;
+    if (!mounted) return;
+    if (_failed) {
+      unawaited(_load());
+      return;
+    }
     final scope = BetaScope.of(context, listen: false);
     final chart = await showBringAChartFlow(
       context,
@@ -262,6 +351,8 @@ class _ChartOnTheSheetState extends State<ChartOnTheSheet> {
           chordAsPlayed(chord, transpose: _transpose, key: key),
       ],
       songKey: key,
+      overridden: widget.project.keyOverride != null,
+      onKey: widget.onSetKey == null ? null : _sayTheKey,
     ));
   }
 
@@ -274,8 +365,14 @@ class _ChartOnTheSheetState extends State<ChartOnTheSheet> {
         if (chart == null)
           _NoChartYet(
             loading: _loading,
+            failed: _failed,
             canEdit: widget.canEdit,
-            onBring: widget.canEdit ? () => unawaited(_bring()) : null,
+            // After a failure the only honest offer is to ask the room again.
+            onBring: _failed
+                ? () => unawaited(_load())
+                : widget.canEdit
+                    ? () => unawaited(_bring())
+                    : null,
           )
         else ...<Widget>[
           _HowYouReadIt(
@@ -324,11 +421,16 @@ class _ChartOnTheSheetState extends State<ChartOnTheSheet> {
 class _NoChartYet extends StatelessWidget {
   const _NoChartYet({
     required this.loading,
+    required this.failed,
     required this.canEdit,
     required this.onBring,
   });
 
   final bool loading;
+
+  /// The room was asked and did not answer, so whether there is a chart here
+  /// is not known — and offering to bring one would offer to write over it.
+  final bool failed;
   final bool canEdit;
   final VoidCallback? onBring;
 
@@ -357,7 +459,11 @@ class _NoChartYet extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      canEdit ? 'Bring a chart' : 'No chart yet',
+                      failed
+                          ? 'Could not look for the chart'
+                          : canEdit
+                              ? 'Bring a chart'
+                              : 'No chart yet',
                       style: const TextStyle(
                         color: AppColors.text,
                         fontSize: 15,
@@ -366,13 +472,15 @@ class _NoChartYet extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      loading
-                          ? 'Looking for one…'
-                          : canEdit
-                              ? 'Paste or open a chart you already have, and '
-                                  'read it here in your own key.'
-                              : 'When somebody in this room brings one, it '
-                                  'will be here.',
+                      failed
+                          ? 'Tap to look again.'
+                          : loading
+                              ? 'Looking for one…'
+                              : canEdit
+                                  ? 'Paste or open a chart you already have, '
+                                      'and read it here in your own key.'
+                                  : 'When somebody in this room brings one, '
+                                      'it will be here.',
                       style: const TextStyle(
                         color: AppColors.muted,
                         fontSize: 13,

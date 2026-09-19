@@ -126,12 +126,31 @@ Future<SongProject?> showLearnASongFlow(
     return project;
   }
 
-  if (!context.mounted) return project;
-  final answer =
-      await showWhoseSongSheet(context, songTitle: named.title) ??
-          SongOrigin.cover;
+  // Somebody else's *before* the question is asked, rather than after it is
+  // answered.
+  //
+  // Everything between here and an answer can end the flow — the phone
+  // backgrounded and reaped with the sheet open, a connection that drops, the
+  // screen going away — and each of those used to leave the song unanswered
+  // instead (review, 19 September 2026). Unanswered is not the same as
+  // somebody else's: 0155 refuses the Open Mic to a song that `is not
+  // distinct from 'cover'`, so a null walks through the door this answer
+  // exists to close. The brief says a song made by bringing a chart *starts*
+  // as somebody else's, and this is where starting happens.
   try {
-    await controller.repository.setSongOrigin(project.id, answer);
+    await controller.repository.setSongOrigin(project.id, SongOrigin.cover);
+  } catch (error) {
+    if (context.mounted) _showError(context, error);
+  }
+
+  if (!context.mounted) return project;
+  final answer = await showWhoseSongSheet(context, songTitle: named.title);
+  try {
+    // Only a different answer is worth a second write; walking away from the
+    // sheet leaves the one already on the song.
+    if (answer != null && answer != SongOrigin.cover) {
+      await controller.repository.setSongOrigin(project.id, answer);
+    }
     // Back into the song the caller is about to open, so the answer is on the
     // song rather than only in the database until the next full reload.
     await controller.refreshProject(project.id);
@@ -457,6 +476,10 @@ class _RoomPickerSheetState extends State<_RoomPickerSheet> {
                         itemBuilder: (context, index) {
                           final room = rooms[index];
                           return InkWell(
+                            // Named, because the room's name is also on the
+                            // screen behind this sheet and a test that taps
+                            // the words cannot tell the two apart.
+                            key: Key('pick_room_${room.id}'),
                             borderRadius: BorderRadius.circular(20),
                             onTap: () => Navigator.pop(context, _RoomChoice.room(room)),
                             child: AppSurface(

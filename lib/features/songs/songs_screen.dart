@@ -1244,7 +1244,16 @@ class _SongsScreenState extends State<SongsScreen> {
   Future<void> _learnASong() async {
     final controller = BetaScope.of(context);
     final project = await showLearnASongFlow(context, controller);
-    if (project != null && mounted) _open(project);
+    if (project == null || !mounted) return;
+    // Onto the sheet, not onto the words editor.
+    //
+    // The song has to open where the chart is. Somebody who has just pasted
+    // one and landed on the workspace finds an empty lyric editor with Record
+    // as the lit thing to do and no chords anywhere, and concludes the chart
+    // was lost (review, 19 September 2026). The song itself goes on the stack
+    // underneath, so back still lands in the song rather than out of it.
+    _open(project);
+    _openSheet(project);
   }
 
   /// A room of its own, without having to be making a song first.
