@@ -7,6 +7,7 @@ import 'package:colabroom/features/songs/new_song_flow.dart';
 import 'package:colabroom/features/songs/songs_screen.dart';
 import 'package:colabroom/features/workspace/musician_sheet_logic.dart';
 import 'package:colabroom/features/workspace/song_analysis_screen.dart';
+import 'package:colabroom/features/workspace/song_workspace_screen.dart';
 import 'package:colabroom/services/brought_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -231,6 +232,31 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('bring_a_chart_paste')), findsOneWidget);
       expect(find.byKey(const Key('bring_a_chart_file')), findsOneWidget);
+    });
+
+    testWidgets('a song nobody has recorded still reaches its sheet',
+        (tester) async {
+      // The one that would have made the whole feature unreachable: the Song
+      // Sheet pill used to be dropped from a song with no recording, on the
+      // reasoning that Record went to the same screen. A song with no
+      // recording is exactly the song whose chords live on a brought chart.
+      final controller = await _controllerFor(InMemoryMusicRepository.seeded());
+      addTearDown(controller.dispose);
+      final project = controller.projects.first;
+      await _boot(tester, SongWorkspaceScreen(projectId: project.id),
+          controller);
+      for (var i = 0; i < 5; i += 1) {
+        await tester.pump(const Duration(milliseconds: 250));
+      }
+
+      await tester.tap(find.byKey(const Key('workspace_analyze_button')));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('bring_a_chart_door')),
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      expect(find.text('Bring a chart'), findsOneWidget);
     });
   });
 

@@ -6,7 +6,7 @@ import 'package:colabroom/features/workspace/song_workspace_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// The screen says which of its five doors you probably want.
+/// The screen says which of its doors you probably want.
 ///
 /// The workspace toolbar carried five equal-weight pills, and on a song with
 /// nothing recorded **none of them was emphasised** — the one state where
@@ -14,9 +14,15 @@ import 'package:flutter_test/flutter_test.dart';
 /// It already knew: `hasRecording` is right there and two of the labels change
 /// on it.
 ///
-/// Two of the five also went to the same place. "Make it" and "Record" both
-/// push `SongAnalysisScreen`, one of them with `autoRecord` — so the quieter
-/// button was the one that took an extra tap to do the same thing.
+/// Emphasis, not removal. The sheet pill was dropped from an empty song
+/// altogether on the reasoning that Record went to the same screen anyway;
+/// that stopped being true the day the sheet got a chart somebody could bring
+/// (0168), because a song with no recording is exactly the song whose chords
+/// live on a brought chart, and the only pill left reaching them started
+/// recording on arrival. Landscape never hid it either, so two orientations
+/// were offering the same song different doors. It is back, and quiet: a
+/// condition may change what a door looks like, never whether it is there
+/// (Taylor, 19 September 2026).
 Future<void> _open(WidgetTester tester) async {
   tester.view.physicalSize = const Size(390, 900);
   tester.view.devicePixelRatio = 1.0;
@@ -41,20 +47,29 @@ Future<void> _open(WidgetTester tester) async {
   }
 }
 
+/// The colour of a pill's label, which is how the toolbar says which door it
+/// thinks you want: the text colour when it is lit, muted when it is not.
+Color _pillColour(WidgetTester tester, String key) => tester
+    .widget<Text>(find.descendant(
+      of: find.byKey(Key(key)),
+      matching: find.byType(Text),
+    ))
+    .style!
+    .color!;
+
 void main() {
   testWidgets('a song with nothing on it says to record', (tester) async {
     await _open(tester);
 
     expect(find.byKey(const Key('workspace_record_button')), findsOneWidget);
-    // Nothing else on this screen can happen until something is recorded, so
-    // the sheet button — which on an empty song is the same destination one
-    // tap further away — is not offered.
-    expect(
-      find.byKey(const Key('workspace_analyze_button')),
-      findsNothing,
-      reason: 'on an empty song this was the same destination as Record, and '
-          'the slower of the two',
-    );
+    // Record is the lit one, because nothing this app works out for you can
+    // happen until something is recorded.
+    expect(_pillColour(tester, 'workspace_record_button'), AppColors.text);
+
+    // And the sheet is still there, quietly: it is where a chart somebody
+    // brought is read, and that needs no recording at all (0168).
+    expect(find.byKey(const Key('workspace_analyze_button')), findsOneWidget);
+    expect(_pillColour(tester, 'workspace_analyze_button'), AppColors.muted);
   });
 
   testWidgets('and the other verbs are still there', (tester) async {
