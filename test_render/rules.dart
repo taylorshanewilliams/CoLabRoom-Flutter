@@ -1002,9 +1002,9 @@ List<Finding> asFindings(List<FlutterErrorDetails> complaints) {
   return <Finding>[
     for (final details in complaints)
       // An overflow reads as its own row rather than as one more exception.
-      // It is the one complaint here that is a gate: the walk fails on it, so
-      // somebody reading the report should not have to pick it out of a
-      // heading that also holds font fetches and absent platform channels.
+      // Both of these fail the walk, but they are not the same piece of work:
+      // "this row is fourteen pixels too wide" and "this screen did not draw
+      // at all" want different people on different afternoons.
       if (isOverflow(details))
         Finding(
           rule: 'Overflowed',

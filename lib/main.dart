@@ -6,6 +6,7 @@ import 'package:flutter/semantics.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app/beta_config.dart';
+import 'app/bundled_fonts.dart';
 import 'app/colabroom_app.dart';
 import 'app/colabroom_theme.dart';
 import 'app/music_beta_controller.dart';
@@ -64,6 +65,9 @@ Future<void> main() async {
   // has not been asked for yet, which is all this needs. See
   // enableWebSemantics.
   enableWebSemantics();
+  // Before the first frame, so Analyze's heading draws from the asset bundle
+  // rather than fetching a typeface. See useBundledFonts.
+  useBundledFonts();
   // Before runApp, so it is asked about a pushed address before the
   // framework is: the browser's forward button, or a link opening the app.
   IncomingAddresses.install();

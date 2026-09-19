@@ -49,6 +49,7 @@ import '../../services/spoken_chords.dart';
 import '../../services/take_naming.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/microphone_disclosure.dart';
+import '../../widgets/note_that_fits.dart';
 import '../../widgets/text_measures.dart';
 import '../layers/my_part.dart';
 import '../layers/song_level_store.dart';
@@ -992,7 +993,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     // stopped leading. Chorus at ¾ is on your Home").
     ScaffoldMessenger.maybeOf(context)
       ?..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(note), duration: const Duration(seconds: 4)));
+      // NoteThatFits rather than a bare Text: at the largest iOS text size
+      // these sentences are taller than the room a floating snackbar has, and
+      // the box was being positioned off the top of the screen.
+      ..showSnackBar(SnackBar(
+          content: NoteThatFits(note),
+          duration: const Duration(seconds: 4)));
   }
 
   /// What this screen tells its followers: where the song is, and nothing
@@ -3288,7 +3294,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         _loop = _loopFor(_loop?.startMs, _loop?.endMs);
       });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(
+        content: NoteThatFits(reportAndDescribe(
           error,
           service: 'app',
           stage: 'set_song_cycle',
@@ -3324,7 +3330,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         _loop = _loopFor(_loop?.startMs, _loop?.endMs);
       });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(reportAndDescribe(
+        content: NoteThatFits(reportAndDescribe(
           error,
           service: 'app',
           stage: 'set_bar_one',

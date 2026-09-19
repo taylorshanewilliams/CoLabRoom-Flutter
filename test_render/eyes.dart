@@ -22,6 +22,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:colabroom/app/bundled_fonts.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -110,7 +111,19 @@ bool _fontsLoaded = false;
 ///
 /// Roboto and MaterialIcons both sit in the SDK's own cache, so there is
 /// nothing to vendor and nothing to keep in sync with a pubspec.
+///
+/// The app's own face is the exception and is handled first. Analyze titles
+/// itself in Fraunces, which `google_fonts` used to fetch from
+/// fonts.gstatic.com at first use — and a fetch in a test throws as a raw zone
+/// error, outside `FlutterError.onError`, where nothing below could sort it
+/// out of the findings. Every device that walked as far as Analyze failed on
+/// it, so this harness exited non-zero whatever the app did and a run had to
+/// be judged by reading `build/eyes/REPORT.md` instead. The face is an asset
+/// now; `useBundledFonts` points google_fonts at it and forbids fetching, so
+/// the walk draws the real heading and the exit code means something again.
 Future<void> loadRealFonts() async {
+  useBundledFonts();
+
   if (_fontsLoaded) return;
   _fontsLoaded = true;
 
@@ -198,7 +211,6 @@ void stubPlatformChannels() {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   for (final name in const <String>[
-    'xyz.luan/audioplayers',
     'xyz.luan/audioplayers.global',
     'com.llfbandit.record/messages',
     'plugins.flutter.io/path_provider',
@@ -208,12 +220,81 @@ void stubPlatformChannels() {
       (MethodCall call) async => null,
     );
   }
+
+  // The player channel, answered by hand rather than with the rest, because
+  // answering it is also the only chance to answer the channel it is about to
+  // create.
+  //
+  // Each AudioPlayer gets its own event channel named
+  // `xyz.luan/audioplayers/events/<uuid>`, and the uuid is made by the app at
+  // the moment the player is constructed — so there is no name to register in
+  // advance, and `setMockStreamHandler` takes an exact name with no wildcard.
+  // Left unanswered the player threw MissingPluginException while activating
+  // its stream, which is what failed 'Profile phone' on a screen where nothing
+  // was wrong with the app.
+  //
+  // The hook is reliable rather than lucky: audioplayers calls `create` on
+  // this channel with the playerId and *awaits* it before subscribing
+  // (AudioPlayer._create → AudioplayersPlatform.create → createEventStream),
+  // so a handler registered here is always in place before the listen.
+  messenger.setMockMethodCallHandler(
+    const MethodChannel('xyz.luan/audioplayers'),
+    (MethodCall call) async {
+      if (call.method == 'create') {
+        final Object? arguments = call.arguments;
+        final Object? playerId =
+            arguments is Map ? arguments['playerId'] : null;
+        if (playerId is String) {
+          messenger.setMockStreamHandler(
+            EventChannel('xyz.luan/audioplayers/events/$playerId'),
+            MockStreamHandler.inline(
+              onListen: (Object? args, MockStreamHandlerEventSink sink) {},
+            ),
+          );
+        }
+      }
+      return null;
+    },
+  );
+
   messenger.setMockStreamHandler(
     const EventChannel('xyz.luan/audioplayers.global/events'),
     MockStreamHandler.inline(
       onListen: (Object? args, MockStreamHandlerEventSink sink) {},
     ),
   );
+}
+
+// ----------------------------------------------------------------- shadows
+
+/// Runs [body] with shadows drawn, and puts them back before it returns.
+///
+/// The binding turns shadows off so goldens stay stable across platforms.
+/// These images are for looking at rather than diffing, and an app
+/// photographed without its elevation is flatter than the real thing — so the
+/// harness turns them back on.
+///
+/// It has to be per test, and it has to be inside the body.
+/// `debugDisableShadows` is one of the painting debug variables, and the
+/// framework checks that all of them are back at their defaults at the end of
+/// every test body — before it runs any tearDown. Set in `setUpAll` and
+/// restored in `tearDownAll`, the check fires on every test with "the value of
+/// a painting debug variable was changed by the test", which reads like a
+/// rendering fault and is nothing of the kind: it failed all eight welcome
+/// shots and both profile shots, on screens where nothing at all was wrong
+/// with the app.
+///
+/// `finally` rather than two statements, so a body that throws still leaves
+/// the flag as it found it and the *next* test fails for its own reasons rather
+/// than for this one's. the_app_test.dart and the_strip_test.dart do the same
+/// thing inline.
+Future<void> withShadows(Future<void> Function() body) async {
+  debugDisableShadows = false;
+  try {
+    await body();
+  } finally {
+    debugDisableShadows = true;
+  }
 }
 
 // -------------------------------------------------------------- complaints
@@ -232,28 +313,25 @@ final Set<String> absentPlugins = <String>{};
 
 /// Collects rather than aborts.
 ///
-/// **One thing this cannot catch, and it is why the harness still exits
-/// non-zero.** The Analyze screen titles itself in Fraunces, which
-/// `google_fonts` fetches from fonts.gstatic.com at first use. There is no
-/// network in a test, so it throws — and it throws as a raw zone error that
-/// reaches flutter_test directly rather than through `FlutterError.onError`,
-/// so nothing here can sort it out of the findings. Every device that walks as
-/// far as Analyze fails on it.
-///
-/// It is not an app defect: on a device the fetch succeeds, and on a device
-/// with no connection the heading falls back to the platform font and the
-/// screen is fine. It *is* an argument for bundling that one face — it would
-/// remove a network dependency from a screen people open offline, and it would
-/// make this harness green.
-///
-/// Until then: judge a run by the sheets and the two reports, which are all
-/// written regardless, and not by the exit code.
+/// The exit code means something again, which it did not until the Fraunces
+/// face was bundled. The Analyze screen titles itself in Fraunces, which
+/// `google_fonts` used to fetch from fonts.gstatic.com at first use; there is
+/// no network in a test, so it threw, and it threw as a raw zone error that
+/// reached flutter_test directly rather than through `FlutterError.onError`,
+/// where nothing here could sort it out of the findings. Every device that
+/// walked as far as Analyze failed on it, so a run had to be judged by reading
+/// the sheets and `build/eyes/REPORT.md` rather than by whether it passed —
+/// which is a bad habit to ask of the one tool meant to say something is
+/// wrong. The face is an asset now (`useBundledFonts`), so a failure here is
+/// the app's again.
 ///
 /// The suite in `test/` is a gate and is supposed to stop at the first
-/// problem. This is a survey: a screen that throws is the most interesting
-/// thing it could possibly find, and stopping there means never photographing
-/// the eleven screens after it. So every complaint is recorded and the walk
-/// carries on.
+/// problem. This one collects instead: a screen that throws is the most
+/// interesting thing it could possibly find, and stopping there means never
+/// photographing the eleven screens after it. So every complaint is recorded
+/// and the walk carries on. Collecting is not forgiving, though — a recorded
+/// throw still fails that device's walk at the end of it (see `_broken` in
+/// the_app_test.dart), so the walk is complete *and* red.
 /// Returns the function that puts the framework's own handler back.
 ///
 /// Chaining matters more than it looks. The binding installs its own
@@ -296,9 +374,9 @@ VoidCallback collectComplaints() {
 /// messages reads "A RenderFlex overflowed by 14 pixels on the right" — so the
 /// phrase is the reliable thing to match on rather than the class name.
 ///
-/// Told apart from the rest because this one is a gate. The walk is a survey
-/// and reports everything else for a human to weigh up; text that runs off the
-/// side of the screen is not a matter of taste, and since the reader's own text
+/// Told apart from the rest so that it reads as itself in the report. It is
+/// not the only thing the walk fails on — a build that threw does too — but it
+/// is the one with a name somebody can act on, and since the reader's own text
 /// size stopped being clamped it is the failure that would come back first.
 bool isOverflow(FlutterErrorDetails details) =>
     details.exception.toString().contains('overflowed by');

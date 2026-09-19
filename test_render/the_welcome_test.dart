@@ -32,12 +32,9 @@ void main() {
     await loadRealFonts();
     // ignore: invalid_use_of_visible_for_testing_member
     SharedPreferences.setMockInitialValues(<String, Object>{});
-    debugDisableShadows = false;
   });
 
-  tearDownAll(() => debugDisableShadows = true);
-
-  testWidgets('the questions', (tester) async {
+  testWidgets('the questions', (tester) async => withShadows(() async {
     tester.view.physicalSize = _phone.size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -105,10 +102,10 @@ void main() {
           title: 'Welcome — 390x844',
           columns: shots.length,
         ));
-  });
+  }));
 
   // The first minute: one invitation, one way out.
-  testWidgets('the first run', (tester) async {
+  testWidgets('the first run', (tester) async => withShadows(() async {
     tester.view.physicalSize = _phone.size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -129,10 +126,10 @@ void main() {
       final ui.Image image = await take(tester);
       await writePng(image, 'welcome', '0-play-first');
     });
-  });
+  }));
 
   // The same flow asked for a second time: the tour.
-  testWidgets('the tour', (tester) async {
+  testWidgets('the tour', (tester) async => withShadows(() async {
     tester.view.physicalSize = _phone.size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -191,13 +188,14 @@ void main() {
           columns: shots.length,
           thumbWidth: 230,
         ));
-  });
+  }));
 
   // Each interlude, sampled across its own run. A still of a transition is
   // not the transition, but five stills say whether the shapes are right —
   // which is the part that cannot be checked any other way without a device.
   for (final kind in Interlude.values) {
-    testWidgets('the ${kind.name} interlude', (tester) async {
+    testWidgets('the ${kind.name} interlude',
+        (tester) async => withShadows(() async {
       tester.view.physicalSize = _phone.size;
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -255,6 +253,6 @@ void main() {
 
       // Let the controller finish so it is not disposed mid-flight.
       await tester.pump(const Duration(seconds: 2));
-    });
+    }));
   }
 }

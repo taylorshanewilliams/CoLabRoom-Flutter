@@ -17,15 +17,13 @@ void main() {
     await loadRealFonts();
     // ignore: invalid_use_of_visible_for_testing_member
     SharedPreferences.setMockInitialValues(<String, Object>{});
-    debugDisableShadows = false;
   });
-  tearDownAll(() => debugDisableShadows = true);
 
   for (final device in const <Device>[
     Device('Profile phone', Size(390, 900)),
     Device('Profile desk', Size(1440, 1000)),
   ]) {
-    testWidgets(device.name, (tester) async {
+    testWidgets(device.name, (tester) async => withShadows(() async {
       stubPlatformChannels();
       final restore = collectComplaints();
       tester.view.physicalSize = device.size;
@@ -57,6 +55,6 @@ void main() {
       });
 
       restore();
-    });
+    }));
   }
 }

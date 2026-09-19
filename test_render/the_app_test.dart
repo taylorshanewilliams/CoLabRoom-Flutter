@@ -12,9 +12,8 @@
 //
 // Not run by `flutter test`, which walks `test/` only. This is mostly a thing
 // you point at the app when you want to know how it is doing rather than a
-// gate — with one exception. A screen that overflowed fails its device's walk,
-// because the reader's own text size is no longer clamped and a row that runs
-// off the side at 2x is not a matter of taste. See _overflowed.
+// gate — with two exceptions. A screen that threw while it was being drawn,
+// and a screen that overflowed, both fail their device's walk. See _broken.
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -53,27 +52,42 @@ final List<SilentThing> _silent = <SilentThing>[];
 /// out loud in `SILENT.md` rather than left to be assumed.
 final Map<String, int> _judged = <String, int>{};
 
-/// The one finding this walk is a gate for.
+/// The findings this walk is a gate for: a screen broken rather than untidy.
 ///
-/// Everything else here is a survey: it is written down, a human weighs it up,
+/// Everything else here is a survey. It is written down, a human weighs it up,
 /// and the walk carries on so the twelve screens after a bad one still get
-/// photographed. A box that could not hold its text is different. Since
-/// ColabRoomApp stopped clamping the reader's own text size — Every Musician,
-/// Same Song, 17 September 2026 — the largest iOS size reaches these screens
-/// for real, and a row that runs off the side at 2x is a musician who cannot
-/// read the app. So overflow is collected per device and asserted at the end
-/// of that device's walk, which keeps the walk complete and still fails.
-final List<Finding> _overflowed = <Finding>[];
+/// photographed. Two things are not a matter of taste.
+///
+/// A box that could not hold its text: since ColabRoomApp stopped clamping the
+/// reader's own text size — Every Musician, Same Song, 17 September 2026 — the
+/// largest iOS size reaches these screens for real, and a row that runs off
+/// the side at 2x is a musician who cannot read the app.
+///
+/// A screen that threw while it was being drawn: it is the most serious thing
+/// this walk can find, and until today it was survey-only. The walk records
+/// the exception, drains it with `takeException` so the next screen is still
+/// photographed, and then exited zero — so a screen whose build crashed on
+/// every one of the nine devices passed, and pass or fail still had to be read
+/// out of `REPORT.md` by eye. That is the exact habit this harness exists to
+/// end, so both are collected per device and asserted at the end of that
+/// device's walk, which keeps the walk complete and still fails.
+final List<Finding> _broken = <Finding>[];
 
-String _overflowReport(String device) {
+/// Whether [f] is one of the two the walk fails on.
+bool _isBroken(Finding f) =>
+    f.rule == 'Overflowed' || f.rule == 'Threw while drawing';
+
+String _brokenReport(String device) {
   final lines = <String>[
-    'the app overflowed on $device, at ${_overflowed.length} place(s):',
+    'the app is broken on $device, in ${_broken.length} place(s):',
     '',
-    for (final f in _overflowed) '  · ${f.screen}: ${f.detail}',
+    for (final f in _broken) '  · ${f.screen}: [${f.rule}] ${f.detail}',
     '',
     'Text wraps or the screen scrolls; nothing is cut off and nothing is '
         'shrunk to fit. A fixed height becomes an intrinsic one, and a Row '
-        'holding text gets Flexible children.',
+        'holding text gets Flexible children. Nothing throws while it draws, '
+        'at any of the nine sizes — including the largest iOS text size, '
+        'which is a real phone somebody is holding.',
   ];
   return lines.join(Platform.lineTerminator);
 }
@@ -297,13 +311,14 @@ void main() {
       'welcome_flow_seen_v2': true,
       'welcome_room_questions_seen_v1': true,
     });
-    // Analyze titles itself in Fraunces, which google_fonts fetches from
-    // fonts.gstatic.com at runtime. There is no network here, so it throws
-    // whichever way this is set: left alone it fails on the request, turned
-    // off it fails on the missing asset. Left alone is the honest one — it is
-    // what a device with no connection does — and `collectComplaints` sorts
-    // the result out of the findings, because a fetched font falling back to
-    // the platform one is not a defect in this app.
+    // Analyze titles itself in Fraunces, and that face is an asset now rather
+    // than something google_fonts fetches from fonts.gstatic.com when the
+    // screen is first drawn. `loadRealFonts` has already called
+    // `useBundledFonts`, so the heading photographed here is the heading on a
+    // device — including a device with no signal, which is where this screen
+    // gets opened. It is also what stopped this walk exiting non-zero on every
+    // device that reached Analyze: the failed fetch arrived as a raw zone
+    // error that no handler could sort out of the findings.
   });
 
   tearDownAll(() async {
@@ -333,7 +348,7 @@ void main() {
       // tearDowns, so an addTearDown here fails the test it just passed.
       stubPlatformChannels();
       final restoreErrors = collectComplaints();
-      _overflowed.clear();
+      _broken.clear();
 
       // Shadows on, per test, and put back before the test ends.
       //
@@ -435,7 +450,7 @@ void main() {
           f.device = device.name;
         }
         _findings.addAll(found);
-        _overflowed.addAll(found.where((f) => f.rule == 'Overflowed'));
+        _broken.addAll(found.where(_isBroken));
 
         // One phone only. The point of this table is comparing screens with
         // each other, and six copies of every row at different widths would
@@ -636,7 +651,7 @@ void main() {
         f.device = device.name;
         f.screen = 'after the walk';
         _findings.add(f);
-        if (f.rule == 'Overflowed') _overflowed.add(f);
+        if (_isBroken(f)) _broken.add(f);
       }
       while (tester.takeException() != null) {}
       restoreErrors();
@@ -648,7 +663,7 @@ void main() {
 
       // Last, so the sheets and the report are written either way and the
       // walk is complete before anything can throw.
-      expect(_overflowed, isEmpty, reason: _overflowReport(device.name));
+      expect(_broken, isEmpty, reason: _brokenReport(device.name));
     }, timeout: const Timeout(Duration(minutes: 2)));
   }
 }

@@ -1,0 +1,11 @@
+# Font faces are binary and must never be line-ending converted.
+#
+# Git works this out for itself from the bytes, and got it right when
+# google_fonts/Fraunces-Medium.ttf was added. Said out loud anyway because of
+# what a wrong guess would cost: a face with its CRs rewritten still has the
+# right name and the right size, so it would be committed, pushed and shipped,
+# and the first sign of trouble would be Analyze drawing its heading in
+# something else. This repo is checked out on Windows, where that conversion
+# is the default rather than the exception.
+*.ttf binary
+*.otf binary
