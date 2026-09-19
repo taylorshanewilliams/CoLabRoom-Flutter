@@ -51,11 +51,50 @@ void main() {
       final reference = chordReference('D')!;
       expect(reference.bassMoves.first.$1, 'Root–fifth');
       expect(reference.bassMoves.first.$2, 'D  A');
+      // And the chord's own fifth on a chord whose fifth is not a perfect
+      // one, the same rule the bass neck above these follows.
+      expect(chordReference('D°')!.bassMoves.first.$2, 'D  G#');
+      expect(chordReference('D+')!.bassMoves.first.$2, 'D  A#');
     });
 
-    test('a walking line follows the chord into minor', () {
-      expect(chordReference('Am')!.bassMoves.last.$2, 'A  C  D  E');
-      expect(chordReference('A')!.bassMoves.last.$2, 'A  C#  E  F#');
+    test('nothing under the chord is a line somebody was told to play', () {
+      // A "Walking" row used to sit here with a composed four-note line in
+      // it, and the line went outside the chord on the way: the 4th over a
+      // minor chord, the 6th over a major one. Chord tones describe, a line
+      // composes (Every Musician, Same Song, 17 September 2026), so the row
+      // is gone and what is left is the root and the chord's own fifth.
+      expect(
+        chordReference('Am')!.bassMoves,
+        <(String, String)>[('Root–fifth', 'A  E'), ('Root–octave', 'A  A')],
+      );
+      expect(
+        chordReference('A')!.bassMoves,
+        <(String, String)>[('Root–fifth', 'A  E'), ('Root–octave', 'A  A')],
+      );
+    });
+
+    test('no bass reading is ever a note the chord has not got', () {
+      for (final root in const <String>[
+        'C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B',
+      ]) {
+        for (final quality in const <String>[
+          '', 'm', '7', 'm7', 'maj7', 'm7b5', '°', '°7', '+', 'sus2', 'sus4',
+          '7sus4', '5', '6', 'm6', '9', 'm9', 'maj9', 'add9', '11', '13',
+        ]) {
+          final label = '$root$quality';
+          final reference = chordReference(label)!;
+          final tones = reference.tones
+              .map((tone) => pitchOf(tone.note)! % 12)
+              .toSet();
+          expect(reference.bassMoves, isNotEmpty, reason: label);
+          for (final (name, notes) in reference.bassMoves) {
+            for (final note in notes.split('  ')) {
+              expect(tones, contains(pitchOf(note)! % 12),
+                  reason: '$label $name $note');
+            }
+          }
+        }
+      }
     });
 
     test('the notes that work over it follow the third', () {
