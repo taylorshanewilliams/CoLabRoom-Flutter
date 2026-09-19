@@ -3448,6 +3448,13 @@ class InMemoryMusicRepository implements MusicRepository {
         // class counts the analysed bars while the teacher says "from cycle
         // nine".
         cycle: song.cycle,
+        // And what it is sung in, as 0165 now copies it. A song declared to
+        // be sung in Arabic whose copy arrives with nothing said lays out
+        // left to right on the student's stand with the chords over the
+        // wrong end of every line, and the teacher and the class are then
+        // reading two different pages. Null copies as null: nobody has said,
+        // and the copy is laid out exactly as the original is.
+        language: song.language,
       );
       _copiedFrom[copyId] = song.id;
       _replaceRoom(room.copyWith(

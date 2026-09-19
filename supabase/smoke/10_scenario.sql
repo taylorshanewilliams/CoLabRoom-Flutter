@@ -12052,6 +12052,77 @@ end $$;
 
 reset role;
 
+-- ---------------------------------------------------------------------
+-- A song sent to a student keeps its language (0165).
+--
+-- 0163 let the room say what a song is sung in, and send_song_to_students
+-- did not copy it: every student's copy arrived with nothing said, so a
+-- song the teacher had declared Arabic laid itself out left to right on the
+-- student's stand with the chords over the wrong end of every line, and a
+-- song in Chinese put every chord over a line's first character. The
+-- teacher's page and the class's page were two different pages, which is
+-- the one thing a shared fact exists to prevent.
+--
+-- Ms Rivera and her lessons are 0149's, set up far above; these are two
+-- further songs of hers under ids of this block's own, so each send makes a
+-- fresh copy rather than finding one already there.
+
+insert into public.projects (id, room_id, account_id, title, created_by,
+                             language)
+values ('1a4e0165-0000-0000-0000-000000000161',
+        'a5049149-0000-0000-0000-000000000010',
+        'a5049149-0000-0000-0000-000000000001', 'A Song Sung In Arabic',
+        'a5049149-0000-0000-0000-000000000001', 'ar'),
+       -- And one nobody has answered for, which has to arrive with nothing
+       -- said rather than with something the copy decided on the way past.
+       ('1a4e0165-0000-0000-0000-000000000162',
+        'a5049149-0000-0000-0000-000000000010',
+        'a5049149-0000-0000-0000-000000000001', 'A Song Nobody Has Answered For',
+        'a5049149-0000-0000-0000-000000000001', null);
+
+set local request.jwt.claims = '{"sub": "a5049149-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  copy_id uuid;
+  carried text;
+begin
+  select song_copy into copy_id
+  from public.send_song_to_students(
+    '1a4e0165-0000-0000-0000-000000000161',
+    array['a5049149-0000-0000-0000-000000000011']::uuid[]);
+  if copy_id is null then
+    raise exception 'the song in Arabic never reached the student';
+  end if;
+  select p.language into carried
+  from public.projects p where p.id = copy_id;
+  if carried is distinct from 'ar' then
+    raise exception
+      'the student''s copy did not carry what the song is sung in (got %)',
+      coalesce(carried, '<null>');
+  end if;
+
+  -- Null copies as null. A song nobody has said anything about is laid out
+  -- on the student's stand exactly as it is on the teacher's, which is how
+  -- this app laid out every song before the column existed.
+  select song_copy into copy_id
+  from public.send_song_to_students(
+    '1a4e0165-0000-0000-0000-000000000162',
+    array['a5049149-0000-0000-0000-000000000011']::uuid[]);
+  if copy_id is null then
+    raise exception 'the song nobody has answered for never reached the student';
+  end if;
+  select p.language into carried
+  from public.projects p where p.id = copy_id;
+  if carried is not null then
+    raise exception 'a copy arrived with a language nobody gave it (got %)',
+      carried;
+  end if;
+end $$;
+
+reset role;
+
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
 
 commit;
