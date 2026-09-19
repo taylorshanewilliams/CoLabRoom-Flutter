@@ -144,16 +144,24 @@ void main() {
     // here against the source instead, so it fails in CI rather than on
     // somebody's screen. A `GoogleFonts.x()` call whose file is not in
     // `google_fonts/` throws when that screen is opened.
+    //
+    // A family is not enough to check. google_fonts resolves a *face*: the
+    // family and the weight and the style together, one file each. So
+    // `GoogleFonts.fraunces(fontWeight: FontWeight.w700)` next to the call
+    // that is already here asks for `Fraunces-Bold.ttf`, which is not
+    // bundled, and with fetching off that load throws on first draw while the
+    // heading quietly falls back to the platform face. Each call is therefore
+    // read down to the file name it will look for.
     final bundled = Directory('google_fonts')
         .listSync()
         .whereType<File>()
         .map((File file) => file.uri.pathSegments.last)
         .where((String name) => name.endsWith('.ttf') || name.endsWith('.otf'))
-        .toList();
+        .toSet();
 
     expect(bundled, contains('Fraunces-Medium.ttf'));
 
-    final calls = <String>{};
+    final faces = <String>{};
     for (final entity in Directory('lib').listSync(recursive: true)) {
       if (entity is! File || !entity.path.endsWith('.dart')) continue;
       // Comments stripped first: bundled_fonts.dart explains this very rule
@@ -166,14 +174,30 @@ void main() {
         final name = match.group(1)!;
         // `GoogleFonts.config` is the settings object, not a typeface.
         if (name == 'config' || name == 'pendingFonts') continue;
-        calls.add(name);
+        faces.add(_faceFileName(name, _argumentsOf(source, match.end - 1)));
       }
     }
 
-    expect(calls, <String>{'fraunces'},
+    expect(faces, <String>{'Fraunces-Medium.ttf'},
         reason: 'A face is asked for that may not be bundled. Add its file to '
-            'google_fonts/ (named <Family>-<Variant>.ttf) and list it here, '
-            'or the screen that uses it throws when it is opened: $calls');
+            'google_fonts/ (named <Family>-<Variant>.ttf, the spelling '
+            'google_fonts looks for) and list it here, or the screen that '
+            'uses it throws when it is opened: $faces');
+    for (final face in faces) {
+      expect(bundled, contains(face));
+    }
+  });
+
+  test('the app turns the rule on before it draws anything', () {
+    // The widget test above calls `useBundledFonts` itself, so it would still
+    // pass if `main` stopped calling it — the asset alone is enough to stop
+    // the fetch. What would go missing quietly is the rest: the licence
+    // registration, and `allowRuntimeFetching = false`, which is the thing
+    // that turns "we happen to have this face" into a rule a new
+    // `GoogleFonts.x()` call has to answer to.
+    final main = _withoutComments(File('lib/main.dart').readAsStringSync());
+    expect(main, contains('useBundledFonts();'),
+        reason: 'lib/main.dart should call useBundledFonts() before runApp');
   });
 
   test('the font licence travels with the font', () {
@@ -184,6 +208,60 @@ void main() {
         reason: 'Fraunces is under the OFL; its notice has to ship with it');
     expect(licence.readAsStringSync(), contains('SIL OPEN FONT LICENSE'));
   });
+}
+
+/// The text between the brackets of a call whose `(` is at [open].
+///
+/// Counted rather than matched with a pattern: these calls hold other calls
+/// (`AppColors.text.withValues(...)`), and a regular expression that stops at
+/// the first `)` would read half of one.
+String _argumentsOf(String source, int open) {
+  var depth = 0;
+  for (var i = open; i < source.length; i++) {
+    if (source[i] == '(') depth++;
+    if (source[i] == ')') {
+      depth--;
+      if (depth == 0) return source.substring(open + 1, i);
+    }
+  }
+  return source.substring(open + 1);
+}
+
+/// The file google_fonts will look for, given a call and its arguments.
+///
+/// Two spellings again, and they are easy to mix up. The *method* is the
+/// family in camelCase (`robotoMono`); the *file* is the family with no
+/// spaces and a variant after a hyphen (`RobotoMono-Regular.ttf`). A weight
+/// has a word for a name there — w500 is `Medium` — and italic is that word
+/// with `Italic` after it, except at w400 where the file is just `Italic`.
+String _faceFileName(String method, String arguments) {
+  final family = method[0].toUpperCase() + method.substring(1);
+
+  const weights = <String, String>{
+    'w100': 'Thin',
+    'w200': 'ExtraLight',
+    'w300': 'Light',
+    'w400': 'Regular',
+    'w500': 'Medium',
+    'w600': 'SemiBold',
+    'w700': 'Bold',
+    'w800': 'ExtraBold',
+    'w900': 'Black',
+  };
+
+  final weight = RegExp(r'FontWeight\.(w[1-9]00|bold|normal)')
+      .firstMatch(arguments)
+      ?.group(1);
+  final named = switch (weight) {
+    null => 'Regular',
+    'bold' => 'Bold',
+    'normal' => 'Regular',
+    _ => weights[weight]!,
+  };
+
+  final italic = arguments.contains('FontStyle.italic');
+  if (!italic) return '$family-$named.ttf';
+  return named == 'Regular' ? '$family-Italic.ttf' : '$family-${named}Italic.ttf';
 }
 
 /// [source] with its `//` and `///` comments taken out.

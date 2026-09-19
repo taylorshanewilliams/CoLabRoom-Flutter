@@ -326,10 +326,12 @@ final Set<String> absentPlugins = <String>{};
 /// the app's again.
 ///
 /// The suite in `test/` is a gate and is supposed to stop at the first
-/// problem. This is a survey: a screen that throws is the most interesting
-/// thing it could possibly find, and stopping there means never photographing
-/// the eleven screens after it. So every complaint is recorded and the walk
-/// carries on.
+/// problem. This one collects instead: a screen that throws is the most
+/// interesting thing it could possibly find, and stopping there means never
+/// photographing the eleven screens after it. So every complaint is recorded
+/// and the walk carries on. Collecting is not forgiving, though — a recorded
+/// throw still fails that device's walk at the end of it (see `_broken` in
+/// the_app_test.dart), so the walk is complete *and* red.
 /// Returns the function that puts the framework's own handler back.
 ///
 /// Chaining matters more than it looks. The binding installs its own
@@ -372,9 +374,9 @@ VoidCallback collectComplaints() {
 /// messages reads "A RenderFlex overflowed by 14 pixels on the right" — so the
 /// phrase is the reliable thing to match on rather than the class name.
 ///
-/// Told apart from the rest because this one is a gate. The walk is a survey
-/// and reports everything else for a human to weigh up; text that runs off the
-/// side of the screen is not a matter of taste, and since the reader's own text
+/// Told apart from the rest so that it reads as itself in the report. It is
+/// not the only thing the walk fails on — a build that threw does too — but it
+/// is the one with a name somebody can act on, and since the reader's own text
 /// size stopped being clamped it is the failure that would come back first.
 bool isOverflow(FlutterErrorDetails details) =>
     details.exception.toString().contains('overflowed by');

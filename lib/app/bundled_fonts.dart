@@ -34,9 +34,13 @@ void useBundledFonts() {
   GoogleFonts.config.allowRuntimeFetching = false;
 
   // Fraunces is under the SIL Open Font License, which asks that the notice
-  // travel with the font. Flutter's own licence page is where this app's
-  // notices live, so the file beside the font is read into it — the
-  // registration google_fonts documents for a bundled face.
+  // travel with the font. It does: `google_fonts/OFL.txt` ships in the asset
+  // bundle beside the face, and this is the registration google_fonts
+  // documents for a bundled one, which puts the notice into `LicenseRegistry`
+  // — where `showLicensePage` reads from. Nothing in this app opens a licence
+  // page yet, so for now the registration is a standing arrangement rather
+  // than a screen somebody can reach; the day Account grows a "Licences" row
+  // the notice is already there.
   LicenseRegistry.addLicense(() async* {
     final String license =
         await rootBundle.loadString('google_fonts/OFL.txt');
