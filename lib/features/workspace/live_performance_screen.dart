@@ -564,15 +564,22 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// The cycle laid over this song's beats, worked out once per change.
   ///
   /// Memoised because it walks the beat grid and Perform reads it on every
-  /// frame it draws. The key is everything it is built from: the cycle
-  /// itself, and where bar 1 is, which is where cycle 1 begins.
+  /// frame it draws. Everything it is built from is kept beside it and
+  /// compared rather than hashed: the cycle itself, and where bar 1 is,
+  /// which is where cycle 1 begins. The beats it is laid over cannot change
+  /// while the screen is open.
   CycleGrid? _counted;
-  Object? _countedFor;
+  SongCycle? _countedCycle;
+  int? _countedBarOne;
+  bool _haveCounted = false;
 
   CycleGrid? get _count {
-    final key = Object.hash(_cycleSaid, _barOneSaid);
-    if (_countedFor != key) {
-      _countedFor = key;
+    if (!_haveCounted ||
+        _countedCycle != _cycleSaid ||
+        _countedBarOne != _barOneSaid) {
+      _haveCounted = true;
+      _countedCycle = _cycleSaid;
+      _countedBarOne = _barOneSaid;
       _counted = cycleGridFor(
         _cycleSaid,
         beatsMs: _beatsMs,
@@ -4737,8 +4744,17 @@ class _CycleSheet extends StatefulWidget {
 }
 
 class _CycleSheetState extends State<_CycleSheet> {
-  late SongCycle _cycle = widget.cycle ??
-      SongCycle(widget.heard.clamp(SongCycle.minBeats, widget.longest).toInt());
+  late SongCycle _cycle = _opening();
+
+  /// What the sheet opens on: the cycle already counted, or the count the
+  /// analysis heard, and never longer than this song has the beats for -- a
+  /// count that cannot be counted is not an answer to offer back.
+  SongCycle _opening() {
+    final from = widget.cycle ?? SongCycle(widget.heard);
+    return from.beats <= widget.longest
+        ? from
+        : from.withBeats(widget.longest);
+  }
 
   void _beats(int beats) {
     if (beats < SongCycle.minBeats || beats > widget.longest) return;

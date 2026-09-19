@@ -1,6 +1,7 @@
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/domain/music_models.dart';
+import 'package:colabroom/domain/practice_mark.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/domain/song_cycle.dart';
 import 'package:colabroom/features/workspace/count_in.dart';
@@ -433,6 +434,37 @@ void main() {
       await tester.pumpAndSettle();
       expect(counted, <SongCycle?>[null]);
       expect(find.text('Bars'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a mark reopened on a passage names it in the band\'s cycles',
+        (tester) async {
+      // A mark carries two times and nothing else, and the name is worked out
+      // again where it is reopened. On a song counted in sevens those two
+      // times are cycles, not bars, and Practise has to say so or the
+      // sentence the teacher used is not the one on the screen.
+      await sized(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: CoLabRoomTheme.dark(),
+        home: LivePerformanceScreen(
+          project: project.copyWith(cycle: seven),
+          analysis: sheet(),
+          me: 'u2',
+          practise: const PracticePart(
+            label: 'Bars 2–6',
+            rate: 0.7,
+            seconds: 240,
+            startMs: 3500,
+            endMs: 10500,
+          ),
+        ),
+      ));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Cycles 2–3'), findsOneWidget);
+      expect(find.text('Bars 2–6'), findsNothing);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
