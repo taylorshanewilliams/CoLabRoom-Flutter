@@ -53,6 +53,7 @@ import '../layers/song_level_store.dart';
 import '../layers/take_turns.dart';
 import 'count_in.dart';
 import 'drone_controls.dart';
+import 'feel_the_beat.dart';
 import 'follow_me_bar.dart';
 import 'live_countdown_store.dart';
 import 'loop_this_change.dart';
@@ -162,6 +163,7 @@ class LivePerformanceScreen extends StatefulWidget {
     this.practise,
     this.click,
     this.drone,
+    this.now,
     this.missing,
     this.onSayBarOne,
     this.onCountCycle,
@@ -218,6 +220,17 @@ class LivePerformanceScreen extends StatefulWidget {
   /// What holds the drone and sounds the starting pitch. Production leaves
   /// this null and makes one; a test hands in a silent one.
   final DronePlayer? drone;
+
+  /// What this screen calls now. Production leaves this null and uses the
+  /// wall clock; a test hands in a clock it can move.
+  ///
+  /// A widget test runs its timers on a clock of its own and leaves
+  /// DateTime.now() exactly where it was, so without this seam the song sits
+  /// at 0:00 for the whole test however far the test pumps. That makes a tap
+  /// scheduled off where the song actually is indistinguishable from one
+  /// chained off a metronome, which is the difference this screen's beat taps
+  /// turn on (review, 19 September 2026).
+  final DateTime Function()? now;
 
   /// What this phone could not get for this song, said once as the screen
   /// opens. Null when nothing is missing, which is nearly always.
@@ -323,6 +336,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// The click that counts the bar, made only if a song ever needs one.
   ClickPlayer? _clickPlayer;
   ClickPlayer get _click => _clickPlayer ??= widget.click ?? WavClickPlayer();
+
+  /// Which beats this phone taps on while the song plays, and the tap that is
+  /// waiting to be felt.
+  ///
+  /// Off until this device says otherwise. One timer at a time, armed from
+  /// where the song actually is rather than run off a metronome of its own:
+  /// see [_armFeltBeat].
+  FeelTheBeat _feel = FeelTheBeat.off;
+  Timer? _feelTimer;
 
   /// What this person's tuner calls A, read back from this device so the drone
   /// and the starting pitch sound at the pitch they tuned to (#364).
@@ -608,6 +630,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   List<int> get _beatsMs =>
       widget.analysis?.reference?.beatsMs ?? const <int>[];
 
+  /// Whether this song can be felt: a beat to tap on, and a phone with
+  /// something to tap with.
+  ///
+  /// Absent on the web, where there is no motor to ask and a setting that
+  /// does nothing is worse than no setting, and absent on a song the tracker
+  /// heard no beat in.
+  bool get _canFeelTheBeat =>
+      !kIsWeb && canFeelTheBeat(beatsMs: _beatsMs, downbeatsMs: _downbeats);
+
   /// Which downbeat the band counts as bar 1 (0161), and whether that is the
   /// analysis's own answer or one somebody gave.
   ///
@@ -779,6 +810,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     }
     unawaited(_loadTakes());
     unawaited(_loadCountdownPrefs());
+    unawaited(_loadFeelTheBeat());
     unawaited(_loadTunerReference());
     unawaited(_loadTranspose());
     unawaited(_loadReading());
@@ -811,13 +843,26 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     }
   }
 
-  /// Where the song is this instant: the player's last report, moved on by
-  /// the time since it was made. See [_elapsedStamp].
+  /// The clock the song is kept by: the player's position reports, the tick
+  /// that moves the words, and the beat waiting to be felt all read it here.
+  /// See [LivePerformanceScreen.now].
+  DateTime _now() => (widget.now ?? DateTime.now)();
+
+  /// Where the song is this instant: the last thing that moved it, moved on
+  /// by the time since. See [_elapsedStamp].
+  ///
+  /// With a recording that is the player's own position report. Without one —
+  /// a song whose audio would not download, opened on its cached analysis —
+  /// the tick is what moves the song, and the same arithmetic off [_lastTick]
+  /// is what makes the answer between two ticks something better than "up to
+  /// fifty milliseconds ago". At 120 that is a tenth of a beat, which is the
+  /// difference between a tap on the 1 and a tap near it (review,
+  /// 19 September 2026).
   Duration get _elapsedNow {
-    final stamp = _elapsedStamp;
-    final audioIsClock = _audioPlayer != null && _mode == LiveScrollMode.synced;
-    if (!_playing || !audioIsClock || stamp == null) return _elapsed;
-    return _elapsed + atRate(DateTime.now().difference(stamp), _rate);
+    if (!_playing || _mode != LiveScrollMode.synced) return _elapsed;
+    final stamp = _audioPlayer != null ? _elapsedStamp : _lastTick;
+    if (stamp == null) return _elapsed;
+    return _elapsed + atRate(_now().difference(stamp), _rate);
   }
 
   void _togetherChanged() {
@@ -929,17 +974,24 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _mode = LiveScrollMode.synced;
       _markOffsetsDirty();
     }
-    if (_rate != state.rate) {
+    final rateMoved = _rate != state.rate;
+    if (rateMoved) {
       _rate = state.rate;
       if (audio != null) unawaited(audio.setPlaybackRate(state.rate));
     }
-    _loop = _loopFor(state.loopStartMs, state.loopEndMs);
+    final loop = _loopFor(state.loopStartMs, state.loopEndMs);
+    final loopMoved = loop != _loop;
+    _loop = loop;
     final target = together.targetMs() ?? state.positionMs;
     final moved = worthCorrecting(_elapsedNow.inMilliseconds, target);
     if (moved) _seekTo(Duration(milliseconds: target));
     final started = state.playing != _playing;
     if (started) {
       _playing = state.playing;
+      // Stamped as the leader's start arrives, for the reason _togglePlay
+      // gives: a stamp left over from before the leader paused would read as
+      // the whole pause of song gone.
+      if (_playing) _elapsedStamp = _now();
       if (audio != null) unawaited(_playing ? audio.resume() : audio.pause());
     }
     _lastTick = null;
@@ -948,6 +1000,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     // seconds, and re-arming on each one would keep the controls over the
     // words for the whole song on a phone sitting on a music stand.
     if (started) _armControlHide();
+    // The leader started or stopped, changed speed, or changed what is on
+    // repeat: a tap waiting for a beat was timed against the song as it was.
+    // A move goes through _seekTo, which arms it there. Not on every
+    // heartbeat, for the same reason the controls are not: a re-arm off a
+    // position the player reported a moment ago can ask for a beat already
+    // felt.
+    if (started || rateMoved || loopMoved) _armFeltBeat();
     if (!_playing && moved) {
       // Paused, the words still go to where the leader is looking.
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1126,6 +1185,15 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     });
   }
 
+  Future<void> _loadFeelTheBeat() async {
+    final feel = await FeelTheBeatStore.load();
+    if (!mounted || feel == _feel) return;
+    setState(() => _feel = feel);
+    // Read back after Start on a phone that was slow to open its
+    // preferences: the song is already going, so the taps join it.
+    _armFeltBeat();
+  }
+
   Future<void> _loadTranspose() async {
     // A song opened from a set for a day opens in the key the set does it in
     // (0164), and this phone's kept key is left where it is: the set is for
@@ -1246,7 +1314,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         // their own manual speed, with audio just playing alongside.
         if (_playing && _mode == LiveScrollMode.synced) {
           _elapsed = position;
-          _elapsedStamp = DateTime.now();
+          _elapsedStamp = _now();
         }
       });
       _audioCompleteSub = player.onPlayerComplete.listen((_) => _audioEnded());
@@ -1328,6 +1396,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     _ticker?.cancel();
     _hideControls?.cancel();
     _countdownTimer?.cancel();
+    _feelTimer?.cancel();
     // Only if a song ever needed counting in: the click makes an audio player
     // the first time it is asked for, and most songs never ask.
     final click = _clickPlayer;
@@ -1450,7 +1519,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     final audioIsClock = _audioPlayer != null && _mode == LiveScrollMode.synced;
     var delta = Duration.zero;
     if (!audioIsClock) {
-      final now = DateTime.now();
+      final now = _now();
       final previous = _lastTick ?? now;
       _lastTick = now;
       delta = now.difference(previous);
@@ -1512,7 +1581,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     // sheet with no recording loops too.
     final loop = _loop;
     if (loop != null && _elapsed.inMilliseconds >= loop.endMs) {
-      _seekTo(keepInside(_elapsed, loop));
+      // Onto the beat, not past it: a passage on repeat starts on a downbeat
+      // (the loops are built from them), and that downbeat is the 1 the whole
+      // lap is being felt for. Treated as gone, a one-bar loop taps nothing
+      // at all (review, 19 September 2026).
+      _seekTo(keepInside(_elapsed, loop), onTheBeat: true);
     }
     final elapsedMs = _elapsed.inMilliseconds;
     final lines = _lines;
@@ -1721,7 +1794,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
           _countInBar = null;
           _countInBeat = null;
         });
-        _togglePlay();
+        // The count put the song on a downbeat and counted a player up to
+        // it, so the 1 it comes in on is felt. Nobody pressed anything here:
+        // the song arrives on that beat by itself (review, 19 September
+        // 2026).
+        _togglePlay(onABeat: true);
         return;
       }
       setState(() => _countInBeat = next);
@@ -1778,6 +1855,88 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     unawaited(felt.catchError((Object _) {}));
   }
 
+  /// Arms the next tap on the beat, when somebody has asked to feel one.
+  ///
+  /// One timer holding exactly one beat, worked out from where the song is
+  /// this instant and armed again the moment it fires. Not a metronome of its
+  /// own: a timer ticking at the tempo would be a beat out by the last
+  /// chorus, and it would be tapping a song that is not there the moment
+  /// anybody slowed a passage down. The bar loop turns round the same way,
+  /// off the player's position rather than off the clock (#362, #363), and
+  /// the speed falls out of it -- a beat two seconds away in the song is
+  /// three and a third away at 60%.
+  ///
+  /// Synced mode only: in the manual scroll modes the scroll is the clock and
+  /// the recording's beats are not what the words are keeping time with.
+  ///
+  /// [felt] is the beat the tap that just fired was for. It only ever moves
+  /// the *search* forward, so a beat already in somebody's hand is not asked
+  /// for twice where the player has not reported a new position yet. It is
+  /// never the clock: the wait is always measured from where the song
+  /// actually is, so a tap that went early is followed by a longer wait and
+  /// the chain locks back onto the recording on the very next beat. Measuring
+  /// the wait from the last beat instead would make any offset permanent —
+  /// position and taps would advance by the same amount forever — which is
+  /// the drifting metronome this was written not to be (review, 19 September
+  /// 2026).
+  ///
+  /// [onTheBeat] is for a loop turning round or a count-in handing over,
+  /// where the song lands on a beat by itself: see [nextFeltBeat].
+  void _armFeltBeat({int? felt, bool onTheBeat = false}) {
+    _feelTimer?.cancel();
+    _feelTimer = null;
+    if (_feel == FeelTheBeat.off || !_playing) return;
+    if (_mode != LiveScrollMode.synced) return;
+    final nowMs = _elapsedNow.inMilliseconds;
+    final next = nextFeltBeat(
+      math.max(nowMs, felt ?? 0),
+      beatsMs: _beatsMs,
+      // The grid the song is counted on: a band counting a seven feels the
+      // heavy tap on its sam rather than on a four nobody is playing (0162).
+      downbeatsMs: _downbeats,
+      barOne: _countOne,
+      feel: _feel,
+      // Nothing is scheduled past where the passage turns round; the turn
+      // seeks, and the seek arms the next one.
+      untilMs: _loop?.endMs,
+      onTheBeat: onTheBeat,
+    );
+    if (next == null) return;
+    _feelTimer = Timer(untilFelt(next, fromMs: nowMs, rate: _rate), () {
+      // Paused, stopped, turned off, or put on a scroll speed while the tap
+      // was waiting. The same guard as above, because the song can leave the
+      // state this beat was worked out in without arming anything.
+      if (!mounted ||
+          !_playing ||
+          _mode != LiveScrollMode.synced ||
+          _feel == FeelTheBeat.off) {
+        return;
+      }
+      _feelIt(next.weight);
+      _armFeltBeat(felt: next.atMs);
+    });
+  }
+
+  /// One tap, as hard as the beat asks for.
+  ///
+  /// Wrapped the way the count-in's tick is: a phone with no motor in it, or
+  /// a platform that has never heard of one, must not be able to stop the
+  /// song.
+  void _feelIt(BeatWeight weight) {
+    final felt = switch (weight) {
+      BeatWeight.heavy => HapticFeedback.heavyImpact(),
+      BeatWeight.light => HapticFeedback.selectionClick(),
+    };
+    unawaited(felt.catchError((Object _) {}));
+  }
+
+  void _setFeel(FeelTheBeat feel) {
+    if (feel == _feel) return;
+    setState(() => _feel = feel);
+    unawaited(FeelTheBeatStore.save(feel));
+    _armFeltBeat();
+  }
+
   void _startCountdown() {
     _countdownTimer?.cancel();
     setState(() => _countdownRemaining = _countdownSeconds);
@@ -1812,7 +1971,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     }
   }
 
-  void _togglePlay() {
+  /// [onABeat] is for the bar count-in handing over: it has just put the song
+  /// on a downbeat ([_startOnADownbeat]) and counted a player to it, so the
+  /// beat the song comes in on is the one beat that must be felt. Nowhere
+  /// else — a finger on Start is a finger on Start.
+  void _togglePlay({bool onABeat = false}) {
     final audio = _audioPlayer;
     setState(() {
       if (_mode == LiveScrollMode.off) {
@@ -1820,12 +1983,25 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       }
       _playing = !_playing;
       _controlsVisible = true;
+      // Where the song is was last stamped while it was playing, so without
+      // this a pause of half a minute would read as half a minute of song
+      // gone the instant Start is pressed again: see [_elapsedNow]. That
+      // sent the beat taps off to a part of the song nobody was at, and it
+      // still sends a leader's followers there for one heartbeat (review,
+      // 19 September 2026).
+      if (_playing) _elapsedStamp = _now();
     });
     if (_mode == LiveScrollMode.synced) _markOffsetsDirty();
-    _lastTick = null;
+    // Starting, the song has been moving since this instant, so the first
+    // tick counts from the press rather than throwing its own gap away. That
+    // gap is up to a tick, and a twentieth of a second is a tenth of a beat
+    // at 120 — enough to put every tap of a song with no recording slightly
+    // behind its own beat. Stopping, there is nothing to count from.
+    _lastTick = _playing ? _now() : null;
     if (audio != null) {
       unawaited(_playing ? audio.resume() : audio.pause());
     }
+    _armFeltBeat(onTheBeat: onABeat);
     _armControlHide();
   }
 
@@ -1888,11 +2064,20 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       if (mode == LiveScrollMode.off) _playing = false;
       _loop = null;
       _elapsed = Duration.zero;
+      // Back at the top, and said so now: the old stamp would otherwise have
+      // the song reading as minutes in the moment this is read. See
+      // [_elapsedNow].
+      _elapsedStamp = _now();
       _activeLineKey = null;
     });
     _lastTick = null;
     if (mode == LiveScrollMode.synced) _markOffsetsDirty();
     if (_scroll.hasClients) _scroll.jumpTo(0);
+    // Switching to the song's own clock while a scroll speed was already
+    // playing leaves it playing, and this is the only way into synced mode
+    // that does not go through a seek or a press, so nothing else would arm
+    // the taps until the next pause (review, 19 September 2026).
+    _armFeltBeat();
   }
 
   /// Moves the song, and the recording with it.
@@ -1900,12 +2085,27 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// Synced mode only: in the manual modes the scroll is the clock and there
   /// is nothing to seek. The active line is cleared so the next tick finds
   /// the right one rather than fading between two.
-  void _seekTo(Duration where) {
+  ///
+  /// [onTheBeat] says the song was put onto a beat on purpose rather than
+  /// dragged there by a finger — a passage on repeat turning round onto its
+  /// own first downbeat — so that beat is felt rather than treated as one
+  /// that has already gone by. See [nextFeltBeat].
+  void _seekTo(Duration where, {bool onTheBeat = false}) {
     _elapsed = where;
-    _elapsedStamp = DateTime.now();
+    // Both clocks [_elapsedNow] can be reading, because the song is at
+    // `where` as of this instant whether a recording or the tick is what
+    // moves it. Callers that null _lastTick afterwards are left alone: that
+    // only costs them the one tick it always did.
+    _elapsedStamp = _now();
+    _lastTick = _now();
     _activeLineKey = null;
     final audio = _audioPlayer;
     if (audio != null) unawaited(audio.seek(where));
+    // The song is somewhere else now, so whatever tap was waiting was for a
+    // beat that is no longer next. Every move goes through here -- the seek
+    // bar, a rehearsal letter, a loop turning round, catching up with a
+    // leader -- which is why the taps are armed here rather than at each.
+    _armFeltBeat(onTheBeat: onTheBeat);
   }
 
   /// The recording reached its own end.
@@ -1920,7 +2120,8 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     if (!mounted) return;
     final loop = _loop;
     if (_playing && loop != null && _mode == LiveScrollMode.synced) {
-      setState(() => _seekTo(Duration(milliseconds: loop.startMs)));
+      // The same turn as the tick's, and felt the same way.
+      setState(() => _seekTo(Duration(milliseconds: loop.startMs), onTheBeat: true));
       _lastTick = null;
       unawaited(_audioPlayer?.resume());
       return;
@@ -1946,6 +2147,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     });
     final audio = _audioPlayer;
     if (audio != null) unawaited(audio.setPlaybackRate(rate));
+    // The waiting tap was timed at the old speed; the beat it is for has not
+    // moved in the song, but it has in the room.
+    _armFeltBeat();
     _armControlHide();
   }
 
@@ -2423,7 +2627,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _audioPositionSub = player.onPositionChanged.listen((position) {
         if (_playing && _mode == LiveScrollMode.synced) {
           _elapsed = position;
-          _elapsedStamp = DateTime.now();
+          _elapsedStamp = _now();
         }
       });
       _audioCompleteSub = player.onPlayerComplete.listen((_) => _audioEnded());
@@ -2436,6 +2640,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     if (_rate != 1) await player.setPlaybackRate(_rate);
     _playingPath = path;
     if (mounted) setState(() => _audioReady = true);
+    // The player was stopped for the length of the swap while the song was
+    // still marked as playing, so [_elapsedNow] has been counting a stretch
+    // nobody heard. It is back at _elapsed, as of now.
+    _elapsedStamp = _now();
+    _lastTick = _now();
     if (wasPlaying) await player.resume();
   }
 
@@ -2505,7 +2714,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       if (_mode == LiveScrollMode.off && _hasSync) _mode = LiveScrollMode.synced;
     });
     if (!same) {
-      _seekTo(Duration(milliseconds: loop.startMs));
+      // Onto the passage's first downbeat, and felt there: the first lap is
+      // no different from the ones after it.
+      _seekTo(Duration(milliseconds: loop.startMs), onTheBeat: true);
       if (_mode == LiveScrollMode.synced) {
         _markOffsetsDirty();
         if (!_playing) {
@@ -2518,6 +2729,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         }
       }
     }
+    // Taking the passage off repeat seeks nowhere, so nothing above armed
+    // anything: the waiting tap was held short of a turn that is no longer
+    // coming. Only in that case, so this does not undo the seek's own arm.
+    if (same) _armFeltBeat();
     _lastTick = null;
     _armControlHide();
   }
@@ -3074,6 +3289,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         onToggleChords: () => setState(() => _showChords = !_showChords),
                         countdownEnabled: _countdownEnabled,
                         onOpenCountdownSettings: _openCountdownSettings,
+                        canFeelTheBeat: _canFeelTheBeat,
                         droneOn: _droneOn,
                       ),
                     ),
@@ -3178,15 +3394,18 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     );
   }
 
-  /// Everything that happens before the first note: the bar somebody is
-  /// counted in over, and the note they come in on.
+  /// What a player sets up for themselves before they start: the bar they are
+  /// counted in over, whether they feel the beat in their hand, and the note
+  /// they come in on.
   ///
-  /// The two in one sheet because they are wanted at the same moment, and
+  /// All three in one sheet because they are wanted at the same moment, and
   /// because the bar across the top already carries seven controls — an eighth
   /// would push one of them off a phone held upright. Nothing in here belongs
   /// to the room: the drone is this phone's, at this phone's reference pitch,
-  /// and a leader cannot put a tone in anybody else's ears (Every Musician,
-  /// Same Song, 17 September 2026).
+  /// a leader cannot put a tone in anybody else's ears, and the taps are the
+  /// same — two people following the same leader can feel the song
+  /// differently, or not at all (Every Musician, Same Song, 17 September
+  /// 2026).
   void _openCountdownSettings() {
     _showControls();
     final voice = _drone;
@@ -3195,8 +3414,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       backgroundColor: AppColors.deepNavy,
       showDragHandle: true,
       // The sheet takes the height its own content needs and scrolls when it
-      // cannot have it. Two sections is more than the default nine sixteenths
-      // of the screen on the phone in landscape this screen is built for.
+      // cannot have it. Even two sections is more than the default nine
+      // sixteenths of the screen on the phone in landscape this screen is
+      // built for.
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => SingleChildScrollView(
@@ -3224,6 +3444,16 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                 );
               },
             ),
+            // Absent on the web and on a song the tracker heard no beat in:
+            // there is nothing to tap on, and a setting that does nothing is
+            // worse than no setting.
+            if (_canFeelTheBeat) ...<Widget>[
+              const Divider(height: 1, color: AppColors.line),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 12, 22, 4),
+                child: _FeelTheBeatChoice(feel: _feel, onChanged: _setFeel),
+              ),
+            ],
             const Divider(height: 1, color: AppColors.line),
             SafeArea(
               top: false,
@@ -3236,6 +3466,86 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
         ),
       ),
     ));
+  }
+}
+
+/// Which beats this phone taps on while the song plays.
+///
+/// A player who cannot hear the click has no way of knowing where the 1 is
+/// except by watching somebody's foot, and a loud stage does the same thing
+/// to everybody on it. Off until it is asked for, because a phone that
+/// suddenly started tapping would be this reaching people who never wanted it
+/// (Every Musician, Same Song, 17 September 2026).
+class _FeelTheBeatChoice extends StatefulWidget {
+  const _FeelTheBeatChoice({required this.feel, required this.onChanged});
+
+  final FeelTheBeat feel;
+  final ValueChanged<FeelTheBeat> onChanged;
+
+  @override
+  State<_FeelTheBeatChoice> createState() => _FeelTheBeatChoiceState();
+}
+
+/// Keeps its own copy of the choice, the way the count-in above it does.
+///
+/// The sheet is its own route: setState on the screen underneath does not
+/// rebuild it, so without this the chip a player tapped stayed grey and Off
+/// stayed gold. Nothing is playing while the sheet is open in the usual case,
+/// and there is no preview tap, so the chip is the only answer they get
+/// (review, 19 September 2026).
+class _FeelTheBeatChoiceState extends State<_FeelTheBeatChoice> {
+  late FeelTheBeat _feel = widget.feel;
+
+  void _choose(FeelTheBeat choice) {
+    if (choice == _feel) return;
+    setState(() => _feel = choice);
+    widget.onChanged(choice);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final feel = _feel;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const Text(
+          'Feel the beat',
+          style: TextStyle(
+            color: AppColors.text,
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'A tap on the song\'s own beat while it plays, heavier on the 1. '
+          'This phone only.',
+          style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.4),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: <Widget>[
+            for (final choice in FeelTheBeat.values)
+              ChoiceChip(
+                key: Key('live_feel_${choice.name}'),
+                label: Text(choice.label),
+                selected: feel == choice,
+                onSelected: (_) => _choose(choice),
+                selectedColor: AppColors.gold,
+                labelStyle: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: feel == choice ? AppColors.ink : AppColors.muted,
+                ),
+                visualDensity: VisualDensity.compact,
+              ),
+          ],
+        ),
+      ],
+    );
   }
 }
 
@@ -3399,6 +3709,7 @@ class _TopLiveBar extends StatelessWidget {
     required this.onToggleChords,
     required this.countdownEnabled,
     required this.onOpenCountdownSettings,
+    required this.canFeelTheBeat,
     required this.droneOn,
   });
 
@@ -3418,6 +3729,13 @@ class _TopLiveBar extends StatelessWidget {
   final VoidCallback onToggleChords;
   final bool countdownEnabled;
   final VoidCallback onOpenCountdownSettings;
+
+  /// Whether this song offers a beat to feel, so the button can name it.
+  ///
+  /// The tooltip is also what a screen reader says, and a hard-of-hearing
+  /// player will not go looking for the beat under a count-in (review,
+  /// 19 September 2026).
+  final bool canFeelTheBeat;
 
   /// Whether a note is being held, so the button says so without a word.
   final bool droneOn;
@@ -3516,11 +3834,14 @@ class _TopLiveBar extends StatelessWidget {
       IconButton(
         key: const Key('live_countdown_settings'),
         onPressed: onOpenCountdownSettings,
-        // The two things that happen before the first note: a bar to come in
-        // over, and a note to come in on. One button for both, because the
-        // bar already carries seven and an eighth would push one of them off
-        // a phone held upright.
-        tooltip: 'Count-in and drone',
+        // What a player sets up for themselves: a bar to come in over, a note
+        // to come in on, and — on a song with a beat to tap on — whether that
+        // beat is felt in the hand. One button for all of it, because the bar
+        // already carries seven and an eighth would push one of them off a
+        // phone held upright. The tooltip names whatever is actually behind
+        // it, because it is also what a screen reader reads out.
+        tooltip:
+            canFeelTheBeat ? 'Count-in, beat and drone' : 'Count-in and drone',
         icon: Icon(
           Icons.timer_outlined,
           size: 19,
