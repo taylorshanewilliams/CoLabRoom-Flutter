@@ -65,8 +65,20 @@ void main() {
     // Constructing one of these is the moment a file becomes an audio user:
     // a player that sounds during a call must not ask Android for the focus
     // the call is holding, and a recorder that opens must first have the
-    // call let the microphone go.
-    const users = <String>['AudioPlayer(', 'AudioRecorder('];
+    // call let the microphone go. The speech recognizer counts because
+    // dictation opens the microphone too, and on iOS takes the shared
+    // session for itself.
+    //
+    // flutter_tts is deliberately not here. It writes no configuration: the
+    // one thing it is asked for is `autoStopSharedSession(false)`, which
+    // tells it *not* to take the session down at the end of an utterance —
+    // see chord_voice.dart, which found that collision before this owner
+    // existed and is already on the right side of this rule.
+    const users = <String>[
+      'AudioPlayer(',
+      'AudioRecorder(',
+      'package:speech_to_text/',
+    ];
     final silent = <String>[];
     sources.forEach((path, source) {
       if (path == owner) return;

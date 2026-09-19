@@ -216,7 +216,9 @@ class AudioSetup {
       case PhoneAudioState.callWithMusic:
         return AudioSetup._(state, _inCallPlayers(talking: false), _musicCall);
       case PhoneAudioState.callWithTake:
-        return AudioSetup._(state, _takeInCallPlayers, _takeCall);
+        // The same players context as a call with music: what is playing in
+        // both is the track, and only the microphone differs.
+        return AudioSetup._(state, _inCallPlayers(talking: false), _takeCall);
     }
   }
 
@@ -299,8 +301,6 @@ class AudioSetup {
         ),
       );
 
-  static AudioContext get _takeInCallPlayers => _inCallPlayers(talking: false);
-
   /// A plain call: LiveKit's own communication session, unchanged.
   ///
   /// This slice must not change how an ordinary call sounds, so this state
@@ -325,8 +325,11 @@ class AudioSetup {
   /// which is what "sounds full" means. `forceAudioRouting` keeps LiveKit's
   /// headset handling working even though the mode is no longer a
   /// communication mode, so unplugging headphones mid-call still routes.
-  /// `manageAudioFocus: false` for the reason above: nothing in this app may
-  /// ask for focus while it is holding the microphone.
+  ///
+  /// Audio focus stays LiveKit's here, and stays exactly one request: the
+  /// audioplayers context that goes with every call state asks for none, so
+  /// the song under the call does not take focus off it. Nothing is
+  /// recording in this state, which is the condition the takes bug needed.
   static lk.AudioSessionOptions get _musicCall => lk.AudioSessionOptions.communication(
         apple: const lk.AppleAudioSessionConfiguration(
           category: lk.AppleAudioCategory.playAndRecord,
@@ -340,7 +343,8 @@ class AudioSetup {
         ),
         android: const lk.AndroidAudioSessionConfiguration(
           audioMode: lk.AndroidAudioMode.normal,
-          manageAudioFocus: false,
+          manageAudioFocus: true,
+          focusMode: lk.AndroidAudioFocusMode.gain,
           streamType: lk.AndroidAudioStreamType.music,
           usageType: lk.AndroidAudioAttributesUsageType.media,
           contentType: lk.AndroidAudioAttributesContentType.music,
@@ -356,6 +360,13 @@ class AudioSetup {
   /// one session. The call's microphone is let go of before this is applied
   /// and taken back after it is undone; that part is the owner's job, not
   /// the configuration's.
+  ///
+  /// `manageAudioFocus: false` is the one place this slice departs from
+  /// LiveKit's defaults on the focus question, and it is the one place the
+  /// takes bug's evidence applies exactly: the `record` plugin is holding
+  /// the microphone, and a focus request made while this app holds the
+  /// microphone is what produced 2,486 bytes for 4,000 ms. There is nothing
+  /// to duck anyway — the call and the track are both this app.
   static lk.AudioSessionOptions get _takeCall => lk.AudioSessionOptions.communication(
         apple: const lk.AppleAudioSessionConfiguration(
           category: lk.AppleAudioCategory.playAndRecord,
@@ -399,19 +410,28 @@ class DeviceAudioSession implements AudioSessionWriter {
 
   @override
   Future<void> apply(AudioSetup setup, {required bool leavingCall}) async {
-    if (leavingCall) {
-      // The call first, so the session is free before audioplayers takes it
-      // for ordinary playback. The other way round, audioplayers would set
-      // the category and LiveKit would then deactivate the session under it.
-      await _callLetsGo();
-      await _tellPlayers(setup.players);
-      return;
-    }
     // audioplayers first and the call last, always. Both write the same
     // global settings — the iOS category and the Android mode — and
-    // audioplayers cannot express a mode at all, so whatever it writes has
-    // to be overwritten by the call rather than the other way round.
+    // audioplayers cannot express an iOS mode at all, so whatever it writes
+    // has to be overwritten by the call rather than the other way round.
     await _tellPlayers(setup.players);
+    if (leavingCall) {
+      // Twice on this one transition, deliberately. audioplayers' Android
+      // plugin applies the *previous* default context's `audioMode` and
+      // `isSpeakerphoneOn` to AudioManager and only then stores the new
+      // context, so a single write leaves the phone in the call's mode with
+      // the music context merely recorded. Every other transition either
+      // moves between two contexts whose mode is already `normal` or has
+      // the call writing the mode afterwards; this is the one where nothing
+      // comes after, and a phone left in MODE_IN_COMMUNICATION after a call
+      // has the volume keys on the wrong stream.
+      await _tellPlayers(setup.players);
+      // Last, so LiveKit's own restoring of the mode and its audio focus is
+      // the final word, and the session is only released once the music
+      // context is in place to take it.
+      await _callLetsGo();
+      return;
+    }
     final call = setup.call;
     if (call != null) await _tellTheCall(call);
   }

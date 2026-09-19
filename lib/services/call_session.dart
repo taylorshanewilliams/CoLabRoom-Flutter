@@ -326,15 +326,30 @@ class LiveKitCallSession extends CallSession implements CallMicrophone {
     _refresh();
   }
 
+  /// A call ended twice is a call ended once.
+  ///
+  /// Found while wiring the phone's audio owner in, and fixed here because
+  /// it is what stops the owner working: [leave] used to return early when
+  /// the state was already `ended`, which is exactly what a
+  /// `RoomDisconnectedEvent` makes it. So when the *other* person hung up,
+  /// the screen popped, dispose called leave, leave returned early, and
+  /// nothing was ever closed -- the events listener, the room and (from
+  /// today) the phone's audio all stayed held, leaving the phone configured
+  /// for a call that had ended.
+  bool _closed = false;
+
   @override
   Future<void> leave() async {
-    if (_state == CallState.ended) return;
+    final alreadyEnded = _state == CallState.ended;
     _state = CallState.ended;
     await _close();
-    notifyListeners();
+    // The listeners were told when the event arrived.
+    if (!alreadyEnded) notifyListeners();
   }
 
   Future<void> _close() async {
+    if (_closed) return;
+    _closed = true;
     await _events?.dispose();
     _events = null;
     try {

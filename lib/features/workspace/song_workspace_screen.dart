@@ -219,6 +219,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   /// in the app asks for this, so a call on this phone stands down rather
   /// than echo cancelling what is being recorded -- see PhoneAudio.
   AudioHold? _voiceHold;
+
+  /// And while dictation has it. Kept apart from [_voiceHold] because both
+  /// can be open at once and each has to let go only of its own.
+  AudioHold? _dictationHold;
   StreamSubscription<void>? _playerCompleteSubscription;
   Timer? _recordingTimer;
   int? _dictationStart;
@@ -1012,6 +1016,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     _recordingTimer?.cancel();
     _playerCompleteSubscription?.cancel();
     _speech.stop();
+    unawaited(_letGoOfTheDictationAudio());
     final recorder = _voiceRecorder;
     if (recorder != null) {
       unawaited(recorder.cancel());
@@ -1044,6 +1049,7 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   Future<void> _toggleSpeech() async {
     if (_listening) {
       await _speech.stop();
+      await _letGoOfTheDictationAudio();
       if (mounted) setState(() => _listening = false);
       _dictationStart = null;
       return;
@@ -1051,10 +1057,16 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
 
     final available = await _speech.initialize(
       onStatus: (status) {
+        final listening = status == 'listening';
+        // Dictation stops on its own after a minute, or after five seconds
+        // of quiet, and this is the only place that hears it: without this
+        // the phone would stay configured for a recording nobody is making.
+        if (!listening) unawaited(_letGoOfTheDictationAudio());
         if (!mounted) return;
-        setState(() => _listening = status == 'listening');
+        setState(() => _listening = listening);
       },
       onError: (error) {
+        unawaited(_letGoOfTheDictationAudio());
         if (!mounted) return;
         setState(() => _listening = false);
         _showMessage('Speech recognition: ${error.errorMsg}');
@@ -1080,6 +1092,10 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
     _dictationStart = textController.text.length;
 
     setState(() => _listening = true);
+    // Dictation is a recording pass like any other: it opens the microphone,
+    // and on iOS the recognizer takes the shared session for itself. A call
+    // on this phone stands down for it, the same as for a take.
+    _dictationHold ??= await phoneAudio.need(AudioNeed.recording);
     await _speech.listen(
       listenOptions: SpeechListenOptions(
         listenFor: const Duration(minutes: 1),
@@ -2087,6 +2103,12 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
   Future<void> _letGoOfTheVoiceAudio() async {
     final hold = _voiceHold;
     _voiceHold = null;
+    await hold?.release();
+  }
+
+  Future<void> _letGoOfTheDictationAudio() async {
+    final hold = _dictationHold;
+    _dictationHold = null;
     await hold?.release();
   }
 

@@ -347,12 +347,16 @@ void main() {
       expect(music.apple.category, lk.AppleAudioCategory.playAndRecord);
       expect(music.android.audioMode, lk.AndroidAudioMode.normal);
       expect(music.android.contentType, lk.AndroidAudioAttributesContentType.music);
-      // Nothing in this app asks for focus while it holds the microphone,
-      // and during a call it always does.
-      expect(music.android.manageAudioFocus, isFalse);
       // Headset handling has to keep working although the mode is no longer
       // a communication mode: unplugging headphones mid-call still routes.
       expect(music.android.forceAudioRouting, isTrue);
+      // One focus request on the phone, and it is the call's. The song under
+      // it asks for none, which is what stops it taking focus away.
+      expect(music.android.manageAudioFocus, isTrue);
+      expect(
+        AudioSetup.of(PhoneAudioState.callWithMusic).players.android.audioFocus,
+        AndroidAudioFocus.none,
+      );
     });
 
     test('a take during a call is recorded on a music session, not a voice one', () {
@@ -361,7 +365,19 @@ void main() {
       expect(take!.apple.mode, lk.AppleAudioMode.default_);
       expect(take.apple.category, lk.AppleAudioCategory.playAndRecord);
       expect(take.android.audioMode, lk.AndroidAudioMode.normal);
-      expect(take.android.manageAudioFocus, isFalse);
+    });
+
+    test('nothing on the phone asks Android for focus while the microphone is open', () {
+      // The one condition the takes bug needed: a focus request made while
+      // this app is holding the microphone. 2,486 bytes for 4,000 ms.
+      for (final state in <PhoneAudioState>[
+        PhoneAudioState.take,
+        PhoneAudioState.callWithTake,
+      ]) {
+        final setup = AudioSetup.of(state);
+        expect(setup.players.android.audioFocus, AndroidAudioFocus.none, reason: '$state');
+        expect(setup.call?.android.manageAudioFocus ?? false, isFalse, reason: '$state');
+      }
     });
 
     test('no player asks Android for focus while a call holds the session', () {
