@@ -479,6 +479,70 @@ const Map<String, List<int>> _aShapes = <String, List<int>>{
   return (root: rootText, quality: qualityToken, bass: bassToken);
 }
 
+/// Suffixes a chord is written with on a chart somebody brought.
+///
+/// [_writtenSuffixes] read the other way, minus one entry and plus the
+/// handful that charts use and this app has never had to spell. It is a
+/// *recognition* table rather than an interpretation one: reading a chart
+/// (see lib/services/brought_chart.dart) means deciding whether a line of
+/// text is chords at all, and a suffix nothing knows how to voice is still a
+/// suffix somebody wrote on a chart. `chordReference` will say it has no
+/// shape stored, which is the honest answer and the one it already gives.
+///
+/// The lower-case `o` for a diminished chord is deliberately left out. It is
+/// real notation, and it also turns "Do", "Go" and "Co" into chords — so a
+/// line of words that happens to be short would be drawn as a chord line,
+/// which is the one mistake a chart reader must not make. Those charts fall
+/// through to being kept as text, which loses nothing.
+const Set<String> _chartSuffixes = <String>{
+  '', 'maj', 'M', 'm', 'min', '-',
+  'dim', '°', 'aug', '+',
+  '7', 'maj7', 'M7', 'Δ7', 'Δ', 'm7', 'min7', '-7',
+  'dim7', '°7', 'm7b5', 'm7♭5', 'ø', 'ø7',
+  '6', 'maj6', 'm6', 'min6', '6/9', '69',
+  'sus', 'sus2', 'sus4', '7sus4', '7sus', '9sus4', 'sus4add9',
+  // How a worship chart writes sus2 and sus4, and the shape every band in
+  // that world has on the page. Admitted because there is no line of words in
+  // which "C2" or "D4" is a word, and one of them on a row used to turn the
+  // whole row into lyrics and cost the line under it its chords (review, 19
+  // September 2026).
+  '2', '4',
+  '5',
+  'add9', 'add2', 'add4', 'add11', 'madd9',
+  '9', 'm9', 'min9', 'maj9', 'M9',
+  '11', 'm11', '13', 'm13', 'maj11', 'maj13',
+  '7b5', '7#5', '7b9', '7#9', '9#11', '13b9',
+  'mmaj7', 'mMaj7', 'minmaj7',
+};
+
+/// Whether [token] is written the way a chord is written on paper.
+///
+/// Strict on purpose, and the reason a chart reader can tell a line of chords
+/// from a line of words: "A" is a chord and so are "Am7" and "G/B", while
+/// "I", "the" and "Oh" are not — so "Am I the only one" is a lyric and
+/// "Am  C  G" is not (Every Musician, Same Song, 17 September 2026).
+///
+/// It goes through the same root grammar every other reader of a chord name
+/// here uses, so the two cannot drift: a token this says yes to is a token
+/// [chordReference], [transposeChord] and the sheet will all read the same
+/// way. Harte — the analysis's own spelling, `A:min7` — is refused, because
+/// nobody writes it on a chart and admitting it would let a lyric line with a
+/// colon in it read as music.
+bool isChordName(String token) {
+  var raw = token.trim();
+  if (raw.isEmpty || raw.contains(':')) return false;
+  // The bass of an inversion, when the thing after the last slash is a note.
+  // "C6/9" is a quality with a slash in it and keeps its slash, exactly as
+  // transposeChord treats it.
+  final slash = raw.lastIndexOf('/');
+  if (slash > 0 && _pitchValues.containsKey(raw.substring(slash + 1))) {
+    raw = raw.substring(0, slash);
+  }
+  final match = RegExp(r'^([A-G][#b]?)(.*)$').firstMatch(raw);
+  if (match == null) return false;
+  return _chartSuffixes.contains(match.group(2)!);
+}
+
 /// Everything worth saying about one chord.
 ///
 /// Returns null for a stretch with no chord — ChordMini's `N` — so a caller

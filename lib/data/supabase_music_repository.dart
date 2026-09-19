@@ -1740,6 +1740,34 @@ class SupabaseMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<SongChart?> broughtChart(String projectId) async {
+    final row = await client
+        .from('brought_charts')
+        .select('project_id, body, brought_by, brought_at')
+        .eq('project_id', projectId)
+        .maybeSingle();
+    if (row == null) return null;
+    return SongChart(
+      projectId: '${row['project_id']}',
+      body: '${row['body']}',
+      broughtBy: row['brought_by'] as String?,
+      broughtAt:
+          DateTime.tryParse('${row['brought_at']}')?.toLocal() ?? DateTime.now(),
+    );
+  }
+
+  @override
+  Future<void> bringChart(String projectId, String body) async {
+    await client.rpc<dynamic>(
+      'bring_a_chart',
+      params: <String, dynamic>{
+        'target_project': projectId,
+        'in_body': body,
+      },
+    );
+  }
+
+  @override
   Future<MusicRoom> ideasRoom() async {
     // Through the function, not two client round trips. Find-or-create from
     // here would race two simultaneous recordings into two rooms both

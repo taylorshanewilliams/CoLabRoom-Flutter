@@ -3169,23 +3169,29 @@ class _WorkspaceToolbar extends StatelessWidget {
     // nothing. It already knew: `hasRecording` is right there, and two of the
     // labels change on it.
     final actions = <Widget>[
-      // Only once there is something to make a sheet from.
+      // Always, whether or not there is a recording.
       //
-      // On an empty song this pill and Record were the same destination —
-      // both push SongAnalysisScreen, one of them with `autoRecord` — so two
-      // of the five buttons went to the same place, and the one that got you
-      // there in fewer taps was the quieter of the two. Nothing is hidden by
-      // dropping it: pressing Record *is* the analyze path, which is what
-      // gave that capability top billing in the first place.
-      if (hasRecording)
-        _ToolPill(
-          key: const Key('workspace_analyze_button'),
-          icon: Icons.graphic_eq_rounded,
-          label: 'Song Sheet',
-          active: true,
-          activeColor: AppColors.gold,
-          onTap: onAnalyze,
-        ),
+      // It used to appear only once there was something to make a sheet
+      // from, on the reasoning that Record went to the same screen anyway.
+      // That stopped being true the day the sheet got a chart somebody could
+      // bring (0168): a song with no recording is exactly the song whose
+      // chords live on a brought chart, and the only pill that reached them
+      // in portrait was one that started recording on arrival. Landscape
+      // never hid it, so the two orientations offered different songs
+      // different doors.
+      //
+      // Quiet rather than gold when there is no recording: Record is still
+      // the lit thing to do on an empty song, and a condition may change
+      // what a door looks like, never whether it is there (Taylor,
+      // 19 September 2026).
+      _ToolPill(
+        key: const Key('workspace_analyze_button'),
+        icon: Icons.graphic_eq_rounded,
+        label: 'Song Sheet',
+        active: hasRecording,
+        activeColor: AppColors.gold,
+        onTap: onAnalyze,
+      ),
       // A first-class verb, beside Analyze rather than inside it. Songs are
       // words and sound; the editor behind this toolbar holds the words.
       _ToolPill(

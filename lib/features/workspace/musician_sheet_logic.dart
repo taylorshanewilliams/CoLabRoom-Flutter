@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/continuous_song_editor.dart';
+import 'package:colabroom/services/brought_chart.dart';
 import 'package:colabroom/services/chord_beat_grid.dart';
 import 'package:colabroom/services/chord_names.dart';
 import 'package:colabroom/services/horn_reading.dart';
@@ -373,6 +374,77 @@ List<MusicianSheetLine> buildMusicianSheetLines(
       language: project.language,
     );
   }).toList(growable: false);
+}
+
+/// One line of a chart somebody brought, as the sheet's own line.
+///
+/// Everywhere else in this app a chord came off a recording, so the sheet
+/// places one by *when* it sounds. A brought chart has no clock in it at all
+/// — it has columns — so each piece of the line is given a second of its own
+/// and each chord the second belonging to the piece it was written over.
+///
+/// The arithmetic is invented, and it is never stored, drawn, exported or
+/// shown: it exists so that one widget draws chords over words everywhere in
+/// this app rather than two widgets drawing them two ways. What that buys is
+/// the whole of every personal reading — transpose, capo, the horn part,
+/// Nashville and Roman numbers, and the shape sheet a tapped chord opens —
+/// because all of them are transforms of a chord name (Every Musician, Same
+/// Song, 17 September 2026).
+///
+/// The sheet holds one chord per piece of a line, and a second chord landing
+/// on a piece already taken moves to the next free one, exactly as it does on
+/// a sheet made from a recording. A line with nowhere left to move one to —
+/// two chords over a single word — is drawn a different way entirely, with
+/// its chords on a row above the words; see `BroughtChartView._wordsLine`,
+/// which is where losing a chord is caught.
+MusicianSheetLine broughtLineAsSheetLine(
+  BroughtChartLine line, {
+  String? language,
+}) {
+  const step = 1000;
+  final units = lyricUnits(line.text, language: language);
+  final chords = <ChordCue>[
+    for (final chord in line.chords)
+      if (_unitHolding(units, line.text, chord.at) case final unit)
+        ChordCue(
+          startMs: unit * step,
+          endMs: unit * step + step,
+          chord: chord.chord,
+          confidence: 1,
+          // Somebody wrote this chord down, which is what manual means
+          // everywhere else: it is not a guess with a confidence behind it.
+          source: 'manual',
+        ),
+  ]..sort((a, b) => a.startMs.compareTo(b.startMs));
+  return MusicianSheetLine(
+    contributionId: null,
+    body: line.text,
+    section: false,
+    startMs: 0,
+    endMs: math.max(step, units.length * step),
+    chords: chords,
+    approximateTiming: false,
+    wordStartsMs: <int>[for (var i = 0; i < units.length; i += 1) i * step],
+    language: language,
+  );
+}
+
+/// Which piece of a line the character at [offset] belongs to.
+///
+/// A chord written in the gap before a word belongs to that word, which is
+/// how a chart is read: the name sits where the change happens, and the
+/// change happens on the word it is in front of.
+int _unitHolding(List<String> units, String text, int offset) {
+  if (units.isEmpty) return 0;
+  var cursor = 0;
+  for (var index = 0; index < units.length; index += 1) {
+    final start = text.indexOf(units[index], cursor);
+    if (start < 0) continue;
+    final end = start + units[index].length;
+    if (offset < end) return index;
+    cursor = end;
+  }
+  return units.length - 1;
 }
 
 Map<int, ChordCue> chordPlacementsForLine({

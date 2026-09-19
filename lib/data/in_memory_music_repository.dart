@@ -21,6 +21,7 @@ import '../domain/song_analysis_models.dart';
 import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
 import 'music_repository.dart';
+import '../services/brought_chart.dart' show chartBodyLimit;
 import '../services/invite_link.dart';
 import '../services/song_language.dart';
 
@@ -2203,6 +2204,58 @@ class InMemoryMusicRepository implements MusicRepository {
       _replaceProject(project.copyWith(cycle: counted));
       return;
     }
+  }
+
+  /// One chart per song, the way 0168's primary key keeps them.
+  final Map<String, SongChart> _charts = <String, SongChart>{};
+
+  @override
+  Future<SongChart?> broughtChart(String projectId) async {
+    // Only from a room this account can see, which is what 0168's read policy
+    // comes to here: this repository holds the rooms somebody is in.
+    if (_roomOf(projectId) == null) return null;
+    return _charts[projectId];
+  }
+
+  @override
+  Future<void> bringChart(String projectId, String body) async {
+    // Refused here in the shape 0168 refuses it in, so the path the app takes
+    // when the room says no is one a test can walk. A chart is a shared fact
+    // about the song: somebody who can only look cannot replace the page
+    // everybody else is reading off. setSongCycle and setSongLanguage refuse
+    // in the same place for the same reason.
+    final room = _roomOf(projectId);
+    if (room == null) {
+      throw PostgrestException(
+        message: 'That song does not exist.',
+        code: '22023',
+      );
+    }
+    if (!room.canEditSongs(currentUserId)) {
+      throw PostgrestException(
+        message: 'Only somebody who can edit this song can bring a chart.',
+        code: '42501',
+      );
+    }
+    final cleaned = body.trim();
+    if (cleaned.isEmpty) {
+      throw PostgrestException(
+        message: 'There is nothing in that chart.',
+        code: '22023',
+      );
+    }
+    if (cleaned.length > chartBodyLimit) {
+      throw PostgrestException(
+        message: 'That chart is too long to keep.',
+        code: '22023',
+      );
+    }
+    _charts[projectId] = SongChart(
+      projectId: projectId,
+      body: cleaned,
+      broughtBy: currentUserId,
+      broughtAt: DateTime.now(),
+    );
   }
 
   @override

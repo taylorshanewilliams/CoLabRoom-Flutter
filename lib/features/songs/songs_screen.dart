@@ -1236,6 +1236,26 @@ class _SongsScreenState extends State<SongsScreen> {
     if (project != null && mounted) _open(project);
   }
 
+  /// A song somebody is learning, made out of a chart they already have.
+  ///
+  /// Beside New song rather than inside it: bringing a chart is how most
+  /// people meet most songs, and until now this app could only hold a song
+  /// somebody was writing (Taylor, 19 September 2026).
+  Future<void> _learnASong() async {
+    final controller = BetaScope.of(context);
+    final project = await showLearnASongFlow(context, controller);
+    if (project == null || !mounted) return;
+    // Onto the sheet, not onto the words editor.
+    //
+    // The song has to open where the chart is. Somebody who has just pasted
+    // one and landed on the workspace finds an empty lyric editor with Record
+    // as the lit thing to do and no chords anywhere, and concludes the chart
+    // was lost (review, 19 September 2026). The song itself goes on the stack
+    // underneath, so back still lands in the song rather than out of it.
+    _open(project);
+    _openSheet(project);
+  }
+
   /// A room of its own, without having to be making a song first.
   ///
   /// Somebody setting up a space for their band is not writing a song at
@@ -1418,6 +1438,15 @@ class _SongsScreenState extends State<SongsScreen> {
           leadingIcon: const Icon(Icons.queue_music_rounded, size: 19),
           onPressed: () => unawaited(_newSet()),
           child: const Text('Set'),
+        ),
+        // The fourth thing, and the one most people came for: a song they
+        // already have the chords to. Named for what it is rather than for
+        // the file format it reads.
+        MenuItemButton(
+          key: const Key('songs_new_learn'),
+          leadingIcon: const Icon(Icons.menu_book_rounded, size: 19),
+          onPressed: () => unawaited(_learnASong()),
+          child: const Text('A song to learn'),
         ),
       ],
     );
@@ -1766,9 +1795,10 @@ class _SongsScreenState extends State<SongsScreen> {
                         textAlign: TextAlign.center,
                         style: const TextStyle(color: AppColors.muted),
                       )
-                    : _ThreeDoors(
+                    : _TheDoors(
                         onRecord: widget.onRecord,
                         onNewSong: () => unawaited(_newSong()),
+                        onLearnASong: () => unawaited(_learnASong()),
                         onFindMusicians: widget.onFindMusicians,
                       ),
               ),
@@ -2311,12 +2341,18 @@ class _SongRow extends StatelessWidget {
 }
 
 
-/// What this app is for, offered as three things to do.
+/// What this app is for, offered as things to do.
 ///
-/// Somebody arrives as one of three people and the app cannot tell which:
-/// working alone, working with a band, or looking for somebody to play with.
-/// Two tabs holding songs serve the first two and abandon the third, who has
-/// no songs to put in either.
+/// Somebody arrives as one of four people and the app cannot tell which:
+/// working alone, working with a band, learning a song somebody else wrote,
+/// or looking for people to play with. Two tabs holding songs serve the first
+/// two and abandon the others, who have no songs to put in either.
+///
+/// The fourth door is the newest and is most people's first hour with any
+/// instrument: they are not writing anything, they have the chords to a song
+/// they love, and they want to play it (Taylor, 19 September 2026). Until
+/// this app could take a chart in, there was nothing on this screen for them
+/// at all.
 ///
 /// The old landing rule sent a new person to the Open Mic on the reasoning
 /// that it is "a room with music in it" — which was true against seventy-five
@@ -2327,15 +2363,17 @@ class _SongRow extends StatelessWidget {
 /// the one place in an interface where saying what is possible is
 /// unambiguously right — and it is gone for good the moment there is a single
 /// song to show instead.
-class _ThreeDoors extends StatelessWidget {
-  const _ThreeDoors({
+class _TheDoors extends StatelessWidget {
+  const _TheDoors({
     required this.onRecord,
     required this.onNewSong,
+    required this.onLearnASong,
     required this.onFindMusicians,
   });
 
   final VoidCallback? onRecord;
   final VoidCallback onNewSong;
+  final VoidCallback onLearnASong;
   final VoidCallback? onFindMusicians;
 
   @override
@@ -2367,15 +2405,33 @@ class _ThreeDoors extends StatelessWidget {
           onTap: onRecord ?? onNewSong,
         ),
         const SizedBox(height: 10),
+        // Second, and above the two doors that need other people, because it
+        // is the commonest reason anybody picks an instrument up: not writing
+        // anything, holding the chords to a song they love, wanting to play
+        // it. It is also the one door on this screen that works with nobody
+        // else in the world signed up.
+        _Door(
+          key: const Key('door_learn'),
+          icon: Icons.menu_book_rounded,
+          tint: AppColors.orange,
+          title: 'Learn a song',
+          // The promise, not the mechanism. Nobody arrives looking for a
+          // ChordPro importer; they arrive with the chords to a song and
+          // nowhere to put them.
+          detail: 'Bring the chords you already have, and read them in your '
+              'own key.',
+          onTap: onLearnASong,
+        ),
+        const SizedBox(height: 10),
         _Door(
           key: const Key('door_band'),
           icon: Icons.group_rounded,
           tint: AppColors.cyan,
-          // Not "with your band". This screen's three doors are meant to
-          // cover somebody at any stage — play something alone, start
-          // something with other people, go and find those people — and the
-          // middle one was the only one that first required you to already
-          // have them.
+          // Not "with your band". This screen's doors are meant to cover
+          // somebody at any stage — play something alone, learn something
+          // that already exists, start something with other people, go and
+          // find those people — and this one was the only one that first
+          // required you to already have them.
           title: 'Start something together',
           detail: 'A room everybody adds to, from wherever they are, whenever '
               'they are free.',

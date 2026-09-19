@@ -204,6 +204,12 @@ Future<void> showReadingChoice(
   // the key they are in. So do the sung notes — fixed do names the pitch it
   // heard and needs no key at all, and anybody counting from a 1 can say
   // where theirs is (review, 18 September 2026).
+  //
+  // What a caller who can *write* the key gets as well is the one row that
+  // ends this state: say the key and every one of those comes back. It is
+  // here because a song with no recording has no key badge and no song sheet
+  // to say it from, which is every song somebody brought a chart to (review,
+  // 19 September 2026).
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
@@ -217,6 +223,7 @@ Future<void> showReadingChoice(
       sa: sa,
       onSa: onSa,
       hasTune: hasTune,
+      onKey: onKey,
     ),
   );
 }
@@ -232,6 +239,7 @@ class _ReadingChoiceSheet extends StatefulWidget {
     this.sa,
     this.onSa,
     this.hasTune = false,
+    this.onKey,
   });
 
   final HornReading reading;
@@ -242,6 +250,9 @@ class _ReadingChoiceSheet extends StatefulWidget {
   final int? sa;
   final ValueChanged<int?>? onSa;
   final bool hasTune;
+
+  /// Given only by a caller whose person may say the key for the whole room.
+  final SayTheKey? onKey;
 
   @override
   State<_ReadingChoiceSheet> createState() => _ReadingChoiceSheetState();
@@ -306,7 +317,130 @@ class _ReadingChoiceSheetState extends State<_ReadingChoiceSheet> {
         // September 2026, which found the same hole under the horn reading).
         const SizedBox(height: 18),
         const _ShapesSection(),
+        // Last, and only for somebody who may say it: the row that ends this
+        // sheet's whole condition. Everything the key sheet has and this one
+        // has not — the capo, the numbers, the scale — is counted from a key,
+        // so on a song that has none the useful thing to offer is saying what
+        // it is (review, 19 September 2026).
+        if (widget.onKey != null) ...<Widget>[
+          const SizedBox(height: 18),
+          const Divider(height: 1, color: AppColors.line),
+          const SizedBox(height: 14),
+          _SayWhichKey(say: widget.onKey!),
+        ],
       ],
+    );
+  }
+}
+
+/// What key the song is in, on a song nothing has said it about.
+///
+/// The same twelve roots and the same two modes as the key sheet's "Where the
+/// 1 is", in the same words, because it is the same fact being said — the
+/// difference is only that there is no key here to draw a scale from yet.
+/// Everybody in the room sees the answer (0144).
+class _SayWhichKey extends StatefulWidget {
+  const _SayWhichKey({required this.say});
+
+  final SayTheKey say;
+
+  @override
+  State<_SayWhichKey> createState() => _SayWhichKeyState();
+}
+
+class _SayWhichKeyState extends State<_SayWhichKey> {
+  String? _root;
+  bool _minor = false;
+  bool _saying = false;
+  String? _refused;
+
+  Future<void> _say(String root, bool minor) async {
+    if (_saying) return;
+    final (rootBefore, minorBefore) = (_root, _minor);
+    setState(() {
+      _saying = true;
+      _refused = null;
+      _root = root;
+      _minor = minor;
+    });
+    final refused = await widget.say('$root ${minor ? 'minor' : 'major'}');
+    if (!mounted) return;
+    setState(() {
+      _saying = false;
+      _refused = refused;
+      if (refused != null) {
+        _root = rootBefore;
+        _minor = minorBefore;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _Section(
+      heading: 'What key is it in?',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            'Nothing has said yet. Say it and the capo chart, the numbers and '
+            'the scale all have something to count from. Everybody in the '
+            'room sees it.',
+            style:
+                TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.45),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final root in _theTwelve)
+                _PickerChip(
+                  label: _printedKey(root),
+                  itemKey: Key('which_key_is_$root'),
+                  selected: _root == root,
+                  onTap: () => unawaited(_say(root, _minor)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final minor in <bool>[false, true])
+                _PickerChip(
+                  label: minor ? 'Minor' : 'Major',
+                  itemKey: Key('which_key_is_${minor ? 'minor' : 'major'}'),
+                  selected: minor == _minor,
+                  // Nothing to say until a root has been picked: "Minor" on
+                  // its own is not a key.
+                  onTap: _root == null
+                      ? () => setState(() => _minor = minor)
+                      : () => unawaited(_say(_root!, minor)),
+                ),
+            ],
+          ),
+          // Said here rather than in a snackbar, which would sit underneath
+          // this sheet — the way a refusal went unseen before (review, 17
+          // September 2026).
+          if (_refused != null) ...<Widget>[
+            const SizedBox(height: 10),
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                _refused!,
+                key: const Key('which_key_refused'),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontSize: 12.5,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

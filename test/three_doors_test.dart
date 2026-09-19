@@ -9,13 +9,19 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// What an empty shelf offers.
 ///
-/// Somebody arrives as one of three people and the app cannot tell which:
-/// working alone, working with a band, or looking for somebody to play with.
-/// Two tabs holding songs serve the first two and abandon the third, who has
-/// nothing to put in either — and the old landing rule sent exactly that
-/// person to the Open Mic, on the reasoning that it is "a room with music in
-/// it". True against seventy-five seeded musicians. False against four real
-/// accounts with one findable and no songs on the mic.
+/// Somebody arrives as one of four people and the app cannot tell which:
+/// working alone, learning a song somebody else wrote, working with a band,
+/// or looking for somebody to play with. Two tabs holding songs serve two of
+/// them and abandon the others, who have nothing to put in either — and the
+/// old landing rule sent exactly those people to the Open Mic, on the
+/// reasoning that it is "a room with music in it". True against seventy-five
+/// seeded musicians. False against four real accounts with one findable and
+/// no songs on the mic.
+///
+/// The fourth door is the newest and sits second, because bringing the chords
+/// to a song you already love is most people's first hour with an instrument,
+/// and it is the one door here that needs nobody else in the world (Taylor,
+/// 19 September 2026).
 ///
 /// So the empty shelf stops being empty. This is not a mode picker and not a
 /// tour: it is an empty state, which is the one place saying what is possible
@@ -54,7 +60,7 @@ Future<void> _boot(
 }
 
 void main() {
-  testWidgets('an empty shelf offers all three ways in', (tester) async {
+  testWidgets('an empty shelf offers all four ways in', (tester) async {
     var recorded = 0;
     var searched = 0;
 
@@ -71,16 +77,31 @@ void main() {
     );
 
     expect(find.byKey(const Key('door_record')), findsOneWidget);
+    expect(find.byKey(const Key('door_learn')), findsOneWidget,
+        reason: 'somebody who is learning a song rather than writing one had '
+            'nothing on this screen at all');
     expect(find.byKey(const Key('door_band')), findsOneWidget);
     expect(find.byKey(const Key('door_find')), findsOneWidget,
         reason: 'the person with nothing of their own is the one both tabs '
             'used to abandon');
+
+    // The first two are on the screen somebody lands on, without scrolling.
+    // Four cards do not all fit a small phone, so which two are above the
+    // fold is a decision and not an accident: play something of your own, or
+    // bring a song you already love.
+    final screen = tester.view.physicalSize.height / tester.view.devicePixelRatio;
+    for (final door in <String>['door_record', 'door_learn']) {
+      expect(tester.getRect(find.byKey(Key(door))).bottom, lessThan(screen),
+          reason: '$door is below the fold on a small phone');
+    }
 
     // Each door goes somewhere, rather than describing something.
     await tester.tap(find.byKey(const Key('door_record')));
     await tester.pump();
     expect(recorded, 1);
 
+    await tester.ensureVisible(find.byKey(const Key('door_find')));
+    await tester.pump();
     await tester.tap(find.byKey(const Key('door_find')));
     await tester.pump();
     expect(searched, 1);
