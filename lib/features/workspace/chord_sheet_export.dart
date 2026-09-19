@@ -67,12 +67,16 @@ abstract final class ChordSheetExport {
     // script that does not space them (0163) — because chord placement is by
     // index into this list, and a chart that counted the pieces differently
     // would put the same chord over a different syllable from the one on
-    // screen. Folded to printable characters first, as before: a word's
-    // width decides where the chord above it starts.
-    final words = lyricUnits(
-      ProjectExportService.printable(line.body),
-      language: line.language,
-    );
+    // screen. Split first and folded to printable characters after, one piece
+    // at a time: printable() replaces every character the built-in PDF fonts
+    // cannot draw with '?', and splitting that would be counting question
+    // marks rather than the song's own pieces (review, 18 September 2026).
+    // Each piece still occupies the width it prints in, which is what decides
+    // where the chord above it starts.
+    final units = lyricUnits(line.body, language: line.language);
+    final words = <String>[
+      for (final unit in units) ProjectExportService.printable(unit),
+    ];
     final placements = chordPlacementsForLine(
       wordCount: words.length,
       lineStartMs: line.startMs,
@@ -102,9 +106,17 @@ abstract final class ChordSheetExport {
     // Nothing between two characters of a script that is written without
     // spaces: a space after every character would be a line no reader of it
     // has ever seen, and it would double the width of every line on the page.
-    final gap = unitGap(line.language);
+    // A space does stay where only one side is such a character, so an
+    // English word in a Chinese line is still a word.
     for (var index = 0; index < words.length; index += 1) {
-      if (index > 0) wordRow.write(gap);
+      if (index > 0) {
+        // Measured on the song's own characters, not on the '?' they print
+        // as: whether two pieces need a space between them is a fact about
+        // the language and not about the font.
+        wordRow.write(
+          unitGapBetween(units[index - 1], units[index], line.language),
+        );
+      }
       // A placeholder is not a word. An instrumental line carries one marker
       // per chord so the chords have something to sit over on screen (see
       // [instrumentalMark]); printed as written it is a page of dots handed
@@ -310,7 +322,6 @@ abstract final class ChordSheetExport {
     // chart uses them: a chord in a ChordPro file names the syllable it is
     // written in front of, and that has to be the syllable it is over here.
     final words = line.units;
-    final gap = unitGap(line.language);
     final placements = chordPlacementsForLine(
       wordCount: words.length,
       lineStartMs: line.startMs,
@@ -332,7 +343,9 @@ abstract final class ChordSheetExport {
         out.write('[$name]');
         continue;
       }
-      if (index > 0) out.write(gap);
+      if (index > 0) {
+        out.write(unitGapBetween(words[index - 1], words[index], line.language));
+      }
       if (name.isNotEmpty) out.write('[$name]');
       // The same rule as the printed chart: a marker is where a word would
       // be, not a word. `[G]· [C]·` for a whole song is a lyric sheet of

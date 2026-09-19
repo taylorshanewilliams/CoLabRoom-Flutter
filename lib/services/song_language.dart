@@ -236,7 +236,19 @@ bool readsRightToLeft(String? tag) {
   return _rightToLeftLanguages.contains(parts.first);
 }
 
-/// Scripts that put nothing between one word and the next.
+/// Scripts that put nothing between one word and the next, and that this app
+/// can safely cut into pieces.
+///
+/// Khmer, Burmese and Tibetan are deliberately not here, and neither are
+/// their languages below. They are written without spaces too, but a piece of
+/// one of them is an orthographic syllable and not a grapheme cluster: Dart
+/// cuts ស្រឡាញ់ into ស្ រ ឡា ញ់, which separates the coeng from the consonant
+/// it subjoins and draws marks on dotted circles, and Burmese comes apart the
+/// same way at its stacked consonants. Cutting a line into broken glyphs is
+/// worse than leaving it whole, so a song in those languages is laid out the
+/// way it was before anybody said anything — every chord on the first word,
+/// which is wrong but at least readable. Getting them right needs somebody
+/// who reads them (review, 18 September 2026).
 const Set<String> _spacelessScripts = <String>{
   'Hans',
   'Hant',
@@ -246,25 +258,19 @@ const Set<String> _spacelessScripts = <String>{
   'Kana',
   'Thai',
   'Laoo',
-  'Khmr',
-  'Mymr',
-  'Tibt',
 };
 
 /// Languages usually written with no spaces between words.
 ///
 /// Korean is deliberately not here: it is written in its own script and
-/// spaces its words, so it splits like English does.
+/// spaces its words, so it splits like English does. See the scripts above
+/// for why Khmer, Burmese and Tibetan are not here either.
 const Set<String> _spacelessLanguages = <String>{
   'zh', // Chinese
   'yue', // Cantonese
   'ja', // Japanese
   'th', // Thai
   'lo', // Lao
-  'km', // Khmer
-  'my', // Burmese
-  'bo', // Tibetan
-  'dz', // Dzongkha
 };
 
 /// Whether a chord in this language sits over a character rather than over a
@@ -299,21 +305,156 @@ bool anchorsByCharacter(String? tag) {
 /// hang a chord over, and an emoji somebody typed into a lyric is one
 /// character rather than two halves of a surrogate pair.
 List<String> lyricUnits(String body, {String? language}) {
-  if (anchorsByCharacter(language)) {
-    return <String>[
-      for (final character in body.characters)
-        if (character.trim().isNotEmpty) character,
-    ];
-  }
+  if (anchorsByCharacter(language)) return _unitsByCharacter(body);
   return body
       .split(RegExp(r'\s+'))
       .where((word) => word.isNotEmpty)
       .toList(growable: false);
 }
 
+/// Characters written without spaces between them: the CJK ideographs and
+/// their punctuation, kana, the fullwidth forms, Thai and Lao.
+///
+/// Used both to decide what gets a piece of its own and to decide whether two
+/// pieces need a space between them when the line is written back out.
+bool _writtenWithoutSpaces(int rune) =>
+    (rune >= 0x2E80 && rune <= 0x303F) || // CJK radicals, symbols, punctuation
+    (rune >= 0x3040 && rune <= 0x30FF) || // Hiragana and katakana
+    (rune >= 0x3400 && rune <= 0x4DBF) || // CJK, extension A
+    (rune >= 0x4E00 && rune <= 0x9FFF) || // CJK
+    (rune >= 0xF900 && rune <= 0xFAFF) || // CJK compatibility
+    (rune >= 0xFF01 && rune <= 0xFF9F) || // Fullwidth forms, halfwidth kana
+    (rune >= 0x20000 && rune <= 0x2FA1F) || // CJK, the later extensions
+    (rune >= 0x0E00 && rune <= 0x0E7F) || // Thai
+    (rune >= 0x0E80 && rune <= 0x0EFF); // Lao
+
+/// Characters that belong in front of whatever comes after them: an opening
+/// bracket or quote, and the Thai and Lao vowels that are typed before the
+/// consonant they are read after.
+///
+/// เ in เขา is a piece of that syllable and not a syllable, so it must not be
+/// drawn on its own with a chord of its own above it (review, 18 September
+/// 2026).
+const Set<int> _leadsTheNext = <int>{
+  0x0E40, 0x0E41, 0x0E42, 0x0E43, 0x0E44, // Thai, the vowels written first
+  0x0EC0, 0x0EC1, 0x0EC2, 0x0EC3, 0x0EC4, // Lao, the same five
+  0x28, 0x5B, 0x7B, // ( [ {
+  0x201C, 0x2018, // “ ‘
+  0xFF08, 0xFF3B, 0xFF5B, // （ ［ ｛
+  0x300C, 0x300E, 0x300A, 0x3008, 0x3010, 0x3014, // 「 『 《 〈 【 〔
+};
+
+/// Characters that belong to whatever came before them: closing brackets and
+/// quotes, the punctuation that ends a phrase, the Thai and Lao vowels that
+/// are written after their consonant but are part of its syllable, and the
+/// Japanese marks that only ever extend the character in front of them.
+const Set<int> _trailsThePrevious = <int>{
+  0x0E30, 0x0E32, 0x0E33, 0x0E45, 0x0E46, // Thai ะ า ำ ๅ ๆ
+  0x0E2F, 0x0E4F, 0x0E5A, 0x0E5B, // Thai ฯ ๏ ๚ ๛
+  0x0EB0, 0x0EB2, 0x0EB3, 0x0EC6, // Lao ະ າ ຳ ໆ
+  0x21, 0x2C, 0x2E, 0x29, 0x3A, 0x3B, 0x3F, 0x5D, 0x7D, // ! , . ) : ; ? ] }
+  0x201D, 0x2019, 0x2026, // ” ’ …
+  0x3001, 0x3002, 0x3005, 0x309D, 0x309E, // 、 。 々 ゝ ゞ
+  0x30FB, 0x30FC, 0x30FD, 0x30FE, // ・ ー ヽ ヾ
+  0x300D, 0x300F, 0x300B, 0x3009, 0x3011, 0x3015, // 」 』 》 〉 】 〕
+  0xFF01, 0xFF0C, 0xFF0E, 0xFF09, 0xFF1A, 0xFF1B, 0xFF1F, // ！ ， ． ） ： ； ？
+  0xFF3D, 0xFF5D, // ］ ｝
+};
+
+/// The pieces of a line in a script that does not space its words.
+///
+/// A character of that script is a piece of its own, which is what puts one
+/// chord over one character. Everything else is not: a run of Latin letters
+/// or digits stays one piece, because English inside a Chinese, Japanese or
+/// Thai lyric is ordinary and drawing "baby" as b a b y with a chord slot
+/// over each letter is not a page anybody has seen; punctuation joins the
+/// piece it belongs to rather than standing on its own and taking a chord
+/// with it; and white space is a boundary between pieces rather than a piece
+/// (review, 18 September 2026).
+List<String> _unitsByCharacter(String body) {
+  final units = <String>[];
+  // Characters waiting to lead whatever piece comes next.
+  var leading = '';
+  // A run of letters or digits from a script that does space its words.
+  final run = StringBuffer();
+
+  void closeRun() {
+    if (run.isEmpty) return;
+    units.add('$leading$run');
+    leading = '';
+    run.clear();
+  }
+
+  for (final cluster in body.characters) {
+    if (cluster.trim().isEmpty) {
+      closeRun();
+      continue;
+    }
+    final rune = cluster.runes.first;
+    if (_leadsTheNext.contains(rune)) {
+      closeRun();
+      leading = '$leading$cluster';
+    } else if (_trailsThePrevious.contains(rune)) {
+      if (run.isNotEmpty) {
+        run.write(cluster);
+      } else if (leading.isEmpty && units.isNotEmpty) {
+        units[units.length - 1] = '${units.last}$cluster';
+      } else {
+        // Nothing to trail — it opens the line, so it leads instead.
+        leading = '$leading$cluster';
+      }
+    } else if (_writtenWithoutSpaces(rune)) {
+      closeRun();
+      units.add('$leading$cluster');
+      leading = '';
+    } else {
+      run.write(cluster);
+    }
+  }
+  closeRun();
+  if (leading.isNotEmpty) {
+    if (units.isEmpty) {
+      units.add(leading);
+    } else {
+      units[units.length - 1] = '${units.last}$leading';
+    }
+  }
+  return List<String>.unmodifiable(units);
+}
+
 /// What goes between two units when the line is written back out as one
-/// string — a space between words, nothing between characters.
-String unitGap(String? language) => anchorsByCharacter(language) ? '' : ' ';
+/// string.
+///
+/// A space between two words, and nothing between two characters of a script
+/// that is written without them — but a space where the two sides are not
+/// both such characters, because "baby" and "you" run together into one word
+/// otherwise, and that would be a worse line than the one this fixes.
+String unitGapBetween(String before, String after, String? language) {
+  if (!anchorsByCharacter(language)) return ' ';
+  if (before.isEmpty || after.isEmpty) return '';
+  return _writtenWithoutSpaces(before.runes.last) &&
+          _writtenWithoutSpaces(after.runes.first)
+      ? ''
+      : ' ';
+}
+
+/// A line's pieces, written back out as one string.
+///
+/// The one thing that knows the loss in this: a space somebody put between
+/// two phrases of a Chinese line is a boundary between pieces and is not
+/// written back out, because a piece does not remember what followed it. It
+/// costs a phrase break in an exported file and nothing on the page, where
+/// the pieces are set apart anyway.
+String joinLyricUnits(List<String> units, String? language) {
+  final out = StringBuffer();
+  for (var index = 0; index < units.length; index += 1) {
+    if (index > 0) {
+      out.write(unitGapBetween(units[index - 1], units[index], language));
+    }
+    out.write(units[index]);
+  }
+  return out.toString();
+}
 
 /// Words somebody may have written on their own profile that name a
 /// language this app has a tag for, where the word is not simply the English

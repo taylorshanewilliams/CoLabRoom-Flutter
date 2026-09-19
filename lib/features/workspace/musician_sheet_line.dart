@@ -296,6 +296,9 @@ class _BarMarker extends StatelessWidget {
       padding: EdgeInsetsDirectional.only(bottom: liveMode ? 2 : 1, end: 2),
       child: Text(
         '$number',
+        // A bar number is counted the one way everywhere, like the chord
+        // names it sits beside.
+        textDirection: TextDirection.ltr,
         style: TextStyle(
           color: const Color(0xFF7A6C5A),
           fontSize: (liveMode ? 10 : 9) * fontScale,
@@ -436,6 +439,16 @@ class _ChordWord extends StatelessWidget {
                   ),
             child: Text(
               chordText,
+              // A chord name is Latin music notation and not lyric text. On a
+              // song read from the right it would otherwise be handed to the
+              // bidi algorithm with a right-to-left base, which moves a
+              // trailing or leading symbol to the other end: A♯ drew as ♯A,
+              // B♭ as ♭B, F# as #F, and the number reading ♭7 as 7♭. The
+              // position of the name is still directional — it sits over the
+              // start of its word, whichever side that is — but the name
+              // itself reads the one way it is ever written (review, 18
+              // September 2026).
+              textDirection: TextDirection.ltr,
               style: TextStyle(
                 color: liveMode
                     ? AppColors.gold
@@ -579,7 +592,10 @@ class _ChordWord extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.3,
                   ),
-                  child: Text(note ?? ''),
+                  // A note name is notation too, for the same reason the
+                  // chord above it is: B♭4 must not draw as ♭B4, and ♭7 in
+                  // jianpu must not draw as 7♭.
+                  child: Text(note ?? '', textDirection: TextDirection.ltr),
                 ),
               ),
             ),

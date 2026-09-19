@@ -671,9 +671,14 @@ class _ContinuousSongEditorState extends State<ContinuousSongEditor> {
               ),
             ),
             if (_saving || _dirty || _saveFailed)
-              Positioned(
+              // Directional: on a song read from the right the rail and the
+              // start of every line are on the right, so a fixed right-hand
+              // corner put "Editing" on top of the first word somebody was
+              // typing. It is unchanged for every left-to-right song (review,
+              // 18 September 2026).
+              PositionedDirectional(
                 top: 8,
-                right: 12,
+                end: 12,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: _saveStalled && _failureMessage != null ? _explainFailure : null,

@@ -8,6 +8,7 @@ import 'package:colabroom/features/workspace/song_sheet_panel.dart';
 import 'package:colabroom/services/song_analysis_service.dart';
 import 'package:colabroom/services/song_language.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -91,6 +92,70 @@ void main() {
         <String>['ที่', 'นี่'],
       );
     });
+
+    test('keep an English word inside a Chinese line whole', () {
+      // English inside a Chinese, Japanese or Thai lyric is ordinary. Cut
+      // per character it was drawn b a b y, each letter with a chord slot of
+      // its own, which is not a page anybody has seen (review, 18 September
+      // 2026).
+      expect(
+        lyricUnits('我爱你 baby 123', language: 'zh'),
+        <String>['我', '爱', '你', 'baby', '123'],
+      );
+    });
+
+    test('keep punctuation with the character it belongs to', () {
+      // A comma is not a syllable and must not take a chord of its own, or
+      // wrap onto the start of the next row by itself.
+      expect(
+        lyricUnits('月亮，代表我的心。', language: 'zh'),
+        <String>['月', '亮，', '代', '表', '我', '的', '心。'],
+      );
+      expect(
+        lyricUnits('「月光」', language: 'ja'),
+        <String>['「月', '光」'],
+      );
+    });
+
+    test('keep a Thai vowel with the consonant it is read after', () {
+      // เ is typed before the consonant and read after it, so on its own it
+      // is half a syllable with a chord over it.
+      expect(lyricUnits('เขา', language: 'th'), <String>['เขา']);
+      expect(lyricUnits('กา', language: 'th'), <String>['กา']);
+      // Where a Thai syllable actually ends is a dictionary question and
+      // this is not a dictionary — a consonant that closes one is still a
+      // piece of its own. What this fixes is the half-syllable: a vowel
+      // standing on the page alone with a chord of its own over it.
+    });
+
+    test('leave a script this app cannot cut safely whole', () {
+      // Khmer and Burmese are written without spaces too, but a piece of
+      // them is an orthographic syllable, and cutting by grapheme cluster
+      // separates a coeng from the consonant it subjoins and draws marks on
+      // dotted circles. Laid out as they were before anybody said anything:
+      // wrong, but readable.
+      expect(anchorsByCharacter('km'), isFalse);
+      expect(anchorsByCharacter('my'), isFalse);
+      expect(lyricUnits('ស្រឡាញ់', language: 'km'), <String>['ស្រឡាញ់']);
+      expect(lyricUnits('မြန်မာ', language: 'my'), <String>['မြန်မာ']);
+    });
+
+    test('are written back out the way the song is written', () {
+      // Nothing between two Chinese characters, a space where only one side
+      // is one — otherwise "baby" and "you" run into one word.
+      expect(
+        joinLyricUnits(<String>['月', '光', 'baby', 'you'], 'zh'),
+        '月光 baby you',
+      );
+      expect(
+        joinLyricUnits(<String>['月', '亮，', '代'], 'zh'),
+        '月亮，代',
+      );
+      expect(
+        joinLyricUnits(<String>['Streetlights', 'blur'], null),
+        'Streetlights blur',
+      );
+    });
   });
 
   group('an Arabic song', () {
@@ -139,6 +204,33 @@ void main() {
         tester.getTopRight(find.text('G')).dx,
         closeTo(tester.getTopRight(find.text('الليل')).dx, 6),
       );
+    });
+
+    testWidgets('still writes a sharp and a flat after the letter',
+        (tester) async {
+      // A chord name is Latin music notation, not lyric text. Handed to the
+      // bidi algorithm with a right-to-left base it came out reversed — A♯
+      // drawn as ♯A and B♭ as ♭B — because the symbol is a neutral character
+      // at the end of the run. That is wrong musical text on roughly half of
+      // all keys (review, 18 September 2026).
+      await tester.pumpWidget(_sheet(
+        _arabicLines(language: 'ar', firstChord: 'F#', lastChord: 'Bb'),
+      ));
+      await tester.pumpAndSettle();
+
+      for (final chord in <String>['F#', 'Bb']) {
+        final label = chordAsRead(chord, transpose: 0, key: 'G major');
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.text(label),
+        );
+        final letter = _glyphBox(paragraph, 0, 1);
+        final accidental = _glyphBox(paragraph, label.length - 1, label.length);
+        expect(
+          accidental.left,
+          greaterThan(letter.left),
+          reason: '$label drew its accidental before its letter',
+        );
+      }
     });
 
     testWidgets('and the same words with nothing said run the other way',
@@ -296,6 +388,43 @@ void main() {
     });
   });
 
+  group('the words the transcriber heard, written into the song', () {
+    const reference = ReferenceTrack(
+      projectId: 'song-1',
+      fileId: 'file-1',
+      storagePath: 'room/song/reference.wav',
+      displayName: 'reference.wav',
+      state: SongAnalysisState.ready,
+      durationMs: 3000,
+      transcriptWords: <TranscriptWord>[
+        TranscriptWord(word: '月光', startMs: 0, endMs: 1000),
+        TranscriptWord(word: '落在', startMs: 1000, endMs: 2000),
+        TranscriptWord(word: '窗前', startMs: 2000, endMs: 3000),
+      ],
+    );
+
+    test('are joined the way the song is written', () {
+      // "Replace project lyrics with this" stores these as the room's own
+      // words, and they are then printed and exported exactly as stored. A
+      // space between every token would put 月光 落在 窗前 on the page, which
+      // is the spaced-out line this whole slice exists to stop (review, 18
+      // September 2026).
+      expect(
+        SongAnalysisService(client: null)
+            .transcriptLyricLines(reference, language: 'zh'),
+        <String>['月光落在窗前'],
+      );
+    });
+
+    test('and with nothing said are joined exactly as before', () {
+      expect(
+        SongAnalysisService(client: null)
+            .transcriptLyricLines(reference, language: null),
+        <String>['月光 落在 窗前'],
+      );
+    });
+  });
+
   group('saying what a song is sung in', () {
     test('is the owner or an editor, and nobody else', () async {
       final repository = InMemoryMusicRepository.seeded();
@@ -413,6 +542,26 @@ void main() {
       expect(find.byKey(const Key('listen_again_question')), findsNothing);
     });
 
+    testWidgets('and says nothing when the answer was the answer already',
+        (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final service = _ListensAgain();
+      await tester.pumpWidget(_panel(service, language: 'ar'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('song_sheet_sung_in')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('song_language_ar')));
+      await tester.pumpAndSettle();
+
+      // Re-tapping the language a song already has does not make the words
+      // on it any older. Offering to listen again here would say something
+      // untrue and charge for a call that returns the cached answer.
+      expect(service.said, 'ar');
+      expect(find.byKey(const Key('listen_again_question')), findsNothing);
+      expect(service.listened, 0);
+    });
+
     testWidgets('and leaving the words alone ends the question', (tester) async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
       final service = _ListensAgain();
@@ -436,16 +585,19 @@ void main() {
 /// carries the answer, so saying it changes the project the panel is
 /// holding.
 class _Panel extends StatefulWidget {
-  const _Panel({required this.service});
+  const _Panel({required this.service, this.language});
 
   final _ListensAgain service;
+
+  /// What the room had already said before this page was opened.
+  final String? language;
 
   @override
   State<_Panel> createState() => _PanelState();
 }
 
 class _PanelState extends State<_Panel> {
-  SongProject _project = _song();
+  late SongProject _project = _song(language: widget.language);
   late SongAnalysisBundle _bundle = widget.service.bundle;
 
   @override
@@ -465,8 +617,12 @@ class _PanelState extends State<_Panel> {
   }
 }
 
-Widget _panel(_ListensAgain service) => MaterialApp(
-      home: Scaffold(body: SingleChildScrollView(child: _Panel(service: service))),
+Widget _panel(_ListensAgain service, {String? language}) => MaterialApp(
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: _Panel(service: service, language: language),
+        ),
+      ),
     );
 
 /// An analysis service that remembers being asked to listen again.
@@ -511,7 +667,11 @@ class _ListensAgain extends SongAnalysisService {
 
 /// One Arabic line of four words, each with a real sung timing, and two
 /// chords: one on the first word and one on the last.
-List<MusicianSheetLine> _arabicLines({required String? language}) {
+List<MusicianSheetLine> _arabicLines({
+  required String? language,
+  String firstChord = 'G',
+  String lastChord = 'C',
+}) {
   return transcriptSheetLines(
     transcriptWords: const <TranscriptWord>[
       TranscriptWord(word: 'الليل', startMs: 0, endMs: 900),
@@ -520,13 +680,29 @@ List<MusicianSheetLine> _arabicLines({required String? language}) {
       TranscriptWord(word: 'النهر', startMs: 3000, endMs: 3900),
     ],
     transcriptText: null,
-    chordCues: const <ChordCue>[
-      ChordCue(id: 1, startMs: 0, endMs: 2900, chord: 'G', confidence: 0.9),
-      ChordCue(id: 2, startMs: 3000, endMs: 3900, chord: 'C', confidence: 0.9),
+    chordCues: <ChordCue>[
+      ChordCue(
+          id: 1, startMs: 0, endMs: 2900, chord: firstChord, confidence: 0.9),
+      ChordCue(
+          id: 2, startMs: 3000, endMs: 3900, chord: lastChord, confidence: 0.9),
     ],
     durationMs: 4000,
     language: language,
   );
+}
+
+/// Where one stretch of a drawn line of text actually sits on the page.
+///
+/// The only way to catch a chord name being re-ordered by the bidi
+/// algorithm: the widget still reports the string it was given, and only the
+/// glyph boxes say which end each character came out at.
+Rect _glyphBox(RenderParagraph paragraph, int start, int end) {
+  return paragraph
+      .getBoxesForSelection(
+        TextSelection(baseOffset: start, extentOffset: end),
+      )
+      .first
+      .toRect();
 }
 
 /// One Chinese line of three two-character words, and two chords: one at the

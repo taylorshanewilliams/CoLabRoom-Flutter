@@ -742,9 +742,23 @@ class SongAnalysisService {
   /// lyrics with this" action — the caller is responsible for actually
   /// writing these as Contributions (via MusicBetaController, so existing
   /// lines get cleaned up correctly, voice notes included).
-  List<String> transcriptLyricLines(ReferenceTrack reference) {
+  ///
+  /// [language] is what the room said the song is sung in (0163), and it is
+  /// asked for rather than defaulted because these lines become the song's
+  /// own words: the transcriber's tokens in Chinese or Japanese are one or
+  /// two characters each, and joining them with spaces would write the
+  /// room's lyrics as 月光 落在 窗前 — spaced out in a way no reader of them
+  /// has ever seen, and then printed and exported that way (review, 18
+  /// September 2026).
+  List<String> transcriptLyricLines(
+    ReferenceTrack reference, {
+    required String? language,
+  }) {
     return groupTranscriptWords(reference.transcriptWords)
-        .map((line) => line.map((word) => word.word).join(' ').trim())
+        .map((line) => joinLyricUnits(
+              line.map((word) => word.word).toList(growable: false),
+              language,
+            ).trim())
         .where((body) => body.isNotEmpty)
         .toList(growable: false);
   }

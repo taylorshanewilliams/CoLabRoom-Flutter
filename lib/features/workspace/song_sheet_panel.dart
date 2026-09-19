@@ -436,12 +436,24 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
   /// [_listenAgain]. Asked rather than done: saying what a song is sung in
   /// must not quietly spend money and overwrite words somebody may have
   /// corrected by hand.
+  ///
+  /// Only when the answer actually changed what the transcriber was told.
+  /// Re-tapping the language a song already has does not make the words on
+  /// it any older, and offering to listen again there would say something
+  /// untrue ("these words were heard before anybody said") and charge for a
+  /// call that returns the cached result. Compared as the transcriber sees
+  /// it — the first subtag — because ar-EG and ar are the same instruction
+  /// to Whisper (review, 18 September 2026).
   Future<String?> _sayTheLanguage(String? tag) async {
     final write = widget.onSetLanguage;
     if (write == null) return null;
+    final heardIn = languageOf(widget.project.language);
     try {
       await write(tag);
-      if (mounted && tag != null && (_bundle.reference?.hasTranscript ?? false)) {
+      if (mounted &&
+          tag != null &&
+          languageOf(tag) != heardIn &&
+          (_bundle.reference?.hasTranscript ?? false)) {
         setState(() => _offerToListenAgain = tag);
       }
       return null;

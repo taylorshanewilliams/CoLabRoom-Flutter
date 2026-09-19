@@ -585,7 +585,11 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
         settings: RouteSettings(name: AppRoutes.songLyrics(widget.project.id)),
-        builder: (_) => LyricReviewScreen(project: widget.project, reference: reference),
+        // _project, not widget.project: the language may have been said on
+        // this screen, and the review screen splits and rejoins the words by
+        // it. The same drop that silently lost the language on the way into
+        // the analysis (see _analyze).
+        builder: (_) => LyricReviewScreen(project: _project, reference: reference),
         fullscreenDialog: true,
       ),
     );
@@ -601,9 +605,10 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
   Future<void> _replaceProjectLyrics() async {
     final reference = _bundle?.reference;
     if (_working || reference == null) return;
-    final lines = _service.transcriptLyricLines(reference);
+    final lines =
+        _service.transcriptLyricLines(reference, language: _project.language);
     if (lines.isEmpty) return;
-    final hasExisting = widget.project.contributions.any((line) => line.body.trim().isNotEmpty);
+    final hasExisting = _project.contributions.any((line) => line.body.trim().isNotEmpty);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(

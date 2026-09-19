@@ -675,10 +675,10 @@ List<MusicianSheetLine> transcriptSheetLines({
   // In a script with no spaces between words, the transcriber's tokens are
   // joined without them: putting a space between every character of a
   // Chinese line would be a line no reader of Chinese has ever seen.
+  // A space stays where one side of the join is not such a character, so an
+  // English word inside a Chinese line is still a word (review, 18 September
+  // 2026).
   final byCharacter = anchorsByCharacter(language);
-  // Named `between` rather than `gap`: the line-breaking loop below already
-  // has a `gap`, and that one is a silence in milliseconds.
-  final between = unitGap(language);
   List<ChordCue> chordsForRange(int startMs, int endMs) => chordCues
       .where((cue) => cue.endMs >= startMs && cue.startMs <= endMs)
       .toList(growable: false);
@@ -714,7 +714,10 @@ List<MusicianSheetLine> transcriptSheetLines({
     return slices
         .map((slice) => MusicianSheetLine(
               contributionId: null,
-              body: slice.map((word) => word.word).join(between),
+              body: joinLyricUnits(
+                slice.map((word) => word.word).toList(growable: false),
+                language,
+              ),
               section: false,
               startMs: slice.first.startMs,
               endMs: slice.last.endMs,
@@ -745,9 +748,10 @@ List<MusicianSheetLine> transcriptSheetLines({
   final chunks = <String>[];
   for (var start = 0; start < pieces.length; start += perLine) {
     chunks.add(
-      pieces
-          .sublist(start, math.min(start + perLine, pieces.length))
-          .join(between),
+      joinLyricUnits(
+        pieces.sublist(start, math.min(start + perLine, pieces.length)),
+        language,
+      ),
     );
   }
   return chunks.asMap().entries.map((entry) {
