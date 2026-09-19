@@ -524,16 +524,22 @@ class SayItButton extends StatelessWidget {
         onPointerUp: (_) => onUp(),
         onPointerCancel: (_) => onUp(),
         child: Container(
-          // Measured, with 36 as a floor. A Row does not complain when its
-          // child is taller than it is — overflow is only ever reported
-          // along the main axis — so a fixed 36 here cut the top and bottom
-          // off the label at the sizes an iOS accessibility setting asks
-          // for, and did it silently. Every Musician, Same Song,
+          // As tall as its label, with 36 as a floor. A Row does not complain
+          // when its child is taller than it is — overflow is only ever
+          // reported along the main axis — so a fixed 36 here cut the top and
+          // bottom off the label at the sizes an iOS accessibility setting
+          // asks for, and did it silently. Every Musician, Same Song,
           // 17 September 2026: the phone's own text size is honoured, never
-          // clamped. The 10 is the pill's own room above and below its
-          // label.
-          height: math.max(36, linesOfTextHigh(context, labelStyle) + 10),
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          // clamped.
+          //
+          // A floor rather than a height, so that the pill also grows when
+          // the label below wraps onto a second line. The floor is measured
+          // too: one line plus the pill's own room above and below it, which
+          // is 36 at every text size anybody reads at without help.
+          constraints: BoxConstraints(
+            minHeight: math.max(36, linesOfTextHigh(context, labelStyle) + 10),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
           decoration: BoxDecoration(
             color: saying ? red.withValues(alpha: 0.16) : Colors.transparent,
             borderRadius: BorderRadius.circular(18),
@@ -546,19 +552,26 @@ class SayItButton extends StatelessWidget {
             children: <Widget>[
               Icon(Icons.mic_rounded, size: 17, color: ink),
               const SizedBox(width: 6),
-              // Flexible, and one line. Every Musician, Same Song,
+              // Flexible, and two lines. Every Musician, Same Song,
               // 17 September 2026: the phone's own text size is honoured,
               // never clamped, so this label is as wide as the reader's text
               // makes it. Left to size itself it took the whole of the row
               // it shares with the pin button on a 360-wide phone; given a
               // share of that row instead, a label that cannot shrink
               // overflows it rather than fitting in it.
+              //
+              // Two lines rather than one because the pin button beside it
+              // gets two, and because a reader who has turned their text up
+              // has asked to read the words — "Hold to sa…" on a button
+              // whose whole instruction is the word it dropped is no use to
+              // them, and while the note is being said it is the clock that
+              // goes first. The ellipsis stays as the last resort.
               Flexible(
                 child: Text(
                   saying
                       ? 'Saying it  ${MomentNote.clockOf(elapsed.inMilliseconds)}'
                       : 'Hold to say it',
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: labelStyle.copyWith(color: ink),
                 ),

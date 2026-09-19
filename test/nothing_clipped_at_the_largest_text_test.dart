@@ -119,6 +119,7 @@ double _chipHeight(WidgetTester tester, String label) {
 Future<List<FlutterErrorDetails>> _openTakes(
   WidgetTester tester, {
   required double textScale,
+  Size size = const Size(360, 1000),
 }) async {
   final complaints = <FlutterErrorDetails>[];
   final previous = FlutterError.onError;
@@ -128,7 +129,7 @@ Future<List<FlutterErrorDetails>> _openTakes(
   };
   addTearDown(() => FlutterError.onError = previous);
 
-  _phone(tester, textScale: textScale, size: const Size(360, 1000));
+  _phone(tester, textScale: textScale, size: size);
 
   final controller = MusicBetaController(InMemoryMusicRepository.seeded());
   await controller.load();
@@ -256,6 +257,80 @@ void main() {
       greaterThanOrEqualTo(_heightWanted(tester, find.text('Hold to say it'))),
       reason: 'the hold-to-say label is sliced top and bottom',
     );
+
+    // Nothing dead between the two. The pin button keeps everything the pill
+    // does not take, so the eight pixels the layout asks for are the whole of
+    // the gap and every other pixel of the row answers a finger.
+    final pinBox = tester.getRect(find.byKey(const Key('pin_moment_note')));
+    final sayBox = tester.getRect(find.byKey(const Key('say_moment_note')));
+    expect(
+      sayBox.left - pinBox.right,
+      moreOrLessEquals(8, epsilon: 0.01),
+      reason: 'a strip between the two buttons answers neither of them',
+    );
+
+    // The pill is held to half the row, which is what leaves the pin button
+    // beside it something to draw in.
+    expect(
+      sayBox.width,
+      lessThanOrEqualTo((sayBox.right - pinBox.left - 8) / 2 + 0.01),
+      reason: 'the pill took more than half the row',
+    );
+
+    // And its label wraps inside the pill rather than losing its tail at the
+    // end of the first line. A reader at this size has asked to read the
+    // words, and "Hold to sa…" drops the one that says what to do.
+    final saidLabel =
+        tester.renderObject<RenderParagraph>(find.text('Hold to say it'));
+    final oneLine = _heightWanted(tester, find.text('Hold to say it'));
+    expect(
+      saidLabel.size.height,
+      greaterThan(oneLine * 1.5),
+      reason: 'the hold-to-say label was cut off at the end of one line',
+    );
+    expect(
+      say.height,
+      greaterThanOrEqualTo(saidLabel.size.height),
+      reason: 'the pill is shorter than the label drawn inside it',
+    );
+  });
+
+  testWidgets('the pin row keeps its shape while the words still fit',
+      (tester) async {
+    // The other half of the row fix. A reader who has not turned their text
+    // up sees what they saw before: the pill is as wide as its own label and
+    // the pin button has all the rest, rather than the two of them taking
+    // half each with a dead strip between.
+    //
+    // Measured on a wide surface because the test font is about one em per
+    // glyph — "Hold to say it" is roughly twice as wide here as it is in the
+    // theme's own font on a phone, so a 360-wide test at 1.0 is already past
+    // a cap a real phone only reaches at an accessibility size.
+    final complaints = await _openTakes(
+      tester,
+      textScale: 1.0,
+      size: const Size(800, 1000),
+    );
+
+    final pin = tester.getRect(find.byKey(const Key('pin_moment_note')));
+    final say = tester.getRect(find.byKey(const Key('say_moment_note')));
+
+    expect(
+      say.width,
+      lessThan((say.right - pin.left - 8) / 2),
+      reason: 'the pill was cut to half the row while its label still fitted',
+    );
+    expect(
+      say.left - pin.right,
+      moreOrLessEquals(8, epsilon: 0.01),
+      reason: 'a strip between the two buttons answers neither of them',
+    );
+    expect(
+      say.height,
+      36,
+      reason: 'the pill grew for a reader who has not turned their text up',
+    );
+    expect(complaints, isEmpty, reason: 'this screen complained at 1.0');
   });
 
   testWidgets('the Songs, Rooms and Sets chips are as tall as their words',
