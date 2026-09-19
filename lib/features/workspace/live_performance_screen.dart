@@ -949,11 +949,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       _mode = LiveScrollMode.synced;
       _markOffsetsDirty();
     }
-    if (_rate != state.rate) {
+    final rateMoved = _rate != state.rate;
+    if (rateMoved) {
       _rate = state.rate;
       if (audio != null) unawaited(audio.setPlaybackRate(state.rate));
     }
-    _loop = _loopFor(state.loopStartMs, state.loopEndMs);
+    final loop = _loopFor(state.loopStartMs, state.loopEndMs);
+    final loopMoved = loop != _loop;
+    _loop = loop;
     final target = together.targetMs() ?? state.positionMs;
     final moved = worthCorrecting(_elapsedNow.inMilliseconds, target);
     if (moved) _seekTo(Duration(milliseconds: target));
@@ -968,6 +971,13 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     // seconds, and re-arming on each one would keep the controls over the
     // words for the whole song on a phone sitting on a music stand.
     if (started) _armControlHide();
+    // The leader started or stopped, changed speed, or changed what is on
+    // repeat: a tap waiting for a beat was timed against the song as it was.
+    // A move goes through _seekTo, which arms it there. Not on every
+    // heartbeat, for the same reason the controls are not: a re-arm off a
+    // position the player reported a moment ago can ask for a beat already
+    // felt.
+    if (started || rateMoved || loopMoved) _armFeltBeat();
     if (!_playing && moved) {
       // Paused, the words still go to where the leader is looking.
       WidgetsBinding.instance.addPostFrameCallback((_) {

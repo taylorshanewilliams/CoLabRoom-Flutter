@@ -27,8 +27,8 @@ import '../../services/chord_beat_grid.dart'
 /// How hard a beat is felt.
 ///
 /// Two weights and no more. The 1 has to be tellable from the rest of the bar
-/// by feel alone, through a pocket, and a phone's motor gives about three
-/// steps of strength before they stop being distinguishable.
+/// through a pocket, with an instrument in both hands, and a third step in
+/// between would be a difference nobody could feel while playing.
 enum BeatWeight { heavy, light }
 
 /// Which beats this phone taps on.
