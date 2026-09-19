@@ -38,6 +38,17 @@ void main() {
       AppRoutes.meet('k7m29xqp'): const RouteTarget(RoutePlace.meet, 'k7m29xqp'),
       AppRoutes.yourCode: const RouteTarget(RoutePlace.yourCode),
       AppRoutes.room('r1'): const RouteTarget(RoutePlace.room, 'r1'),
+      AppRoutes.moment(
+        roomId: 'r1',
+        projectId: 'abc',
+        takeId: 't1',
+        atMs: 108000,
+      ): const RouteTarget(
+        RoutePlace.moment,
+        'abc',
+        MomentAddress(
+            roomId: 'r1', projectId: 'abc', takeId: 't1', atMs: 108000),
+      ),
       AppRoutes.setlist('s1'): const RouteTarget(RoutePlace.setlist, 's1'),
       AppRoutes.account: const RouteTarget(RoutePlace.account),
       AppRoutes.notifications: const RouteTarget(RoutePlace.notifications),
@@ -73,6 +84,7 @@ void main() {
           AppRoutes.meet('a'),
           AppRoutes.yourCode,
           AppRoutes.room('a'),
+          AppRoutes.moment(roomId: 'a', projectId: 'b'),
           AppRoutes.setlist('a'),
           AppRoutes.account,
           AppRoutes.notifications,

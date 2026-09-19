@@ -2839,26 +2839,40 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                       onDown: () => unawaited(_startSaying()),
                       onUp: _letGo,
                     ),
-                    // Or send somebody here. Beside the two ways of leaving
-                    // words at this moment because it is the third thing to
-                    // do with a moment: say it to the room now rather than
-                    // leave it on the recording for later. Every Musician,
-                    // Same Song, 17 September 2026 -- schools item 1.
-                    IconButton(
-                      key: const Key('copy_link_to_playhead'),
-                      onPressed: _recording
-                          ? null
-                          : () => unawaited(_copyLinkTo(
-                                takeId: _takeAtThePlayhead,
-                                atMs: _position.inMilliseconds,
-                              )),
-                      tooltip: 'Copy link to here',
-                      visualDensity: VisualDensity.compact,
-                      color: AppColors.gold,
-                      disabledColor: AppColors.line,
-                      icon: const Icon(Icons.link_rounded, size: 18),
-                    ),
                   ],
+                ),
+              // Or send somebody to this moment. The third thing to do with
+              // a moment, under the two ways of leaving words on it: Every
+              // Musician, Same Song, 17 September 2026 -- schools item 1.
+              //
+              // Its own line rather than a third button beside the pin. That
+              // row holds two labelled buttons already and had half a pixel
+              // to spare on a 360-wide phone, which a_sealed_take measures;
+              // and an icon on its own is the thing the plan's audit found
+              // this app doing everywhere, so the moment is in the label the
+              // way the pin button and the record button say it.
+              if (hasSomethingToHear)
+                TextButton.icon(
+                  key: const Key('copy_link_to_playhead'),
+                  onPressed: _recording
+                      ? null
+                      : () => unawaited(_copyLinkTo(
+                            takeId: _takeAtThePlayhead,
+                            atMs: _position.inMilliseconds,
+                          )),
+                  icon: const Icon(Icons.link_rounded, size: 17),
+                  label: Text(
+                    'Copy link to ${_clock(_position)}',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.gold,
+                    disabledForegroundColor: AppColors.line,
+                    minimumSize: const Size.fromHeight(36),
+                  ),
                 ),
               // A minute of wav is about five megabytes, and on a slow
               // connection that is several seconds of greyed buttons. Said
