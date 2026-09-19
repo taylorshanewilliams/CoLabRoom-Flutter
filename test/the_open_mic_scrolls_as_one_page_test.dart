@@ -1,6 +1,7 @@
 import 'package:colabroom/app/colabroom_theme.dart';
 import 'package:colabroom/data/in_memory_music_repository.dart';
 import 'package:colabroom/domain/music_models.dart';
+import 'package:colabroom/features/openmic/musician_profile_screen.dart';
 import 'package:colabroom/features/openmic/open_mic_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,8 +22,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 /// So the three things asserted here are the three the split cost: one scroll
 /// rather than two, one drag moving everything together, and a list that gets
-/// the whole screen once the chrome has gone by. The fourth is that none of
-/// it changed anything for a reader at the ordinary size.
+/// the whole screen once the chrome has gone by. The other two are what a
+/// rewrite of a screen's scrolling is most likely to break on the way past —
+/// where the room is when you come back from somebody, and whether anything
+/// moved at all for a reader at the ordinary text size.
 /// A room with more people in it than a screen holds.
 ///
 /// The preview seeds three, which at twice normal text is a list shorter than
@@ -148,6 +151,38 @@ void main() {
     });
     expect(onScreen, isNotEmpty,
         reason: 'nobody from the room is on the screen the chrome left');
+  });
+
+  testWidgets('coming back from somebody leaves the room where you left it',
+      (tester) async {
+    await _open(tester, textScale: 1.0);
+
+    // Far enough down that the room has to be scrolled to reach them, and
+    // built as the page goes rather than all at once.
+    await tester.scrollUntilVisible(find.text('Somebody 6'), 200,
+        scrollable: _downwards());
+    await tester.pump(const Duration(milliseconds: 300));
+    // First of the downward scrollables, because a pushed profile brings one
+    // of its own and the room is the route underneath it.
+    final room = tester.state<ScrollableState>(_downwards().first);
+    final where = room.position.pixels;
+    expect(where, greaterThan(0), reason: 'the room did not scroll at all');
+
+    await tester.tap(find.text('Somebody 6'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(MusicianProfileScreen), findsOneWidget);
+
+    Navigator.of(tester.element(find.byType(MusicianProfileScreen))).pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(
+      tester.state<ScrollableState>(_downwards().first).position.pixels,
+      where,
+      reason: 'the room started again from the top after a look at somebody',
+    );
   });
 
   testWidgets('nothing moves for a reader at the usual text size',
