@@ -11,6 +11,7 @@ import '../../services/chord_beat_grid.dart'
     show barNumberAt, downbeatIndexOfBar, numberedBarCount;
 import '../../services/click_player.dart';
 import '../../services/copy_text.dart';
+import '../../services/drone_player.dart';
 import '../../services/follow_me.dart';
 import '../../services/moment_link.dart';
 import 'package:flutter/services.dart';
@@ -40,6 +41,7 @@ import '../layers/my_part.dart';
 import '../layers/song_level_store.dart';
 import '../layers/take_turns.dart';
 import 'count_in.dart';
+import 'drone_controls.dart';
 import 'follow_me_bar.dart';
 import 'live_countdown_store.dart';
 import 'loop_this_change.dart';
@@ -49,6 +51,7 @@ import 'practice_marks.dart';
 import 'practice_rules.dart';
 import 'song_reading_store.dart';
 import 'song_transpose_store.dart';
+import 'tuner_reference_store.dart';
 
 enum LiveScrollMode { off, synced, slow, medium, fast, timed }
 
@@ -111,6 +114,7 @@ class LivePerformanceScreen extends StatefulWidget {
     this.ownMarkId,
     this.practise,
     this.click,
+    this.drone,
     this.missing,
     this.onSayBarOne,
     super.key,
@@ -130,6 +134,10 @@ class LivePerformanceScreen extends StatefulWidget {
   /// What counts the band in on the song's own bar. Production leaves this
   /// null and uses the metronome's click; a test hands in a silent one.
   final ClickPlayer? click;
+
+  /// What holds the drone and sounds the starting pitch. Production leaves
+  /// this null and makes one; a test hands in a silent one.
+  final DronePlayer? drone;
 
   /// What this phone could not get for this song, said once as the screen
   /// opens. Null when nothing is missing, which is nearly always.
@@ -235,6 +243,54 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// The click that counts the bar, made only if a song ever needs one.
   ClickPlayer? _clickPlayer;
   ClickPlayer get _click => _clickPlayer ??= widget.click ?? WavClickPlayer();
+
+  /// What this person's tuner calls A, read back from this device so the drone
+  /// and the starting pitch sound at the pitch they tuned to (#364).
+  int _a4 = TunerReferenceStore.standard;
+
+  /// The note this song can be held on, made only when somebody opens the
+  /// sheet it is on. Most songs never ask.
+  DroneVoice? _droneVoice;
+
+  /// Whether a note is being held, as the bar across the top has it.
+  bool _droneOn = false;
+
+  DroneVoice get _drone {
+    final made = _droneVoice;
+    if (made != null) return made;
+    final voice = DroneVoice(
+      player: widget.drone,
+      // The song's own key, and never this person's reading of it: a capo, a
+      // transpose and a horn's written part are each reader's own, and none of
+      // them moves the note the room tunes to (Every Musician, Same Song,
+      // 17 September 2026).
+      songKey: widget.project.songKey(widget.analysis?.reference?.musicalKey),
+      a4: _a4,
+    );
+    _droneVoice = voice;
+    // So the button in the bar says whether a note is being held, from
+    // wherever it was turned on or off.
+    voice.addListener(_droneChanged);
+    unawaited(voice.load());
+    return voice;
+  }
+
+  /// Only when it goes on or off. The voice also speaks up for every step of
+  /// the level slider, and rebuilding the whole of Perform ten times while a
+  /// finger moves would drop frames under the words.
+  void _droneChanged() {
+    final on = _droneVoice?.on ?? false;
+    if (on == _droneOn) return;
+    _droneOn = on;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _loadTunerReference() async {
+    final kept = await TunerReferenceStore.load();
+    if (!mounted || kept == _a4) return;
+    setState(() => _a4 = kept);
+    _droneVoice?.setReference(kept);
+  }
 
   LiveScrollMode _mode = LiveScrollMode.off;
   bool _playing = false;
@@ -543,6 +599,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     }
     unawaited(_loadTakes());
     unawaited(_loadCountdownPrefs());
+    unawaited(_loadTunerReference());
     unawaited(_loadTranspose());
     unawaited(_loadReading());
     unawaited(_loadCapo());
@@ -1054,6 +1111,10 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     if (click != null) {
       unawaited(click.stop().then((_) => click.dispose()));
     }
+    // Leaving Perform stops the drone. Its own dispose does the stopping, and
+    // it is only here at all if somebody opened the sound sheet.
+    _droneVoice?.removeListener(_droneChanged);
+    _droneVoice?.dispose();
     _ear?.reading.removeListener(_earChanged);
     _ear?.dispose();
     _scroll.dispose();
@@ -2476,6 +2537,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         onToggleChords: () => setState(() => _showChords = !_showChords),
                         countdownEnabled: _countdownEnabled,
                         onOpenCountdownSettings: _openCountdownSettings,
+                        droneOn: _droneOn,
                       ),
                     ),
                   ),
@@ -2568,25 +2630,61 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     );
   }
 
+  /// Everything that happens before the first note: the bar somebody is
+  /// counted in over, and the note they come in on.
+  ///
+  /// The two in one sheet because they are wanted at the same moment, and
+  /// because the bar across the top already carries seven controls — an eighth
+  /// would push one of them off a phone held upright. Nothing in here belongs
+  /// to the room: the drone is this phone's, at this phone's reference pitch,
+  /// and a leader cannot put a tone in anybody else's ears (Every Musician,
+  /// Same Song, 17 September 2026).
   void _openCountdownSettings() {
+    _showControls();
+    final voice = _drone;
     unawaited(showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppColors.deepNavy,
       showDragHandle: true,
-      builder: (_) => _CountdownSettingsSheet(
-        enabled: _countdownEnabled,
-        seconds: _countdownSeconds,
-        // The seconds are for songs with no beat of their own. This one has
-        // one, so a slider setting how long it is would set nothing.
-        onTheBeat:
-            countInForSong(widget.analysis?.reference, barOne: _barOne) != null,
-        onChanged: (enabled, seconds) {
-          setState(() {
-            _countdownEnabled = enabled;
-            _countdownSeconds = seconds;
-          });
-          unawaited(LiveCountdownStore.save(enabled: enabled, seconds: seconds));
-        },
+      // The sheet takes the height its own content needs and scrolls when it
+      // cannot have it. Two sections is more than the default nine sixteenths
+      // of the screen on the phone in landscape this screen is built for.
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            _CountdownSettingsSheet(
+              enabled: _countdownEnabled,
+              seconds: _countdownSeconds,
+              // The seconds are for songs with no beat of their own. This one
+              // has one, so a slider setting how long it is would set nothing.
+              onTheBeat: countInForSong(
+                    widget.analysis?.reference,
+                    barOne: _barOne,
+                  ) !=
+                  null,
+              onChanged: (enabled, seconds) {
+                setState(() {
+                  _countdownEnabled = enabled;
+                  _countdownSeconds = seconds;
+                });
+                unawaited(
+                  LiveCountdownStore.save(enabled: enabled, seconds: seconds),
+                );
+              },
+            ),
+            const Divider(height: 1, color: AppColors.line),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(22, 10, 22, 16),
+                child: DroneControls(voice: voice),
+              ),
+            ),
+          ],
+        ),
       ),
     ));
   }
@@ -2750,6 +2848,7 @@ class _TopLiveBar extends StatelessWidget {
     required this.onToggleChords,
     required this.countdownEnabled,
     required this.onOpenCountdownSettings,
+    required this.droneOn,
   });
 
   final VoidCallback onClose;
@@ -2762,6 +2861,9 @@ class _TopLiveBar extends StatelessWidget {
   final VoidCallback onToggleChords;
   final bool countdownEnabled;
   final VoidCallback onOpenCountdownSettings;
+
+  /// Whether a note is being held, so the button says so without a word.
+  final bool droneOn;
 
   @override
   Widget build(BuildContext context) {
@@ -2847,11 +2949,17 @@ class _TopLiveBar extends StatelessWidget {
           IconButton(
             key: const Key('live_countdown_settings'),
             onPressed: onOpenCountdownSettings,
-            tooltip: 'Count-in before play',
+            // The two things that happen before the first note: a bar to come
+            // in over, and a note to come in on. One button for both, because
+            // the bar already carries seven and an eighth would push one of
+            // them off a phone held upright.
+            tooltip: 'Count-in and drone',
             icon: Icon(
               Icons.timer_outlined,
               size: 19,
-              color: countdownEnabled ? AppColors.gold : AppColors.muted,
+              color: countdownEnabled || droneOn
+                  ? AppColors.gold
+                  : AppColors.muted,
             ),
           ),
           IconButton(
@@ -3005,66 +3113,66 @@ class _CountdownSettingsSheetState extends State<_CountdownSettingsSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(22, 4, 22, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            const Text(
-              'Count-in before play',
-              style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w800),
-            ),
+    // No safe area of its own any more: the drone sits under this in the same
+    // sheet and carries one, and two would leave the notch's worth of nothing
+    // between the two sections.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 4, 22, 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            'Count-in before play',
+            style: TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            widget.onTheBeat
+                ? 'This song has a beat, so play is counted in one bar of it — '
+                    'clicked, seen and felt.'
+                : 'Give the band a few seconds to get ready before the scroll or sync starts.',
+            style: const TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            activeThumbColor: AppColors.gold,
+            value: _enabled,
+            onChanged: (value) {
+              setState(() => _enabled = value);
+              widget.onChanged(_enabled, _seconds);
+            },
+            title: const Text('Enabled', style: TextStyle(color: AppColors.text, fontSize: 14)),
+          ),
+          if (_enabled && !widget.onTheBeat) ...<Widget>[
             const SizedBox(height: 4),
-            Text(
-              widget.onTheBeat
-                  ? 'This song has a beat, so play is counted in one bar of it — '
-                      'clicked, seen and felt.'
-                  : 'Give the band a few seconds to get ready before the scroll or sync starts.',
-              style: const TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.4),
-            ),
-            const SizedBox(height: 12),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              activeThumbColor: AppColors.gold,
-              value: _enabled,
-              onChanged: (value) {
-                setState(() => _enabled = value);
-                widget.onChanged(_enabled, _seconds);
-              },
-              title: const Text('Enabled', style: TextStyle(color: AppColors.text, fontSize: 14)),
-            ),
-            if (_enabled && !widget.onTheBeat) ...<Widget>[
-              const SizedBox(height: 4),
-              Row(
-                children: <Widget>[
-                  Text(
-                    '$_seconds sec',
-                    style: const TextStyle(
-                      color: AppColors.gold,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                    ),
+            Row(
+              children: <Widget>[
+                Text(
+                  '$_seconds sec',
+                  style: const TextStyle(
+                    color: AppColors.gold,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
                   ),
-                  Expanded(
-                    child: Slider(
-                      value: _seconds.toDouble(),
-                      min: 3,
-                      max: 10,
-                      divisions: 7,
-                      activeColor: AppColors.gold,
-                      label: '$_seconds sec',
-                      onChanged: (value) => setState(() => _seconds = value.round()),
-                      onChangeEnd: (_) => widget.onChanged(_enabled, _seconds),
-                    ),
+                ),
+                Expanded(
+                  child: Slider(
+                    value: _seconds.toDouble(),
+                    min: 3,
+                    max: 10,
+                    divisions: 7,
+                    activeColor: AppColors.gold,
+                    label: '$_seconds sec',
+                    onChanged: (value) => setState(() => _seconds = value.round()),
+                    onChangeEnd: (_) => widget.onChanged(_enabled, _seconds),
                   ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ],
-        ),
+        ],
       ),
     );
   }

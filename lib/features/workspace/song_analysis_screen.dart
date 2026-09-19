@@ -258,6 +258,9 @@ class _SongAnalysisScreenState extends State<SongAnalysisScreen> {
           body: ReferenceRecorderSheet(
             songTitle: widget.project.title,
             projectId: widget.project.id,
+            // What the band said the key is, or what a recording already here
+            // was heard in, so the tuner's drone opens on the song's own 1.
+            songKey: _project.songKey(_bundle?.reference?.musicalKey),
           ),
         ),
         fullscreenDialog: true,
