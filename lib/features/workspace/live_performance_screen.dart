@@ -2281,6 +2281,9 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
       key: spellingKey,
       transpose: readTranspose,
       sa: _sa,
+      // The same answer that numbers the chords over the words: which note a
+      // minor song counts from is one question, asked once.
+      minor: _numbers.minor,
     );
     // If a layout-affecting input changed since the last measurement, the
     // line offsets used by synced-scroll need to be recaptured post-frame.

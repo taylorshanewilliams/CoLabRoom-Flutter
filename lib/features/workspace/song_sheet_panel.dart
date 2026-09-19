@@ -420,7 +420,7 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
       onMelody: _chooseMelodyReading,
       sa: _sa,
       onSa: _chooseSa,
-      hasTune: _melody?.worthReading ?? false,
+      hasTune: _hasReadableTune,
       songKey: key,
       overridden: _keyOverridden,
       onKey: widget.onSetKey == null ? null : _sayTheKey,
@@ -429,6 +429,18 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
 
   /// The tune the recording sang, when it heard one.
   Melody? get _melody => _bundle.reference?.melody;
+
+  /// Whether the sung notes can actually be drawn: a tune worth reading, and
+  /// at least one line whose words are timed.
+  ///
+  /// The row is laid out word by word, so a song whose transcription came
+  /// back as text with no timings has nowhere to put it — and a language to
+  /// read it in would then be a control that cannot do anything, with a
+  /// heading above the page naming a row that is drawn nowhere (review, 18
+  /// September 2026).
+  bool get _hasReadableTune =>
+      (_melody?.worthReading ?? false) &&
+      _sheetLines().any((line) => line.wordStartsMs != null);
 
   void _shiftTranspose(int delta) {
     final next = (_transpose + delta)
@@ -474,17 +486,23 @@ class _SongSheetPanelState extends State<SongSheetPanel> {
 
   /// How the sung notes are read on this page, or null for letters — which
   /// is the sheet with no note row on it at all, the way it has always been.
-  MelodySpelling? get _spelling => MelodySpelling.forSong(
-        reading: _shownMelodyReading,
-        melody: _melody,
-        key: _songKey,
-        // A reading counted from the 1 ignores this; fixed do names the
-        // sounding pitch, which is the singer's own key with their
-        // instrument's part on top of it. Not the capo: a capo moves the
-        // hand and not the voice.
-        transpose: _shownTranspose + _shownReading.semitones,
-        sa: _sa,
-      );
+  MelodySpelling? get _spelling => _hasReadableTune
+      ? MelodySpelling.forSong(
+          reading: _shownMelodyReading,
+          melody: _melody,
+          key: _songKey,
+          // A reading counted from the 1 ignores this; fixed do names the
+          // sounding pitch, which is the singer's own key with their
+          // instrument's part on top of it. Not the capo: a capo moves the
+          // hand and not the voice.
+          transpose: _shownTranspose + _shownReading.semitones,
+          sa: _sa,
+          // Which note a minor song is counted from is one question, asked
+          // once: the answer that numbers the chords over the words numbers
+          // the syllables under them too.
+          minor: _numbers.minor,
+        )
+      : null;
 
   void _toggleChordEditing() {
     setState(() {

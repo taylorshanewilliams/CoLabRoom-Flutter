@@ -16,6 +16,7 @@ library;
 
 import '../domain/song_analysis_models.dart';
 import 'music_reference.dart';
+import 'number_reading.dart';
 
 /// The language the sung notes are read in.
 enum MelodyReading {
@@ -64,17 +65,27 @@ enum MelodyReading {
   }
 }
 
-/// Chromatic solfège counted from do, on the sharp side and the flat side.
+/// Chromatic solfège counted from do — one table, in every key.
 ///
-/// Which side is used follows the key the song is written in rather than the
-/// direction the tune is moving: the app knows what key a song is in and does
-/// not know whether a note is a passing tone on the way up, and guessing at
-/// that would be inventing something the analysis never heard.
-const List<String> _movableDoSharp = <String>[
-  'do', 'di', 're', 'ri', 'mi', 'fa', 'fi', 'sol', 'si', 'la', 'li', 'ti',
-];
-const List<String> _movableDoFlat = <String>[
-  'do', 'ra', 're', 'me', 'mi', 'fa', 'se', 'sol', 'le', 'la', 'te', 'ti',
+/// A syllable here names a *degree*, not a letter, and a degree between two
+/// naturals has one conventional name wherever it turns up: the third of a
+/// minor key is me and never ri. Choosing the table from the key signature
+/// instead, the way a letter name is chosen, made the same tune read do ri si
+/// li in A minor and do me le te in D minor — and a reading counted from the
+/// 1 that changes syllables when the song changes key has given away the only
+/// thing it is for (review, 18 September 2026).
+///
+/// The flat side, with fi for the raised fourth, because that is what the
+/// app's own numbers over the words already say: ♭3 and ♭7 rather than ♯2 and
+/// ♯6, and ♯4 rather than ♭5 (see _degreeNumbers in music_reference.dart). One
+/// page, one set of degrees.
+///
+/// The cost of one table is that an enharmonic spelling is lost — the raised
+/// seventh of a la-based minor reads le rather than si — which is the same
+/// trade the numbers over the words already make, and far cheaper than a
+/// syllable that moves with the key.
+const List<String> _movableDo = <String>[
+  'do', 'ra', 're', 'me', 'mi', 'fa', 'fi', 'sol', 'le', 'la', 'te', 'ti',
 ];
 
 /// Fixed do: the sounding pitch, named the way Spain, Italy, France and most
@@ -120,11 +131,12 @@ final List<String> _sargam = <String>[
 
 /// Jianpu: 1 to 7 for the scale, with the accidental written before the
 /// digit the way it is printed.
-const List<String> _jianpuSharp = <String>[
-  '1', '♯1', '2', '♯2', '3', '4', '♯4', '5', '♯5', '6', '♯6', '7',
-];
-const List<String> _jianpuFlat = <String>[
-  '1', '♭2', '2', '♭3', '3', '4', '♭5', '5', '♭6', '6', '♭7', '7',
+///
+/// One table for the same reason [_movableDo] has one, and the same degrees
+/// the numbers over the words use, so a chord labelled ♭7 never sits above a
+/// sung note labelled ♯6 on the same page (review, 18 September 2026).
+const List<String> _jianpu = <String>[
+  '1', '♭2', '2', '♭3', '3', '4', '♯4', '5', '♭6', '6', '♭7', '7',
 ];
 
 /// Jianpu's octave dots, above the digit for the octave up and below it for
@@ -134,10 +146,25 @@ const List<String> _jianpuFlat = <String>[
 const String _dotAbove = '̇';
 const String _dotBelow = '̣';
 
-/// The mark for a note that is still sounding, in jianpu. See
-/// [MelodySpelling.of] for what "still sounding" can honestly mean in a row
-/// laid out by words.
-const String _held = '–';
+/// Where a reading counts from when the song is in a minor key.
+///
+/// Jianpu writes a minor song against its relative major and always has: the
+/// page is headed 1=C for a song in A minor and the tonic reads 6. That is
+/// the notation, not a preference, so it is not offered as one.
+///
+/// Movable do has both conventions in daily use — la-based minor, where A
+/// minor's tonic is la, and do-based minor, where it is do with me, le and te
+/// above it — so it follows the answer this person already gave for the
+/// numbers over the words rather than asking them the same question twice.
+///
+/// Sargam counts from Sa, and Sa is the tonic whatever mode the song is in:
+/// a raga with komal Ga is still counted from its own Sa.
+bool _countsFromRelativeMajor(MelodyReading reading, MinorNumbers minor) =>
+    switch (reading) {
+      MelodyReading.jianpu => true,
+      MelodyReading.movableDo => minor == MinorNumbers.relativeMajor,
+      _ => false,
+    };
 
 /// One person's way of reading one song's notes, worked out once.
 ///
@@ -168,25 +195,40 @@ class MelodySpelling {
   /// included. Only fixed do uses it, because only fixed do names a sounding
   /// pitch; the three readings counted from the 1 are the same syllables in
   /// every key, which is the entire reason people read them.
+  ///
+  /// [minor] is which note this person counts a minor song from — the answer
+  /// they already gave for the numbers over the words. See
+  /// [_countsFromRelativeMajor] for what each reading does with it.
   static MelodySpelling? forSong({
     required MelodyReading reading,
     required Melody? melody,
     required String? key,
     int transpose = 0,
     int? sa,
+    MinorNumbers minor = MinorNumbers.relativeMajor,
   }) {
     if (reading == MelodyReading.letters) return null;
     if (melody == null || !melody.worthReading) return null;
     final root = keyRootPitch(key);
     if (root == null && reading.countsFromTheOne && sa == null) return null;
-    final tonic = (((sa ?? root ?? 0) % 12) + 12) % 12;
+    final songIsMinor = keyIsMinor(key);
+    // A Sa somebody picked is where they count from and nothing is inferred
+    // on top of it: they have said where their 1 is, so the minor convention
+    // has no question left to answer.
+    final counted = sa ??
+        (root ?? 0) +
+            (songIsMinor && _countsFromRelativeMajor(reading, minor) ? 3 : 0);
+    final tonic = ((counted % 12) + 12) % 12;
     final moved = reading == MelodyReading.fixedDo ? transpose : 0;
     return MelodySpelling(
       reading: reading,
       tonicPitch: tonic,
       baseMidi: _middleOctaveFrom(melody, tonic),
       transpose: moved,
-      flats: pitchUsesFlats((root ?? tonic) + moved, minor: keyIsMinor(key)),
+      // Fixed do's alone: it is the only reading that names a letter, and a
+      // key with no name left (a song moved down three) is what pitchUsesFlats
+      // is for.
+      flats: pitchUsesFlats((root ?? 0) + moved, minor: songIsMinor),
     );
   }
 
@@ -229,24 +271,28 @@ class MelodySpelling {
   /// reading counted from the 1.
   final int transpose;
 
-  /// Whether the accidentals are written flat.
+  /// Whether the sounding pitch is written flat. Fixed do's alone: a degree
+  /// is named the same way whatever key signature the song carries.
   final bool flats;
 
   /// One sung note, in this reading.
   ///
-  /// [held] says the note is the same one the word before was sung on. Only
-  /// jianpu does anything with it, where a dash means the note is still
-  /// sounding. A dash there is not a beat: this row is laid out by words and
-  /// the app has no honest way to put a word on a beat, so the dash says the
-  /// word is still on the note the last word was on, which is what a reader
-  /// of the row needs from it and all the word grid can truthfully say.
+  /// A word sung on the note the word before was sung on repeats the number
+  /// rather than taking jianpu's dash. A dash in jianpu is a beat — it holds
+  /// the note before it and it never carries a syllable — and this row is
+  /// laid out by words, which the app has no honest way to put on a beat.
+  /// Worse, whether two syllables at one pitch arrive as one sung note or as
+  /// two is pyin finding a gap between them or not, so the same music would
+  /// read "5 – –" on one recording and "5 5 5" on another. Dashes need a beat
+  /// grid under the row, which is its own piece of work (review, 18 September
+  /// 2026).
   ///
   /// The note's cents are deliberately not shown and not read. pyin rounds to
   /// the nearest semitone and hands back how far off it sat; that is enough
   /// to name the nearest note and nowhere near enough to name a sruti or a
   /// gamaka, and a confident wrong one of those is worse than none (Every
   /// Musician, Same Song, 17 September 2026).
-  String of(MelodyNote note, {bool held = false}) {
+  String of(MelodyNote note) {
     final midi = note.midi + transpose;
     switch (reading) {
       case MelodyReading.letters:
@@ -255,15 +301,13 @@ class MelodySpelling {
         final names = flats ? _fixedDoFlat : _fixedDoSharp;
         return names[((midi % 12) + 12) % 12];
       case MelodyReading.movableDo:
-        final names = flats ? _movableDoFlat : _movableDoSharp;
-        return names[_degreeOf(midi)];
+        return _movableDo[_degreeOf(midi)];
       case MelodyReading.sargam:
         return _sargam[_degreeOf(midi)];
       case MelodyReading.jianpu:
-        if (held) return _held;
         final steps = midi - baseMidi;
         final octave = (steps / 12).floor();
-        final cell = (flats ? _jianpuFlat : _jianpuSharp)[steps - octave * 12];
+        final cell = _jianpu[steps - octave * 12];
         if (octave == 0) return cell;
         return '$cell${(octave > 0 ? _dotAbove : _dotBelow) * octave.abs()}';
     }

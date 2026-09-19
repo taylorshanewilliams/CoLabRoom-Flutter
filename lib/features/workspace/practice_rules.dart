@@ -415,22 +415,20 @@ List<String?> notesForWords(
   }
   final notes = List<String?>.filled(wordCount, null);
   var anyNote = false;
-  MelodyNote? before;
   for (var index = 0; index < wordCount; index += 1) {
     final start = wordStartsMs[index];
     final end = index + 1 < wordCount ? wordStartsMs[index + 1] : lineEndMs;
     if (end <= start) continue;
     final note = melody.noteWithin(start, end);
     if (note != null) {
-      // The same sung note carried on from the word before, which jianpu
-      // writes as a dash rather than repeating the number.
-      final held = before != null && before.startMs == note.startMs;
+      // Every word with a note under it gets that note spelled out, two words
+      // sung on one held note included. See MelodySpelling.of for why jianpu's
+      // dash is not used in a row laid out by words.
       notes[index] = spelling == null
           ? noteAsPlayed(note.midi, transpose: transpose, key: key)
-          : spelling.of(note, held: held);
+          : spelling.of(note);
       anyNote = true;
     }
-    before = note;
   }
   return anyNote ? notes : const <String?>[];
 }

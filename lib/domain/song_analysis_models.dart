@@ -249,16 +249,23 @@ class Melody {
   /// How much of the stem has to have been sung before the notes are worth
   /// reading out under the words.
   ///
-  /// A sixth of it. Demucs hands back a vocal stem for every song, including
-  /// one nobody ever sang on, and pyin will happily find pitches in whatever
-  /// is left in it -- a guitar bleeding through, a synth pad -- so a row of
-  /// notes drawn off a stem that is barely voiced names notes nobody sang. A
-  /// song that really is sung clears this easily: a long instrumental intro,
-  /// a solo and an outro together still leave well over a sixth of the stem
-  /// voiced. A sixth is low enough to keep a mostly instrumental song with
-  /// one sung verse, and high enough that an instrumental does not get a row
-  /// of invented syllables (Every Musician, Same Song, 17 September 2026).
-  static const double readableVoicedRatio = 0.15;
+  /// A twentieth of it. Demucs hands back a vocal stem for every song,
+  /// including one nobody ever sang on, and pyin will happily find pitches in
+  /// whatever is left in it -- a guitar bleeding through, a synth pad -- so a
+  /// row of notes drawn off a stem that is barely voiced names notes nobody
+  /// sang. That is the one case this is for, and it is set where it catches
+  /// that case and nothing else.
+  ///
+  /// Low, because [voicedRatio] measures the share of *every* frame of the
+  /// stem that pyin called voiced (np.mean(voiced_flag) in handler.py), not
+  /// the share of the sung passages. So it is capped by how much of the song
+  /// has any singing on it at all: four minutes with one thirty-second verse
+  /// is an eighth even if every frame of that verse is voiced, and nearer a
+  /// fourteenth once consonants and breaths are taken out. A threshold a real
+  /// sung verse would fail is a threshold that hides real notes under real
+  /// words, which is the opposite of what it is for (review, 18 September
+  /// 2026).
+  static const double readableVoicedRatio = 0.05;
 
   /// Whether this tune is worth reading out note by note.
   ///

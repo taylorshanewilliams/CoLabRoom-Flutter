@@ -82,6 +82,15 @@ class MusicianSongSheet extends StatelessWidget {
   final ValueChanged<int?>? onSa;
   final MelodySpelling? spelling;
 
+  /// Whether there is a tune to offer a language for: one worth reading, and
+  /// at least one line whose words are timed. The row is laid out word by
+  /// word, so on a song whose transcription came back as text with no timings
+  /// the chips would name a row that is drawn nowhere (review, 18 September
+  /// 2026).
+  bool get _hasReadableTune =>
+      (melody?.worthReading ?? false) &&
+      lines.any((line) => line.wordStartsMs != null);
+
   /// Where the 1 is, which is the one thing on this badge that belongs to the
   /// room rather than to this device. Null on a sheet whose caller cannot
   /// write it, which leaves the key sheet a reference.
@@ -215,7 +224,7 @@ class MusicianSongSheet extends StatelessWidget {
                         onMelody: onMelodyReading,
                         sa: sa,
                         onSa: onSa,
-                        hasTune: melody?.worthReading ?? false,
+                        hasTune: _hasReadableTune,
                         songKey: key,
                         overridden: keyOverridden,
                         onKey: onKey,
