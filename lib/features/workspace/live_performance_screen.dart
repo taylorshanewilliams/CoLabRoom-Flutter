@@ -140,6 +140,26 @@ const String cutHasNoAudio =
 /// Clamped, because the first lines of a song cannot be pushed below the top
 /// of the content and the last cannot be pulled past the end — near both
 /// edges the line simply sits where it can.
+/// What the sound button says is behind it: "Count-in and drone" on a song
+/// that offers neither of the other two, up to "Count-in, beat, chords and
+/// drone" on one that offers both.
+///
+/// It is the tooltip and it is what a screen reader reads out, which is the
+/// whole reason it is built rather than written once: the two players these
+/// settings are for are reading this button with their ears and their hands,
+/// and neither will go looking underneath a word that says count-in.
+String soundSheetTooltip({
+  required bool canFeelTheBeat,
+  required bool canHearTheChords,
+}) {
+  final parts = <String>[
+    'Count-in',
+    if (canFeelTheBeat) 'beat',
+    if (canHearTheChords) 'chords',
+  ];
+  return '${parts.join(', ')} and drone';
+}
+
 double scrollToPutLineAtAnchor({
   required double lineOffset,
   required double viewportHeight,
@@ -663,17 +683,31 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   bool get _canFeelTheBeat =>
       !kIsWeb && canFeelTheBeat(beatsMs: _beatsMs, downbeatsMs: _downbeats);
 
-  /// Every chord this song can be called through, worked out once.
+  /// Every chord this song can be called through, worked out once per
+  /// analysis.
   ///
   /// Memoised because it walks the whole chord map against the beat grid and
-  /// the arming looks at it on every call. Neither of the two things it is
-  /// built from can change while the screen is open — it is pushed with one
-  /// copy of the analysis and never handed another — so unlike the cycle
-  /// beside it there is nothing to compare against.
-  late final List<ChordCall> _chordCalls = chordCalls(
-    cues: widget.analysis?.chordCues ?? const <ChordCue>[],
-    beatsMs: _beatsMs,
-  );
+  /// the arming reads it on every call, the same way the cycle grid beside it
+  /// is. What it was built from is kept and compared rather than assumed
+  /// fixed: this screen is normally pushed with one copy of the analysis and
+  /// never handed another, but a screen handed a second one and still calling
+  /// the first one's chords would be naming chords that are not in the song.
+  List<ChordCall>? _calls;
+  List<ChordCue>? _calledCues;
+  List<int>? _calledBeats;
+
+  List<ChordCall> get _chordCalls {
+    final cues = widget.analysis?.chordCues ?? const <ChordCue>[];
+    final beats = _beatsMs;
+    if (_calls == null ||
+        !identical(_calledCues, cues) ||
+        !identical(_calledBeats, beats)) {
+      _calledCues = cues;
+      _calledBeats = beats;
+      _calls = chordCalls(cues: cues, beatsMs: beats);
+    }
+    return _calls!;
+  }
 
   /// Whether this song has chords to call: a beat grid to be a beat ahead of,
   /// and a chord map to read off it.
@@ -3475,6 +3509,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         countdownEnabled: _countdownEnabled,
                         onOpenCountdownSettings: _openCountdownSettings,
                         canFeelTheBeat: _canFeelTheBeat,
+                        canHearTheChords: _canHearTheChords,
                         droneOn: _droneOn,
                       ),
                     ),
@@ -3987,6 +4022,7 @@ class _TopLiveBar extends StatelessWidget {
     required this.countdownEnabled,
     required this.onOpenCountdownSettings,
     required this.canFeelTheBeat,
+    required this.canHearTheChords,
     required this.droneOn,
   });
 
@@ -4013,6 +4049,11 @@ class _TopLiveBar extends StatelessWidget {
   /// player will not go looking for the beat under a count-in (review,
   /// 19 September 2026).
   final bool canFeelTheBeat;
+
+  /// Whether this song offers its chords to be called out loud, for the same
+  /// reason and doubly so: the person this is for is reading the button with
+  /// their ears.
+  final bool canHearTheChords;
 
   /// Whether a note is being held, so the button says so without a word.
   final bool droneOn;
@@ -4112,13 +4153,16 @@ class _TopLiveBar extends StatelessWidget {
         key: const Key('live_countdown_settings'),
         onPressed: onOpenCountdownSettings,
         // What a player sets up for themselves: a bar to come in over, a note
-        // to come in on, and — on a song with a beat to tap on — whether that
-        // beat is felt in the hand. One button for all of it, because the bar
+        // to come in on, and — on a song the analysis heard a beat and chords
+        // in — whether that beat is felt in the hand and whether the next
+        // chord is said out loud. One button for all of it, because the bar
         // already carries seven and an eighth would push one of them off a
         // phone held upright. The tooltip names whatever is actually behind
         // it, because it is also what a screen reader reads out.
-        tooltip:
-            canFeelTheBeat ? 'Count-in, beat and drone' : 'Count-in and drone',
+        tooltip: soundSheetTooltip(
+          canFeelTheBeat: canFeelTheBeat,
+          canHearTheChords: canHearTheChords,
+        ),
         icon: Icon(
           Icons.timer_outlined,
           size: 19,

@@ -45,13 +45,36 @@ class TtsChordVoice implements ChordVoice {
   Future<void> _prepare() async {
     if (_ready) return;
     _ready = true;
-    // A chord name is two or three words in the beat before a change, so it
-    // is said a little quicker than the platform's default reading voice —
-    // which is set for sentences — and never quicker than that: a name
-    // nobody can make out is the same as no name.
-    await _tts.setSpeechRate(kIsWeb ? 1.0 : 0.55);
-    await _tts.setVolume(1);
-    await _tts.setPitch(1);
+    try {
+      // A chord name is two or three words in the beat before a change, so
+      // it is said a little quicker than the platform's default reading
+      // voice — which is set for sentences — and never quicker than that: a
+      // name nobody can make out is the same as no name. The two platforms
+      // count the speed on different scales, which is the whole of the
+      // difference here.
+      await _tts.setSpeechRate(kIsWeb ? 1.0 : 0.55);
+      await _tts.setVolume(1);
+      await _tts.setPitch(1);
+      // Never take the audio session down at the end of an utterance.
+      //
+      // On iOS the plugin's own default is to deactivate the shared session
+      // when it finishes speaking, if anything has left ducking on it — and
+      // the shared session is the one the recording is playing through, so
+      // the song would stop under the player every time a chord was called.
+      // Nothing in this app ever wants that: the call goes over the top of
+      // the song, which is exactly what a bandleader does. Only iOS has the
+      // setting; asking for it anywhere else is unimplemented, which is why
+      // it is asked for here and not on Android or the web.
+      if (!kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.iOS ||
+              defaultTargetPlatform == TargetPlatform.macOS)) {
+        await _tts.autoStopSharedSession(false);
+      }
+    } catch (_) {
+      // A device that refuses one of these still speaks, at whatever its own
+      // voice is set to. There is nowhere useful to say so, and nothing
+      // anybody could do about it from a stage.
+    }
   }
 
   @override
