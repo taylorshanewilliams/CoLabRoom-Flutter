@@ -306,7 +306,7 @@ class SupabaseMusicRepository implements MusicRepository {
     final rows = await client
         .from('setlists')
         .select(
-          'id, owner_id, name, created_at, updated_at, '
+          'id, owner_id, name, created_at, updated_at, for_day, '
           'setlist_projects(project_id, position, played_key, bpm, count_in, form, ending, note)',
         )
         .order('updated_at', ascending: false);
@@ -323,6 +323,7 @@ class SupabaseMusicRepository implements MusicRepository {
         name: row['name'] as String,
         createdAt: DateTime.parse(row['created_at'] as String),
         updatedAt: DateTime.parse(row['updated_at'] as String),
+        forDay: _dayOrNull(row['for_day']),
         songs: entries
             .map((entry) => SetlistSong(
                   projectId: entry['project_id'] as String,
@@ -337,6 +338,24 @@ class SupabaseMusicRepository implements MusicRepository {
       );
     }).toList(growable: false);
   }
+
+  /// A `date` column as a day on this phone's calendar.
+  ///
+  /// Parsed rather than passed through `DateTime.parse` alone, because a
+  /// bare "2026-10-04" parses as local midnight and anything that later
+  /// converts it would move the day. The set is for the fourth wherever the
+  /// phone is (0164).
+  static DateTime? _dayOrNull(Object? value) {
+    if (value is! String || value.trim().isEmpty) return null;
+    final parsed = DateTime.tryParse(value.trim());
+    if (parsed == null) return null;
+    return DateTime(parsed.year, parsed.month, parsed.day);
+  }
+
+  /// The day a `date` column is given, with no time and no zone on it.
+  static String _dayText(DateTime day) => '${day.year.toString().padLeft(4, '0')}'
+      '-${day.month.toString().padLeft(2, '0')}'
+      '-${day.day.toString().padLeft(2, '0')}';
 
   @override
   Future<MusicRoom> createRoom({required String name, required String icon}) async {
@@ -954,6 +973,59 @@ class SupabaseMusicRepository implements MusicRepository {
             : MusicRepository.notYourSet,
       );
     }
+  }
+
+  @override
+  Future<void> setSetlistDay(Setlist setlist, DateTime? day) async {
+    // Through 0005's update policy, the way 0157's six columns are written
+    // and for the same reason: the row is the set owner's, which is a rule
+    // the table already has. An update the policy refuses affects no row and
+    // raises nothing, so the row is asked for back and none coming back is
+    // the refusal.
+    final rows = await client
+        .from('setlists')
+        .update(<String, dynamic>{
+          'for_day': day == null ? null : _dayText(day),
+        })
+        .eq('id', setlist.id)
+        .select('id');
+    if ((rows as List<dynamic>).isEmpty) {
+      throw StateError(MusicRepository.notYourSet);
+    }
+  }
+
+  @override
+  Future<List<Setlist>> setsForTheDay() async {
+    // One row per song, ordered by the running order in the function (0164).
+    // Nothing is written by asking: there is no receipt for a leader to read.
+    final rows = await client.rpc<List<dynamic>>('sets_for_the_day');
+    final sets = <String, Setlist>{};
+    for (final value in rows) {
+      final row = Map<String, dynamic>.from(value as Map);
+      final id = row['set_id'] as String;
+      final held = sets[id] ??
+          Setlist(
+            id: id,
+            ownerId: row['owner_id'] as String,
+            name: row['set_name'] as String,
+            createdAt: DateTime.parse(row['created_at'] as String),
+            updatedAt: DateTime.parse(row['updated_at'] as String),
+            forDay: _dayOrNull(row['for_day']),
+          );
+      sets[id] = held.copyWith(
+        songs: <SetlistSong>[
+          ...held.songs,
+          SetlistSong(
+            projectId: row['project_id'] as String,
+            // The key this occasion does the song in, and nothing else the
+            // set says: the tempo, the count-in, the form, the ending and the
+            // note belong to the set's own screen, which is the owner's.
+            key: row['played_key'] as String?,
+          ),
+        ],
+      );
+    }
+    return sets.values.toList(growable: false);
   }
 
   @override

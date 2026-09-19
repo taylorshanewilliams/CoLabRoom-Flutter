@@ -15,9 +15,10 @@ import '../workspace/song_workspace_screen.dart';
 import '../../services/user_facing_error.dart';
 import '../../services/kept_songs.dart';
 import '../../services/song_search.dart';
+import '../songs/a_set_for_a_day.dart';
 import 'setlist_pack.dart';
 
-enum _SetlistMenuAction { print, sharePdf, share, rename, delete, keepHere }
+enum _SetlistMenuAction { print, sharePdf, share, rename, delete, keepHere, day }
 
 /// The analysis behind a song, or null when there is none to be had.
 typedef LoadAnalysis = Future<SongAnalysisBundle?> Function(String projectId);
@@ -194,6 +195,52 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
       unawaited(controller.reorderSetlistProjects(setlist, updated));
     }
 
+    /// Which day this set is for (0164), or no day at all.
+    ///
+    /// The day is what puts one quiet card on every member's Home for the
+    /// week before it, so it is said here, on the set, by the person whose
+    /// set it is. Nobody else can: 0005's update policy is the whole guard,
+    /// and the sentence that comes back says so.
+    Future<void> keepTheDay(DateTime? day) async {
+      try {
+        await controller.setSetlistDay(setlist, day);
+      } catch (error) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(reportAndDescribe(error,
+                  service: 'app', stage: 'set_day', route: 'Setlist'))));
+        }
+      }
+    }
+
+    Future<void> sayTheDay() async {
+      final today = dayOf(DateTime.now());
+      // A month back, because a set is sometimes dated after the fact, and
+      // two years on, which is further ahead than anybody plans a Sunday. A
+      // picker that only offered the future could not say what last Sunday's
+      // set was for.
+      final earliest = DateTime(today.year, today.month, today.day - 31);
+      final latest = DateTime(today.year + 2, today.month, today.day);
+      // The day it already says, unless that day is outside the window — a
+      // set kept from the summer and re-used in the autumn still says August,
+      // and showDatePicker asserts its initial date is inside its own range.
+      // Opening on today is then the only honest answer: the picker is being
+      // used to move the day, and the day it is being moved to is near now.
+      final kept = setlist.forDay;
+      final start = kept == null || kept.isBefore(earliest) || kept.isAfter(latest)
+          ? today
+          : kept;
+      final day = await showDatePicker(
+        context: context,
+        initialDate: start,
+        firstDate: earliest,
+        lastDate: latest,
+        helpText: 'The day this set is for',
+      );
+      if (day == null) return;
+      await keepTheDay(day);
+    }
+
     Future<void> rename() async {
       final name = await showDialog<String>(
         context: context,
@@ -360,6 +407,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
       if (action == _SetlistMenuAction.rename) return rename();
       if (action == _SetlistMenuAction.delete) return delete();
       if (action == _SetlistMenuAction.keepHere) return keepHere();
+      if (action == _SetlistMenuAction.day) return sayTheDay();
       try {
         final songs = await _packSongs(setlist, projects);
         switch (action) {
@@ -375,6 +423,7 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
           case _SetlistMenuAction.rename:
           case _SetlistMenuAction.delete:
           case _SetlistMenuAction.keepHere:
+          case _SetlistMenuAction.day:
             break;
         }
       } catch (error) {
@@ -474,6 +523,22 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                             : 'Every song, for where there is no signal'),
                   ),
                 ),
+              // The day this set is for (0164). What it buys is the week
+              // before it: everybody in the rooms these songs live in gets
+              // one quiet card until the day goes by, and nothing tells the
+              // person who said the day who opened it.
+              PopupMenuItem<_SetlistMenuAction>(
+                key: const Key('set_the_day'),
+                value: _SetlistMenuAction.day,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.event_note_rounded),
+                  title: const Text('The day this set is for'),
+                  subtitle: Text(setlist.forDay == null
+                      ? 'The band sees it on Home for the week before'
+                      : setDayInFull(setlist.forDay!)),
+                ),
+              ),
               const PopupMenuDivider(),
               const PopupMenuItem<_SetlistMenuAction>(
                 key: Key('rename_set'),
@@ -499,7 +564,50 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
       ),
       body: SafeArea(
         top: false,
-        child: projects.isEmpty
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            // The day, where it can be read and changed without going back
+            // into the menu. A line rather than a second line in the app bar:
+            // a name and a date stacked in a bar run off the side of it at
+            // the text sizes this app honours.
+            if (setlist.forDay != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 12, 8, 0),
+                child: Row(
+                  children: <Widget>[
+                    const Icon(Icons.event_note_rounded,
+                        size: 16, color: AppColors.gold),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: InkWell(
+                        key: const Key('set_day_line'),
+                        onTap: sayTheDay,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Text(
+                            'For ${setDayInFull(setlist.forDay!)}',
+                            style: const TextStyle(
+                              color: AppColors.gold,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      key: const Key('set_no_day'),
+                      onPressed: () => unawaited(keepTheDay(null)),
+                      tooltip: 'No day',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.close_rounded,
+                          size: 16, color: AppColors.muted),
+                    ),
+                  ],
+                ),
+              ),
+            Expanded(
+              child: projects.isEmpty
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(28),
@@ -631,6 +739,9 @@ class _SetlistDetailScreenState extends State<SetlistDetailScreen> {
                 );
               },
             ),
+            ),
+          ],
+        ),
       ),
     );
   }

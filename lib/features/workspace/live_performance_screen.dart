@@ -140,6 +140,8 @@ class LivePerformanceScreen extends StatefulWidget {
     this.missing,
     this.onSayBarOne,
     this.onCountCycle,
+    this.transpose,
+    this.nextInSet,
     super.key,
   });
 
@@ -151,6 +153,27 @@ class LivePerformanceScreen extends StatefulWidget {
   /// (0162). Null for somebody who may only look and for a door with no room
   /// to ask, and then the picker offers no way to count one.
   final Future<void> Function(SongCycle? cycle)? onCountCycle;
+
+  /// The key to open in, in semitones from the song's own key.
+  ///
+  /// Null is the usual answer and means this phone's kept key — the one the
+  /// singer moved the song to for their voice, which Perform has read back
+  /// since the 17 September audit and which is nobody else's business.
+  ///
+  /// A set for a day hands one in (0164): on Sunday the whole band is in the
+  /// key the set says, and a set that opened five phones in five different
+  /// keys would be worse than no set. It is a starting point and not a
+  /// clamp — the reader's own instrument and their capo still stack on top,
+  /// so a trumpet player opening Sunday's set still reads their own part.
+  final int? transpose;
+
+  /// The next song in the set, when this one was opened from one.
+  ///
+  /// Null everywhere else, and then this screen is exactly what it was. The
+  /// title rather than a count: "Next · Cornerstone" is the running order,
+  /// "2 of 6" is a score. Pressing it closes this song with `true`, and the
+  /// door that opened the set opens the next one.
+  final String? nextInSet;
 
   /// Says which downbeat of the analysis is bar 1, or hands the song back to
   /// the detected bars with a null.
@@ -659,6 +682,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   @override
   void initState() {
     super.initState();
+    // Before the first frame rather than after a read comes back, so a set's
+    // key is never the second key this screen has drawn (0164).
+    _transpose = (widget.transpose ?? 0).clamp(
+      -SongTransposeStore.limit,
+      SongTransposeStore.limit,
+    );
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
     // Both modes are built from the same unified line logic the Song Sheet
     // view uses (buildMusicianSheetLines) — "workspace" just passes an
@@ -1055,6 +1084,11 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   }
 
   Future<void> _loadTranspose() async {
+    // A song opened from a set for a day opens in the key the set does it in
+    // (0164), and this phone's kept key is left where it is: the set is for
+    // one occasion and the singer's own key is for every other day. Nothing
+    // is written here either way.
+    if (widget.transpose != null) return;
     final kept = await SongTransposeStore.load(widget.project.id);
     if (!mounted || kept == _transpose) return;
     setState(() => _transpose = kept);
@@ -2960,6 +2994,14 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                       opacity: _controlsVisible ? 1 : 0,
                       child: _TopLiveBar(
                         onClose: () => Navigator.maybePop(context),
+                        // The set's running order, when this song was opened
+                        // from a set for a day (0164). Closing still closes:
+                        // the way out of a set is the same x as ever, and
+                        // going on to the next song is a thing you choose.
+                        nextInSet: widget.nextInSet,
+                        onNextInSet: widget.nextInSet == null
+                            ? null
+                            : () => Navigator.of(context).pop(true),
                         onRestart: _restart,
                         onSmaller: () => _setFontScale(_fontScale - 0.08),
                         onLarger: () => _setFontScale(_fontScale + 0.08),
@@ -3283,6 +3325,8 @@ class _PerformanceLine extends StatelessWidget {
 class _TopLiveBar extends StatelessWidget {
   const _TopLiveBar({
     required this.onClose,
+    this.nextInSet,
+    this.onNextInSet,
     required this.onRestart,
     required this.onSmaller,
     required this.onLarger,
@@ -3296,6 +3340,12 @@ class _TopLiveBar extends StatelessWidget {
   });
 
   final VoidCallback onClose;
+
+  /// The title of the song after this one in the set, or null when this song
+  /// was not opened from one (0164).
+  final String? nextInSet;
+  final VoidCallback? onNextInSet;
+
   final VoidCallback onRestart;
   final VoidCallback onSmaller;
   final VoidCallback onLarger;
@@ -3332,17 +3382,42 @@ class _TopLiveBar extends StatelessWidget {
             tooltip: 'Exit Live mode',
             icon: const Icon(Icons.close_rounded),
           ),
-          const Expanded(
-            child: Text(
-              'LIVE',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.gold,
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 2.2,
-              ),
-            ),
+          // The middle of the bar says LIVE, except in a set, where it says
+          // what is next and takes you there. That space held one decorative
+          // word; the song after this one is the one thing a player on a
+          // Sunday actually wants from it, and putting it there costs the
+          // bar no room on a phone that already carries six buttons.
+          Expanded(
+            child: nextInSet == null
+                ? const Text(
+                    'LIVE',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.gold,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2.2,
+                    ),
+                  )
+                : TextButton.icon(
+                    key: const Key('live_next_in_set'),
+                    onPressed: onNextInSet,
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.gold,
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: const Icon(Icons.skip_next_rounded, size: 18),
+                    label: Text(
+                      'Next · ${nextInSet!}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
           ),
           PopupMenuButton<LiveLyricSource>(
             key: const Key('live_source_menu'),
