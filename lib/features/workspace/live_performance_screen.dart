@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../services/audio_source_for.dart';
 import '../../services/chord_beat_grid.dart'
@@ -47,11 +48,13 @@ import 'live_countdown_store.dart';
 import 'loop_this_change.dart';
 import 'musician_sheet_line.dart';
 import 'musician_sheet_logic.dart';
+import 'passage_export.dart';
 import 'practice_marks.dart';
 import 'practice_rules.dart';
 import 'song_reading_store.dart';
 import 'song_transpose_store.dart';
 import 'tuner_reference_store.dart';
+import 'whose_song_sheet.dart';
 
 enum LiveScrollMode { off, synced, slow, medium, fast, timed }
 
@@ -83,6 +86,16 @@ const Duration kPerformTick = Duration(milliseconds: 50);
 /// What Perform says when the song's recording could not be fetched.
 const String recordingNotLoaded =
     'The recording could not be loaded. The words are here; the song is not.';
+
+/// What Perform says when a cut is handed over without its audio in it.
+///
+/// The clip is the point of a cut, so the one thing that must not happen is
+/// three text files arriving at the share sheet as though that were the whole
+/// of it. Said plainly and without a reason nobody can act on: the recording
+/// may still be fetching, may have failed, or may be a file this app cannot
+/// read.
+const String cutHasNoAudio =
+    'The recording could not be read, so there is no audio in this one.';
 
 /// The scroll offset that puts the line at [lineOffset] on the anchor.
 ///
@@ -473,6 +486,19 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
   /// build is a new file because audioplayers keys its cache on the path:
   /// one name rewritten would play the first mix ever built under it.
   String? _lastPartMixPath;
+
+  /// Whatever is under the player right now: the recording, a part mix, or
+  /// the band without a part. All three start where the song starts.
+  ///
+  /// What a cut is taken from, because it is what the person is listening to
+  /// when they decide a passage is worth keeping. Cutting the recording while
+  /// "Bass forward" was playing would hand somebody a file that is not the
+  /// thing they just heard, and say nothing about it.
+  String? _playingPath;
+
+  /// Whether a cut is being written. Guards a second tap: the decode behind
+  /// it takes a second or two on a long song.
+  bool _savingCut = false;
 
   SongAnalysisService get _analysis => widget.analysisService ?? SongAnalysisService();
   SongLayerService get _layerService => widget.layerService ?? SongLayerService();
@@ -1000,6 +1026,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     try {
       if (!mounted) return;
       _referencePath = path;
+      _playingPath = path;
       // The path is all a part mix needs, so a part kept from last time can
       // start building now rather than after the player below is ready.
       if (!_referenceReady.isCompleted) _referenceReady.complete();
@@ -1934,6 +1961,143 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     );
   }
 
+  /// Whose song this is, asked once and kept.
+  ///
+  /// The same sheet and the same order as the audience dial (see
+  /// song_workspace_screen): ask, save, and only then do the thing that was
+  /// tapped. Null means the question is still open — dismissed, or the
+  /// answer did not reach the room — and whatever asked does nothing.
+  Future<SongOrigin?> _askWhoseSong() async {
+    final controller = BetaScope.maybeOf(context, listen: false);
+    final answer =
+        await showWhoseSongSheet(context, songTitle: widget.project.title);
+    if (answer == null || !mounted) return null;
+    // No controller above this screen is a widget test, not a phone. The
+    // answer still decides this one cut; there is simply nowhere to keep it.
+    if (controller == null) return answer;
+    try {
+      await controller.repository.setSongOrigin(widget.project.id, answer);
+      // The song behind this screen reads the answer off the project — the
+      // chart, the dial and the next cut all do — so the local copy is given
+      // the chance to catch up, the way saving it from the song menu does.
+      await controller.refreshProject(widget.project.id);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _mixNote = reportAndDescribe(error,
+            service: 'app',
+            stage: 'set_song_origin',
+            projectId: widget.project.id,
+            route: 'Perform'));
+      }
+      return null;
+    }
+    return answer;
+  }
+
+  /// The passage on repeat, as files to keep.
+  ///
+  /// Every Musician, Same Song, 17 September 2026, creators item 2: the room
+  /// behind the post. The bars or the part already chosen are cut from what
+  /// is playing, on the bar lines either side of them, and handed to the
+  /// share sheet with the words and the chords of the same passage beside
+  /// them -- see passage_export.dart, which also keeps whose-song's side of
+  /// this.
+  ///
+  /// Nothing is written back to the room and nothing is kept: the files go
+  /// into a directory of their own that the next cut empties.
+  Future<void> _saveCut() async {
+    // A mix being built is the one thing that can pull the file out from
+    // under this: _defaultPartMixer deletes the mix it replaces the moment
+    // the new one exists, and a cut reading that file gets no samples and no
+    // explanation. The tap waits rather than half-working.
+    if (_savingCut || _mixing) return;
+    final loop = _loop;
+    if (loop == null) return;
+    final cut = PassageExport.cutFor(
+      startMs: loop.startMs,
+      endMs: loop.endMs,
+      label: loop.label,
+      downbeatsMs: _downbeats,
+    );
+    if (cut == null) return;
+    // Whose song this is, asked here if nobody has been asked yet, exactly
+    // the way the audience dial asks it before a song widens: a cut is made
+    // to be posted, and it is the only way out of the app that does not pass
+    // the dial (0142, and Every Musician, Same Song, 17 September 2026). An
+    // unanswered question is not an answer, so the recording and the words
+    // wait for one.
+    var project = widget.project;
+    if (project.songOrigin == null) {
+      final answer = await _askWhoseSong();
+      // Dismissed, or the answer did not save. The cut waits rather than
+      // happening on an assumption, and the question comes back next tap.
+      if (answer == null || !mounted) return;
+      project = project.copyWith(songOrigin: answer);
+    }
+    // Read here, once the question above has been answered and before any of
+    // the writing starts: what is under the player at the moment the cut
+    // begins is what the cut is of.
+    final reference = widget.analysis?.reference;
+    final songKey = project.songKey(reference?.musicalKey);
+    final playing = _playingPath;
+    setState(() {
+      _savingCut = true;
+      _controlsVisible = true;
+      // Whatever the last thing to go wrong here said. Leaving it up while a
+      // new cut is being made would read as this one having failed too.
+      _mixNote = null;
+    });
+    try {
+      final directory =
+          Directory('${(await getTemporaryDirectory()).path}/colabroom_cut');
+      // The one before it, gone. Each of these is a few seconds of wav and
+      // nothing plays them again once they have been handed over, so keeping
+      // them would fill the phone a passage at a time -- the same lesson the
+      // part mixes taught.
+      if (await directory.exists()) await directory.delete(recursive: true);
+      await directory.create(recursive: true);
+      final files = await PassageExport.write(
+        directory: directory,
+        project: project,
+        cut: cut,
+        lines: _sheetLines,
+        transcriptWords:
+            reference?.transcriptWords ?? const <TranscriptWord>[],
+        // The band's key. See PassageExport.chordPro: a file going out beside
+        // a clip is in the key the clip is in, never this phone's reading.
+        musicalKey: songKey,
+        bpm: reference?.bpm,
+        // A browser hands back a signed URL rather than a file, and there is
+        // nothing to decode in one. The chip is off there anyway; this is the
+        // floor under that.
+        audioPath:
+            playing == null || isRemoteAudio(playing) ? null : playing,
+      );
+      if (!mounted) return;
+      // The audio is the point of this, so a cut that leaves without it says
+      // so. It can: the recording may not have finished fetching, or may
+      // have failed, or may be a container this app cannot read (24-bit wav
+      // is the common one). Every one of those used to hand over three text
+      // files and no clip without a word, which reads as the feature simply
+      // not working.
+      if (PassageExport.audioMissing(project, files)) {
+        setState(() => _mixNote = cutHasNoAudio);
+      }
+      await SharePlus.instance.share(ShareParams(
+        subject: widget.project.title,
+        files: <XFile>[for (final file in files) XFile(file.path)],
+      ));
+    } catch (error) {
+      if (mounted) {
+        setState(() => _mixNote = reportAndDescribe(error,
+            service: 'app', stage: 'cut.save', route: 'Perform'));
+      }
+    } finally {
+      if (mounted) setState(() => _savingCut = false);
+      _armControlHide();
+    }
+  }
+
   /// Your part forward, or everyone but you -- or, tapped again, the whole
   /// recording.
   ///
@@ -2064,6 +2228,7 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
     await player.setSource(audioSourceFor(path));
     await player.seek(_elapsed);
     if (_rate != 1) await player.setPlaybackRate(_rate);
+    _playingPath = path;
     if (mounted) setState(() => _audioReady = true);
     if (wasPlaying) await player.resume();
   }
@@ -2601,6 +2766,12 @@ class _LivePerformanceScreenState extends State<LivePerformanceScreen> {
                         myPart: _myPart,
                         onMyPart: _setMyPart,
                         onCopyMoment: _copyLinkToHere,
+                        // Off in a browser for the reason the takes export
+                        // is: there is no directory to write four files into
+                        // there, and a button that reports a limit of the
+                        // browser as a fault is worse than no button.
+                        onSaveCut: kIsWeb ? null : () => unawaited(_saveCut()),
+                        saving: _savingCut,
                       ),
                     ),
                   ),
@@ -3215,6 +3386,8 @@ class _LiveControls extends StatelessWidget {
     this.myPart,
     this.onMyPart,
     this.onCopyMoment,
+    this.onSaveCut,
+    this.saving = false,
   });
 
   /// Copies the address of where the song is now, for sending to somebody in
@@ -3222,6 +3395,17 @@ class _LiveControls extends StatelessWidget {
   /// 1: "listen to bar 33", in writing, from the screen where somebody is
   /// listening to bar 33.
   final VoidCallback? onCopyMoment;
+
+  /// Hands the passage on repeat over as files to keep: the audio cut on the
+  /// bar lines, its words and its chords. Every Musician, Same Song, 17
+  /// September 2026, creators item 2. Null where there is nothing to cut --
+  /// in a browser, which has no directory to write into.
+  final VoidCallback? onSaveCut;
+
+  /// Whether a cut is being made right now. It takes a second or two on a
+  /// long song, because the whole recording is decoded to find the passage
+  /// in it.
+  final bool saving;
 
   /// Follow me's line, when the song is open on more than one phone.
   final Widget? together;
@@ -3591,6 +3775,21 @@ class _LiveControls extends StatelessWidget {
                           icon: loop == loops[i] ? Icons.repeat_rounded : null,
                           selected: loop == loops[i],
                           onTap: () => onLoop(loops[i]),
+                        ),
+                      // The passage on repeat, as files to keep. Beside the
+                      // loop chips because it is about the passage those
+                      // chose, and only once something is on repeat: a cut
+                      // is always of a particular run of bars or a named
+                      // part, never of the whole song, which the takes
+                      // export already hands over (Every Musician, Same
+                      // Song, 17 September 2026).
+                      if (loop != null && onSaveCut != null)
+                        _ModeChip(
+                          key: const Key('live_save_cut'),
+                          label: saving ? 'Cutting…' : 'Save this bit',
+                          icon: Icons.content_cut_rounded,
+                          selected: false,
+                          onTap: onSaveCut!,
                         ),
                     ],
                     // Where the song is now, as an address. Last in the row

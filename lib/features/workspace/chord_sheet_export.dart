@@ -208,12 +208,19 @@ abstract final class ChordSheetExport {
   /// The format worship teams already run on. Planning Center and OnSong both
   /// read it, which makes this the cheapest way for a band that does not use
   /// this app to still play what a band that does has worked out.
+  ///
+  /// [notes] are extra lines for the top of the file, written as comments
+  /// under the header the way the cover's own sentence is. A whole song needs
+  /// none; a cut of one needs to say which bars it is and, for a song the
+  /// room did not write, that the recording stayed behind as well as the
+  /// words (see passage_export.dart).
   static String chordPro({
     required SongProject project,
     required List<MusicianSheetLine> lines,
     required int transpose,
     String? musicalKey,
     double? bpm,
+    List<String> notes = const <String>[],
   }) {
     final wordsTravel = ProjectExportService.wordsTravel(project);
     final out = StringBuffer('{title: ${_directiveSafe(project.title)}}\n');
@@ -225,6 +232,10 @@ abstract final class ChordSheetExport {
     if (bpm != null && bpm > 0) out.writeln('{tempo: ${bpm.round()}}');
     if (!wordsTravel) {
       out.writeln('{comment: ${_directiveSafe(ProjectExportService.wordsStayHome)}}');
+    }
+    for (final note in notes) {
+      final line = _directiveSafe(note);
+      if (line.isNotEmpty) out.writeln('{comment: $line}');
     }
 
     var inChorus = false;
