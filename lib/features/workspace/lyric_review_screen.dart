@@ -70,6 +70,17 @@ class _LyricReviewScreenState extends State<LyricReviewScreen> {
     super.dispose();
   }
 
+  /// Takes a line out, and lets go of it.
+  ///
+  /// [dispose] above only reaches the controllers still in the list, so a
+  /// removed line has to be disposed here or it is never disposed at all.
+  /// It is safe to do it at this moment: the fields are positional, so the
+  /// rebuild hands every element below this one its neighbour's controller
+  /// and drops the last element, and the only thing either does with the
+  /// controller that has gone is `removeListener`, which a disposed
+  /// [ChangeNotifier] allows by design. Asserted in
+  /// the_lyric_review_names_its_lines_test.dart, including for a line that
+  /// had the keyboard on it when it was removed.
   void _removeLine(int index) {
     setState(() {
       _originalLines.removeAt(index);
@@ -194,19 +205,44 @@ class _LyricReviewScreenState extends State<LyricReviewScreen> {
               child: Row(
                 children: <Widget>[
                   Expanded(
-                    child: TextField(
-                      key: Key('review_lyric_line_$line'),
-                      controller: _controllers[line],
-                      style: const TextStyle(color: AppColors.text),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        hintText: 'Line ${line + 1}',
+                    // The line says which line it is. Every field here opens
+                    // with the mis-heard words already in it, and an
+                    // `InputDecorator` stops building `hintText` the moment
+                    // there is any text — so the hint below, which was this
+                    // field's only name, was never built and a reader heard
+                    // field after field read its words out with nothing
+                    // saying which of them it was on (#411's own report, 18
+                    // September 2026).
+                    //
+                    // The name only, with no role beside it, for the reason
+                    // the song editor gives: two semantics configurations
+                    // claiming `isTextField` cannot merge, so repeating it
+                    // would split this into an empty "Line 3" node above the
+                    // real one. A plain label folds into the field's own node
+                    // and adds no height at all, which `labelText` would.
+                    //
+                    // The hint stays as well, because it is what the screen
+                    // shows on a line somebody has emptied. On that one line
+                    // it folds in and the name is heard twice; on every other
+                    // line it is not built and this is the only name there is.
+                    child: Semantics(
+                      label: 'Line ${line + 1}',
+                      child: TextField(
+                        key: Key('review_lyric_line_$line'),
+                        controller: _controllers[line],
+                        style: const TextStyle(color: AppColors.text),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          hintText: 'Line ${line + 1}',
+                        ),
                       ),
                     ),
                   ),
                   IconButton(
                     onPressed: () => _removeLine(line),
-                    tooltip: 'Remove line',
+                    // Which line it removes. A column of buttons that all say
+                    // "Remove line" is one a reader cannot choose from.
+                    tooltip: 'Remove line ${line + 1}',
                     icon: const Icon(Icons.close_rounded, size: 18, color: AppColors.muted),
                   ),
                 ],
