@@ -13,6 +13,7 @@ import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/sealed_take.dart';
+import '../domain/sent_take.dart';
 import '../domain/song_brief.dart';
 import '../domain/sung_in.dart';
 import '../domain/song_analysis_models.dart';
@@ -3174,8 +3175,17 @@ class InMemoryMusicRepository implements MusicRepository {
     // Keyed by the room, because there is no link on this side: a teacher's
     // own code never opened it. isLessonRoom asks by room either way.
     _lessonRooms['taught-${room.id}'] = room.id;
+    _lessonStudents[room.id] = studentId;
     return room;
   }
+
+  /// Whose lesson each taught room is, as `lesson_rooms.student_id` (0129).
+  ///
+  /// Kept rather than derived from "the member who is not me", because a
+  /// lesson room can gain a third person — an accompanist, a second
+  /// teacher — and what somebody sent their teacher is what the student of
+  /// that lesson played (0151).
+  final Map<String, String> _lessonStudents = <String, String>{};
 
   /// A recording on a song, analysed and ready, for tests and previews of
   /// what travels with a song and what does not (0149). This repository has
@@ -3419,6 +3429,39 @@ class InMemoryMusicRepository implements MusicRepository {
         _songBriefs.where((brief) =>
             brief.teacherId == currentUserId || brief.studentId == currentUserId),
       );
+
+  @override
+  Future<List<SentTake>> takesSentToMe() async {
+    final taught = await lessonRoomsTaught();
+    final came = <SentTake>[];
+    // Walked in the order the takes were recorded, which is the order they
+    // were sent here and therefore the order 0151 returns: oldest first, so
+    // the one that came in last is the last in the list.
+    for (final take in _takes) {
+      // Only what was sent. A take nobody has been shared with is its
+      // player's alone (0057), and is not a hand-in.
+      if (!take.shared) continue;
+      final song = _allProjects.where((each) => each.id == take.projectId).firstOrNull;
+      if (song == null || !taught.contains(song.roomId)) continue;
+      // And only the student of that lesson: the teacher's own
+      // demonstration in the room is not a hand-in, and neither is an
+      // accompanist's playing.
+      if (_lessonStudents[song.roomId] != take.recordedBy) continue;
+      final room = _rooms.where((each) => each.id == song.roomId).firstOrNull;
+      final student = room?.members
+          .where((member) => member.userId == take.recordedBy)
+          .firstOrNull;
+      came.add(SentTake(
+        takeId: take.id,
+        projectId: song.id,
+        songTitle: song.title,
+        studentId: take.recordedBy,
+        studentName: student?.displayName ?? 'A student',
+        storagePath: take.storagePath,
+      ));
+    }
+    return List<SentTake>.unmodifiable(came);
+  }
 
   @override
   Future<List<PracticeMark>> myPracticeMarks() async {
@@ -3998,6 +4041,11 @@ class _TakeOnSong {
   final String recordedBy;
   final String part;
   final bool shared;
+
+  /// Where the audio would be. Derived rather than stored: there is no
+  /// storage behind this repository, and a listening desk still has to be
+  /// able to say which row it is playing (0151).
+  String get storagePath => '$projectId/layers/$id.m4a';
 
   /// Where on the song it begins (0045). Only a round reads it: a turn
   /// starts on the round's passage.

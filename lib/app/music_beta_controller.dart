@@ -9,6 +9,7 @@ import '../domain/lesson_link.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/sealed_take.dart';
+import '../domain/sent_take.dart';
 import '../domain/song_brief.dart';
 import '../domain/song_analysis_models.dart';
 import '../domain/tonight_models.dart';
@@ -248,6 +249,18 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
   /// The brief on this song, or null, which is nearly every song.
   SongBrief? briefFor(String projectId) =>
       _songBriefs.where((brief) => brief.projectId == projectId).firstOrNull;
+
+  List<SentTake> _sentTakes = const <SentTake>[];
+
+  /// What students have sent this person, across every lesson they teach
+  /// (0151), oldest first -- so the last one is the one that came in last.
+  ///
+  /// Empty for nearly everybody, because nearly everybody teaches nobody.
+  /// Home makes one card of it and the listening desk is the list itself.
+  /// Read with everything else and at no other time: nothing is written by
+  /// reading it, so a student never finds out whether their teacher has got
+  /// to theirs.
+  List<SentTake> get sentTakes => List<SentTake>.unmodifiable(_sentTakes);
 
   /// Who is looking, or empty when there is nobody to ask.
   ///
@@ -557,6 +570,14 @@ class MusicBetaController extends ChangeNotifier with WidgetsBindingObserver {
         _songBriefs = await repository.mySongBriefs();
       } catch (_) {
         // Left as it was.
+      }
+      // What students have sent (0151). One more of the same bargain, and
+      // it answers with nothing at all for everybody who teaches nobody.
+      try {
+        _sentTakes = await repository.takesSentToMe();
+      } catch (_) {
+        // Left as it was. A hand-in is on the server either way, and the
+        // card is offered again the next time the app opens.
       }
       // The signed-in user's own picture, fetched once with everything else.
       // It used to be fetched only by the account screen, so the face in the

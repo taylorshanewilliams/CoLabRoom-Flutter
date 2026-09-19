@@ -10,6 +10,7 @@ import '../../services/invite_link.dart';
 import '../../services/user_facing_error.dart';
 import '../../widgets/qr_code.dart';
 import 'lesson_poster.dart';
+import 'what_came_in.dart';
 import 'with_birth_month.dart';
 import '../../services/copy_text.dart';
 
@@ -348,8 +349,44 @@ class _LessonLinkScreenState extends State<LessonLinkScreen> {
     );
   }
 
+  /// What students have sent, in one pass (0151).
+  ///
+  /// Here because this is the teacher's screen: everything else on it is
+  /// about getting students into rooms, and this is what happens once they
+  /// are. Home puts a card up when something arrives, which is how a
+  /// teacher who has no open link left still reaches it.
+  void _whatCameIn() {
+    unawaited(Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'What came in'),
+        builder: (_) => WhatCameInScreen(repository: widget.repository),
+      ),
+    ));
+  }
+
   List<Widget> _list() {
     return <Widget>[
+      Material(
+        color: AppColors.raised,
+        borderRadius: BorderRadius.circular(14),
+        child: ListTile(
+          key: const Key('lesson_what_came_in'),
+          onTap: _whatCameIn,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          leading: const Icon(Icons.inbox_rounded, color: AppColors.cyan),
+          title: const Text(
+            'What came in',
+            style: TextStyle(color: AppColors.text, fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          subtitle: const Text(
+            'Takes your students have sent you.',
+            style: TextStyle(color: AppColors.muted, fontSize: 13),
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+        ),
+      ),
+      const SizedBox(height: 14),
       for (final link in _links) ...<Widget>[
         _LinkRow(link: link, onTap: () => setState(() => _open = link)),
         const SizedBox(height: 8),
