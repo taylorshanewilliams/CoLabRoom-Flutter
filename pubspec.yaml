@@ -81,3 +81,23 @@ dependency_overrides:
 
 flutter:
   uses-material-design: true
+  assets:
+    # The one face this app draws that is not the platform's own: Analyze
+    # titles the finished song sheet in Fraunces. `google_fonts` fetches a
+    # face from fonts.gstatic.com the first time it is asked for, so until
+    # this folder existed that heading needed the network to draw itself —
+    # on a screen people open in a rehearsal room with no signal, where the
+    # heading is the app handing back the chords somebody has just sung.
+    #
+    # Bundled it is 70 KB and it always draws. The folder name and the
+    # `Fraunces-Medium.ttf` spelling are google_fonts' own convention: it
+    # looks through the asset manifest for a file ending `<Family>-<Variant>`
+    # and uses it in place of a download. Only Medium is here because
+    # `GoogleFonts.fraunces(fontWeight: FontWeight.w500)` is the only call in
+    # the app; another weight means another file.
+    #
+    # OFL.txt sits beside it because the face is under the SIL Open Font
+    # License, which asks for the notice to travel with the font. See
+    # `useBundledFonts` in lib/app/bundled_fonts.dart, which puts it on the
+    # licence page and turns runtime fetching off.
+    - google_fonts/

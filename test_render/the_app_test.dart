@@ -297,13 +297,14 @@ void main() {
       'welcome_flow_seen_v2': true,
       'welcome_room_questions_seen_v1': true,
     });
-    // Analyze titles itself in Fraunces, which google_fonts fetches from
-    // fonts.gstatic.com at runtime. There is no network here, so it throws
-    // whichever way this is set: left alone it fails on the request, turned
-    // off it fails on the missing asset. Left alone is the honest one — it is
-    // what a device with no connection does — and `collectComplaints` sorts
-    // the result out of the findings, because a fetched font falling back to
-    // the platform one is not a defect in this app.
+    // Analyze titles itself in Fraunces, and that face is an asset now rather
+    // than something google_fonts fetches from fonts.gstatic.com when the
+    // screen is first drawn. `loadRealFonts` has already called
+    // `useBundledFonts`, so the heading photographed here is the heading on a
+    // device — including a device with no signal, which is where this screen
+    // gets opened. It is also what stopped this walk exiting non-zero on every
+    // device that reached Analyze: the failed fetch arrived as a raw zone
+    // error that no handler could sort out of the findings.
   });
 
   tearDownAll(() async {
