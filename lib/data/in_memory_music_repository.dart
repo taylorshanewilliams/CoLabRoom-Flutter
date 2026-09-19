@@ -15,6 +15,7 @@ import '../domain/practice_mark.dart';
 import '../domain/sealed_take.dart';
 import '../domain/sent_take.dart';
 import '../domain/song_brief.dart';
+import '../domain/song_cycle.dart';
 import '../domain/sung_in.dart';
 import '../domain/song_analysis_models.dart';
 import '../domain/tonight_models.dart';
@@ -1976,6 +1977,43 @@ class InMemoryMusicRepository implements MusicRepository {
   }
 
   @override
+  Future<void> setSongCycle(String projectId, SongCycle? cycle) async {
+    // Refused here in the shape 0162 refuses it in, so the path Perform takes
+    // when the room says no — the numbers put back, the sentence on the
+    // screen — is one a test can walk. This repository said yes to everybody
+    // until the review of 18 September 2026 pointed out that the one branch
+    // nothing could reach was the branch that mattered. A cycle is a shared
+    // fact: somebody who can only look cannot move everybody else's numbers.
+    // setSongLanguage refuses in the same place for the same reason (0163).
+    final room = _roomOf(projectId);
+    if (room == null) {
+      throw PostgrestException(
+        message: 'That song does not exist.',
+        code: '22023',
+      );
+    }
+    if (!room.canEditSongs(currentUserId)) {
+      throw PostgrestException(
+        message: 'Only somebody who can edit this song can count its cycle.',
+        code: '42501',
+      );
+    }
+    // Tidied here the way 0162 tidies it on the way in: a count below two is
+    // not a cycle anybody plays round, and a stress on a beat the cycle does
+    // not have is dropped rather than kept. SongCycle's own constructor does
+    // both, so this repository and the function agree without either copying
+    // the other's arithmetic.
+    final counted = cycle == null
+        ? null
+        : SongCycle.of(cycle.beats, cycle.accents);
+    for (final project in room.projects) {
+      if (project.id != projectId) continue;
+      _replaceProject(project.copyWith(cycle: counted));
+      return;
+    }
+  }
+
+  @override
   Future<MusicRoom> ideasRoom() async {
     for (final room in _rooms) {
       if (room.name.trim().toLowerCase() == 'ideas') return room;
@@ -3344,6 +3382,11 @@ class InMemoryMusicRepository implements MusicRepository {
         songOrigin: song.songOrigin,
         keyOverride: song.keyOverride,
         barOneDownbeat: song.barOneDownbeat,
+        // And the cycle, as 0162 now copies it: a teacher who counts a seven
+        // and sends the song has to be sending the seven with it, or the
+        // class counts the analysed bars while the teacher says "from cycle
+        // nine".
+        cycle: song.cycle,
       );
       _copiedFrom[copyId] = song.id;
       _replaceRoom(room.copyWith(

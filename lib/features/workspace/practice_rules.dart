@@ -168,10 +168,19 @@ const String pickupLabel = 'Pickup';
 ///
 /// A number below 1 is the pickup, which happens when the band has said the
 /// song starts a few downbeats into the recording.
-String barsLabel(int firstBar, int lastBar) {
+///
+/// [cycles] when the band has counted a cycle of its own, which the numbers
+/// then count instead of the analysed bars: "Cycles 9–12" is what a player
+/// counting in sevens is looking at, and calling it a bar would be naming it
+/// after a count nobody in the room is using (Every Musician, Same Song,
+/// 17 September 2026, decision 20).
+String barsLabel(int firstBar, int lastBar, {bool cycles = false}) {
   if (lastBar < 1) return pickupLabel;
-  if (firstBar < 1) return '$pickupLabel–bar $lastBar';
-  return firstBar == lastBar ? 'Bar $firstBar' : 'Bars $firstBar–$lastBar';
+  final one = cycles ? 'Cycle' : 'Bar';
+  if (firstBar < 1) return '$pickupLabel–${one.toLowerCase()} $lastBar';
+  return firstBar == lastBar
+      ? '$one $firstBar'
+      : '${one}s $firstBar–$lastBar';
 }
 
 /// Where bar [bar] starts: the downbeat it begins on.
@@ -216,6 +225,7 @@ PracticeLoop? barLoop({
   required List<int> downbeatsMs,
   int? songEndMs,
   int barOne = 1,
+  bool cycles = false,
 }) {
   final count = downbeatsMs.length;
   if (count == 0) return null;
@@ -234,7 +244,7 @@ PracticeLoop? barLoop({
   return PracticeLoop(
     startMs: start,
     endMs: end,
-    label: barsLabel(first, last),
+    label: barsLabel(first, last, cycles: cycles),
     firstBar: first,
     lastBar: last,
   );
@@ -269,6 +279,7 @@ PracticeLoop? changeLoop({
   required List<int> downbeatsMs,
   int? songEndMs,
   int barOne = 1,
+  bool cycles = false,
 }) {
   final bar = _barOfChange(changeMs, downbeatsMs, barOne);
   if (bar == null) return null;
@@ -278,6 +289,7 @@ PracticeLoop? changeLoop({
     downbeatsMs: downbeatsMs,
     songEndMs: songEndMs,
     barOne: barOne,
+    cycles: cycles,
   );
 }
 
@@ -360,6 +372,7 @@ PracticeLoop? loopFor(
   List<StructureSection> sections = const <StructureSection>[],
   List<int> downbeatsMs = const <int>[],
   int barOne = 1,
+  bool cycles = false,
 }) {
   if (startMs == null || endMs == null || endMs <= startMs) return null;
   final labels = sectionChipLabels(sections);
@@ -396,7 +409,7 @@ PracticeLoop? loopFor(
   return PracticeLoop(
     startMs: startMs,
     endMs: endMs,
-    label: barsLabel(first, last),
+    label: barsLabel(first, last, cycles: cycles),
     firstBar: first,
     lastBar: last,
   );

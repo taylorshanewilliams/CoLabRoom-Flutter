@@ -997,6 +997,14 @@ class _SongsScreenState extends State<SongsScreen> {
                       await controller.refreshProject(song.id);
                     }
                   : null,
+          // And the cycle the band counts, on the same terms (0162).
+          onCountCycle:
+              (controller.roomById(song.roomId)?.canEditSongs(me) ?? false)
+                  ? (cycle) async {
+                      await controller.repository.setSongCycle(song.id, cycle);
+                      await controller.refreshProject(song.id);
+                    }
+                  : null,
         ),
         fullscreenDialog: true,
       ),

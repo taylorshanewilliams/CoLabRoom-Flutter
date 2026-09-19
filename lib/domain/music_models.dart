@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'song_analysis_models.dart' show SongAnalysisState, midiNoteLabel;
+import 'song_cycle.dart';
 
 enum RoomRole { owner, editor, commenter, viewer }
 
@@ -200,6 +201,7 @@ class SongProject {
     this.keyOverride,
     this.barOneDownbeat,
     this.language,
+    this.cycle,
   });
 
   final String id;
@@ -319,6 +321,18 @@ class SongProject {
   /// anybody's profile. Null means nobody has said, and a song nobody has
   /// said anything about is laid out exactly as this app always laid it out.
   final String? language;
+  /// The cycle this song goes round in, or null because nobody has counted
+  /// one and the analysed bars stand.
+  ///
+  /// The fourth shared fact, after the band's key, where bar 1 is and what
+  /// the song is sung in, and shared for the same reason as all three. Half
+  /// the music in the world is not in bars of four, and the
+  /// alternative to this was a library of named cycles nobody here has
+  /// reviewed (Every Musician, Same Song, 17 September 2026, decision 20).
+  /// What a band counts is a count and its stresses, and it is a fact about
+  /// the song rather than a reading on one phone: everybody in the room says
+  /// "from cycle nine" and has to mean the same nine.
+  final SongCycle? cycle;
 
   SongProject copyWith({
     String? roomId,
@@ -336,6 +350,7 @@ class SongProject {
     Object? keyOverride = _unset,
     Object? barOneDownbeat = _unset,
     Object? language = _unset,
+    Object? cycle = _unset,
   }) {
     return SongProject(
       id: id,
@@ -369,6 +384,9 @@ class SongProject {
       language: identical(language, _unset)
           ? this.language
           : language as String?,
+      // And this one, again: "Use the detected bars" has to be able to stop
+      // counting a cycle as well as to put bar 1 back.
+      cycle: identical(cycle, _unset) ? this.cycle : cycle as SongCycle?,
     );
   }
 }

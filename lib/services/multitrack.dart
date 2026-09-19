@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:audio_decoder/audio_decoder.dart';
 
+import '../domain/song_cycle.dart';
 import 'audio_analysis_utils.dart';
 import 'latency_probe.dart';
 import 'take_naming.dart';
@@ -222,27 +223,58 @@ class Multitrack {
       _strike(
         out,
         at,
-        accent: beatsPerBar > 1 && beat % beatsPerBar == 0,
+        stroke: strokeOfBeat(beat, beatsPerBar: beatsPerBar),
         level: level,
       );
     }
     return out;
   }
 
+  /// How hard the [beat]th tick of a click is struck, counting from zero.
+  ///
+  /// Without [accents] this is what the click has always done: the first beat
+  /// of every bar marked and the rest even. With them it is a cycle the band
+  /// counted for itself -- the beats in [accents] are the ones it stresses,
+  /// numbered from one inside the cycle, and the first beat stays the
+  /// heaviest because it is the one the whole count comes back to (Every
+  /// Musician, Same Song, 17 September 2026, decision 20).
+  ///
+  /// A [beatsPerBar] of nought or one is somebody who wants an even click,
+  /// and stays even.
+  static CycleStroke strokeOfBeat(
+    int beat, {
+    required int beatsPerBar,
+    List<int> accents = const <int>[],
+  }) {
+    if (beatsPerBar <= 1) return CycleStroke.beat;
+    final inCycle = beat % beatsPerBar + 1;
+    if (inCycle == 1) return CycleStroke.sam;
+    return accents.contains(inCycle) ? CycleStroke.accent : CycleStroke.beat;
+  }
+
   /// One tick, written into [out] at [at].
   static void _strike(
     Float64List out,
     int at, {
-    required bool accent,
+    required CycleStroke stroke,
     required double level,
   }) {
     // Short enough to be a tick rather than a note. A long click smears
     // across the beat it is supposed to mark.
     final tickSamples = (rate * 0.035).round();
     // A fifth apart, so the downbeat is recognisable without being a
-    // different instrument.
-    final frequency = accent ? 1800.0 : 1200.0;
-    final gain = accent ? level : level * 0.62;
+    // different instrument. A cycle's inner stresses sit between the two, so
+    // the beat the count comes back to is still the one heard loudest.
+    final frequency = switch (stroke) {
+      CycleStroke.sam => 1800.0,
+      CycleStroke.accent => 1500.0,
+      CycleStroke.beat => 1200.0,
+    };
+    final gain = switch (stroke) {
+      CycleStroke.sam => level,
+      CycleStroke.accent => level * 0.8,
+      CycleStroke.beat => level * 0.62,
+    };
     for (var i = 0; i < tickSamples; i += 1) {
       final index = at + i;
       if (index >= out.length) break;
@@ -258,34 +290,24 @@ class Multitrack {
     required int lengthSamples,
     int beatsPerBar = 4,
     double level = 0.32,
+    List<int> accents = const <int>[],
   }) {
     final out = Float64List(lengthSamples);
     if (bpm <= 0 || lengthSamples <= 0) return out;
 
     final samplesPerBeat = 60.0 / bpm * rate;
-    // Short enough to be a tick rather than a note. A long click smears
-    // across the beat it is supposed to mark.
-    final tickSamples = (rate * 0.035).round();
 
     var beat = 0;
     for (var start = 0.0;
         start < lengthSamples;
         start += samplesPerBeat, beat += 1) {
-      final accent = beatsPerBar > 1 && beat % beatsPerBar == 0;
-      // A fifth apart, so the downbeat is recognisable without being a
-      // different instrument.
-      final frequency = accent ? 1800.0 : 1200.0;
-      final gain = accent ? level : level * 0.62;
-      final from = start.round();
-      for (var i = 0; i < tickSamples; i += 1) {
-        final at = from + i;
-        if (at >= lengthSamples) break;
-        // Exponential decay: a struck sound, not a beep held open.
-        final envelope = math.exp(-i / (tickSamples * 0.28));
-        out[at] += math.sin(2 * math.pi * frequency * i / rate) *
-            envelope *
-            gain;
-      }
+      _strike(
+        out,
+        start.round(),
+        stroke:
+            strokeOfBeat(beat, beatsPerBar: beatsPerBar, accents: accents),
+        level: level,
+      );
     }
     return out;
   }
@@ -422,6 +444,7 @@ class Multitrack {
     required String outputPath,
     int beatsPerBar = 4,
     int bars = 8,
+    List<int> accents = const <int>[],
   }) async {
     final beats = math.max(1, beatsPerBar) * bars;
     final lengthSamples = (60.0 / bpm * rate * beats).round();
@@ -429,6 +452,7 @@ class Multitrack {
       bpm: bpm,
       lengthSamples: lengthSamples,
       beatsPerBar: beatsPerBar,
+      accents: accents,
     );
     await File(outputPath).writeAsBytes(
       LatencyProbe.toWav(samples, rate: rate),

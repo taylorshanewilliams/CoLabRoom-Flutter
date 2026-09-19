@@ -16,6 +16,7 @@ import '../domain/practice_mark.dart';
 import '../domain/sealed_take.dart';
 import '../domain/sent_take.dart';
 import '../domain/song_brief.dart';
+import '../domain/song_cycle.dart';
 import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
 import '../domain/song_analysis_models.dart' show SongAnalysisState;
@@ -179,7 +180,7 @@ class SupabaseMusicRepository implements MusicRepository {
         .select(
           'id, account_id, name, icon, created_at, updated_at, sort_order, logo_path, '
           'room_members(user_id, display_name, role, color_value, profiles(avatar_path)), '
-          'projects(id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, bar_one_downbeat, language, '
+          'projects(id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, bar_one_downbeat, language, cycle_beats, cycle_accents, '
           'project_audio_references(project_id, analysis_state), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at)))',
@@ -962,7 +963,7 @@ class SupabaseMusicRepository implements MusicRepository {
     final row = await client
         .from('projects')
         .select(
-          'id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, bar_one_downbeat, language, '
+          'id, room_id, account_id, created_by, title, description, status, created_at, updated_at, sort_order, cover_image_path, song_origin, key_override, bar_one_downbeat, language, cycle_beats, cycle_accents, '
           'project_audio_references(project_id, analysis_state), '
           'contributions(id, project_id, author_id, author_name, body, color_value, position, kind, revision, created_at, '
           'files(id, project_id, contribution_id, storage_path, mime_type, byte_size, duration_ms, created_at))',
@@ -1630,6 +1631,22 @@ class SupabaseMusicRepository implements MusicRepository {
         // takes the answer away, which is a real answer and not a missing
         // argument.
         'in_language': languageTagTyped(language),
+      },
+    );
+  }
+
+  @override
+  Future<void> setSongCycle(String projectId, SongCycle? cycle) async {
+    await client.rpc<dynamic>(
+      'set_song_cycle',
+      params: <String, dynamic>{
+        'target_project': projectId,
+        // Null clears it, which is how "Use the detected bars" is spelled
+        // here too. The stresses go over whether or not there are any: an
+        // empty list is a cycle somebody has said nothing inside, and the
+        // function normalises both ends.
+        'in_beats': cycle?.beats,
+        'in_accents': cycle?.accents ?? const <int>[],
       },
     );
   }
@@ -3584,6 +3601,17 @@ class SupabaseMusicRepository implements MusicRepository {
       // Anything that is not a tag reads as nobody having said, which is how
       // every other answer on this row treats something it cannot read.
       language: languageTagTyped(row['language'] as String?),
+      // Tidied rather than trusted, the way the bar 1 above is. A stress on a
+      // beat a shortened cycle no longer has is a stale answer and not a
+      // broken song, so SongCycle drops it (0162).
+      cycle: SongCycle.of(
+        (row['cycle_beats'] as num?)?.toInt(),
+        <int>[
+          for (final beat
+              in row['cycle_accents'] as List<dynamic>? ?? const <dynamic>[])
+            if (beat is num) beat.toInt(),
+        ],
+      ),
     );
   }
 
@@ -3676,6 +3704,8 @@ class SupabaseMusicRepository implements MusicRepository {
         'key_override': project.keyOverride,
         'bar_one_downbeat': project.barOneDownbeat,
         'language': project.language,
+        'cycle_beats': project.cycle?.beats,
+        'cycle_accents': project.cycle?.accents,
         'project_audio_references': project.hasAudioReference
             ? <String, dynamic>{'analysis_state': project.analysisState?.name}
             : null,

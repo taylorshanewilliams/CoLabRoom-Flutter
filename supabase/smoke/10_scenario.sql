@@ -11536,6 +11536,243 @@ begin
     raise exception 'the editor''s answer did not stand';
   end if;
 end $$;
+-- ---------------------------------------------------------------------
+-- A cycle of your own (0162).
+--
+-- Bars are the analysis downbeats, and a great deal of the music people play
+-- is not in bars: a seven counted 3+2+2 is a whole cycle and no run of
+-- four-beat bars describes it (Every Musician, Same Song, 17 September 2026,
+-- decision 20). What the band counts is a fact about the song and not a
+-- reading somebody keeps on their phone -- "from cycle nine" has to be the
+-- same nine on every phone in the room -- so the same two people who may say
+-- what key a song is in and where its bar 1 is are the only two who may
+-- count it.
+
+reset role;
+-- Fresh actors and a fresh room, as 0161's block above: the obvious second
+-- account calls delete_my_account earlier in this file, so it cannot hold a
+-- room_members row by the time anything down here runs.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('c4c1e162-0000-0000-0000-000000000162', 'countingseven@smoke.test',
+   '{"display_name": "Counting Seven"}'),
+  ('c4c1e162-0000-0000-0000-000000000163', 'watchingcycles@smoke.test',
+   '{"display_name": "Watching Cycles"}'),
+  -- Never inserted into room_members anywhere. `room_role_for` returns null
+  -- for this account, which is the case the `is distinct from` pair in
+  -- set_song_cycle exists for and the one a `not in` would wave through.
+  --
+  -- The address has to be one nothing else in this file uses: auth.users.email
+  -- is unique in the shim, the whole scenario is one transaction, and a second
+  -- 'notinthisroom@smoke.test' aborts it before a line of this block runs
+  -- (review, 18 September 2026).
+  ('c4c1e162-0000-0000-0000-000000000164', 'outsidethesevenroom@smoke.test',
+   '{"display_name": "Outside The Seven Room"}');
+
+insert into public.rooms (id, account_id, name)
+values ('c4c1e162-0000-0000-0000-000000000161',
+        '11111111-1111-1111-1111-111111111111', 'The Seven Room');
+
+-- Distinct colours, as every other room in this file: a room's members are
+-- uniquely coloured (room_members_room_color_unique, 0006).
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('c4c1e162-0000-0000-0000-000000000161', '11111111-1111-1111-1111-111111111111',
+   'The Writer', 'owner', 4294937165),
+  ('c4c1e162-0000-0000-0000-000000000161', 'c4c1e162-0000-0000-0000-000000000162',
+   'Counting Seven', 'editor', 4283215697),
+  ('c4c1e162-0000-0000-0000-000000000161', 'c4c1e162-0000-0000-0000-000000000163',
+   'Watching Cycles', 'viewer', 4284000000);
+
+insert into public.projects (id, room_id, account_id, title, created_by) values
+  ('c4c1e162-0000-0000-0000-00000000016a', 'c4c1e162-0000-0000-0000-000000000161',
+   '11111111-1111-1111-1111-111111111111', 'Three Two Two',
+   '11111111-1111-1111-1111-111111111111');
+
+-- The editor counts it. The person who knows what the cycle is is the one
+-- playing it, not the one who owns the catalog.
+set local request.jwt.claims = '{"sub": "c4c1e162-0000-0000-0000-000000000162"}';
+set local role authenticated;
+
+do $$
+declare
+  counted integer;
+  stressed integer[];
+begin
+  -- Null is the default, and it means the analysed bars. A song arriving
+  -- already counted in something would be the app claiming to know.
+  select p.cycle_beats, p.cycle_accents into counted, stressed
+  from public.projects p where p.id = 'c4c1e162-0000-0000-0000-00000000016a';
+  if counted is not null or stressed is not null then
+    raise exception 'a new song arrived already counted';
+  end if;
+
+  -- "7: 3+2+2", tapped out of order and with the first beat named, which is
+  -- what a row of taps hands over. It comes back ascending, without repeats,
+  -- and without the first beat: that one is where the count comes back to.
+  perform public.set_song_cycle('c4c1e162-0000-0000-0000-00000000016a', 7,
+                                array[6, 4, 6, 1, 9]);
+  select p.cycle_beats, p.cycle_accents into counted, stressed
+  from public.projects p where p.id = 'c4c1e162-0000-0000-0000-00000000016a';
+  if counted is distinct from 7 then
+    raise exception 'an editor could not count the cycle (got %)', counted;
+  end if;
+  if stressed is distinct from array[4, 6] then
+    raise exception 'the stresses were not tidied (got %)', stressed;
+  end if;
+
+  -- A count nobody plays round. Refused rather than pulled into range: a
+  -- number the app chose itself is worse than a sentence.
+  begin
+    perform public.set_song_cycle('c4c1e162-0000-0000-0000-00000000016a', 1);
+    raise exception 'a cycle of one was counted';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.set_song_cycle('c4c1e162-0000-0000-0000-00000000016a', 65);
+    raise exception 'a cycle longer than anybody counts was counted';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- A cycle with nothing said inside it is an ordinary answer, and it keeps
+  -- an empty list rather than the stresses of the cycle before it.
+  perform public.set_song_cycle('c4c1e162-0000-0000-0000-00000000016a', 16,
+                                array[]::integer[]);
+  select p.cycle_beats, p.cycle_accents into counted, stressed
+  from public.projects p where p.id = 'c4c1e162-0000-0000-0000-00000000016a';
+  if counted is distinct from 16 or stressed is distinct from array[]::integer[] then
+    raise exception 'a cycle with no stresses kept the last one''s (got %, %)',
+      counted, stressed;
+  end if;
+
+  -- And back to the seven, so what the two refusals below are refused
+  -- against is a song that is counted.
+  perform public.set_song_cycle('c4c1e162-0000-0000-0000-00000000016a', 7,
+                                array[4, 6]);
+end $$;
+
+-- Somebody who can only look cannot change what everybody else counts.
+reset role;
+set local request.jwt.claims = '{"sub": "c4c1e162-0000-0000-0000-000000000163"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.set_song_cycle('c4c1e162-0000-0000-0000-00000000016a', 4);
+    raise exception 'somebody who can only look counted the cycle';
+  exception when insufficient_privilege then null;
+  end;
+  -- And cannot clear it either, which is the same write said the other way.
+  begin
+    perform public.set_song_cycle('c4c1e162-0000-0000-0000-00000000016a', null);
+    raise exception 'somebody who can only look stopped counting the cycle';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- And somebody who is not in the room at all, which is what the null-safety
+-- in set_song_cycle is actually for: the viewer above has a role, so
+-- `not in ('owner', 'editor')` would refuse them too; this account has none.
+reset role;
+set local request.jwt.claims = '{"sub": "c4c1e162-0000-0000-0000-000000000164"}';
+set local role authenticated;
+
+do $$
+begin
+  begin
+    perform public.set_song_cycle('c4c1e162-0000-0000-0000-00000000016a', 4);
+    raise exception 'somebody outside the room counted the cycle';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
+do $$
+declare
+  counted integer;
+begin
+  select p.cycle_beats into counted
+  from public.projects p where p.id = 'c4c1e162-0000-0000-0000-00000000016a';
+  if counted is distinct from 7 then
+    raise exception 'somebody who may not count the cycle counted it anyway';
+  end if;
+end $$;
+
+-- "Use the detected bars". Null is a real answer and not a missing argument,
+-- so it hands the song back to the analysed bars rather than raising -- and
+-- it takes the stresses with it: a stress list with no count to sit in is
+-- not a cycle.
+set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';
+set local role authenticated;
+
+do $$
+declare
+  counted integer;
+  stressed integer[];
+begin
+  perform public.set_song_cycle('c4c1e162-0000-0000-0000-00000000016a', null);
+  select p.cycle_beats, p.cycle_accents into counted, stressed
+  from public.projects p where p.id = 'c4c1e162-0000-0000-0000-00000000016a';
+  if counted is not null or stressed is not null then
+    raise exception 'the analysed bars could not be put back (got %, %)',
+      counted, stressed;
+  end if;
+end $$;
+
+-- And nobody at all cannot ask.
+reset role;
+set local request.jwt.claims = '{"role": "anon"}';
+set local role anon;
+
+do $$
+begin
+  perform public.set_song_cycle('c4c1e162-0000-0000-0000-00000000016a', 7);
+  raise exception 'anon counted somebody''s cycle';
+exception when insufficient_privilege then null;
+end $$;
+
+reset role;
+
+-- And the copy a teacher sends a student carries the cycle, the way 0161
+-- made it carry where bar 1 is. Same flow, same reason: a teacher counts a
+-- seven on a song, sends it to the class, and "from cycle nine" has to mean
+-- cycle nine on the copy in front of the student rather than bar nine of
+-- something the beat tracker heard. Ms Rivera and her lessons are 0149's,
+-- set up far above; this is a further song of hers under an id of this
+-- block's own, so the send makes a fresh copy rather than finding one.
+insert into public.projects (id, room_id, account_id, title, created_by,
+                             cycle_beats, cycle_accents)
+values ('c4c1e162-0000-0000-0000-00000000016b',
+        'a5049149-0000-0000-0000-000000000010',
+        'a5049149-0000-0000-0000-000000000001', 'Seven For The Class',
+        'a5049149-0000-0000-0000-000000000001', 7, array[4, 6]);
+
+set local request.jwt.claims = '{"sub": "a5049149-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  copy_id uuid;
+  counted integer;
+  stressed integer[];
+begin
+  select song_copy into copy_id
+  from public.send_song_to_students(
+    'c4c1e162-0000-0000-0000-00000000016b',
+    array['a5049149-0000-0000-0000-000000000011']::uuid[]);
+  if copy_id is null then
+    raise exception 'the seven never reached the student';
+  end if;
+  select p.cycle_beats, p.cycle_accents into counted, stressed
+  from public.projects p where p.id = copy_id;
+  if counted is distinct from 7 then
+    raise exception 'the student''s copy did not carry the count (got %)',
+      coalesce(counted::text, '<null>');
+  end if;
+  if stressed is distinct from array[4, 6] then
+    raise exception 'the student''s copy did not carry the stresses (got %)',
+      coalesce(stressed::text, '<null>');
+  end if;
+end $$;
 
 reset role;
 

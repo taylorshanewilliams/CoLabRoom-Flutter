@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/music_models.dart';
 import '../domain/song_analysis_models.dart';
 import 'song_language.dart';
+import '../domain/song_cycle.dart';
 
 /// A song kept on this phone, read back from disk: its words and its sheet.
 ///
@@ -514,6 +515,11 @@ class KeptSongs {
         // every line out the wrong way round, offline, where there is
         // nothing to ask.
         'language': project.language,
+        // And the cycle the band counts, for the same reason again: a copy
+        // kept for the train that counted the analysed bars while the room
+        // counts sevens would number the same passage two ways (0162).
+        'cycle_beats': project.cycle?.beats,
+        'cycle_accents': project.cycle?.accents,
         // A line's voice note is somebody talking, which Perform never
         // plays, so it is the one thing on a line that is not kept.
         'contributions': <Map<String, dynamic>>[
@@ -560,6 +566,14 @@ class KeptSongs {
       // Read the way the server's row is read, so a kept song is laid out
       // exactly as the same song online (0163).
       language: languageTagTyped(json['language'] as String?),
+      cycle: SongCycle.of(
+        (json['cycle_beats'] as num?)?.toInt(),
+        <int>[
+          for (final beat
+              in json['cycle_accents'] as List<dynamic>? ?? const <dynamic>[])
+            if (beat is num) beat.toInt(),
+        ],
+      ),
       contributions: <Contribution>[
         for (final value in json['contributions'] as List<dynamic>? ?? const <dynamic>[])
           _lineFromJson(Map<String, dynamic>.from(value as Map)),

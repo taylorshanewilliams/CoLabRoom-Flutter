@@ -29,6 +29,7 @@ class _SilentClick implements ClickPlayer {
     required int beatsPerBar,
     int bars = 8,
     bool loop = true,
+    List<int> accents = const <int>[],
   }) async =>
       log.add('play ${bpm.round()}/$beatsPerBar x$bars${loop ? ' looped' : ''}');
 
@@ -51,6 +52,7 @@ class _SlowClick implements ClickPlayer {
     required int beatsPerBar,
     int bars = 8,
     bool loop = true,
+    List<int> accents = const <int>[],
   }) {
     log.add('play ${bpm.round()}/$beatsPerBar x$bars');
     return written.future;
