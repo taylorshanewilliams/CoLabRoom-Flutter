@@ -38,6 +38,26 @@ enum ShapeReading {
   /// same rule the horn reading has followed since it landed.
   bool get takesACapo => this == guitar || this == ukulele;
 
+  /// How far up the neck a capo is still worth suggesting.
+  ///
+  /// Seven on a guitar, the same as the capo chart beside it — past that a
+  /// guitar is a mandolin. A ukulele is a shorter instrument and the number
+  /// cannot be the guitar's: a soprano meets its body at the twelfth fret
+  /// where a guitar runs to nineteen or twenty, so seven leaves a guitarist
+  /// about two thirds of the neck and a ukulele player is left with five
+  /// frets and a suggestion nobody would take. Four leaves the same two
+  /// thirds of the shorter neck.
+  ///
+  /// Scored against the guitar's seven a ukulele was sent to the 7th fret for
+  /// a blues in G — three chords a uke class teaches in its first hour, two
+  /// of them already open (review, 19 September 2026). Zero for the two
+  /// instruments [takesACapo] has already turned away.
+  int get highestCapo => switch (this) {
+        guitar => 7,
+        ukulele => 4,
+        bass || piano => 0,
+      };
+
   /// Whether the diagram is a neck that a left-handed player reads mirrored.
   /// A keyboard is not: a left-handed pianist plays the same keyboard.
   ///

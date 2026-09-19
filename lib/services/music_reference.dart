@@ -1069,8 +1069,8 @@ class CapoThatHelps {
   final List<String> shapes;
 }
 
-/// The capo between 1 and 7 that leaves the most of [chords] on open shapes
-/// and the fewest on barres, or null when no capo is worth the trouble.
+/// The capo that leaves the most of [chords] on open shapes and the fewest on
+/// barres, or null when no capo is worth the trouble.
 ///
 /// The capo chart on the key sheet has always answered a different question —
 /// which shapes this *key* can be played with — and answered it off five
@@ -1081,8 +1081,7 @@ class CapoThatHelps {
 /// It offers nothing when the song already sits open, when no capo beats no
 /// capo, or when the best a capo can do is a single open shape: a song of
 /// barre chords that a capo cannot help is told nothing rather than sent up
-/// the neck for one chord. Seven frets, like the chart beside it — past that
-/// a guitar is a mandolin.
+/// the neck for one chord.
 ///
 /// [reading] is the instrument in this person's hands, and the shapes are
 /// counted on that instrument. This scored against the six-string table
@@ -1091,6 +1090,10 @@ class CapoThatHelps {
 /// not got. And it says nothing at all to a pianist or a bass player, the
 /// same decision [ShapeReading.takesACapo] already makes on the sheet
 /// (reported three times over #398, 19 September 2026).
+///
+/// How far up it looks is the instrument's own, [ShapeReading.highestCapo]:
+/// the guitar's seven frets on a ukulele sent a blues in G to the 7th fret,
+/// which is most of a soprano's neck gone (review, 19 September 2026).
 CapoThatHelps? capoThatHelps(
   List<String> chords, {
   required ShapeReading reading,
@@ -1111,7 +1114,7 @@ CapoThatHelps? capoThatHelps(
   var bestOpen = -1;
   var bestBarres = 0;
   var bestShapes = const <String>[];
-  for (var fret = 0; fret <= 7; fret += 1) {
+  for (var fret = 0; fret <= reading.highestCapo; fret += 1) {
     final shapes = <String>[];
     var barres = 0;
     for (final (pitch, quality) in distinct) {
@@ -1147,24 +1150,26 @@ CapoThatHelps? capoThatHelps(
 /// barre at the 2nd fret — so a capo is never offered on the strength of one
 /// of those, and the row above it would be calling a barre an open shape if
 /// it were.
+///
+/// The grip is looked for under both spellings of the root, because the uke
+/// table is keyed with whichever one a uke chart uses. What comes back is not
+/// that key, though: it is the house spelling, the same rule the key sheet
+/// under it spells chords by. The one open grip on pitch 1 is filed as D♭m,
+/// and the row was telling people to play a D♭m while the sheet beside it
+/// said C♯m — which is how every chart in the world writes that chord
+/// (review, 19 September 2026).
 String? _openShapeName(int pitch, String qualityId, ShapeReading reading) {
   final short = _shortForms[qualityId];
   if (short == null) return null;
-  final sharp = '${noteName(pitch, flats: false)}$short';
-  if (reading != ShapeReading.ukulele) {
-    return _openShapes.containsKey(sharp) ? sharp : null;
-  }
-  // The uke table is keyed by both spellings where a uke chart uses both, so
-  // the name that found the grip is the name to say it by: a uke player is
-  // told to play an E♭, not a D♯.
-  final flat = '${noteName(pitch, flats: true)}$short';
-  final name = _ukuleleShapes.containsKey(sharp)
-      ? sharp
-      : _ukuleleShapes.containsKey(flat)
-          ? flat
-          : null;
-  if (name == null) return null;
-  return _ukuleleShapes[name]!.contains(0) ? name : null;
+  final table =
+      reading == ShapeReading.ukulele ? _ukuleleShapes : _openShapes;
+  final grip = table['${noteName(pitch, flats: false)}$short'] ??
+      table['${noteName(pitch, flats: true)}$short'];
+  if (grip == null || !grip.contains(0)) return null;
+  // Minor-ish roots are named against the minor key rule: C♯m and F♯m, B♭m.
+  final minor = _qualities[qualityId]?.intervals.contains(3) ?? false;
+  return '${noteName(pitch, flats: pitchUsesFlats(pitch, minor: minor))}'
+      '$short';
 }
 
 /// Where a degree sits, as (the number, the accidental in front of it).

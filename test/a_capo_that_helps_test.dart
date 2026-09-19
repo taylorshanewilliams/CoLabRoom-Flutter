@@ -80,7 +80,8 @@ void main() {
       expect(found.shapes, <String>['Em', 'C', 'G', 'D']);
     });
 
-    test('it never sends anybody past the seventh fret', () {
+    test('it never sends anybody past their instrument\'s last useful fret',
+        () {
       for (final song in const <List<String>>[
         <String>['C#', 'F#', 'G#'],
         <String>['Ebm', 'Ab', 'Db'],
@@ -92,7 +93,7 @@ void main() {
         ]) {
           final found = capoThatHelps(song, reading: reading);
           if (found == null) continue;
-          expect(found.fret, inInclusiveRange(1, 7));
+          expect(found.fret, inInclusiveRange(1, reading.highestCapo));
           expect(found.shapes.length, greaterThanOrEqualTo(2));
         }
       }
@@ -126,11 +127,104 @@ void main() {
       // A third of the uke's first-position grips are fully fretted — E♭m is
       // 3, 3, 2, 1 — so a capo offered on the strength of one would be a row
       // calling a barre an open shape.
+      //
+      // B, E♭ and B♭ are all in the uke table and not one of the three rings:
+      // B is 4, 3, 2, 2 and B♭ is 3, 2, 1, 1. Counting a table entry as open
+      // would leave this song sitting at the nut with three "open" barres and
+      // nothing to say; counting only what rings sends it up a fret, where D
+      // and A really do ring — and leaves the B♭ it lands on out of the row,
+      // because that one does not.
+      final fretted = capoThatHelps(
+        const <String>['B', 'Eb', 'Bb'],
+        reading: ShapeReading.ukulele,
+      )!;
+      expect(fretted.fret, 1);
+      expect(fretted.shapes, <String>['D', 'A']);
+
       final uke = capoThatHelps(song, reading: ShapeReading.ukulele)!;
       expect(uke.fret, isNot(0));
       for (final shape in uke.shapes) {
         expect(const <String>['Dm', 'Gm', 'Am'], contains(shape));
       }
+    });
+
+    /// A ukulele is a shorter instrument, and the fret a capo is worth going
+    /// to is shorter with it. Scored against the guitar's seven frets a uke
+    /// player was sent to the 7th for a blues in G — two of whose chords were
+    /// already open, on an instrument whose body starts at the 12th (review,
+    /// 19 September 2026).
+    test('a ukulele is not sent up a guitar\'s neck', () {
+      // The first hour of a uke class: G7, C7 and D7. Two of the three ring
+      // open already and the D7 is one finger across three strings. The
+      // seven-fret search turned this into "Capo 7 — C7, F7, G7".
+      expect(
+        capoThatHelps(const <String>['G7', 'C7', 'D7'],
+            reading: ShapeReading.ukulele),
+        isNull,
+      );
+      // F, B♭, C and Dm is the uke's own key, and capo 5 to get away from
+      // the one B♭ every uke player already knows is not advice.
+      expect(
+        capoThatHelps(const <String>['F', 'Bb', 'C', 'Dm'],
+            reading: ShapeReading.ukulele),
+        isNull,
+      );
+      // The guitar's own answers are untouched: the same G blues is still
+      // nothing, and the horn player's keys still come back on the 3rd.
+      expect(
+        capoThatHelps(const <String>['G7', 'C7', 'D7'],
+            reading: ShapeReading.guitar),
+        isNull,
+      );
+      expect(
+        capoThatHelps(const <String>['F', 'Bb', 'C'],
+            reading: ShapeReading.guitar)!
+            .fret,
+        3,
+      );
+
+      // And nothing a ukulele is offered, over the progressions a uke class
+      // teaches, in any of the twelve keys, goes up a guitar's neck.
+      expect(ShapeReading.ukulele.highestCapo,
+          lessThan(ShapeReading.guitar.highestCapo));
+      for (final degrees in _taughtProgressions) {
+        for (var key = 0; key < 12; key += 1) {
+          final song = _songIn(key, degrees);
+          final found = capoThatHelps(song, reading: ShapeReading.ukulele);
+          if (found == null) continue;
+          expect(found.fret, inInclusiveRange(1, 4), reason: song.join(' '));
+        }
+      }
+    });
+
+    /// The uke table is keyed with whichever spelling a uke chart uses, and
+    /// the row used to say the key back: the open minor grip on pitch 1 is
+    /// filed as D♭m, so somebody was told to play a chord no chart writes
+    /// while the sheet under the row said C♯m (review, 19 September 2026).
+    test('a shape is named the way the sheet beside it names chords', () {
+      final uke = capoThatHelps(
+        const <String>['Bb', 'Eb', 'F', 'Dm'],
+        reading: ShapeReading.ukulele,
+      )!;
+      expect(uke.fret, 1);
+      expect(uke.shapes, <String>['A', 'D', 'E', 'C#m']);
+
+      // The same grip reached from a sharp key, named the same way.
+      final sharp = capoThatHelps(
+        const <String>['B', 'E', 'F#', 'D#m'],
+        reading: ShapeReading.ukulele,
+      )!;
+      expect(sharp.shapes, contains('C#m'));
+      expect(sharp.shapes, isNot(contains('Dbm')));
+
+      // And a flat root stays flat where the flat is the written one: the
+      // major 7th on pitch 10 is a B♭maj7 on any chart, not an A♯maj7.
+      final flat = capoThatHelps(
+        const <String>['Bmaj7', 'Ebm', 'Abm'],
+        reading: ShapeReading.ukulele,
+      )!;
+      expect(flat.fret, 1);
+      expect(flat.shapes, <String>['Bbmaj7', 'Dm', 'Gm']);
     });
 
     test('a song already open on a ukulele is left alone', () {
@@ -322,7 +416,77 @@ void main() {
     SimplerShapesStore.resetForTesting();
     ShapeReadingStore.resetForTesting();
   });
+
+  /// The instrument chips are on this very sheet, so the row has to be worked
+  /// out with the rows it stands among rather than once when the sheet opens:
+  /// held in a field, it went on offering guitar shapes to somebody who had
+  /// just said Ukulele in front of it (review, 19 September 2026).
+  testWidgets('the offer changes under the chip that changes the instrument',
+      (tester) async {
+    SimplerShapesStore.resetForTesting();
+    ShapeReadingStore.resetForTesting();
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    tester.view.physicalSize = const Size(520, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData.dark(),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: SongSheetPanel(
+            project: _project('song-capo-switch'),
+            bundle: _analysis('song-capo-switch'),
+            onReviewLyrics: null,
+            onOpenLive: null,
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('song_sheet_key_badge')));
+    await tester.pumpAndSettle();
+    // Opened as a guitarist.
+    expect(find.text('makes these open shapes: G, C, D, Em'), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('read_shapes_ukulele')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('read_shapes_ukulele')));
+    await tester.pumpAndSettle();
+    expect(find.text('makes these open shapes: A, D, E, F#m'), findsOneWidget);
+    expect(find.text('makes these open shapes: G, C, D, Em'), findsNothing);
+
+    // And a pianist is offered no capo at all, row and chart together.
+    await tester.ensureVisible(find.byKey(const Key('read_shapes_piano')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('read_shapes_piano')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('makes these open shapes'), findsNothing);
+    expect(find.text('WITH A CAPO'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    SimplerShapesStore.resetForTesting();
+    ShapeReadingStore.resetForTesting();
+  });
 }
+
+/// The progressions a class teaches, as steps above the key's 1 and the
+/// quality written after the root, so a sweep can put each of them in all
+/// twelve keys: I IV V vi, I ii iii IV V, i iv v, and a three-chord blues.
+const List<List<(int, String)>> _taughtProgressions = <List<(int, String)>>[
+  <(int, String)>[(0, ''), (5, ''), (7, ''), (9, 'm')],
+  <(int, String)>[(0, ''), (2, 'm'), (4, 'm'), (5, ''), (7, '')],
+  <(int, String)>[(0, 'm'), (5, 'm'), (7, 'm')],
+  <(int, String)>[(0, '7'), (5, '7'), (7, '7')],
+];
+
+List<String> _songIn(int key, List<(int, String)> degrees) => <String>[
+      for (final (step, quality) in degrees)
+        '${noteName(key + step, flats: false)}$quality',
+    ];
 
 SongProject _project(String id) {
   final now = DateTime(2026, 9, 18);
