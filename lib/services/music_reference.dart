@@ -687,6 +687,14 @@ const Map<String, List<int>> _ukuleleMovable = <String, List<int>>{
   '5': <int>[3, -1, 1, 1],
 };
 
+/// A grip from [_ukuleleShapes] for a root and a written quality, trying the
+/// spelling on the chart and then both enharmonic names of the root: a table
+/// with B♭ in it and a chart with A♯ on it have to meet somewhere.
+List<int>? _ukuleleTableShape(String root, int rootPitch, String short) =>
+    _ukuleleShapes['$root$short'] ??
+    _ukuleleShapes['${noteName(rootPitch, flats: false)}$short'] ??
+    _ukuleleShapes['${noteName(rootPitch, flats: true)}$short'];
+
 /// What a ukulele player puts their hand on for [label], in the same shape the
 /// guitar's own [ChordReference.shapes] come back in.
 ///
@@ -703,17 +711,36 @@ List<ChordShape> ukuleleShapesFor(String label) {
 
   final short = _shortForms[quality.id] ?? '';
   final name = '${parts.root}$short';
+  final family = quality.shapeFamily;
   final shapes = <ChordShape>[];
-  // Written first, then both spellings of the root: a table with B♭ in it and
-  // a chart with A♯ on it have to meet somewhere.
-  final open = _ukuleleShapes[name] ??
-      _ukuleleShapes['${noteName(rootPitch, flats: false)}$short'] ??
-      _ukuleleShapes['${noteName(rootPitch, flats: true)}$short'];
+  var open = _ukuleleTableShape(parts.root, rootPitch, short);
+  // Then the plain chord inside the written one. An A9 is an A7 with a note
+  // added that four strings have no room for, and the grip a uke player makes
+  // for it is the A7 grip — which is the same thing the guitar's family
+  // fallback means by drawing a 7 shape under a 9.
+  //
+  // The guitar does not need this, because it has two movable families and so
+  // always has a low shape to reach for. Four strings give one, and without
+  // this an A9 came back with nothing at all while a G9 was sent to a barre at
+  // the 10th fret with an open G7 sitting in the table (review, 19 September
+  // 2026).
+  if (open == null && family != null && family != quality.id) {
+    open = _ukuleleTableShape(
+        parts.root, rootPitch, _shortForms[family] ?? '');
+  }
   if (open != null) {
-    shapes.add(ChordShape(name: name, frets: open, hint: _openHint));
+    shapes.add(ChordShape(
+      name: name,
+      frets: open,
+      // Only where a string really does ring open. The guitar's table is open
+      // shapes by definition; a good third of the uke's first-position grips
+      // are fully fretted and several are full barres, and "Open position"
+      // under a Bm would contradict both the picture above it and the words a
+      // screen reader reads out (review, 19 September 2026).
+      hint: open.contains(0) ? _openHint : null,
+    ));
   }
 
-  final family = quality.shapeFamily;
   final movable = family == null ? null : _ukuleleMovable[family];
   // Only where the table has nothing, unlike the guitar's two shapes side by
   // side. There is one movable family here, so the second shape would be the

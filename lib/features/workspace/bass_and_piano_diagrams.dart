@@ -57,6 +57,7 @@ class BassNeckDiagram extends StatelessWidget {
   const BassNeckDiagram({
     required this.positions,
     required this.spokenName,
+    this.leftHanded = false,
     this.size = 120,
     super.key,
   });
@@ -66,6 +67,12 @@ class BassNeckDiagram extends StatelessWidget {
   /// What the chord is called out loud — "C major over G", never `C/G`, which
   /// a screen reader reads as a date.
   final String spokenName;
+
+  /// Whether the neck is drawn the way a left-handed player sees it: the
+  /// strings the other way round, at the same frets. The words underneath do
+  /// not change, because they name each string by its letter and are ordered
+  /// by what the note is to the chord rather than by where it sits.
+  final bool leftHanded;
 
   final double size;
 
@@ -78,16 +85,17 @@ class BassNeckDiagram extends StatelessWidget {
       child: SizedBox(
         width: size,
         height: size * 1.15,
-        child: CustomPaint(painter: _BassPainter(positions)),
+        child: CustomPaint(painter: _BassPainter(positions, leftHanded)),
       ),
     );
   }
 }
 
 class _BassPainter extends CustomPainter {
-  _BassPainter(this.positions);
+  _BassPainter(this.positions, this.leftHanded);
 
   final List<BassPosition> positions;
+  final bool leftHanded;
   static const _strings = 4;
 
   /// The lowest fret anything is stopped at, which is where the window starts.
@@ -164,7 +172,12 @@ class _BassPainter extends CustomPainter {
     final dotRadius = stringGap * 0.3;
     for (final position in positions) {
       if (position.string < 0 || position.string >= _strings) continue;
-      final x = gridLeft + stringGap * position.string;
+      // The E string is on the left for a right-handed player and on the
+      // right for a left-handed one. Only the column moves: the fret a note
+      // is at is the same fret either way.
+      final column =
+          leftHanded ? _strings - 1 - position.string : position.string;
+      final x = gridLeft + stringGap * column;
       final root = position.degree == 'root';
       final color = root ? AppColors.gold : AppColors.cyan;
       if (position.fret == 0) {
@@ -205,7 +218,8 @@ class _BassPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BassPainter oldDelegate) =>
-      oldDelegate.positions != positions;
+      oldDelegate.positions != positions ||
+      oldDelegate.leftHanded != leftHanded;
 }
 
 /// What a screen reader says instead of the keyboard.

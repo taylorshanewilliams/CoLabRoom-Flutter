@@ -40,7 +40,12 @@ enum ShapeReading {
 
   /// Whether the diagram is a neck that a left-handed player reads mirrored.
   /// A keyboard is not: a left-handed pianist plays the same keyboard.
-  bool get mirrors => this == guitar || this == ukulele;
+  ///
+  /// The bass is one too. Left-handed bass players restring or buy a
+  /// left-handed instrument exactly as guitarists do, and leaving it out made
+  /// the chip vanish for the person who had just turned it on (review, 19
+  /// September 2026).
+  bool get mirrors => this != piano;
 
   /// The reading [stored] was saved as, or [guitar] for anything else —
   /// including a value written by a later version of the app.

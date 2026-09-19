@@ -1291,6 +1291,7 @@ class _ChordPicture extends StatelessWidget {
           child: BassNeckDiagram(
             positions: bassPositionsFor(reference.display),
             spokenName: _spokenName(withBass: true),
+            leftHanded: leftHanded,
           ),
         );
       case ShapeReading.piano:

@@ -2,6 +2,7 @@ import 'package:colabroom/domain/music_models.dart';
 import 'package:colabroom/domain/song_analysis_models.dart';
 import 'package:colabroom/features/workspace/bass_and_piano_diagrams.dart';
 import 'package:colabroom/features/workspace/guitar_chord_diagram.dart';
+import 'package:colabroom/features/workspace/live_performance_screen.dart';
 import 'package:colabroom/features/workspace/song_reading_store.dart';
 import 'package:colabroom/features/workspace/song_sheet_panel.dart';
 import 'package:colabroom/services/music_reference.dart';
@@ -85,6 +86,56 @@ void main() {
       }
     });
 
+    test('a grip with no open string in it is not called an open one', () {
+      // The guitar's table is open shapes by definition. A third of the uke's
+      // first-position grips are fully fretted and several are full barres,
+      // and captioning one "Open position" contradicts both the picture and
+      // the words a screen reader reads out (review, 19 September 2026).
+      expect(_hint('C'), 'Open position');
+      expect(_hint('G7'), 'Open position');
+      expect(_hint('Bm'), isNull);
+      expect(_hint('Cm7'), isNull);
+      expect(_hint('Bbm7'), isNull);
+      expect(_hint('Db'), isNull);
+      // Whatever comes back, it never says open about a grip with no open
+      // string in it.
+      for (final root in _theTwelve) {
+        for (final quality in const <String>['', 'm', '7', 'm7', 'maj7']) {
+          for (final shape in ukuleleShapesFor('$root$quality')) {
+            if (shape.hint == 'Open position') {
+              expect(shape.frets, contains(0), reason: '$root$quality');
+            }
+          }
+        }
+      }
+    });
+
+    test('the plain chord inside an extended one is the grip', () {
+      // An A9 is an A7 with a note added that four strings have no room for,
+      // and the grip a uke player makes for it is the A7 grip. Without this
+      // an A9 came back with nothing at all -- the one movable family is
+      // rooted on A, so there was no shape to fall back to -- and a G9 was
+      // sent to a barre at the 10th fret with an open G7 in the table
+      // (review, 19 September 2026).
+      expect(_uke('A9'), _uke('A7'));
+      expect(_uke('Am9'), _uke('Am7'));
+      expect(_uke('Amaj9'), _uke('Amaj7'));
+      expect(_uke('A11'), _uke('A7'));
+      expect(_uke('A13'), _uke('A7'));
+      expect(_uke('G9'), _uke('G7'));
+      expect(ukuleleShapesFor('G9').first.baseFret, 1);
+      // Wherever the guitar draws something, so does the uke.
+      for (final root in _theTwelve) {
+        for (final quality in const <String>[
+          '', 'm', '7', 'm7', 'maj7', '9', 'm9', 'maj9', '11', '13',
+        ]) {
+          final label = '$root$quality';
+          if (chordReference(label)!.shapes.isEmpty) continue;
+          expect(ukuleleShapesFor(label), isNotEmpty, reason: label);
+        }
+      }
+    });
+
     test('a shape up the neck says where it starts', () {
       // Nothing in the table sits past the fourth fret, so a chord with no
       // open grip is the movable one and has to bring its own fret with it.
@@ -157,6 +208,18 @@ void main() {
         chordDiagramReading(mirrored),
         'C major. A, 3rd fret. E, open. C, open. G, open.',
       );
+    });
+
+    test('a bass has a neck, and a keyboard has not', () {
+      // Left-handed bass players restring or buy a left-handed instrument
+      // exactly as guitarists do, and leaving the bass out made the chip
+      // vanish for the person who had just turned it on. A left-handed
+      // pianist plays the same keyboard the rest of us do (review, 19
+      // September 2026).
+      expect(ShapeReading.guitar.mirrors, isTrue);
+      expect(ShapeReading.ukulele.mirrors, isTrue);
+      expect(ShapeReading.bass.mirrors, isTrue);
+      expect(ShapeReading.piano.mirrors, isFalse);
     });
 
     test('mirroring twice is the diagram you started with', () {
@@ -506,6 +569,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('read_shapes_bass')));
     await tester.pumpAndSettle();
+    // A bass is a neck as much as a guitar is, so the left hand question is
+    // still asked here and the answer reaches the drawing.
+    await tester.ensureVisible(find.byKey(const Key('left_handed_shapes')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('left_handed_shapes')));
+    await tester.pumpAndSettle();
     Navigator.of(tester.element(find.byKey(const Key('key_reference_sheet'))))
         .pop();
     await tester.pumpAndSettle();
@@ -513,6 +582,10 @@ void main() {
     await tester.tap(find.byKey(const Key('edit_chord_1')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('bass_neck_diagram')), findsOneWidget);
+    expect(
+      tester.widget<BassNeckDiagram>(find.byType(BassNeckDiagram)).leftHanded,
+      isTrue,
+    );
     Navigator.of(tester.element(find.byKey(const Key('chord_reference_sheet'))))
         .pop();
     await tester.pumpAndSettle();
@@ -592,6 +665,68 @@ void main() {
     SimplerShapesStore.resetForTesting();
   });
 
+  testWidgets('and it comes off on stage as well', (tester) async {
+    // Perform never offers the shapes choice -- it is made on the song sheet
+    // -- but it has to follow it. Left as it was, the same person's song
+    // sheet said G and their stage view said E for the same song, and the
+    // capo rows that would have let them fix it are hidden for a reading
+    // with no fretting hand (review, 19 September 2026).
+    ShapeReadingStore.resetForTesting();
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'song_capo_song-stage': 3,
+    });
+    tester.view.physicalSize = const Size(520, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData.dark(),
+      home: LivePerformanceScreen(
+        project: _project('song-stage'),
+        analysis: _analysis('song-stage'),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    // Capo 3 in G: the hand plays an E shape and the room hears a G.
+    expect(find.text('Capo 3 · E shapes · sounds in G'), findsOneWidget);
+    expect(find.text('E'), findsWidgets);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+
+    // The same song and the same kept fret, read by somebody at a keyboard.
+    ShapeReadingStore.resetForTesting();
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'song_capo_song-stage': 3,
+      'shape_reading': 'piano',
+    });
+
+    await tester.pumpWidget(MaterialApp(
+      theme: ThemeData.dark(),
+      home: LivePerformanceScreen(
+        project: _project('song-stage'),
+        analysis: _analysis('song-stage'),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    // The chords as they sound, and nothing under the title about a capo.
+    expect(find.textContaining('Capo'), findsNothing);
+    expect(find.text('G'), findsWidgets);
+    expect(find.text('E'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    ShapeReadingStore.resetForTesting();
+  });
+
   testWidgets('a left-handed uke player gets four strings, the other way '
       'round', (tester) async {
     ShapeReadingStore.resetForTesting();
@@ -668,6 +803,9 @@ String _chordOnScreen(WidgetTester tester) => tester
 /// The frets of the first uke shape for a chord, which is the one a class is
 /// taught.
 List<int> _uke(String label) => ukuleleShapesFor(label).first.frets;
+
+/// The caption printed under the first uke shape for a chord, if it has one.
+String? _hint(String label) => ukuleleShapesFor(label).first.hint;
 
 /// What the bass reading marks, as notes.
 List<String> _bassNotes(String label) =>
