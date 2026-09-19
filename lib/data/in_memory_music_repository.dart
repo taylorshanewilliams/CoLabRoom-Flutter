@@ -880,13 +880,22 @@ class InMemoryMusicRepository implements MusicRepository {
     // in without their membership changing at all, and a set holding it
     // would be holding a song its owner cannot open. Whoever is in the room
     // it moved to keeps it.
+    //
+    // Only the songs that changed room. A song already in the target room is
+    // left alone here because it is left alone on a phone: the Supabase
+    // repository skips it before it sends anything, and 0166's trigger is on
+    // `new.room_id is distinct from old.room_id` besides.
+    final movedIds = selected
+        .where((project) => project.roomId != targetRoom.id)
+        .map((project) => project.id)
+        .toSet();
     final inTheNewRoom =
         currentTarget.members.map((member) => member.userId).toSet();
     for (final setlist in List<Setlist>.from(_setlists)) {
       if (inTheNewRoom.contains(setlist.ownerId)) continue;
-      if (!setlist.projectIds.any(selectedIds.contains)) continue;
+      if (!setlist.projectIds.any(movedIds.contains)) continue;
       _replaceSetlist(setlist.withOrder(
-        setlist.projectIds.where((id) => !selectedIds.contains(id)),
+        setlist.projectIds.where((id) => !movedIds.contains(id)),
       ));
     }
   }

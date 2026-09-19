@@ -11960,11 +11960,15 @@ end $$;
 -- Somebody who has left the band cannot still write on its Home.
 --
 -- 0166 now takes a room's songs out of a departed member's sets, so the row
--- this block was written against is gone by the time the read runs. 0164's
--- own check stays and is asserted here anyway: it is what holds if a row
--- ever survives leaving again, and a read that carries somebody's sentence
--- to a whole room should not depend on a trigger elsewhere having fired.
--- The set below is made while they are in the room, which is the only way it
+-- this block was written against is gone before the read runs, and the read
+-- would find nothing whether 0164 asked about membership or not. So below,
+-- once the trigger has been seen to do its work, the row is put back by hand
+-- as postgres. That is not a state the app can reach; it is there so that
+-- what refuses the read is 0164's own `exists` on room_members and nothing
+-- else. A read that carries somebody's sentence to a whole room should not
+-- depend on a trigger elsewhere having fired, and if a later migration
+-- restates sets_for_the_day and drops that clause, this block is what says
+-- so. The set is made while they are in the room, which is the only way it
 -- could have been made, and their membership then goes.
 reset role;
 insert into auth.users (id, email, raw_user_meta_data) values
@@ -12000,6 +12004,21 @@ reset role;
 delete from public.room_members
 where room_id = '1a4e0164-0000-0000-0000-000000000160'
   and user_id = '1a4e0164-0000-0000-0000-000000000167';
+
+-- 0166 took the row as they left, which is the whole point of it and is
+-- asserted properly in its own block further down. Here it is only the
+-- setting-up: the row goes back so the read below has something to refuse.
+do $$
+begin
+  if exists (select 1 from public.setlist_projects
+               where setlist_id = '1a4e0164-0000-0000-0000-000000000173') then
+    raise exception 'leaving did not take the song out of the set';
+  end if;
+end $$;
+
+insert into public.setlist_projects (setlist_id, project_id, position, played_key)
+values ('1a4e0164-0000-0000-0000-000000000173',
+        '1a4e0164-0000-0000-0000-000000000161', 0, 'G');
 
 set local request.jwt.claims = '{"sub": "1a4e0164-0000-0000-0000-000000000165"}';
 set local role authenticated;
