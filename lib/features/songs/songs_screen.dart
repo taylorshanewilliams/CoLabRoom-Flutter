@@ -1252,9 +1252,13 @@ class _SongsScreenState extends State<SongsScreen> {
             child: Row(
               children: <Widget>[
                 Expanded(
+                  // Wraps rather than ellipsising. Every Musician, Same Song,
+                  // 17 September 2026: the phone's own text size is honoured,
+                  // and at the largest one the name of the tab you are
+                  // standing on read "Your m…". Two words have always fitted
+                  // on one line at the usual sizes, so nothing moves for
+                  // anybody who has not turned their text up.
                   child: Text('Your music',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.displaySmall),
                 ),
                 // One button, three things, and the third is the point.
@@ -1639,9 +1643,16 @@ class _RoomSection extends StatelessWidget {
                   // name's own size: 20 points of guitar so the room could
                   // have 16.
                   Flexible(
+                    // Two lines rather than one. A room's name is the heading
+                    // of everything under it, and at the largest text size
+                    // "After Hours Studio" read "After Hours St…" — a room
+                    // somebody named, cut in half on the screen where they
+                    // look for it. Two lines is enough for every room name
+                    // anybody has, and still ends the section rather than
+                    // becoming a paragraph.
                     child: Text(
                       room.name,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: AppColors.text,

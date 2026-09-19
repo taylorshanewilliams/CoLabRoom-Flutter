@@ -14,6 +14,7 @@ import '../../widgets/problem_report.dart';
 import '../../widgets/app_surface.dart';
 import '../../domain/musical_roles.dart';
 import '../../widgets/play_button.dart';
+import '../../widgets/text_measures.dart';
 import '../openmic/report_sheet.dart';
 import '../../app/routes.dart';
 import '../lessons/with_birth_month.dart';
@@ -298,24 +299,69 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         roomInvites.isEmpty &&
         notifications.isEmpty;
 
+    // The two word actions, and whether they still fit beside the title.
+    //
+    // An app bar is one row and Flutter will not fold it: at the largest text
+    // size "Mark all read" and "Clear read" wanted 39 pixels more than a
+    // phone is wide and the bar simply ran off the side. Every Musician, Same
+    // Song, 17 September 2026: the phone's own text size is honoured, so the
+    // words do not shrink — they move into a menu, where they are read at the
+    // size this phone asks for. Measured rather than switched on a scale
+    // factor, because whether two words fit depends on the words, the font
+    // and the phone, and a threshold guesses at all three.
+    // Reading something was never the same as being done with it, and until
+    // this existed there was no way to say the second thing at all: an inbox
+    // could only grow.
+    final wordActions = <(Key, String, VoidCallback)>[
+      if (notifications.any((n) => !n.isRead))
+        (
+          const Key('inbox_mark_all_read'),
+          'Mark all read',
+          () => controller.markAllNotificationsRead(),
+        ),
+      if (notifications.any((n) => n.isRead))
+        (
+          const Key('inbox_clear_read'),
+          'Clear read',
+          () => unawaited(controller.deleteReadNotifications()),
+        ),
+    ];
+    final labelStyle = Theme.of(context).textTheme.labelLarge ??
+        const TextStyle(fontSize: 14, fontWeight: FontWeight.w500);
+    // A back arrow and the key icon are 48 apiece and do not grow with text;
+    // a TextButton pads its label by 16 on each side.
+    final roomForWords = MediaQuery.sizeOf(context).width -
+        96 -
+        textWidthOf(context, 'Inbox', labelStyle) -
+        32;
+    final wordsNeed = wordActions.fold<double>(
+      0,
+      (sum, action) => sum + textWidthOf(context, action.$2, labelStyle) + 32,
+    );
+    final intoTheMenu = wordsNeed > roomForWords;
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         title: const Text('Inbox'),
         actions: <Widget>[
-          if (notifications.any((n) => !n.isRead))
-            TextButton(
-              onPressed: () => controller.markAllNotificationsRead(),
-              child: const Text('Mark all read'),
-            ),
-          // Reading something was never the same as being done with it, and
-          // until now there was no way to say the second thing at all: an
-          // inbox could only grow.
-          if (notifications.any((n) => n.isRead))
-            TextButton(
-              key: const Key('inbox_clear_read'),
-              onPressed: () => unawaited(controller.deleteReadNotifications()),
-              child: const Text('Clear read'),
+          if (!intoTheMenu)
+            for (final (key, label, act) in wordActions)
+              TextButton(key: key, onPressed: act, child: Text(label)),
+          if (intoTheMenu && wordActions.isNotEmpty)
+            PopupMenuButton<VoidCallback>(
+              key: const Key('inbox_more'),
+              tooltip: 'More',
+              icon: const Icon(Icons.more_vert_rounded),
+              onSelected: (act) => act(),
+              itemBuilder: (_) => <PopupMenuEntry<VoidCallback>>[
+                for (final (key, label, act) in wordActions)
+                  PopupMenuItem<VoidCallback>(
+                    key: key,
+                    value: act,
+                    child: Text(label),
+                  ),
+              ],
             ),
           IconButton(
             key: const Key('inbox_use_code'),
@@ -936,19 +982,30 @@ class _AskCard extends StatelessWidget {
             style: TextStyle(color: AppColors.muted, fontSize: 11.5, height: 1.4),
           ),
           const SizedBox(height: 10),
-          Row(
+          // Side by side while they fit, under each other when they do not.
+          //
+          // These three were a Row with "I'm in" in an Expanded. At the
+          // largest text size the two words beside it wanted more than a
+          // phone is wide, so the Expanded was left about thirty pixels and
+          // drew "I'm in" one letter per line. Every Musician, Same Song,
+          // 17 September 2026: the phone's own text size is honoured, which
+          // means answers to an ask have to be readable at it. OverflowBar
+          // measures first and stacks rather than squeezing; the accept
+          // button is the filled one either way, which is what says it is
+          // the answer this card is expecting.
+          OverflowBar(
+            spacing: 8,
+            overflowSpacing: 4,
+            overflowAlignment: OverflowBarAlignment.start,
             children: <Widget>[
-              Expanded(
-                child: FilledButton(
-                  onPressed: busy ? null : onAccept,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.cyan,
-                    foregroundColor: AppColors.ink,
-                  ),
-                  child: const Text("I'm in"),
+              FilledButton(
+                onPressed: busy ? null : onAccept,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.cyan,
+                  foregroundColor: AppColors.ink,
                 ),
+                child: const Text("I'm in"),
               ),
-              const SizedBox(width: 8),
               TextButton(
                 key: const Key('ask_card_reply'),
                 onPressed: busy ? null : onReply,

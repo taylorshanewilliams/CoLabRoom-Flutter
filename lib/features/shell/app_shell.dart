@@ -598,7 +598,14 @@ class _BottomNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 72,
+      // As tall as its labels need, not 72.
+      //
+      // Every Musician, Same Song, 17 September 2026: the phone's own text
+      // size is honoured, never clamped. A fixed 72 here is how the bar used
+      // to survive that — the labels were shrunk back down to fit it, which
+      // is the app overruling the one setting a partially sighted musician
+      // changed on purpose. IntrinsicHeight costs one extra layout pass on
+      // three short words, which is nothing, and the bar simply gets taller.
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: const BoxDecoration(
         color: AppColors.ink,
@@ -606,19 +613,22 @@ class _BottomNavigation extends StatelessWidget {
           BoxShadow(color: Color(0x22000000), blurRadius: 28, offset: Offset(0, -8)),
         ],
       ),
-      child: Row(
-        children: List<Widget>.generate(destinations.length, (itemIndex) {
-          final selected = itemIndex == index;
-          final item = destinations[itemIndex];
-          return Expanded(
-            child: _NavButton(
-              destination: item,
-              selected: selected,
-              badge: itemIndex < badges.length ? badges[itemIndex] : 0,
-              onTap: () => onSelect(itemIndex),
-            ),
-          );
-        }),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: List<Widget>.generate(destinations.length, (itemIndex) {
+            final selected = itemIndex == index;
+            final item = destinations[itemIndex];
+            return Expanded(
+              child: _NavButton(
+                destination: item,
+                selected: selected,
+                badge: itemIndex < badges.length ? badges[itemIndex] : 0,
+                onTap: () => onSelect(itemIndex),
+              ),
+            );
+          }),
+        ),
       ),
     );
   }
@@ -649,10 +659,19 @@ class _NavButton extends StatelessWidget {
         radius: 32,
         containedInkWell: false,
         splashColor: AppColors.cyan.withValues(alpha: 0.08),
-        child: SizedBox(
-          height: 56,
+        child: ConstrainedBox(
+          // A floor, not a height.
+          //
+          // It was a fixed 56, which held an icon and one line of 11-point
+          // label and nothing more. Kept as the floor so the bar is the
+          // height it has always been on a phone at its usual text size, and
+          // so a tab whose word is short still clears Material's 48-dp
+          // target and Apple's 44-point one. Above the floor the button is
+          // as tall as its label, however large this phone draws text.
+          constraints: const BoxConstraints(minHeight: 56),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               DecoratedBox(
                 decoration: BoxDecoration(
@@ -697,23 +716,24 @@ class _NavButton extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 3),
-              // One line, shrunk if it has to be.
+              // The whole word, at the size this phone draws text.
               //
-              // "Control Room" is two words where every other label is one,
-              // and on a narrow tab it wrapped — which overflowed the fixed
-              // 56-pixel column by a single pixel and failed the landscape
-              // layout test. Scaling down beats truncating: "Control R…" is
-              // not a name.
+              // This used to be a FittedBox scaling the label down to fit a
+              // fixed 56-pixel column — put there because "Control Room" is
+              // two words where every other label is one and wrapping
+              // overflowed the column by a pixel. Scaling down did beat
+              // truncating, and it is still the wrong answer: somebody who
+              // set the largest text size on their phone got these three
+              // words at eleven points anyway. Every Musician, Same Song,
+              // 17 September 2026 — the phone's own text size is honoured,
+              // never clamped. The column is intrinsic now (see
+              // _BottomNavigation), so the label wraps and the bar grows.
               Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    destination.label,
-                    maxLines: 1,
-                    softWrap: false,
-                    style: TextStyle(
-                        color: color, fontSize: 11, fontWeight: FontWeight.w700),
-                  ),
+                child: Text(
+                  destination.label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: color, fontSize: 11, fontWeight: FontWeight.w700),
                 ),
               ),
             ],

@@ -31,10 +31,12 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// **Two conditions do the work here.** A narrow screen, because 800x600 —
 /// the test binding's default — is wider than any phone and hides horizontal
-/// crowding. And 1.3x text, because ColabRoomApp clamps the reader's system
-/// scale to 1.3, so that is the largest text this app can ever be asked to
-/// draw and the point at which every fixed pixel height in the codebase is
-/// wrong by the most.
+/// crowding. And large text, because that is where every fixed pixel height
+/// in the codebase is wrong by the most. 1.3 used to be the ceiling
+/// ColabRoomApp clamped the reader's system scale to; there is no ceiling any
+/// more (Every Musician, Same Song, 17 September 2026 — the phone's own text
+/// size is honoured, never clamped), so 2.0 is here too. The screens that
+/// hold at 2.0 have their own file: the_text_is_the_size_your_phone_says.
 ///
 /// Overflow is an exception in a widget test, so `takeException` catches the
 /// yellow stripes as well as the crashes.
@@ -216,10 +218,11 @@ void main() {
     'small phone': Size(360, 690),
     'iPhone': Size(390, 844),
   };
-  // 1.0 is the author's own device. 1.3 is the ceiling ColabRoomApp clamps
-  // the reader's system setting to, and therefore the worst case that can
-  // reach a real screen.
-  const scales = <double>[1.0, 1.3];
+  // 1.0 is the author's own device. 1.3 is a size a lot of people over fifty
+  // are already reading at. 2.0 is roughly iOS's largest accessibility size
+  // and, since the clamp came off, the worst case that can reach a real
+  // screen.
+  const scales = <double>[1.0, 1.3, 2.0];
 
   for (final phone in phones.entries) {
     for (final scale in scales) {

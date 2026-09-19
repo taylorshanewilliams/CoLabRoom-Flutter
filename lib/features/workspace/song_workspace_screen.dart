@@ -2203,7 +2203,21 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
 
     final middle = panel ?? editor;
 
-    return Scaffold(
+    // Held at 1.3 until the next slice reaches this screen.
+    //
+    // Every Musician, Same Song, 17 September 2026: the phone's own text size
+    // is honoured, never clamped — and ColabRoomApp no longer clamps it, so
+    // every tab, the inbox, Messages, the profile and the sign-in screens
+    // hold at the largest iOS size. The song sheet is the *next* slice and it
+    // does not: at 2x the header below overflows its row by 32 pixels, and it
+    // is the screen this app spends most of its time on, so it is the last
+    // place to ship a half-done layout.
+    //
+    // 1.3 is exactly what the whole app got until today, so nothing here is
+    // worse than it was. This MediaQuery comes out the moment the song sheet,
+    // Perform, Takes and Sets have been through the same pass, and the render
+    // harness at 2x is what will say when that is true.
+    final Widget sheet = Scaffold(
       key: _scaffoldKey,
       resizeToAvoidBottomInset: true,
       body: SafeArea(
@@ -2330,6 +2344,14 @@ class _SongWorkspaceScreenState extends State<SongWorkspaceScreen> with WidgetsB
           _listening ? Icons.stop_rounded : Icons.record_voice_over_rounded,
         ),
       ),
+    );
+
+    return MediaQuery(
+      data: media.copyWith(
+        textScaler:
+            MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3),
+      ),
+      child: sheet,
     );
   }
 }

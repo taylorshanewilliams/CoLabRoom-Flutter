@@ -57,9 +57,17 @@ class Device {
 const List<Device> kDevices = <Device>[
   Device('Small phone', Size(360, 690)),
   Device('iPhone', Size(390, 844)),
-  // The ceiling ColabRoomApp clamps the reader's system setting to, and so
-  // the largest text this app can ever be asked to draw.
+  // A size a lot of people over fifty are already reading at.
   Device('iPhone at 1.3x text', Size(390, 844), textScale: 1.3),
+  // The largest text this app can now be asked to draw.
+  //
+  // Every Musician, Same Song, 17 September 2026: the phone's own text size is
+  // honoured, never clamped. ColabRoomApp used to hold the system scale down
+  // to 1.3, so this device could not exist; iOS's largest accessibility size
+  // is a little over 2x, so that is where the app is judged. A screen that
+  // overflows here is a screen a partially sighted musician cannot read, and
+  // it is what ADA Title II and WCAG 2.1 AA ask about first.
+  Device('iPhone at 2x text', Size(390, 844), textScale: 2.0),
   Device('Tablet', Size(834, 1112)),
   Device('Laptop', Size(1440, 900)),
   Device('Desk', Size(1920, 1080)),
@@ -265,6 +273,20 @@ VoidCallback collectComplaints() {
   };
   return () => FlutterError.onError = previous;
 }
+
+/// Whether a complaint is a box that could not hold what was put in it.
+///
+/// Every overflow in Flutter, whatever render object noticed it, is reported
+/// through the one helper that draws the yellow stripes, and every one of its
+/// messages reads "A RenderFlex overflowed by 14 pixels on the right" — so the
+/// phrase is the reliable thing to match on rather than the class name.
+///
+/// Told apart from the rest because this one is a gate. The walk is a survey
+/// and reports everything else for a human to weigh up; text that runs off the
+/// side of the screen is not a matter of taste, and since the reader's own text
+/// size stopped being clamped it is the failure that would come back first.
+bool isOverflow(FlutterErrorDetails details) =>
+    details.exception.toString().contains('overflowed by');
 
 /// Hands back what has been collected since the last call, and clears it.
 List<FlutterErrorDetails> drainComplaints() {

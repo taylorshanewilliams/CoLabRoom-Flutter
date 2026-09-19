@@ -87,31 +87,41 @@ abstract final class BeFound {
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.raised,
         title: const Text('Can they find you too?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            const Text(
-              'You are looking for people who play. Nobody can look for you '
-              'yet.\n\n'
-              'Turning this on puts your name, what you play and anything you '
-              'have already shared on the Open Mic. Your private work stays '
-              'private, and you can turn it off whenever you like.',
-              style: TextStyle(height: 1.45),
-            ),
-            if (unclaimed.isNotEmpty) ...<Widget>[
-              const SizedBox(height: 12),
-              Text(
-                // Said out loud rather than done quietly. This is a claim
-                // about somebody, made from their own recordings, and they
-                // get to see it before it is on their profile.
-                'We will also say you play ${_list(unclaimed)}, '
-                'because you have.',
-                style: const TextStyle(
-                    color: AppColors.cyan, fontSize: 13, height: 1.45),
+        // Scrolls, because this is three paragraphs about a privacy switch
+        // and an AlertDialog gives its content a fixed share of the screen.
+        // At the largest text size the paragraphs are 162 pixels taller than
+        // that share, and a Column simply cut the last of them off — so the
+        // sentence promising that private work stays private was the part
+        // nobody could read. Every Musician, Same Song, 17 September 2026:
+        // the phone's own text size is honoured, and a dialog that says what
+        // it is about to do has to be readable at it.
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'You are looking for people who play. Nobody can look for you '
+                'yet.\n\n'
+                'Turning this on puts your name, what you play and anything '
+                'you have already shared on the Open Mic. Your private work '
+                'stays private, and you can turn it off whenever you like.',
+                style: TextStyle(height: 1.45),
               ),
+              if (unclaimed.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 12),
+                Text(
+                  // Said out loud rather than done quietly. This is a claim
+                  // about somebody, made from their own recordings, and they
+                  // get to see it before it is on their profile.
+                  'We will also say you play ${_list(unclaimed)}, '
+                  'because you have.',
+                  style: const TextStyle(
+                      color: AppColors.cyan, fontSize: 13, height: 1.45),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
         actions: <Widget>[
           TextButton(

@@ -9,6 +9,7 @@ import '../../data/music_repository.dart';
 import '../../domain/your_people.dart';
 import '../../services/people_presence.dart';
 import '../../widgets/player_face.dart';
+import '../../widgets/text_measures.dart';
 import '../openmic/musician_profile_screen.dart';
 import '../openmic/people_screen.dart';
 import '../openmic/person_thread_sheet.dart';
@@ -33,6 +34,18 @@ class PeopleStrip extends StatefulWidget {
 }
 
 class _PeopleStripState extends State<PeopleStrip> {
+  /// The three numbers the row's height is made of. Named because the height
+  /// is now worked out from them rather than written down once as 74.
+  static const double _faceSize = 46;
+  static const double _faceToName = 4;
+  static const double _nameSize = 11;
+
+  static TextStyle _nameStyle(bool here) => TextStyle(
+        color: here ? AppColors.text : AppColors.muted,
+        fontSize: _nameSize,
+        fontWeight: FontWeight.w700,
+      );
+
   List<KnownPerson> _people = const <KnownPerson>[];
   Set<String> _online = PeoplePresence.instance.onlineNow;
   StreamSubscription<Set<String>>? _presence;
@@ -165,7 +178,16 @@ class _PeopleStripState extends State<PeopleStrip> {
             ],
           ),
           SizedBox(
-            height: 74,
+            // The height follows the reader's text size, because the name
+            // under the face does. It was a flat 74 — a 46-pixel face, a
+            // 4-pixel gap and a line of 11-point name, measured at 1x — and
+            // once ColabRoomApp stopped clamping the system scale (Every
+            // Musician, Same Song, 17 September 2026) that line is 26 pixels
+            // tall on a phone set to its largest size and the row overflowed
+            // by 7. A horizontal list is the one thing Flutter will not size
+            // for itself, so the line is measured instead. The list stays
+            // lazy: nobody knows how many people somebody knows.
+            height: _faceSize + _faceToName + linesOfTextHigh(context, _nameStyle(true)),
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.only(right: 10),
@@ -179,7 +201,9 @@ class _PeopleStripState extends State<PeopleStrip> {
                   onTap: () => unawaited(_open(person)),
                   borderRadius: BorderRadius.circular(12),
                   child: SizedBox(
-                    width: 58,
+                    // And the column widens with it, or every first name is
+                    // one letter and an ellipsis.
+                    width: 58 * textGrowth(context, _nameSize),
                     child: Column(
                       children: <Widget>[
                         Stack(
@@ -189,7 +213,7 @@ class _PeopleStripState extends State<PeopleStrip> {
                               name: person.name,
                               color: person.canMessage ? AppColors.cyan : AppColors.muted,
                               photo: controller.avatarBytesFor(person.avatarPath),
-                              size: 46,
+                              size: _faceSize,
                             ),
                             if (here)
                               Positioned(
@@ -208,16 +232,12 @@ class _PeopleStripState extends State<PeopleStrip> {
                               ),
                           ],
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: _faceToName),
                         Text(
                           person.name.split(' ').first,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: here ? AppColors.text : AppColors.muted,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
+                          style: _nameStyle(here),
                         ),
                       ],
                     ),
