@@ -52,6 +52,37 @@ abstract final class AppRoutes {
   static String room(String id) => '/room/$id';
   static String setlist(String id) => '/set/$id';
 
+  // ------------------------------------------------- a moment in a room
+  /// One moment of one recording: `/r/<room>/s/<song>?take=<id>&at=<ms>`.
+  ///
+  /// Every Musician, Same Song, 17 September 2026 (schools, item 1): a
+  /// student pastes this into Canvas and a bandmate texts it, and it opens
+  /// the song at that moment of that take. The room is in the path because
+  /// what the address names is something *inside* a room, and membership of
+  /// that room is the whole of who may open it — there is no public page for
+  /// anything in a room (the 0096 stance), so a stranger gets a refusal and
+  /// never a preview.
+  ///
+  /// The take and the moment are a query rather than more path: they are
+  /// which recording and where in it, not another place, and the same song
+  /// at two moments is one page. No `take` means the song's own recording,
+  /// which is not a take — the same null the moment notes carry for it.
+  ///
+  /// Nothing here says what the song is called or who is in the room. The
+  /// address is opaque on purpose: it travels through a class list and a
+  /// group chat, and the only thing it should tell somebody who cannot open
+  /// it is that they cannot open it.
+  static String moment({
+    required String roomId,
+    required String projectId,
+    String? takeId,
+    int atMs = 0,
+  }) {
+    final take = takeId == null ? '' : 'take=${Uri.encodeComponent(takeId)}&';
+    return '/r/${Uri.encodeComponent(roomId)}/s/${Uri.encodeComponent(projectId)}'
+        '?${take}at=${atMs < 0 ? 0 : atMs}';
+  }
+
   // ---------------------------------------------------------------- yours
   static const String account = '/account';
   static const String notifications = '/notifications';
@@ -97,6 +128,23 @@ abstract final class AppRoutes {
         return parts.length < 2 ? null : RouteTarget(RoutePlace.meet, parts[1]);
       case 'your-code':
         return const RouteTarget(RoutePlace.yourCode);
+      case 'r':
+        // /r/<room>/s/<song>, and the moment in the query. Anything else
+        // under /r names nothing: a half-typed address opens the app rather
+        // than a room somebody guessed the id of.
+        if (parts.length < 4 || parts[2] != 's') return null;
+        final take = uri.queryParameters['take'];
+        final at = int.tryParse(uri.queryParameters['at'] ?? '') ?? 0;
+        return RouteTarget(
+          RoutePlace.moment,
+          parts[3],
+          MomentAddress(
+            roomId: parts[1],
+            projectId: parts[3],
+            takeId: take == null || take.isEmpty ? null : take,
+            atMs: at < 0 ? 0 : at,
+          ),
+        );
       case 'room':
         return parts.length < 2 ? null : RouteTarget(RoutePlace.room, parts[1]);
       case 'set':
@@ -133,6 +181,7 @@ enum RoutePlace {
   home,
   openMic,
   listen,
+  moment,
   song,
   songSheet,
   songTakes,
@@ -156,18 +205,69 @@ enum RoutePlace {
 
 /// A place, and the thing it is about when it is about something.
 class RouteTarget {
-  const RouteTarget(this.place, [this.id]);
+  const RouteTarget(this.place, [this.id, this.at]);
 
   final RoutePlace place;
   final String? id;
 
-  @override
-  bool operator ==(Object other) =>
-      other is RouteTarget && other.place == place && other.id == id;
+  /// Which recording, and where in it, for an address that names a moment.
+  /// Null for every other place, which is all of them but one.
+  final MomentAddress? at;
 
   @override
-  int get hashCode => Object.hash(place, id);
+  bool operator ==(Object other) =>
+      other is RouteTarget &&
+      other.place == place &&
+      other.id == id &&
+      other.at == at;
+
+  @override
+  int get hashCode => Object.hash(place, id, at);
 
   @override
   String toString() => id == null ? '$place' : '$place($id)';
+}
+
+/// A moment of a recording, as an address carries it.
+///
+/// Four facts and no fifth: the room, the song, the take and the
+/// millisecond. Not the title, not who recorded it, not who sent the link —
+/// see [AppRoutes.moment].
+class MomentAddress {
+  const MomentAddress({
+    required this.roomId,
+    required this.projectId,
+    this.takeId,
+    this.atMs = 0,
+  });
+
+  final String roomId;
+  final String projectId;
+
+  /// The take, or null for the song's own recording — which is not a take,
+  /// and is a null `layer_id` in 0141 for the same reason.
+  final String? takeId;
+
+  final int atMs;
+
+  String get path => AppRoutes.moment(
+        roomId: roomId,
+        projectId: projectId,
+        takeId: takeId,
+        atMs: atMs,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is MomentAddress &&
+      other.roomId == roomId &&
+      other.projectId == projectId &&
+      other.takeId == takeId &&
+      other.atMs == atMs;
+
+  @override
+  int get hashCode => Object.hash(roomId, projectId, takeId, atMs);
+
+  @override
+  String toString() => path;
 }

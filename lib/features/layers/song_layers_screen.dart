@@ -16,11 +16,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../app/beta_scope.dart';
 import '../../app/colabroom_theme.dart';
+import '../../app/routes.dart';
 import '../../data/music_repository.dart';
 import '../../domain/loop_round.dart';
 import '../../domain/moment_note.dart';
 import '../../domain/music_models.dart';
 import '../../services/click_player.dart';
+import '../../services/copy_text.dart';
+import '../../services/moment_link.dart';
 import '../../services/multitrack.dart';
 import '../../services/overdub_session.dart';
 import '../../domain/song_analysis_models.dart';
@@ -76,8 +79,19 @@ class SongLayersScreen extends StatefulWidget {
     this.embedded = false,
     this.onClose,
     this.openNote,
+    this.openAt,
     super.key,
   });
+
+  /// The moment to open on, for arriving from a link somebody sent.
+  ///
+  /// Every Musician, Same Song, 17 September 2026 (schools, item 1). Unlike
+  /// [openNote] this is the whole address — a take and a millisecond — so
+  /// there is nothing to match up on arrival. And unlike [openNote] it
+  /// plays: somebody who taps "listen to bar 33" asked to hear bar 33, the
+  /// way tapping a note asks to hear the bar it is about, where somebody
+  /// opening a card from their inbox asked only to read it.
+  final MomentAddress? openAt;
 
   /// The note to open on, for arriving from a notification (0141).
   ///
@@ -248,6 +262,12 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
   /// Arriving is a one-off. Every later reload -- and there is one after each
   /// pin and each delete -- leaves the playhead where the person put it.
   bool _openedTheNote = false;
+
+  /// And whether the moment a link sent us to has been opened. The same
+  /// one-off rule, for the same reason: the takes are reloaded by a pull, a
+  /// share and a delete, and none of those should drag somebody back to the
+  /// bar the link named half an hour ago.
+  bool _openedTheLink = false;
 
   /// Where the playhead is, and how long the song runs.
   Duration _position = Duration.zero;
@@ -520,6 +540,9 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       unawaited(_loadFaces(layers));
       unawaited(_loadWaves());
       unawaited(_loadNotes());
+      // After the takes are on screen and never holding them up: a link that
+      // will not play still lands somebody on the right song.
+      unawaited(_openLinkedMoment());
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -2511,6 +2534,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                                 onOpen: (note) => unawaited(_openNote(note)),
                                 onListen: (note) => unawaited(_listen(note)),
                                 onDelete: (note) => unawaited(_deleteNote(note)),
+                                onCopyLink: (note) => unawaited(_copyLinkTo(
+                                      takeId: note.layerId,
+                                      atMs: note.atMs,
+                                    )),
                               ),
                             ),
                           ),
@@ -2649,6 +2676,10 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                               onOpen: (note) => unawaited(_openNote(note)),
                               onListen: (note) => unawaited(_listen(note)),
                               onDelete: (note) => unawaited(_deleteNote(note)),
+                              onCopyLink: (note) => unawaited(_copyLinkTo(
+                                    takeId: note.layerId,
+                                    atMs: note.atMs,
+                                  )),
                             ),
                           ],
                           const SizedBox(height: 16),
@@ -2808,6 +2839,25 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
                       onDown: () => unawaited(_startSaying()),
                       onUp: _letGo,
                     ),
+                    // Or send somebody here. Beside the two ways of leaving
+                    // words at this moment because it is the third thing to
+                    // do with a moment: say it to the room now rather than
+                    // leave it on the recording for later. Every Musician,
+                    // Same Song, 17 September 2026 -- schools item 1.
+                    IconButton(
+                      key: const Key('copy_link_to_playhead'),
+                      onPressed: _recording
+                          ? null
+                          : () => unawaited(_copyLinkTo(
+                                takeId: _takeAtThePlayhead,
+                                atMs: _position.inMilliseconds,
+                              )),
+                      tooltip: 'Copy link to here',
+                      visualDensity: VisualDensity.compact,
+                      color: AppColors.gold,
+                      disabledColor: AppColors.line,
+                      icon: const Icon(Icons.link_rounded, size: 18),
+                    ),
                   ],
                 ),
               // A minute of wav is about five megabytes, and on a slow
@@ -2949,6 +2999,29 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
     final span = _songSpan.inMilliseconds;
     if (loop == null || span <= 0 || _noteTakeId(loop) != take.id) return null;
     return (loop.atMs / span).clamp(0.0, 1.0);
+  }
+
+  /// Which recording a link at the playhead names.
+  ///
+  /// The newest one the playhead is actually inside, because that is what
+  /// somebody listening is listening to: a harmony punched in over the last
+  /// chorus is the thing being talked about while it plays. Null -- the
+  /// song's own recording -- everywhere no take reaches, which is the honest
+  /// answer for a moment that is about the song rather than about a take.
+  ///
+  /// Never a take the room cannot hear. A take of your own that nobody has
+  /// been sent is audible to you alone (0057), so a link naming one would
+  /// open for the person you sent it to on a lane that is not there.
+  String? get _takeAtThePlayhead {
+    final at = _position.inMilliseconds;
+    String? named;
+    for (final take in _takes) {
+      final layer = _layerFor(take);
+      if (layer != null && !layer.isShared) continue;
+      if (at < take.startMs || at > take.startMs + take.durationMs) continue;
+      named = layer?.id;
+    }
+    return named;
   }
 
   /// The recordings somebody may pin a note on.
@@ -3225,17 +3298,28 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
 
   /// Plays a note's moment: from three seconds before it, round and round.
   Future<void> _openNote(MomentNote note, {bool play = true}) async {
-    final from = Duration(milliseconds: note.playFromMs);
-    // A note's moment is on the song, not on a passage heard twice.
+    if (!mounted) return;
+    setState(() => _noteLoop = note);
+    await _goTo(Duration(milliseconds: note.playFromMs),
+        play: play, stage: 'takes.note');
+  }
+
+  /// Moves the playhead somewhere, and starts there if asked to.
+  ///
+  /// Shared by a note somebody tapped and a moment somebody was sent, which
+  /// are the same arrival: a place in the song, three seconds early.
+  Future<void> _goTo(
+    Duration from, {
+    required bool play,
+    required String stage,
+  }) async {
+    // The moment is on the song, not on a passage heard twice.
     if (_thenAndNow != null) await _stopThenAndNow();
     if (!mounted) return;
-    setState(() {
-      _noteLoop = note;
-      _position = from;
-    });
+    setState(() => _position = from);
     try {
       if (!play) {
-        // Left where the note is, so pressing Play lands on it.
+        // Left where the moment is, so pressing Play lands on it.
         await _player.seek(from);
         return;
       }
@@ -3251,18 +3335,66 @@ class _SongLayersScreenState extends State<SongLayersScreen> {
       _pausedAt = null;
       if (mounted) setState(() => _playing = true);
     } catch (error) {
-      // The playhead has already moved, so the note is open either way. What
-      // must not happen is silence with no reason: audio that will not start
-      // here looks exactly like a note that does nothing.
+      // The playhead has already moved, so the moment is open either way.
+      // What must not happen is silence with no reason: audio that will not
+      // start here looks exactly like a note that does nothing.
       if (!mounted) return;
       setState(() => _error = reportAndDescribe(
             error,
             service: 'layers',
-            stage: 'takes.note',
+            stage: stage,
             route: 'Takes',
             projectId: widget.projectId,
           ));
     }
+  }
+
+  /// Opens the moment a link named (Every Musician, Same Song, schools item
+  /// 1): the take audible, the playhead three seconds before it, playing.
+  ///
+  /// Once. The takes are read again on a pull, a share and a delete, and
+  /// none of those is somebody asking to go back to the bar they arrived at.
+  Future<void> _openLinkedMoment() async {
+    final at = widget.openAt;
+    if (at == null || _openedTheLink || !mounted) return;
+    _openedTheLink = true;
+    // A link names one take, and hearing that take is the whole of why it
+    // was sent. Lanes can be switched off before anybody arrives -- the
+    // turns of a round are, and every go at a turn but the last (see
+    // [_load]) -- so a link to one of those would have played the song with
+    // the take it names silent, which is indistinguishable from a link that
+    // does not work.
+    final takeId = at.takeId;
+    if (takeId != null &&
+        !_enabled.contains(takeId) &&
+        _takes.any((take) => take.id == takeId)) {
+      setState(() => _enabled.add(takeId));
+      await _applyMixChange();
+      if (!mounted) return;
+    }
+    await _goTo(Duration(milliseconds: MomentNote.playFromOf(at.atMs)),
+        play: true, stage: 'takes.link');
+  }
+
+  /// The address of a moment of this song, as somebody can paste it.
+  ///
+  /// The room is in it because what it names is something inside a room, and
+  /// being in that room is the whole of who can open it. Nothing about the
+  /// song travels with it -- see AppRoutes.moment.
+  Future<void> _copyLinkTo({String? takeId, required int atMs}) async {
+    await copyAndSay(
+      context,
+      momentLink(
+        roomId: widget.roomId,
+        projectId: widget.projectId,
+        takeId: takeId,
+        atMs: atMs,
+      ),
+      // Said every time, because it is the thing somebody about to paste it
+      // into a class page needs to know and there is no other moment to say
+      // it in.
+      'Link copied. It opens for people in this room.',
+    );
   }
 
   Future<void> _deleteNote(MomentNote note) async {

@@ -91,7 +91,13 @@ class MomentNote {
   static const int bodyLimit = 1000;
 
   /// Where playing starts when somebody taps this note.
-  int get playFromMs => atMs - leadInMs < 0 ? 0 : atMs - leadInMs;
+  int get playFromMs => playFromOf(atMs);
+
+  /// The same three seconds, for a moment that has no words on it: the one a
+  /// link names (see AppRoutes.moment). Arriving at a bar is arriving at it
+  /// whether somebody pinned a note there or sent it to you.
+  static int playFromOf(int atMs) =>
+      atMs - leadInMs < 0 ? 0 : atMs - leadInMs;
 
   /// Where the loop turns round: the end of the range, or the end of the
   /// moment.

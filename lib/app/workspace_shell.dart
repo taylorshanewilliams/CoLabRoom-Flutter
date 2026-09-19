@@ -70,7 +70,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       unawaited(joinFromAddress(address, context: navigator.context, navigator: navigator));
       return;
     }
-    final path = address.path;
+    // The query is part of the address, not decoration on it: a link to a
+    // moment says which take and where in it there (`?take=&at=`), and
+    // `Uri.path` drops the lot. A link tapped while the app was already open
+    // landed at the top of the song rather than at the bar it named.
+    final path = address.hasQuery ? '${address.path}?${address.query}' : address.path;
     if (DeepLink.isATab(path)) {
       navigator.popUntil((route) => route.isFirst);
       return;

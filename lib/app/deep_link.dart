@@ -7,6 +7,7 @@ import '../features/account/blocked_people_screen.dart';
 import '../features/account/what_you_get.dart';
 import '../features/dev/latency_probe_screen.dart';
 import '../features/help/help_screen.dart';
+import '../features/layers/a_moment_from_a_link.dart';
 import '../features/meeting/add_person_screen.dart';
 import '../features/meeting/your_code_screen.dart';
 import '../features/notifications/notification_settings_screen.dart';
@@ -130,6 +131,12 @@ abstract final class DeepLink {
         id == null
             ? null
             : page(AppRoutes.song(id), SongWorkspaceScreen(projectId: id)),
+      // A link to a moment of a recording, which opens for a member and
+      // refuses everybody else. The screen decides which, because deciding
+      // needs the library and a route table has none.
+      RoutePlace.moment => target.at == null
+          ? null
+          : page(target.at!.path, MomentFromALink(at: target.at!)),
       RoutePlace.heard => id == null
           ? null
           : page(
