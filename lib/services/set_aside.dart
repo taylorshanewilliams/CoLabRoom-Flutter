@@ -48,6 +48,12 @@ abstract final class SetAside {
   /// their account; only the card goes.
   static const String practice = 'practice';
 
+  /// The card saying a student has sent something (0151), closed by the
+  /// take that was newest when it was closed. A later hand-in is a
+  /// different id, so the card comes back for that one and stays closed for
+  /// this one -- and nothing about any of it reaches the student.
+  static const String cameIn = 'came_in';
+
   static String _key(String kind) => 'set_aside_$kind';
 
   /// Held in memory so a list can be drawn without waiting for a disk read,
@@ -69,7 +75,9 @@ abstract final class SetAside {
       // again on Tuesday -- which for something a teacher asked for is a
       // reminder, and this app sends none (Every Musician, Same Song, 17
       // September 2026).
-      for (final kind in <String>[pickItBackUp, songSheet, playLater, hint, tonight, practice]) {
+      for (final kind in <String>[
+        pickItBackUp, songSheet, playLater, hint, tonight, practice, cameIn,
+      ]) {
         _held[kind] = prefs.getStringList(_key(kind))?.toSet() ?? <String>{};
       }
     } catch (_) {

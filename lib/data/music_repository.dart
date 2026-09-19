@@ -8,6 +8,7 @@ import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/sealed_take.dart';
+import '../domain/sent_take.dart';
 import '../domain/song_brief.dart';
 import '../domain/tonight_models.dart';
 
@@ -824,6 +825,20 @@ abstract interface class MusicRepository {
   /// teachers asked of them, and what they asked of their students. The
   /// server shows a brief to those two people and nobody else.
   Future<List<SongBrief>> mySongBriefs();
+
+  /// What students have sent you, across every lesson you teach, oldest
+  /// first — so the one that came in last is the last in the list (0151).
+  ///
+  /// Every Musician, Same Song, 17 September 2026, slice 22: the teacher's
+  /// listening desk. Only takes that were sent, only the student's own
+  /// playing, and only in lessons this person teaches and still owns. Empty
+  /// for everybody else, which is nearly everybody: a student calling it
+  /// gets nothing, not even their own.
+  ///
+  /// Nothing about when comes back, and nothing is written by asking:
+  /// listening leaves no mark, so a student never finds out whether their
+  /// teacher has got to theirs yet.
+  Future<List<SentTake>> takesSentToMe();
 
   /// Your code for meeting in person (0130), made the first time you ask.
   Future<String> myMeetingCode();

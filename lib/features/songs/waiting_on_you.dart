@@ -78,6 +78,10 @@ enum WaitingKind {
   /// A take you sealed, on the day it comes back (0158). See
   /// features/songs/sealed_take_card.dart.
   sealed,
+
+  /// A student has sent their teacher a take (0151). See
+  /// features/lessons/what_came_in.dart.
+  cameIn,
 }
 
 class WaitingItem {
@@ -189,6 +193,10 @@ class WaitingItem {
         // year at most and it is quiet on purpose, so it does not shoulder
         // past a bandmate's new take to be seen.
         WaitingKind.sealed => 1,
+        // With the other things a person did that you can hear. A student
+        // has sent their teacher their playing and is waiting to be
+        // listened to, which is the whole reason a teacher opened the app.
+        WaitingKind.cameIn => 0,
         WaitingKind.request => 2,
         // Ahead of the chores: everything below it may be missing from this
         // phone, and the person on the other end of a request may be waiting
@@ -214,6 +222,7 @@ class WaitingItem {
         WaitingKind.tonight => Icons.nightlight_round,
         WaitingKind.practice => Icons.repeat_rounded,
         WaitingKind.sealed => Icons.lock_open_rounded,
+        WaitingKind.cameIn => Icons.inbox_rounded,
       };
 
   Color get tint => switch (kind) {
@@ -227,6 +236,7 @@ class WaitingItem {
         WaitingKind.tonight => AppColors.gold,
         WaitingKind.practice => AppColors.gold,
         WaitingKind.sealed => AppColors.gold,
+        WaitingKind.cameIn => AppColors.cyan,
       };
 
   String get defaultEyebrow => switch (kind) {
@@ -240,6 +250,7 @@ class WaitingItem {
         WaitingKind.tonight => 'Tonight',
         WaitingKind.practice => 'To practise',
         WaitingKind.sealed => 'You sealed this',
+        WaitingKind.cameIn => 'What came in',
       };
 }
 

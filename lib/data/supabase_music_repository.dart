@@ -14,6 +14,7 @@ import '../domain/moment_note.dart';
 import '../domain/music_models.dart';
 import '../domain/practice_mark.dart';
 import '../domain/sealed_take.dart';
+import '../domain/sent_take.dart';
 import '../domain/song_brief.dart';
 import '../domain/tonight_models.dart';
 import '../domain/name_policy.dart';
@@ -2827,6 +2828,40 @@ class SupabaseMusicRepository implements MusicRepository {
       setAt: DateTime.tryParse('${row['set_at']}')?.toLocal() ?? DateTime.now(),
     );
   }
+
+  @override
+  Future<List<SentTake>> takesSentToMe() async {
+    // No filter and no argument. The function is the permission (0151): it
+    // reads the caller's own lessons and nothing else, so there is nothing
+    // for a phone to ask honestly and nothing here to disagree with it.
+    //
+    // The order is the server's and is kept as it arrives: oldest first, so
+    // what came in last is last. Anything sorting this list again would be
+    // sorting by a column that deliberately does not come back.
+    final rows = await client.rpc<dynamic>('takes_sent_to_me');
+    return <SentTake>[
+      for (final each in rows as List<dynamic>? ?? const <dynamic>[])
+        _sentTake(Map<String, dynamic>.from(each as Map)),
+    ];
+  }
+
+  SentTake _sentTake(Map<String, dynamic> row) => SentTake(
+        takeId: row['take_id'] as String,
+        projectId: row['project_id'] as String,
+        songTitle: (row['song_title'] as String? ?? '').trim().isEmpty
+            ? 'Untitled'
+            : (row['song_title'] as String).trim(),
+        studentId: row['student_id'] as String,
+        studentName: (row['student_name'] as String? ?? '').trim().isEmpty
+            ? 'A student'
+            : (row['student_name'] as String).trim(),
+        storagePath: row['storage_path'] as String? ?? '',
+        // Where the take sits on the song, so a note pinned while listening
+        // is filed at the bar it was heard at rather than at the same number
+        // of seconds into the song (0045, 0141).
+        startMs: (row['start_ms'] as num?)?.round() ?? 0,
+        offsetMs: (row['offset_ms'] as num?)?.round() ?? 0,
+      );
 
   @override
   Future<String> myMeetingCode() async => '${await client.rpc<dynamic>('my_meeting_code')}';

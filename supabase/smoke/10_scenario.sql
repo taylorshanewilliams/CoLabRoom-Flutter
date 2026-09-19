@@ -10974,6 +10974,366 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------
+-- What came in (0151).
+--
+-- A teacher reads the takes his students have sent him, across both of his
+-- lessons, oldest first. Only what was sent: a draft nobody has been shared
+-- with is not there, his own demonstration in the lesson room is not there,
+-- and neither is an accompanist's playing. A song in his own studio room is
+-- not a lesson, and a lesson of another teacher's with the same student in
+-- it belongs to that teacher. Each row says who played it, in the name the
+-- lesson room calls them, and what the song is -- and nothing else: no
+-- timestamp comes back at all, so there is no date for a screen to print.
+-- What does come back besides is where the take sits on the song, start_ms
+-- and offset_ms, so a note pinned while listening lands on the bar it was
+-- heard at rather than the same number of seconds into the song.
+-- A student calling it gets nothing, whichever lesson she is in and whoever
+-- recorded the take. So does a third person in the lesson room, and so does
+-- a stranger. Nobody without an account can call it at all.
+--
+-- And the three exclusions the function's comment claims are each proved
+-- here rather than left as a promise: a class room is not a lesson, a room
+-- that has been taken down is gone, and a blocked pair is skipped.
+-- ---------------------------------------------------------------------
+
+reset role;
+
+-- Made fresh, as 0150's block is: a row missing for one of the older
+-- accounts' older reasons would look exactly like the absence being checked.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('a5150151-0000-0000-0000-000000000001', 'the.desk.teacher.0151@smoke.test',
+   '{"display_name": "Mr Okafor"}'),
+  ('a5150151-0000-0000-0000-000000000002', 'maya.0151@smoke.test',
+   '{"display_name": "Maya"}'),
+  ('a5150151-0000-0000-0000-000000000003', 'jaylen.0151@smoke.test',
+   '{"display_name": "Jaylen"}'),
+  ('a5150151-0000-0000-0000-000000000004', 'the.other.teacher.0151@smoke.test',
+   '{"display_name": "Ms Rivera"}'),
+  ('a5150151-0000-0000-0000-000000000005', 'outside.the.studio.0151@smoke.test',
+   '{"display_name": "Outside The Studio"}'),
+  ('a5150151-0000-0000-0000-000000000006', 'the.accompanist.0151@smoke.test',
+   '{"display_name": "The Accompanist"}'),
+  ('a5150151-0000-0000-0000-000000000007', 'nina.0151@smoke.test',
+   '{"display_name": "Nina"}');
+
+insert into public.rooms (id, account_id, name) values
+  -- His own shelf, which is not a lesson.
+  ('a5150151-0000-0000-0000-000000000010',
+   'a5150151-0000-0000-0000-000000000001', 'Okafor studio 0151'),
+  -- Two lessons of his. Maya's has a third person in it.
+  ('a5150151-0000-0000-0000-000000000011',
+   'a5150151-0000-0000-0000-000000000001', 'Piano lessons 0151 · Maya'),
+  ('a5150151-0000-0000-0000-000000000012',
+   'a5150151-0000-0000-0000-000000000001', 'Piano lessons 0151 · Jaylen'),
+  -- Another teacher's lesson, with the same student in it.
+  ('a5150151-0000-0000-0000-000000000013',
+   'a5150151-0000-0000-0000-000000000004', 'Voice lessons 0151 · Maya'),
+  -- The class room his link opens into (0148), which is one room the whole
+  -- class listens in and is nobody's lesson.
+  ('a5150151-0000-0000-0000-000000000014',
+   'a5150151-0000-0000-0000-000000000001', 'Piano class 0151'),
+  -- A third lesson, whose room is taken down below.
+  ('a5150151-0000-0000-0000-000000000015',
+   'a5150151-0000-0000-0000-000000000001', 'Piano lessons 0151 · Nina');
+
+insert into public.room_members (room_id, user_id, display_name, role, color_value) values
+  ('a5150151-0000-0000-0000-000000000010', 'a5150151-0000-0000-0000-000000000001',
+   'Mr Okafor', 'owner', 4294937190),
+  ('a5150151-0000-0000-0000-000000000011', 'a5150151-0000-0000-0000-000000000001',
+   'Mr Okafor', 'owner', 4294937191),
+  -- The name the room calls her, which is the name the desk reads.
+  ('a5150151-0000-0000-0000-000000000011', 'a5150151-0000-0000-0000-000000000002',
+   'Maya', 'editor', 4283215721),
+  ('a5150151-0000-0000-0000-000000000011', 'a5150151-0000-0000-0000-000000000006',
+   'The Accompanist', 'editor', 4283215726),
+  ('a5150151-0000-0000-0000-000000000012', 'a5150151-0000-0000-0000-000000000001',
+   'Mr Okafor', 'owner', 4294937192),
+  ('a5150151-0000-0000-0000-000000000012', 'a5150151-0000-0000-0000-000000000003',
+   'Jaylen', 'editor', 4283215723),
+  ('a5150151-0000-0000-0000-000000000013', 'a5150151-0000-0000-0000-000000000004',
+   'Ms Rivera', 'owner', 4294937194),
+  ('a5150151-0000-0000-0000-000000000013', 'a5150151-0000-0000-0000-000000000002',
+   'Maya', 'editor', 4283215724),
+  -- The class: everybody listens, nobody records (0148).
+  ('a5150151-0000-0000-0000-000000000014', 'a5150151-0000-0000-0000-000000000001',
+   'Mr Okafor', 'owner', 4294937195),
+  ('a5150151-0000-0000-0000-000000000014', 'a5150151-0000-0000-0000-000000000002',
+   'Maya', 'viewer', 4283215725),
+  ('a5150151-0000-0000-0000-000000000015', 'a5150151-0000-0000-0000-000000000001',
+   'Mr Okafor', 'owner', 4294937196),
+  ('a5150151-0000-0000-0000-000000000015', 'a5150151-0000-0000-0000-000000000007',
+   'Nina', 'editor', 4283215727);
+
+-- The lessons, written directly as 0150's block writes them: what is being
+-- checked is this read's join and not 0129's flow.
+insert into public.lesson_links (id, teacher_id, code, title, closed_at, class_room_id) values
+  ('a5150151-0000-0000-0000-000000000020', 'a5150151-0000-0000-0000-000000000001',
+   '0151aaaabbbb', 'Piano lessons', null, 'a5150151-0000-0000-0000-000000000014'),
+  ('a5150151-0000-0000-0000-000000000021', 'a5150151-0000-0000-0000-000000000004',
+   '0151ccccdddd', 'Voice lessons', null, null);
+insert into public.lesson_rooms (link_id, student_id, room_id) values
+  ('a5150151-0000-0000-0000-000000000020', 'a5150151-0000-0000-0000-000000000002',
+   'a5150151-0000-0000-0000-000000000011'),
+  ('a5150151-0000-0000-0000-000000000020', 'a5150151-0000-0000-0000-000000000003',
+   'a5150151-0000-0000-0000-000000000012'),
+  ('a5150151-0000-0000-0000-000000000020', 'a5150151-0000-0000-0000-000000000007',
+   'a5150151-0000-0000-0000-000000000015'),
+  ('a5150151-0000-0000-0000-000000000021', 'a5150151-0000-0000-0000-000000000002',
+   'a5150151-0000-0000-0000-000000000013');
+
+-- Each student's copy, named as send_song_to_students names one (0149):
+-- titles are unique within an account among songs still there, and both
+-- lessons are in the teacher's.
+insert into public.projects (id, room_id, account_id, title, created_by, song_origin) values
+  ('a5150151-0000-0000-0000-000000000030', 'a5150151-0000-0000-0000-000000000011',
+   'a5150151-0000-0000-0000-000000000001', 'Gymnopédie no 1 · Maya',
+   'a5150151-0000-0000-0000-000000000001', 'public_domain'),
+  ('a5150151-0000-0000-0000-000000000031', 'a5150151-0000-0000-0000-000000000012',
+   'a5150151-0000-0000-0000-000000000001', 'Gymnopédie no 1 · Jaylen',
+   'a5150151-0000-0000-0000-000000000001', 'public_domain'),
+  ('a5150151-0000-0000-0000-000000000032', 'a5150151-0000-0000-0000-000000000010',
+   'a5150151-0000-0000-0000-000000000001', 'The Studio Song',
+   'a5150151-0000-0000-0000-000000000001', 'ours'),
+  ('a5150151-0000-0000-0000-000000000033', 'a5150151-0000-0000-0000-000000000013',
+   'a5150151-0000-0000-0000-000000000004', 'Caro mio ben',
+   'a5150151-0000-0000-0000-000000000004', 'public_domain'),
+  -- What the class listens to together, and Nina's own copy.
+  ('a5150151-0000-0000-0000-000000000034', 'a5150151-0000-0000-0000-000000000014',
+   'a5150151-0000-0000-0000-000000000001', 'Gymnopédie no 1 · the class',
+   'a5150151-0000-0000-0000-000000000001', 'public_domain'),
+  ('a5150151-0000-0000-0000-000000000035', 'a5150151-0000-0000-0000-000000000015',
+   'a5150151-0000-0000-0000-000000000001', 'Gymnopédie no 1 · Nina',
+   'a5150151-0000-0000-0000-000000000001', 'public_domain');
+
+-- The takes. Jaylen's was sent first, so it is the one at the top of the
+-- pass; Maya's is last because it came last.
+insert into public.song_layers
+  (id, project_id, recorded_by, storage_path, part, shared_at) values
+  ('a5150151-0000-0000-0000-000000000041', 'a5150151-0000-0000-0000-000000000031',
+   'a5150151-0000-0000-0000-000000000003',
+   'a5150151-0000-0000-0000-000000000012/layers/jaylen.m4a', 'piano',
+   timestamptz '2026-09-16 09:00:00+00'),
+  ('a5150151-0000-0000-0000-000000000040', 'a5150151-0000-0000-0000-000000000030',
+   'a5150151-0000-0000-0000-000000000002',
+   'a5150151-0000-0000-0000-000000000011/layers/maya.m4a', 'piano',
+   timestamptz '2026-09-17 09:00:00+00'),
+  -- Recorded and not sent: hers alone, and not a hand-in (0057).
+  ('a5150151-0000-0000-0000-000000000042', 'a5150151-0000-0000-0000-000000000030',
+   'a5150151-0000-0000-0000-000000000002',
+   'a5150151-0000-0000-0000-000000000011/layers/maya-draft.m4a', 'piano', null),
+  -- His own demonstration in her lesson room.
+  ('a5150151-0000-0000-0000-000000000043', 'a5150151-0000-0000-0000-000000000030',
+   'a5150151-0000-0000-0000-000000000001',
+   'a5150151-0000-0000-0000-000000000011/layers/okafor.m4a', 'piano',
+   timestamptz '2026-09-17 10:00:00+00'),
+  -- And the accompanist's, who is in the room and is not the student.
+  ('a5150151-0000-0000-0000-000000000044', 'a5150151-0000-0000-0000-000000000030',
+   'a5150151-0000-0000-0000-000000000006',
+   'a5150151-0000-0000-0000-000000000011/layers/accompanist.m4a', 'piano',
+   timestamptz '2026-09-17 11:00:00+00'),
+  -- A take on his own shelf, in a room that is nobody's lesson.
+  ('a5150151-0000-0000-0000-000000000045', 'a5150151-0000-0000-0000-000000000032',
+   'a5150151-0000-0000-0000-000000000001',
+   'a5150151-0000-0000-0000-000000000010/layers/studio.m4a', 'guitar',
+   timestamptz '2026-09-17 12:00:00+00'),
+  -- And what the same student sent her other teacher.
+  ('a5150151-0000-0000-0000-000000000046', 'a5150151-0000-0000-0000-000000000033',
+   'a5150151-0000-0000-0000-000000000002',
+   'a5150151-0000-0000-0000-000000000013/layers/maya-voice.m4a', 'vocal',
+   timestamptz '2026-09-17 13:00:00+00'),
+  -- In the class room, which is nobody's lesson. Written straight in,
+  -- because song_layers_insert_members would refuse a viewer this row: what
+  -- is being proved is the join, not the policy that makes it moot.
+  ('a5150151-0000-0000-0000-000000000047', 'a5150151-0000-0000-0000-000000000034',
+   'a5150151-0000-0000-0000-000000000002',
+   'a5150151-0000-0000-0000-000000000014/layers/maya-class.m4a', 'piano',
+   timestamptz '2026-09-17 14:00:00+00'),
+  -- And in the lesson whose room is taken down below.
+  ('a5150151-0000-0000-0000-000000000048', 'a5150151-0000-0000-0000-000000000035',
+   'a5150151-0000-0000-0000-000000000007',
+   'a5150151-0000-0000-0000-000000000015/layers/nina.m4a', 'piano',
+   timestamptz '2026-09-17 15:00:00+00');
+
+-- Maya punched in at the last chorus: her take begins at 1:30 of the song
+-- and at 0:00 of its own file, with a tenth of a second of latency trimmed
+-- off the front. This is the case the desk has to get right -- a note pinned
+-- five seconds in belongs at 1:34.88 of the song, not at 0:05 of it.
+update public.song_layers
+  set start_ms = 90000, offset_ms = 120
+  where id = 'a5150151-0000-0000-0000-000000000040';
+
+-- The room Nina's lesson happens in is taken down.
+update public.rooms
+  set deleted_at = timestamptz '2026-09-17 16:00:00+00'
+  where id = 'a5150151-0000-0000-0000-000000000015';
+
+set local request.jwt.claims = '{"sub": "a5150151-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  came record;
+  arrived uuid[];
+begin
+  -- With ordinality, because the order is the feature: the function's own
+  -- order is what the desk lists, and a query that re-sorted it would prove
+  -- nothing about the order a teacher reads.
+  --
+  -- Two takes and no more is also where the exclusions are proved: the
+  -- draft, the teacher's own demonstration, the accompanist's playing, the
+  -- studio room, the other teacher's lesson, the class room and the lesson
+  -- whose room was taken down are all in the fixture above and none of them
+  -- is here.
+  select array_agg(t.take_id order by t.ord) into arrived
+  from public.takes_sent_to_me() with ordinality
+    as t(take_id, project_id, song_title, student_id, student_name,
+         storage_path, start_ms, offset_ms, ord);
+  if arrived is distinct from array[
+       'a5150151-0000-0000-0000-000000000041'::uuid,
+       'a5150151-0000-0000-0000-000000000040'::uuid] then
+    raise exception 'the desk is not the two sent takes, oldest first (got %)', arrived;
+  end if;
+
+  select * into came from public.takes_sent_to_me() t
+  where t.take_id = 'a5150151-0000-0000-0000-000000000040';
+  if came.student_name is distinct from 'Maya'
+     or came.student_id is distinct from 'a5150151-0000-0000-0000-000000000002'::uuid then
+    raise exception 'the desk does not say who played it (got %)', came.student_name;
+  end if;
+  if came.song_title is distinct from 'Gymnopédie no 1 · Maya'
+     or came.project_id is distinct from 'a5150151-0000-0000-0000-000000000030'::uuid then
+    raise exception 'the desk does not say what the song is (got %)', came.song_title;
+  end if;
+  if came.storage_path is distinct from
+     'a5150151-0000-0000-0000-000000000011/layers/maya.m4a' then
+    raise exception 'the desk cannot play the take it lists (got %)', came.storage_path;
+  end if;
+  -- Where the take sits on the song, which is what turns the file's playhead
+  -- into the moment a note is pinned at. Without these the desk would file
+  -- "you rushed here" at the top of a song the student never played there.
+  if came.start_ms is distinct from 90000 or came.offset_ms is distinct from 120 then
+    raise exception 'the desk does not know where the take sits on the song (got %, %)',
+      came.start_ms, came.offset_ms;
+  end if;
+
+  select * into came from public.takes_sent_to_me() t
+  where t.take_id = 'a5150151-0000-0000-0000-000000000041';
+  if came.student_name is distinct from 'Jaylen' then
+    raise exception 'the second lesson''s take is not the second student''s';
+  end if;
+  -- A take recorded from the top of the song, which is most of them.
+  if came.start_ms is distinct from 0 or came.offset_ms is distinct from 0 then
+    raise exception 'a take recorded from the top does not read as the top';
+  end if;
+end $$;
+
+-- A blocked pair is skipped rather than refused, as 0149 and 0150 skip one:
+-- it is still his lesson, there is just nobody in it he is hearing from.
+reset role;
+insert into public.user_blocks (blocker_id, blocked_id) values
+  ('a5150151-0000-0000-0000-000000000003', 'a5150151-0000-0000-0000-000000000001');
+set local request.jwt.claims = '{"sub": "a5150151-0000-0000-0000-000000000001"}';
+set local role authenticated;
+
+do $$
+declare
+  arrived uuid[];
+begin
+  select array_agg(t.take_id) into arrived from public.takes_sent_to_me() t;
+  if arrived is distinct from array['a5150151-0000-0000-0000-000000000040'::uuid] then
+    raise exception 'a blocked pair is still on the desk (got %)', arrived;
+  end if;
+end $$;
+
+-- Put back, so the rest of this file meets the studio as it was written.
+reset role;
+delete from public.user_blocks
+where blocker_id = 'a5150151-0000-0000-0000-000000000003'
+  and blocked_id = 'a5150151-0000-0000-0000-000000000001';
+
+-- The other teacher reads his own lesson with the same student, and none of
+-- Okafor's.
+reset role;
+set local request.jwt.claims = '{"sub": "a5150151-0000-0000-0000-000000000004"}';
+set local role authenticated;
+
+do $$
+declare
+  came record;
+begin
+  if (select count(*) from public.takes_sent_to_me()) <> 1 then
+    raise exception 'a teacher reads a desk that is not his';
+  end if;
+  select * into came from public.takes_sent_to_me() t;
+  if came.take_id is distinct from 'a5150151-0000-0000-0000-000000000046'::uuid then
+    raise exception 'the other teacher''s desk is not her own lesson''s take';
+  end if;
+end $$;
+
+-- The student, who is in two lessons and recorded four of these takes.
+reset role;
+set local request.jwt.claims = '{"sub": "a5150151-0000-0000-0000-000000000002"}';
+set local role authenticated;
+
+do $$
+begin
+  -- She can hear her own sent take, so a desk that is empty for her is empty
+  -- because of who is asking and not because there is nothing to find.
+  if not exists (
+    select 1 from public.song_layers l
+    where l.id = 'a5150151-0000-0000-0000-000000000040'
+  ) then
+    raise exception 'the student cannot see her own take, so this proves nothing';
+  end if;
+  if exists (select 1 from public.takes_sent_to_me()) then
+    raise exception 'a student reads the teacher''s desk';
+  end if;
+end $$;
+
+-- The third person in the lesson room: a member, an editor, and not the
+-- teacher of the lesson.
+reset role;
+set local request.jwt.claims = '{"sub": "a5150151-0000-0000-0000-000000000006"}';
+set local role authenticated;
+
+do $$
+begin
+  if not exists (
+    select 1 from public.projects p
+    where p.id = 'a5150151-0000-0000-0000-000000000030'
+  ) then
+    raise exception 'the guest in the lesson room cannot see the song, so this proves nothing';
+  end if;
+  if exists (select 1 from public.takes_sent_to_me()) then
+    raise exception 'a guest in the lesson room reads the teacher''s desk';
+  end if;
+end $$;
+
+-- Somebody with a valid token and nothing to do with any of it.
+reset role;
+set local request.jwt.claims = '{"sub": "a5150151-0000-0000-0000-000000000005"}';
+set local role authenticated;
+
+do $$
+begin
+  if exists (select 1 from public.takes_sent_to_me()) then
+    raise exception 'a stranger reads somebody''s desk';
+  end if;
+end $$;
+
+-- And nobody at all cannot ask.
+reset role;
+set local request.jwt.claims = '{"role": "anon"}';
+set local role anon;
+
+do $$
+begin
+  perform public.takes_sent_to_me();
+  raise exception 'anon called the teacher''s desk';
+exception when insufficient_privilege then null;
+end $$;
+
 reset role;
 
 set local request.jwt.claims = '{"sub": "11111111-1111-1111-1111-111111111111"}';

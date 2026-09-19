@@ -19,6 +19,7 @@ import '../../services/kept_songs.dart';
 import '../../services/now_playing.dart';
 import '../../services/song_analysis_service.dart';
 import '../../widgets/on_this_phone_mark.dart';
+import '../lessons/what_came_in.dart';
 import '../lessons/what_to_practise.dart';
 import '../workspace/live_performance_screen.dart';
 import '../workspace/practice_marks.dart';
@@ -604,6 +605,33 @@ class _SongsScreenState extends State<SongsScreen> {
       ));
     }
 
+    // What a student sent their teacher (0151). One card, however many
+    // came in: nine cards for nine students would be the strip turning into
+    // an inbox, and the desk itself is the list. It names the newest
+    // arrival, because that is the one the teacher has not heard.
+    //
+    // Closed by every take that was on the desk at the time, not only by the
+    // newest one: once a teacher has been to the desk they have seen all of
+    // it. Closing only the newest means that when that take is deleted --
+    // a student re-recording it -- the one behind it has never been set
+    // aside, and Home says "what came in" about something heard last week.
+    // A hand-in that arrives after this is a new id and a new card.
+    final newest = controller.sentTakes.lastOrNull;
+    if (newest != null && !SetAside.has(SetAside.cameIn, newest.takeId)) {
+      final heard = <String>[
+        for (final take in controller.sentTakes) take.takeId,
+      ];
+      items.add(WaitingItem(
+        id: 'came-in-${newest.takeId}',
+        kind: WaitingKind.cameIn,
+        who: newest.studentName,
+        line: newest.songTitle,
+        actionLabel: 'Listen',
+        onAction: () => unawaited(_openWhatCameIn(heard)),
+        onDismiss: () => unawaited(_setAsideAll(SetAside.cameIn, heard)),
+      ));
+    }
+
     // A take sealed for later, on the day it comes back (0158). One quiet
     // card, and either answer is the last of it.
     for (final sealed in controller.sealedTakesDue) {
@@ -974,9 +1002,35 @@ class _SongsScreenState extends State<SongsScreen> {
     );
   }
 
+  /// The listening desk (0151), from the card that says something arrived.
+  ///
+  /// Opening it answers the card, the way a hint is answered by being
+  /// tapped: the teacher has been shown what came in, so the same card
+  /// waiting when they come back would be the app asking again. Something
+  /// newer arriving is a new id and a new card. Kept on this phone and
+  /// nowhere else -- nothing here tells a student their take has been
+  /// opened, and nothing ever will.
+  Future<void> _openWhatCameIn(List<String> heard) async {
+    final controller = BetaScope.of(context, listen: false);
+    await _setAsideAll(SetAside.cameIn, heard);
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      settings: const RouteSettings(name: 'What came in'),
+      builder: (_) => WhatCameInScreen(repository: controller.repository),
+    ));
+  }
+
   /// Said no, and remembered.
   Future<void> _setAside(String kind, String id) async {
     await SetAside.add(kind, id);
+    if (mounted) setState(() {});
+  }
+
+  /// The same, for a card that answers for a handful of things at once.
+  Future<void> _setAsideAll(String kind, List<String> ids) async {
+    for (final id in ids) {
+      await SetAside.add(kind, id);
+    }
     if (mounted) setState(() {});
   }
 
