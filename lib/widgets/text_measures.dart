@@ -86,6 +86,9 @@ double appBarHighEnoughFor(
 }) {
   final scaler = MediaQuery.textScalerOf(context);
   final titleScaler = scaler.clamp(maxScaleFactor: _appBarClampsItsTitleAt);
+  // The 8 below and the 16 below that are the air the Takes bar has kept
+  // since it was the only bar that measured itself: enough that the words are
+  // not flush against the edges of the bar they sit in.
   var high = kToolbarHeight;
   if (title.isNotEmpty) {
     final beneath = appBarTitleStyle(context);
@@ -94,9 +97,6 @@ double appBarHighEnoughFor(
       stacked +=
           linesOfTextHigh(context, beneath.merge(style), scaler: titleScaler);
     }
-    // The 8 and the 16 are the air the Takes bar has kept since it was the
-    // only bar that measured itself: enough that the words are not flush
-    // against the edges of the bar they sit in.
     high = math.max(high, stacked + 8);
   }
   if (actions.isNotEmpty) {
