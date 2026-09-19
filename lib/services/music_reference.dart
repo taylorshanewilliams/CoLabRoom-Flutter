@@ -440,10 +440,6 @@ const Map<String, List<int>> _aShapes = <String, List<int>>{
   '5': <int>[-1, 1, 3, 3, -1, -1],
 };
 
-/// Everything worth saying about one chord.
-///
-/// Returns null for a stretch with no chord — ChordMini's `N` — so a caller
-/// can leave the tap doing nothing rather than opening an empty sheet.
 /// A chord label pulled apart into the three things every reader of one
 /// wants: its root, the id of its quality, and the bass under it.
 ///
@@ -481,6 +477,10 @@ const Map<String, List<int>> _aShapes = <String, List<int>>{
   return (root: rootText, quality: qualityToken, bass: bassToken);
 }
 
+/// Everything worth saying about one chord.
+///
+/// Returns null for a stretch with no chord — ChordMini's `N` — so a caller
+/// can leave the tap doing nothing rather than opening an empty sheet.
 ChordReference? chordReference(String label) {
   final parts = _chordParts(label);
   if (parts == null) return null;
