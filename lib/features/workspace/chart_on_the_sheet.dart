@@ -251,7 +251,11 @@ class _ChartOnTheSheetState extends State<ChartOnTheSheet> {
       onReading: _chooseReading,
       numbers: _numbers,
       onNumbers: _chooseNumbers,
-      capo: _capoHere,
+      // The capo somebody has kept, not the one the page is drawn with: a
+      // pianist reading the same song still has a capo on their guitar, and
+      // the picker has to open on the fret they chose. The page is what
+      // leaves it out of the arithmetic — see [_capoHere].
+      capo: _capo,
       onCapo: _chooseCapo,
       chords: <String>[
         for (final chord in _read?.chordsUsed ?? const <String>[])
