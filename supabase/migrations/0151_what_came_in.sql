@@ -66,20 +66,25 @@ as $fn$
   -- is one read across a whole studio and takes are kept for months; two
   -- hundred is far past a term's listening and the mildest way for a read to
   -- run out, since what falls off is what was heard longest ago.
+  --
+  -- Named by the alias list on the subquery rather than by `as` inside it:
+  -- the columns this function returns are its own out-parameters, and a
+  -- label in the body that spells one of them is a reference waiting to be
+  -- called ambiguous. Every column below is reached through an alias.
   select newest.take_id, newest.project_id, newest.song_title,
          newest.student_id, newest.student_name, newest.storage_path
   from (
-    select l.id as take_id,
-           p.id as project_id,
-           p.title as song_title,
-           lr.student_id as student_id,
+    select l.id,
+           p.id,
+           p.title,
+           lr.student_id,
            coalesce(
              nullif(trim(rm.display_name), ''),
              nullif(trim(pr.display_name), ''),
              'A student'
-           ) as student_name,
-           l.storage_path as storage_path,
-           l.shared_at as sent_at
+           ),
+           l.storage_path,
+           l.shared_at
     from public.lesson_rooms lr
     join public.lesson_links link on link.id = lr.link_id
     join public.projects p
@@ -105,7 +110,10 @@ as $fn$
       and not private.blocked_between(auth.uid(), lr.student_id)
     order by l.shared_at desc, l.id desc
     limit 200
-  ) newest
+  ) as newest (
+    take_id, project_id, song_title, student_id, student_name,
+    storage_path, sent_at
+  )
   order by newest.sent_at, newest.take_id;
 $fn$;
 

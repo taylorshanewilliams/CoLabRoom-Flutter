@@ -11055,12 +11055,15 @@ insert into public.lesson_rooms (link_id, student_id, room_id) values
   ('a5150151-0000-0000-0000-000000000021', 'a5150151-0000-0000-0000-000000000002',
    'a5150151-0000-0000-0000-000000000013');
 
+-- Each student's copy, named as send_song_to_students names one (0149):
+-- titles are unique within an account among songs still there, and both
+-- lessons are in the teacher's.
 insert into public.projects (id, room_id, account_id, title, created_by, song_origin) values
   ('a5150151-0000-0000-0000-000000000030', 'a5150151-0000-0000-0000-000000000011',
-   'a5150151-0000-0000-0000-000000000001', 'Gymnopédie no 1',
+   'a5150151-0000-0000-0000-000000000001', 'Gymnopédie no 1 · Maya',
    'a5150151-0000-0000-0000-000000000001', 'public_domain'),
   ('a5150151-0000-0000-0000-000000000031', 'a5150151-0000-0000-0000-000000000012',
-   'a5150151-0000-0000-0000-000000000001', 'Gymnopédie no 1',
+   'a5150151-0000-0000-0000-000000000001', 'Gymnopédie no 1 · Jaylen',
    'a5150151-0000-0000-0000-000000000001', 'public_domain'),
   ('a5150151-0000-0000-0000-000000000032', 'a5150151-0000-0000-0000-000000000010',
    'a5150151-0000-0000-0000-000000000001', 'The Studio Song',
@@ -11132,7 +11135,7 @@ begin
      or came.student_id is distinct from 'a5150151-0000-0000-0000-000000000002'::uuid then
     raise exception 'the desk does not say who played it (got %)', came.student_name;
   end if;
-  if came.song_title is distinct from 'Gymnopédie no 1'
+  if came.song_title is distinct from 'Gymnopédie no 1 · Maya'
      or came.project_id is distinct from 'a5150151-0000-0000-0000-000000000030'::uuid then
     raise exception 'the desk does not say what the song is (got %)', came.song_title;
   end if;
